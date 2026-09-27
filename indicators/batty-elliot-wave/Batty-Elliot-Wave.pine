@@ -1,0 +1,2003 @@
+//@version=6
+indicator("Batty - Elliot Wave", overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+// v0.6.6-visible-count-fallback | FULL-HISTORY INTERPRETATIONS | Independent strict Elliott implementation.
+// History is reconstructed from closed bars. Counts can be revised; labels are back-anchored.
+// A heuristic rank is NOT a probability. Unsupported subdivisions remain UNKNOWN.
+string G1 = "01 · Analysis — independent of chart zoom"
+int baseLen = input.int(5, "Pivot confirmation bars", minval=2, maxval=30, group=G1)
+int startTime = input.time(0, "Analysis start (0 = all loaded bars)", group=G1)
+int endTime = input.time(0, "Frozen cutoff (0 = latest closed bar)", group=G1)
+string bias = input.string("Neutral", "Root pattern search", options=["Neutral", "Impulse", "Zigzag"], group=G1)
+int pivotCapacity = input.int(3000, "Retained pivots — cap is disclosed", minval=300, maxval=5000, group=G1)
+int rootLayer = input.int(0, "Largest layer (0 = automatic; 1 = finest)", minval=0, maxval=8, group=G1)
+bool showParentABC = input.bool(true, "Show largest A-B-C context", group=G1, tooltip="Display only. Children and analysis remain available when the context is hidden.")
+bool searchChildren = input.bool(true, "Search inside selected parent legs", group=G1)
+int childBudget = input.int(6000, "Child-search edge budget per rebuild", minval=500, maxval=20000, group=G1)
+int spanBudget = input.int(160, "Maximum child-search edges per span", minval=32, maxval=2000, group=G1, tooltip="Keeps one difficult parent leg from consuming the entire rebuild budget. A capped span remains unresolved, not invalid.")
+bool showLocalCandidates = input.bool(false, "Show local candidates inside unresolved parents", group=G1, tooltip="Optional diagnostic overlay. These are not established children of a parent count.")
+bool showUnresolvedContext = input.bool(true, "Show unresolved parent geometry", group=G1, tooltip="When no supported local run exists, draw available parent segments in gray with ? labels. This is geometry only, not a validated Elliott count.")
+bool showProvisionalCandidates = input.bool(true, "Show provisional child counts", group=G1, tooltip="Shows one lower-degree count under an unresolved parent so the chart remains readable. These labels are geometric hypotheses, not evidence-supported Elliott subdivisions.")
+int provisionalChildLayers = input.int(2, "Provisional child layers", minval=0, maxval=2, group=G1, tooltip="1 shows the next lower degree only. Deeper children still require parent support unless you raise this setting. Keeping it at 1 avoids a cluttered raw-candidate chart.")
+int regroupSpan = input.int(3, "Maximum pivot step for regrouping", options=[1, 3, 5], group=G1, tooltip="1 = original consecutive anchors. 3 or 5 permits internal swings within a wave. Search is bounded and incomplete; hard rules still apply.")
+int searchBudget = input.int(12000, "Regrouping work budget per rebuild", minval=1000, maxval=30000, group=G1)
+bool requireEvidence = input.bool(true, "Require subdivision evidence for main counts", group=G1, tooltip="Default strict promotion gate. Missing evidence leaves the parent unresolved. Turn off only for geometric diagnostics; not full Elliott validation.")
+int evidenceDepth = input.int(1, "Required child generations", minval=1, maxval=2, group=G1, tooltip="1 verifies complete children at every existing leg; 2 also verifies their children. Finer untested generations remain UNKNOWN.")
+int parentBudget = input.int(96, "Maximum parent candidates to enrich", minval=16, maxval=256, group=G1)
+bool showRejectionAudit = input.bool(false, "Print sampled rejection audit to Pine Logs", group=G1, tooltip="Bounded sample of rejected anchor paths plus unsupported parent candidates. No log upload or external request.")
+int pick = input.int(1, "History interpretation: 1 primary, 2–4 alternates", minval=1, maxval=4, group=G1)
+// One connected hierarchy always includes its parent context and attached children.
+int localBars = input.int(300, "Recent structure window, bars", minval=60, maxval=1000, group=G1)
+bool structureFallback = input.bool(false, "Separate structure scenarios (replaces EW display explicitly)", group=G1)
+int rangeBars = input.int(20, "Structure trigger range, closed bars", minval=5, maxval=100, group=G1)
+float targetAtrLimit = input.float(8.0, "Local Elliott target distance limit, ATR", minval=2, maxval=30, group=G1)
+string G2 = "02 · Display — does NOT change the analyzed history"
+int visibleLayers = input.int(3, "Visible layers including largest", minval=1, maxval=8, group=G2)
+string historyRender = input.string("Connected interpretation", "Historical count rendering — clean default", options=["Connected interpretation", "All candidate swings"], group=G2, tooltip="Connected interpretation draws the selected primary path and is the clean default. All candidate swings is a diagnostic mode that can show overlapping hypotheses.")
+string viewMode = input.string("Visible chart", "Show annotations in", options=["Visible chart", "All analyzed history", "Custom dates"], group=G2)
+int displayStart = input.time(0, "Display from (custom dates only)", group=G2)
+int displayEnd = input.time(0, "Display through (0 = latest)", group=G2)
+int labelBudget = input.int(240, "Label budget — parents have priority", minval=60, maxval=450, group=G2)
+bool connectors = input.bool(false, "Show count connectors", group=G2, tooltip="Optional lines joining confirmed count pivots. Labels remain visible when these lines are off.")
+bool showUnknown = input.bool(false, "Unresolved sections / missing subdivisions", group=G2)
+bool showDuration = input.bool(false, "Bars per wave in labels", group=G2)
+bool showDeveloping = input.bool(true, "Uncounted developing tail", group=G2)
+bool audit = input.bool(false, "Pivot confirmation dates in labels", group=G2)
+bool compareAlt = input.bool(false, "Compare alternate root labels and path", group=G2)
+string informationMode = input.string("Summary", "Chart information", options=["Summary", "Detailed", "Off"], group=G2)
+bool showPanel = informationMode != "Off"
+string labelMode = input.string("Reference hierarchy", "Wave label style", options=["Reference hierarchy", "Clean", "Degree notation", "Audit"], group=G2, tooltip="Reference hierarchy: light neutral ((I)), blue (i), red i. Clean: letters/numbers only. Degree notation: brackets/roman numerals. Audit: evidence prefixes and question marks. All modes remain provisional; hover for evidence.")
+color primaryColor = input.color(#69B8FF, "Largest count", group=G2)
+color localColor = input.color(#E6EDF5, "First sublayer", group=G2)
+color targetColor = input.color(#72CFC4, "Finer sublayers / targets", group=G2)
+color alternateColor = input.color(#B294DD, "Alternate", group=G2)
+color invalidColor = input.color(#FF7586, "Scenario invalidation", group=G2)
+bool useEvidenceGreen = input.bool(false, "Green for evidence-supported counts", group=G2, tooltip="Optional. With the reference hierarchy default, degree colors remain visible. Turn on to make fully evidence-supported labels and their connector lines green.")
+color evidenceColor = input.color(#32E6A1, "Evidence-supported count", group=G2)
+string GS = "02b · Color and typography"
+string colorMode = input.string("Vivid degrees", "Color theme", options=["Vivid degrees", "Direction", "Custom degrees"], group=GS, tooltip="Vivid: light neutral highest degree, blue middle degree, red inner degree. Direction: teal bullish patterns, coral bearish patterns. Colors communicate structure, not certainty.")
+string parentText = input.string("Normal", "Parent label size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GS)
+string childText = input.string("Small", "First sublayer label size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GS)
+string fineText = input.string("Small", "Finer sublayer label size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GS)
+string forecastText = input.string("Small", "Forecast label size — compact", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=GS, tooltip="Defaults two Pine size steps below the prior Large setting to keep target and invalidation text out of the price action.")
+float labelSpacing = input.float(1.3, "Label spacing multiplier", minval=0.5, maxval=4.0, step=0.1, group=GS)
+string countLabelScale = input.string("100%", "Count label scale", options=["100%", "125%", "150%"], group=GS, tooltip="Applies only to historical Elliott labels. Pine has discrete label sizes, so 125% promotes each count label by one size where available.")
+bool labelBadges = input.bool(false, "Tinted label badges", group=GS)
+int badgeTransparency = input.int(82, "Badge transparency", minval=0, maxval=100, group=GS)
+int connectorTransparency = input.int(15, "Wave-line transparency", minval=0, maxval=90, group=GS)
+color bullColor = input.color(#00E5A0, "Bullish patterns", group=GS)
+color bearColor = input.color(#FF657A, "Bearish patterns", group=GS)
+color projectionColor = input.color(#1FE8FF, "Prediction: Path 1", group=GS)
+string panelCorner = input.string("Bottom right", "Panel position", options=["Top right", "Top left", "Bottom right", "Bottom left"], group=GS)
+string panelText = input.string("Small", "Panel text size", options=["Tiny", "Small", "Normal", "Large"], group=GS)
+bool detailedPanel = informationMode == "Detailed"
+
+string G3 = "03 · Conditional forecasts"
+string measurement = input.string("Log", "Fibonacci measurement", options=["Linear", "Log"], group=G3)
+bool showLevels = input.bool(true, "Target and invalidation levels", group=G3)
+bool showTrigger = input.bool(true, "Candidate trigger line", group=G3, tooltip="Shows the close-based level that confirms the next-wave scenario. A drawn path remains conditional until that trigger is crossed.")
+bool showChannel = input.bool(true, "Active impulse channel", group=G3)
+bool showPath = input.bool(true, "Future wave labels and conditional path", group=G3)
+int forecastDegree = input.int(0, "Forecast degree (0 = largest admissible)", minval=0, maxval=8, group=G3)
+bool lockPaths = input.bool(false, "LOCK paths at selected time", group=G3)
+int lockTime = input.time(0, "Lock time (required when LOCK is on)", group=G3, tooltip="First eligible bar closing at or after this time. Uses only information known at that close. Keep symbol, timeframe, data and analysis settings unchanged to reproduce. Zero does not lock.")
+bool showLockResults = input.bool(true, "Show locked-path results", group=G3)
+color secondPathColor = input.color(#FF8F32, "Second orange path", group=G3)
+int futureBars = input.int(55, "Path spacing — schematic chart bars", minval=5, maxval=100, group=G3)
+int maxAge = input.int(240, "Maximum age of a forecast pivot", minval=10, maxval=500, group=G3)
+int horizon = input.int(30, "Realtime forecast expiry, bars", minval=2, maxval=300, group=G3)
+bool sendAlerts = input.bool(false, "Enable closed-bar JSON alert events", group=G3)
+
+string G4 = "04 · Multi-timeframe parent-child alignment"
+bool useMtfAlignment = input.bool(true, "Use higher-timeframe leadership", group=G4, tooltip="Daily leads 4H. Daily and 4H jointly lead 1H and lower. Conflicting or missing parent states suppress active forecasts instead of drawing competing paths.")
+string mtfDaily = input.timeframe("1D", "Parent timeframe", group=G4)
+string mtfFourHour = input.timeframe("240", "Middle timeframe", group=G4)
+int mtfDailyPivot = input.int(4, "Daily pivot confirmation bars", minval=2, maxval=20, group=G4)
+int mtfFourHourPivot = input.int(5, "4H pivot confirmation bars", minval=2, maxval=30, group=G4)
+bool mtfRequireAgreement = input.bool(true, "Strictly suppress conflicting paths", group=G4, tooltip="On 4H, active paths must follow Daily. On 1H and lower, active paths must follow aligned Daily and 4H states. Historical labels remain evidence; active forecasts are withheld during a conflict.")
+bool showMtfContext = input.bool(true, "Show MTF alignment in panel", group=G4)
+
+type Pivot
+    int x
+    int ts
+    float p
+    int side
+    int known
+
+type Candidate
+    array<Pivot> pts
+    string family
+    int stage
+    int degree
+    int dir
+    float score
+    int evidence
+    int needed
+    float t1
+    float t2
+    float inv
+    int nextDir
+    string nextWave
+    string key
+    string rules
+    float trigger = na
+    float t3 = na
+    float t3Inv = na
+    string role = "Primary"
+
+type HNode
+    array<Pivot> pts
+    int lo
+    int hi
+    int layer
+    string family
+    int stage
+    int dir
+    float merit
+    int evidence
+    array<int> kids
+
+type Layer
+    array<Pivot> pts
+    array<int> beginIds
+    array<int> endIds
+
+type NodeBucket
+    array<int> ids
+
+type HistoryPath
+    array<int> ids
+    array<int> lefts
+    array<int> rights
+    float merit
+
+// Keep each traversal node and its display depth in ONE queue entry.
+type DrawTask
+    int nodeId
+    int depth
+    bool parentUnresolved
+
+type FrozenPath
+    Candidate candidate
+    int anchorTime
+    int issued
+    float origin
+    int expires
+    string state
+    float mfe
+    float mae
+
+var array<FrozenPath> frozen = array.new<FrozenPath>()
+var array<Candidate> livePair = array.new<Candidate>()
+var bool drawingForecast = false
+var bool lockAttempted = false
+var int actualLockTime = na
+
+type SearchBranch
+    array<Pivot> pts
+    int lastIndex
+    bool skipped
+
+type EvidenceTask
+    int nodeId
+    int remaining
+
+type Observation
+    string key
+    int issued
+    float target
+    float invalid
+    int dir
+    int expires
+    string state
+
+// Diagnostics: attempts, boundary rejects, geometry rejects, accepted additions,
+// global budget exhausted, per-start branch cap reached.
+var map<int, bool> supportedNodes = map.new<int, bool>()
+var map<int, string> supportReasons = map.new<int, string>()
+var array<string> rejectionAudit = array.new_string()
+var array<int> workLimit = array.new_int(1, childBudget)
+var map<string, NodeBucket> outgoing = map.new<string, NodeBucket>()
+var array<int> localDiagnostics = array.new_int(3, 0) // audited candidates, supported candidates, searched scales
+var array<int> forecastNodeIds = array.new_int()
+var array<int> selectedTreeIds = array.new_int()
+var map<int, int> selectedDepth = map.new<int, int>()
+var map<int, string> selectedAncestry = map.new<int, string>()
+var map<int, bool> selectedSupported = map.new<int, bool>()
+var array<int> forecastAudit = array.new_int(5, 0) // candidates, evidence, inactive, distant, duplicate
+var array<int> mtfAudit = array.new_int(3, 0) // aligned accepted, direction rejected, parent waiting
+var array<int> auditLogged = array.new_int()
+var array<int> labelSlots = array.new_int()
+var map<int, int> labelLanes = map.new<int, int>()
+var bool usedVisibleFallback = false
+var array<int> localInfo = array.new_int(3, 0) // degree, first pivot, rendered candidates
+var array<int> promotionStats = array.new_int(4, 0) // roots, supported, unsupported, enrichment cap
+var array<int> childVisited = array.new_int()
+var array<int> childStats = array.new_int(4, 0) // work, new links, unresolved, capped
+var map<string, string> childReasons = map.new<string, string>()
+var array<int> searchStats = array.new_int(6, 0)
+var array<Pivot> fast = array.new<Pivot>()
+var array<float> closedHighs = array.new_float()
+var array<float> closedLows = array.new_float()
+var array<Layer> layers = array.new<Layer>()
+var array<HNode> nodes = array.new<HNode>()
+var map<string, int> nodeIndex = map.new<string, int>()
+var map<int, int> baseIndex = map.new<int, int>()
+var array<line> strokes = array.new_line()
+var array<label> tags = array.new_label()
+var array<string> labelKeys = array.new_string()
+var array<int> drawStats = array.new_int(4, 0)
+var array<Observation> observations = array.new<Observation>()
+var array<string> issuedKeys = array.new_string()
+f_textSize(string value) =>
+    value == "Huge" ? size.huge : value == "Large" ? size.large : value == "Normal" ? size.normal : value == "Small" ? size.small : size.tiny
+
+f_countTextSize(string value) =>
+    string promoted = countLabelScale == "150%" ? (value == "Tiny" ? "Normal" : value == "Small" ? "Large" : "Huge") : countLabelScale == "125%" ? (value == "Tiny" ? "Small" : value == "Small" ? "Normal" : value == "Normal" ? "Large" : "Huge") : value
+    f_textSize(promoted)
+
+f_countScaleFactor() =>
+    countLabelScale == "150%" ? 1.5 : countLabelScale == "125%" ? 1.25 : 1.0
+f_panelPosition() =>
+    panelCorner == "Top right" ? position.top_right : panelCorner == "Top left" ? position.top_left : panelCorner == "Bottom left" ? position.bottom_left : position.bottom_right
+var table panel = table.new(f_panelPosition(), 2, 16, bgcolor=color.new(chart.bg_color, 3), frame_color=color.new(primaryColor, 45), frame_width=0)
+var string coverageSummary = "No count available"
+var string coverageDetails = ""
+var int asof = na
+var int asofTime = na
+var int asofOpen = na
+var int firstLoaded = na
+var int analyzedBars = 0
+var int dropped = 0
+var int dualPivots = 0
+var float asofClose = na
+var float asofAtr = na
+var string lastPrimary = ""
+var string lastOutcome = "No realtime observations"
+var int resolved = 0
+var int failed = 0
+var int uncertain = 0
+var int expired = 0
+
+f_ticks(float p) => math.round(p / syminfo.mintick)
+f_price(float p) => p * syminfo.mintick
+f_str(float p) => na(p) ? "—" : str.tostring(f_price(p), format.mintick)
+f_time(int ts, string format) => na(ts) ? "waiting" : str.format_time(ts, format)
+
+// A structural parent context is built from confirmed swings and close-based
+// breaks of those swings in the requested timeframe. Its stable ID binds the
+// two latest swing anchors. This is an MTF structural context, not a completed
+// Elliott parent count. The [1] tuple and lookahead_on below expose only the
+// prior, fully closed higher-timeframe bar on historical and realtime bars.
+f_mtfParentState(int length) =>
+    float confirmedHigh = ta.pivothigh(high, length, length)
+    float confirmedLow = ta.pivotlow(low, length, length)
+    var int direction = 0
+    var float anchor = na
+    var float invalidation = na
+    var int anchorTime = na
+    var float swingHigh = na
+    var float swingLow = na
+    var int swingHighTime = na
+    var int swingLowTime = na
+    var string parentId = "WAIT"
+    if not na(confirmedHigh)
+        swingHigh := confirmedHigh
+        swingHighTime := time[length]
+        anchor := confirmedHigh
+        anchorTime := time[length]
+    else if not na(confirmedLow)
+        swingLow := confirmedLow
+        anchor := confirmedLow
+        anchorTime := time[length]
+        swingLowTime := time[length]
+    if not na(swingHigh) and not na(swingLow)
+        if direction == 0
+            direction := close > swingHigh ? 1 : close < swingLow ? -1 : 0
+        else if direction == 1 and close < swingLow
+            direction := -1
+        else if direction == -1 and close > swingHigh
+            direction := 1
+        invalidation := direction == 1 ? swingLow : direction == -1 ? swingHigh : na
+        parentId := syminfo.tickerid + "|" + timeframe.period + "|H" + str.tostring(swingHighTime) + "|L" + str.tostring(swingLowTime)
+    // Return previous HTF bar values. request.security uses lookahead_on below,
+    // so this is the standard non-repainting confirmed-HTF pattern.
+    [direction[1], anchor[1], invalidation[1], anchorTime[1], parentId[1]]
+
+[dailyParentDirRaw, dailyParentRaw, dailyInvalidRaw, dailyParentTime, dailyParentId] = request.security(syminfo.tickerid, mtfDaily, f_mtfParentState(mtfDailyPivot), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+[fourHourParentDirRaw, fourHourParentRaw, fourHourInvalidRaw, fourHourParentTime, fourHourParentId] = request.security(syminfo.tickerid, mtfFourHour, f_mtfParentState(mtfFourHourPivot), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+int dailyParentDir = useMtfAlignment ? dailyParentDirRaw : 0
+int fourHourParentDir = useMtfAlignment ? fourHourParentDirRaw : 0
+float dailyParent = f_ticks(dailyParentRaw)
+float dailyInvalid = f_ticks(dailyInvalidRaw)
+float fourHourParent = f_ticks(fourHourParentRaw)
+float fourHourInvalid = f_ticks(fourHourInvalidRaw)
+bool mtfParentsReady = dailyParentDir != 0 and fourHourParentDir != 0
+bool mtfParentsAgree = mtfParentsReady and dailyParentDir == fourHourParentDir
+int chartSeconds = timeframe.in_seconds(timeframe.period)
+int dailySeconds = timeframe.in_seconds(mtfDaily)
+int fourHourSeconds = timeframe.in_seconds(mtfFourHour)
+bool chartIsDailyOrHigher = not na(chartSeconds) and not na(dailySeconds) and chartSeconds >= dailySeconds
+bool chartRequiresDailyLeader = useMtfAlignment and not chartIsDailyOrHigher
+bool chartRequiresFourHourLeader = chartRequiresDailyLeader and not na(chartSeconds) and not na(fourHourSeconds) and chartSeconds < fourHourSeconds
+bool mtfHierarchyReady = not chartRequiresDailyLeader or (dailyParentDir != 0 and (not chartRequiresFourHourLeader or fourHourParentDir != 0))
+bool mtfHierarchyAligned = not chartRequiresFourHourLeader or mtfParentsAgree
+int mtfDirection = chartRequiresFourHourLeader ? (mtfParentsAgree ? dailyParentDir : 0) : chartRequiresDailyLeader ? dailyParentDir : 0
+f_mtfDirectionName(int direction) => direction == 1 ? "UP" : direction == -1 ? "DOWN" : "WAIT"
+string mtfScope = chartIsDailyOrHigher ? "Daily chart leads; no lower parent gate" : chartRequiresFourHourLeader ? "Daily + 4H lead this chart" : "Daily leads this 4H chart"
+string mtfSummary = not useMtfAlignment ? "MTF leadership OFF" : not mtfHierarchyReady ? "MTF waiting · " + mtfScope : not mtfHierarchyAligned ? "MTF CONFLICT · forecasts suppressed · D " + f_mtfDirectionName(dailyParentDir) + " / 4H " + f_mtfDirectionName(fourHourParentDir) : chartIsDailyOrHigher ? "Daily context · Elliott parent not exported" : "HTF direction filter · " + mtfScope + " · " + f_mtfDirectionName(mtfDirection)
+string mtfDetail = mtfSummary + "\nScope: " + mtfScope + ".\nDaily structural parent ID " + dailyParentId + " · " + f_mtfDirectionName(dailyParentDir) + " · anchor " + f_str(dailyParent) + " · invalidation " + f_str(dailyInvalid) + " · pivot " + f_time(dailyParentTime, "yyyy-MM-dd") + "\n4H structural parent ID " + fourHourParentId + " · " + f_mtfDirectionName(fourHourParentDir) + " · anchor " + f_str(fourHourParent) + " · invalidation " + f_str(fourHourInvalid) + " · pivot " + f_time(fourHourParentTime, "yyyy-MM-dd HH:mm") + "\nActive forecasts require the stated leader direction. Structural IDs preserve confirmed swing anchors; they do not claim a completed Elliott parent count or family."
+f_coord(float p) => measurement == "Log" ? (p > 0 ? math.log(p) : na) : p
+f_uncoord(float p) => measurement == "Log" ? math.exp(p) : p
+f_projection(float anchor, float origin, float endpoint, float ratio) => f_uncoord(f_coord(anchor) + (f_coord(endpoint) - f_coord(origin)) * ratio)
+f_key(int degree, int leftTime, int rightTime, string family) => str.tostring(degree) + ":" + str.tostring(leftTime) + ":" + str.tostring(rightTime) + ":" + family
+
+f_append(array<Pivot> stream, Pivot q) =>
+    int n = array.size(stream)
+    if n == 0
+        array.push(stream, q)
+    else
+        Pivot prev = array.get(stream, n - 1)
+        if q.x > prev.x
+            if q.side == prev.side
+                if (q.p - prev.p) * q.side > 0
+                    array.set(stream, n - 1, q)
+            else if (q.p - prev.p) * q.side > 0
+                array.push(stream, q)
+    array.size(stream)
+
+// Subset hierarchy: coarser anchors are ACTUAL finer-layer pivots, never nearest matches.
+// Preserve both boundary anchors; terminal/coarsened classifications remain revisable.
+f_reduce(array<Pivot> src) =>
+    array<Pivot> out = array.new<Pivot>()
+    int n = array.size(src)
+    if n > 0
+        array.push(out, array.get(src, 0))
+    if n > 4
+        for i = 2 to n - 3
+            Pivot q = array.get(src, i)
+            Pivot a = array.get(src, i - 2)
+            Pivot b = array.get(src, i + 2)
+            if (q.p - a.p) * q.side > 0 and (q.p - b.p) * q.side >= 0
+                f_append(out, q)
+    if n > 1
+        f_append(out, array.get(src, n - 1))
+        Pivot first = array.get(src, 0)
+        if array.get(out, 0).x != first.x
+            if array.get(out, 0).side == first.side
+                array.unshift(out, array.get(src, 1))
+            array.unshift(out, first)
+        Pivot last = array.get(src, n - 1)
+        if array.get(out, array.size(out) - 1).x != last.x
+            if array.get(out, array.size(out) - 1).side == last.side
+                array.push(out, array.get(src, n - 2))
+            array.push(out, last)
+    out
+
+f_impulse(array<Pivot> points) =>
+    int n = array.size(points)
+    bool ok = n >= 3 and n <= 6
+    if ok
+        float p0 = array.get(points, 0).p
+        int dir = -array.get(points, 0).side
+        float p1 = (array.get(points, 1).p - p0) * dir
+        float p2 = (array.get(points, 2).p - p0) * dir
+        ok := p1 > 0 and p2 > 0 and p2 < p1
+        if ok and n >= 4
+            float p3 = (array.get(points, 3).p - p0) * dir
+            ok := p3 > p1
+            if ok and n >= 5
+                float p4 = (array.get(points, 4).p - p0) * dir
+                ok := p4 > p1 and p4 < p3
+                if ok and n == 6
+                    float p5 = (array.get(points, 5).p - p0) * dir
+                    float w3 = p3 - p2
+                    float w5 = p5 - p4
+                    ok := p5 > p3 and w3 >= math.min(p1, w5)
+    ok
+
+f_zigzag(array<Pivot> points) =>
+    int n = array.size(points)
+    bool ok = n == 3 or n == 4
+    if ok
+        int dir = -array.get(points, 0).side
+        float p0 = array.get(points, 0).p
+        float a = (array.get(points, 1).p - p0) * dir
+        float b = (array.get(points, 2).p - p0) * dir
+        ok := a > 0 and b > 0 and b < a
+        if ok and n == 4
+            float c = (array.get(points, 3).p - p0) * dir
+            ok := c > a
+    ok
+
+
+// Rule evidence must share exact endpoints. Every visible node retains its child IDs.
+f_findChild(int layer, Pivot a, Pivot b, string family) =>
+    int found = -1
+    if layer > 0
+        for distance = 1 to layer
+            string key = f_key(layer - distance, a.ts, b.ts, family)
+            if map.contains(nodeIndex, key)
+                found := map.get(nodeIndex, key)
+                break
+    found
+
+f_boundedLeg(Pivot a, Pivot b) =>
+    bool ok = true
+    if map.contains(baseIndex, a.ts) and map.contains(baseIndex, b.ts)
+        int lo = map.get(baseIndex, a.ts)
+        int hi = map.get(baseIndex, b.ts)
+        float bottom = math.min(a.p, b.p)
+        float top = math.max(a.p, b.p)
+        if hi - lo > 1
+            for j = lo + 1 to hi - 1
+                float p = array.get(fast, j).p
+                if p < bottom or p > top
+                    ok := false
+                    break
+    else
+        ok := false
+    ok
+
+// Independent endpoint audit. PASS is limited to the named numerical check.
+// Strict supported grammar: no diagonal exceptions or truncated fifths.
+f_ruleAudit(array<Pivot> p, string family) =>
+    int count = array.size(p)
+    bool accepted = count >= 3 and count <= (family == "Impulse" ? 6 : 4)
+    string report = ""
+    if accepted
+        int direction = array.get(p, 1).p > array.get(p, 0).p ? 1 : -1
+        float origin = array.get(p, 0).p
+        float first = (array.get(p, 1).p - origin) * direction
+        float second = (array.get(p, 2).p - origin) * direction
+        bool order = true
+        for i = 1 to count - 1
+            Pivot before = array.get(p, i - 1)
+            Pivot current = array.get(p, i)
+            order := order and current.ts > before.ts and current.side == -before.side and (current.p - before.p) * current.side > 0
+        bool retrace = second > 0 and second < first
+        accepted := order and retrace
+        report := "Chronology / alternating extremes: " + (order ? "PASS" : "FAIL") + "\n"
+        report += (family == "Impulse" ? "I2 W2 inside W1: " : "ZB B inside A: ") + (retrace ? "PASS" : "FAIL") + " | origin " + f_str(origin) + " / endpoint " + f_str(array.get(p, 2).p) + "\n"
+        if count >= 4
+            float third = (array.get(p, 3).p - origin) * direction
+            bool advances = third > first
+            accepted := accepted and advances
+            report += (family == "Impulse" ? "I3 W3 beyond W1: " : "ZC C beyond A: ") + (advances ? "PASS" : "FAIL") + "\n"
+            if family == "Impulse"
+                if count >= 5
+                    float fourth = (array.get(p, 4).p - origin) * direction
+                    bool overlap = fourth > first and fourth < third
+                    accepted := accepted and overlap
+                    report += "I4 W4 retraces / no W1 overlap: " + (overlap ? "PASS" : "FAIL") + "\n"
+                    if count == 6
+                        float fifth = (array.get(p, 5).p - origin) * direction
+                        bool progresses = fifth > third
+                        bool shortest = third - second >= math.min(first, fifth - fourth)
+                        accepted := accepted and progresses and shortest
+                        report += "I5 non-truncated W5: " + (progresses ? "PASS" : "FAIL") + "\nW3 not shortest: " + (shortest ? "PASS" : "FAIL") + "\n"
+                    else
+                        report += "I5 / W3 shortest test: PENDING W5\n"
+                else
+                    report += "I4: PENDING W4\nI5 / W3 shortest test: PENDING W5\n"
+        else
+            report += family == "Impulse" ? "I3: PENDING W3\nI4: PENDING W4\nI5 / W3 shortest test: PENDING W5\n" : "ZC: PENDING C\n"
+    else
+        report := "FAIL: unsupported anchor count\n"
+    [accepted, report]
+
+// Sample only: bounded local log, never a claim that all anchor combinations were searched.
+f_recordReject(array<Pivot> pts, string family, string reason) =>
+    if showRejectionAudit and array.size(rejectionAudit) < 30
+        string anchors = ""
+        for q in pts
+            anchors += str.format_time(q.ts, "yyyy-MM-dd HH:mm") + "=" + f_str(q.p) + " "
+        array.push(rejectionAudit, family + " | " + anchors + " | " + reason)
+    array.size(rejectionAudit)
+
+// Check a requested finite number of generations. Leaf geometry alone never
+// satisfies a requested child generation; finer-than-requested evidence is UNKNOWN.
+f_support(int rootId) =>
+    bool ok = true
+    string reason = "SUPPORTED to " + str.tostring(evidenceDepth) + " child generation(s); deeper UNKNOWN"
+    array<EvidenceTask> queue = array.new<EvidenceTask>()
+    array.push(queue, EvidenceTask.new(rootId, evidenceDepth))
+    int cursor = 0
+    while cursor < array.size(queue) and ok
+        EvidenceTask task = array.get(queue, cursor)
+        cursor += 1
+        HNode parent = array.get(nodes, task.nodeId)
+        [valid, report] = f_ruleAudit(parent.pts, parent.family)
+        if not valid
+            ok := false
+            reason := "REJECT geometry: " + report
+        else if task.remaining > 0
+            for leg = 0 to parent.stage - 1
+                int childId = array.get(parent.kids, leg)
+                if childId < 0
+                    ok := false
+                    string key = str.tostring(task.nodeId) + ":" + str.tostring(leg)
+                    reason := "UNRESOLVED L" + str.tostring(parent.layer + 1) + " leg " + str.tostring(leg + 1) + ": " + (map.contains(childReasons, key) ? map.get(childReasons, key) : "required complete child absent; unsupported families / finer data may be needed")
+                    break
+                HNode child = array.get(nodes, childId)
+                Pivot a = array.get(parent.pts, leg)
+                Pivot b = array.get(parent.pts, leg + 1)
+                Pivot ca = array.get(child.pts, 0)
+                Pivot cb = array.get(child.pts, child.stage)
+                string expected = leg % 2 == 0 ? "Impulse" : "Zigzag"
+                bool exact = ca.ts == a.ts and ca.p == a.p and cb.ts == b.ts and cb.p == b.p
+                bool complete = child.stage == (expected == "Impulse" ? 5 : 3)
+                if not exact or child.layer >= parent.layer or child.family != expected or not complete
+                    ok := false
+                    reason := "REJECT child attachment: endpoints / degree / family / completeness"
+                    break
+                array.push(queue, EvidenceTask.new(childId, task.remaining - 1))
+    [ok, reason]
+
+f_failureCode(string reason) =>
+    str.contains(reason, "REJECT geometry") ? "RULE_FAIL" : str.contains(reason, "REJECT child") ? "ATTACHMENT_FAIL" : str.contains(reason, "CAPPED") or str.contains(reason, "budget exhausted") ? "SEARCH_LIMIT" : str.contains(reason, "finest retained") ? "DATA_DEPTH" : str.contains(reason, "endpoints absent") ? "ANCHORS_MISSING" : str.contains(reason, "too few") ? "ANCHORS_INSUFFICIENT" : str.contains(reason, "SUPPORTED to") ? "SUPPORTED" : "GRAMMAR_OR_SEARCH_GAP"
+
+f_promotable(int id) =>
+    not requireEvidence or (map.contains(supportedNodes, id) ? map.get(supportedNodes, id) : false)
+
+f_addNode(array<Pivot> pts, int lo, int hi, int degree, string family) =>
+    int stage = array.size(pts) - 1
+    array<int> kids = array.new_int()
+    int evidence = 0
+    bool bounded = true
+    for leg = 1 to stage
+        Pivot a = array.get(pts, leg - 1)
+        Pivot b = array.get(pts, leg)
+        string expected = leg % 2 == 1 ? "Impulse" : "Zigzag"
+        int child = f_findChild(degree, a, b, expected)
+        array.push(kids, child)
+        evidence += child >= 0 ? 1 : 0
+        bounded := bounded and f_boundedLeg(a, b)
+    [auditPass, auditReport] = f_ruleAudit(pts, family)
+    if not bounded or not auditPass
+        f_recordReject(pts, family, not bounded ? "BOUNDARY: an intervening raw extreme is outside the leg endpoints" : auditReport)
+    if bounded and auditPass
+        float w1 = math.abs(array.get(pts, 1).p - array.get(pts, 0).p)
+        float retr = math.abs(array.get(pts, 2).p - array.get(pts, 1).p) / w1
+        // Coverage dominates. Fib fit and direct subdivision evidence break ties.
+        // These versioned weights have no calibrated probability interpretation.
+        bool complete = family == "Impulse" ? stage == 5 : stage == 3
+        float merit = (hi - lo) * 2.0 + (complete ? 0.6 : 0) + 0.3 * math.max(0, 1 - math.abs(retr - 0.618)) + evidence * 0.7
+        int id = array.size(nodes)
+        array.push(nodes, HNode.new(pts, lo, hi, degree, family, stage, -array.get(pts, 0).side, merit, evidence, kids))
+        string adjacencyKey = str.tostring(degree) + ":" + str.tostring(lo)
+        if not map.contains(outgoing, adjacencyKey)
+            map.put(outgoing, adjacencyKey, NodeBucket.new(array.new_int()))
+        NodeBucket bucket = map.get(outgoing, adjacencyKey)
+        array.push(bucket.ids, id)
+        if complete
+            string indexKey = f_key(degree, array.get(pts, 0).ts, array.get(pts, stage).ts, family)
+            int previous = map.contains(nodeIndex, indexKey) ? map.get(nodeIndex, indexKey) : -1
+            if previous < 0 or evidence > array.get(nodes, previous).evidence
+                map.put(nodeIndex, indexKey, id)
+    bounded
+
+// Breadth-first bounded alternative anchor search. Same strict rules as the
+// consecutive search; skipped raw extrema must remain inside each wave's endpoints.
+f_regroup(array<Pivot> stream, int lo, int degree) =>
+    int count = array.size(stream)
+    if regroupSpan > 1 and array.get(searchStats, 0) < searchBudget
+        for familyIndex = 0 to 1
+            string family = familyIndex == 0 ? "Impulse" : "Zigzag"
+            int fullSize = familyIndex == 0 ? 6 : 4
+            array<SearchBranch> queue = array.new<SearchBranch>()
+            array<Pivot> seed = array.new<Pivot>()
+            array.push(seed, array.get(stream, lo))
+            array.push(queue, SearchBranch.new(seed, lo, false))
+            int cursor = 0
+            while cursor < array.size(queue) and array.get(searchStats, 0) < searchBudget
+                SearchBranch branch = array.get(queue, cursor)
+                cursor += 1
+                for step = 1 to regroupSpan by 2
+                    int nextIndex = branch.lastIndex + step
+                    if nextIndex < count and array.get(searchStats, 0) < searchBudget
+                        array.set(searchStats, 0, array.get(searchStats, 0) + 1)
+                        Pivot a = array.get(branch.pts, array.size(branch.pts) - 1)
+                        Pivot z = array.get(stream, nextIndex)
+                        if not f_boundedLeg(a, z)
+                            array.set(searchStats, 1, array.get(searchStats, 1) + 1)
+                            array<Pivot> rejectedLeg = array.copy(branch.pts)
+                            array.push(rejectedLeg, z)
+                            f_recordReject(rejectedLeg, family, "BOUNDARY: skipped raw extreme outside proposed leg")
+                            continue
+                        array<Pivot> proposed = array.copy(branch.pts)
+                        array.push(proposed, z)
+                        int size = array.size(proposed)
+                        bool valid = size < 3 ? true : familyIndex == 0 ? f_impulse(proposed) : f_zigzag(proposed)
+                        if not valid
+                            array.set(searchStats, 2, array.get(searchStats, 2) + 1)
+                            [accepted, ruleReason] = f_ruleAudit(proposed, family)
+                            f_recordReject(proposed, family, ruleReason)
+                            continue
+                        bool skipped = branch.skipped or step > 1
+                        if skipped and size >= 3 and (size == fullSize or nextIndex == count - 1)
+                            int before = array.size(nodes)
+                            f_addNode(proposed, lo, nextIndex, degree, family)
+                            array.set(searchStats, 3, array.get(searchStats, 3) + array.size(nodes) - before)
+                        if size < fullSize
+                            if array.size(queue) < 64
+                                array.push(queue, SearchBranch.new(proposed, nextIndex, skipped))
+                            else
+                                array.set(searchStats, 5, 1)
+            if array.get(searchStats, 0) >= searchBudget
+                array.set(searchStats, 4, 1)
+    array.get(searchStats, 3)
+
+f_buildHistory() =>
+    array.fill(searchStats, 0)
+    array.fill(promotionStats, 0)
+    array.clear(rejectionAudit)
+    array.clear(childVisited)
+    map.clear(supportedNodes)
+    map.clear(supportReasons)
+    array.fill(childStats, 0)
+    map.clear(childReasons)
+    array.clear(layers)
+    array.clear(nodes)
+    map.clear(outgoing)
+    map.clear(nodeIndex)
+    map.clear(baseIndex)
+    int n = array.size(fast)
+    if n > 0
+        for i = 0 to n - 1
+            map.put(baseIndex, array.get(fast, i).ts, i)
+        array<Pivot> current = array.copy(fast)
+        for degree = 0 to 7
+            int count = array.size(current)
+            array<int> begins = array.new_int(count, 0)
+            array<int> ends = array.new_int(count, 0)
+            if count >= 3
+                for lo = 0 to count - 3
+                    array.set(begins, lo, array.size(nodes))
+                    for size = 3 to 6
+                        int hi = lo + size - 1
+                        if hi < count
+                            bool terminal = hi == count - 1
+                            array<Pivot> points = array.slice(current, lo, hi + 1)
+                            if (size == 6 or terminal) and f_impulse(points)
+                                f_addNode(points, lo, hi, degree, "Impulse")
+                            if size <= 4 and (size == 4 or terminal) and f_zigzag(points)
+                                f_addNode(points, lo, hi, degree, "Zigzag")
+                    // Coarser scales receive the regrouping budget; the raw scale
+                    // retains the original search so tiny swings cannot consume it all.
+                    if degree > 0
+                        f_regroup(current, lo, degree)
+                    array.set(ends, lo, array.size(nodes))
+            array.push(layers, Layer.new(current, begins, ends))
+            array<Pivot> next = f_reduce(current)
+            if array.size(next) >= count or array.size(next) < 3
+                break
+            current := next
+    array.size(layers)
+
+// Four-path dynamic program. Shared endpoints connect segments; impulse/correction
+// alternation is enforced across resolved boundaries. A gap explicitly resets context.
+f_offer(array<float> scores, array<int> prevPos, array<int> prevSlot, array<int> edgeIds, int dest, float merit, int from, int slot, int node) =>
+    int base = dest * 4
+    int insertAt = -1
+    for k = 0 to 3
+        if merit > array.get(scores, base + k) + 0.000001
+            insertAt := k
+            break
+    if insertAt >= 0
+        int k = 3
+        while k > insertAt
+            array.set(scores, base + k, array.get(scores, base + k - 1))
+            array.set(prevPos, base + k, array.get(prevPos, base + k - 1))
+            array.set(prevSlot, base + k, array.get(prevSlot, base + k - 1))
+            array.set(edgeIds, base + k, array.get(edgeIds, base + k - 1))
+            k -= 1
+        array.set(scores, base + insertAt, merit)
+        array.set(prevPos, base + insertAt, from)
+        array.set(prevSlot, base + insertAt, slot)
+        array.set(edgeIds, base + insertAt, node)
+    insertAt
+
+f_cover(int degree, int left, int right, int rank, bool rootFilter, bool forceEvidence = false, bool geometryOnly = false) =>
+    int n = right - left + 1
+    array<int> ids = array.new_int()
+    array<int> lefts = array.new_int()
+    array<int> rights = array.new_int()
+    float finalScore = -1e12
+    if n >= 2
+        Layer layer = array.get(layers, degree)
+        array<float> scores = array.new_float(n * 4, -1e12)
+        array<int> prevPos = array.new_int(n * 4, -1)
+        array<int> prevSlot = array.new_int(n * 4, -1)
+        array<int> edgeIds = array.new_int(n * 4, -1)
+        array.set(scores, 0, 0)
+        for pos = 0 to n - 2
+            int index = left + pos
+            string adjacencyKey = str.tostring(degree) + ":" + str.tostring(index)
+            array<int> edgeList = map.contains(outgoing, adjacencyKey) ? map.get(outgoing, adjacencyKey).ids : array.new_int()
+            for slot = 0 to 3
+                float merit = array.get(scores, pos * 4 + slot)
+                if merit > -1e11
+                    f_offer(scores, prevPos, prevSlot, edgeIds, pos + 1, merit - 3, pos, slot, -1)
+                    int previousId = array.get(edgeIds, pos * 4 + slot)
+                    if array.size(edgeList) > 0
+                        for id in edgeList
+                            HNode node = array.get(nodes, id)
+                            bool allowed = node.hi <= right and (not rootFilter or bias == "Neutral" or bias == node.family)
+                            allowed := allowed and (geometryOnly ? true : forceEvidence ? (map.contains(supportedNodes, id) ? map.get(supportedNodes, id) : false) : not rootFilter or f_promotable(id))
+                            if previousId >= 0
+                                HNode previous = array.get(nodes, previousId)
+                                allowed := allowed and previous.family != node.family and previous.dir != node.dir
+                            if allowed
+                                f_offer(scores, prevPos, prevSlot, edgeIds, node.hi - left, merit + node.merit, pos, slot, id)
+        int pos = n - 1
+        int slot = rank
+        finalScore := array.get(scores, pos * 4 + slot)
+        if finalScore > -1e11
+            while pos > 0
+                int at = pos * 4 + slot
+                int before = array.get(prevPos, at)
+                if before < 0
+                    break
+                array.unshift(ids, array.get(edgeIds, at))
+                array.unshift(lefts, before + left)
+                array.unshift(rights, pos + left)
+                slot := array.get(prevSlot, at)
+                pos := before
+    HistoryPath.new(ids, lefts, rights, finalScore)
+
+// Dedicated fixed-endpoint child search; independent of viewport/display depth.
+// New nodes join parent hypotheses before the evidence-gated root selection.
+f_searchChild(int parentLayer, Pivot first, Pivot last, string family) =>
+    int best = -1
+    int spanEnd = math.min(array.get(workLimit, 0), array.get(childStats, 0) + spanBudget)
+    string reason = "UNKNOWN: no admissible complete child in searched anchors"
+    bool anchorsFound = false
+    bool sufficientAnchors = false
+    int boundaryRejects = 0
+    int ruleRejects = 0
+    bool capped = false
+    if parentLayer <= 0
+        reason := "UNKNOWN: finest retained scale; lower-resolution data required"
+    else if array.get(childStats, 0) >= spanEnd
+        reason := "UNKNOWN: child search budget exhausted before this span"
+        array.set(childStats, 3, 1)
+    else
+        for distance = 1 to parentLayer
+            int layerId = parentLayer - distance
+            Layer sub = array.get(layers, layerId)
+            int lo = -1
+            int hi = -1
+            for j = 0 to array.size(sub.pts) - 1
+                Pivot q = array.get(sub.pts, j)
+                if q.ts == first.ts
+                    lo := j
+                if q.ts == last.ts
+                    hi := j
+            if lo < 0 or hi <= lo
+                continue
+            anchorsFound := true
+            int full = family == "Impulse" ? 6 : 4
+            if hi - lo < full - 1
+                continue
+            sufficientAnchors := true
+            array<SearchBranch> queue = array.new<SearchBranch>()
+            array<Pivot> seed = array.new<Pivot>()
+            array.push(seed, first)
+            array.push(queue, SearchBranch.new(seed, lo, false))
+            int cursor = 0
+            while cursor < array.size(queue) and array.get(childStats, 0) < spanEnd
+                SearchBranch branch = array.get(queue, cursor)
+                cursor += 1
+                int have = array.size(branch.pts)
+                // Last anchor is mandatory. Other anchors may skip internal swings.
+                int begin = have == full - 1 ? hi : branch.lastIndex + 1
+                int finish = have == full - 1 ? hi : hi - (full - have - 1)
+                if begin <= finish
+                    for j = begin to finish
+                        if array.get(childStats, 0) >= spanEnd
+                            capped := true
+                            break
+                        array.set(childStats, 0, array.get(childStats, 0) + 1)
+                        Pivot a = array.get(branch.pts, have - 1)
+                        Pivot z = array.get(sub.pts, j)
+                        if z.side == a.side or (z.p - a.p) * z.side <= 0
+                            continue
+                        if not f_boundedLeg(a, z)
+                            boundaryRejects += 1
+                            continue
+                        array<Pivot> proposed = array.copy(branch.pts)
+                        array.push(proposed, z)
+                        int size = array.size(proposed)
+                        bool valid = size < 3 ? true : family == "Impulse" ? f_impulse(proposed) : f_zigzag(proposed)
+                        if not valid
+                            ruleRejects += 1
+                            [accepted, ruleReason] = f_ruleAudit(proposed, family)
+                            f_recordReject(proposed, family, ruleReason)
+                            continue
+                        if size == full
+                            int before = array.size(nodes)
+                            f_addNode(proposed, lo, hi, layerId, family)
+                            if array.size(nodes) > before
+                                if best < 0 or array.get(nodes, before).merit > array.get(nodes, best).merit
+                                    best := before
+                        else if array.size(queue) < 96
+                            array.push(queue, SearchBranch.new(proposed, j, true))
+                        else
+                            capped := true
+            capped := capped or array.get(childStats, 0) >= spanEnd
+            if best >= 0 or array.get(childStats, 0) >= spanEnd
+                break
+        if not anchorsFound
+            reason := "UNKNOWN: matching parent endpoints absent on lower scales"
+        else if not sufficientAnchors
+            reason := "UNKNOWN: too few retained anchors for a complete child"
+        else
+            reason := "UNKNOWN: no complete child found; boundary rejects " + str.tostring(boundaryRejects) + ", rule rejects " + str.tostring(ruleRejects)
+        if best >= 0
+            reason := "FOUND: complete child geometry; its own subdivisions still require audit"
+        if capped
+            reason += " | SEARCH CAPPED; alternatives may be unsearched"
+            array.set(childStats, 3, 1)
+    [best, reason]
+
+f_enrichChildren(array<int> roots) =>
+    array<int> queue = array.copy(roots)
+    int cursor = 0
+    while cursor < array.size(queue)
+        int id = array.get(queue, cursor)
+        cursor += 1
+        if id < 0 or array.includes(childVisited, id)
+            continue
+        array.push(childVisited, id)
+        HNode parent = array.get(nodes, id)
+        for leg = 0 to parent.stage - 1
+            int child = array.get(parent.kids, leg)
+            if child < 0 and searchChildren
+                string family = leg % 2 == 0 ? "Impulse" : "Zigzag"
+                int existing = f_findChild(parent.layer, array.get(parent.pts, leg), array.get(parent.pts, leg + 1), family)
+                int found = existing
+                string diagnostic = "FOUND: reused fixed-endpoint child"
+                if existing < 0
+                    [searched, explanation] = f_searchChild(parent.layer, array.get(parent.pts, leg), array.get(parent.pts, leg + 1), family)
+                    found := searched
+                    diagnostic := explanation
+                map.put(childReasons, str.tostring(id) + ":" + str.tostring(leg), diagnostic)
+                if found >= 0
+                    child := found
+                    array.set(parent.kids, leg, child)
+                    parent.evidence += 1
+                    parent.merit += 0.7
+                    array.set(childStats, 1, array.get(childStats, 1) + 1)
+                else
+                    array.set(childStats, 2, array.get(childStats, 2) + 1)
+            if child >= 0
+                array.push(queue, child)
+    array.get(childStats, 1)
+
+// Keep one connected recent run; never bridge an unresolved gap with ABC labels.
+f_connectedTail(HistoryPath path) =>
+    array<int> ids = array.new_int()
+    array<int> lefts = array.new_int()
+    array<int> rights = array.new_int()
+    bool started = false
+    if array.size(path.ids) > 0
+        for j = 0 to array.size(path.ids) - 1
+            int i = array.size(path.ids) - 1 - j
+            int id = array.get(path.ids, i)
+            if id >= 0
+                started := true
+                array.unshift(ids, id)
+                array.unshift(lefts, array.get(path.lefts, i))
+                array.unshift(rights, array.get(path.rights, i))
+            else if started
+                break
+    HistoryPath.new(ids, lefts, rights, path.merit)
+
+// Missing child links may become available during later searches. Refresh them
+// before evaluating local selection, without treating search failure as a rule failure.
+f_refreshEvidence(int rootDegree) =>
+    array.fill(localDiagnostics, 0)
+    array.set(promotionStats, 0, 0)
+    array.set(promotionStats, 1, 0)
+    array.set(promotionStats, 2, 0)
+    for n in nodes
+        for leg = 0 to n.stage - 1
+            if array.get(n.kids, leg) < 0
+                string family = leg % 2 == 0 ? "Impulse" : "Zigzag"
+                int found = f_findChild(n.layer, array.get(n.pts, leg), array.get(n.pts, leg + 1), family)
+                if found >= 0
+                    array.set(n.kids, leg, found)
+                    n.evidence += 1
+                    n.merit += 0.7
+    if array.size(nodes) > 0
+        for id = 0 to array.size(nodes) - 1
+            HNode n = array.get(nodes, id)
+            bool localCandidate = n.layer <= 3 and array.get(n.pts, 0).x >= asof - localBars * 2
+            if localCandidate or map.contains(supportedNodes, id)
+                [ok, reason] = f_support(id)
+                map.put(supportedNodes, id, ok)
+                map.put(supportReasons, id, reason)
+                if localCandidate
+                    array.set(localDiagnostics, 0, array.get(localDiagnostics, 0) + 1)
+                    array.set(localDiagnostics, 1, array.get(localDiagnostics, 1) + (ok ? 1 : 0))
+    for n in nodes
+        if n.layer == rootDegree and (bias == "Neutral" or n.family == bias)
+            array.set(promotionStats, 0, array.get(promotionStats, 0) + 1)
+    if array.size(nodes) > 0
+        for id = 0 to array.size(nodes) - 1
+            HNode n = array.get(nodes, id)
+            if n.layer == rootDegree and (bias == "Neutral" or n.family == bias)
+                bool ok = map.contains(supportedNodes, id) ? map.get(supportedNodes, id) : false
+                int slot = ok ? 1 : 2
+                array.set(promotionStats, slot, array.get(promotionStats, slot) + 1)
+    array.get(localDiagnostics, 1)
+
+f_selectLocal() =>
+    int bestDegree = -1
+    int bestStart = 0
+    float bestScore = -1e12
+    array.set(localDiagnostics, 2, 0)
+    for degree = 0 to math.min(3, array.size(layers) - 1)
+        array.set(localDiagnostics, 2, array.get(localDiagnostics, 2) + 1)
+        Layer layer = array.get(layers, degree)
+        int first = 0
+        for i = 0 to array.size(layer.pts) - 1
+            if array.get(layer.pts, i).x < asof - localBars
+                first := i
+        HistoryPath path = f_connectedTail(f_cover(degree, first, array.size(layer.pts) - 1, 0, true, true))
+        if array.size(path.ids) > 0
+            HNode earliest = array.get(nodes, array.get(path.ids, 0))
+            HNode latest = array.get(nodes, array.get(path.ids, array.size(path.ids) - 1))
+            float score = array.get(latest.pts, latest.stage).x - array.get(earliest.pts, 0).x
+            score -= math.max(0, asof - array.get(latest.pts, latest.stage).x)
+            if score > bestScore
+                bestScore := score
+                bestDegree := degree
+                bestStart := first
+    array.set(localInfo, 0, bestDegree)
+    array.set(localInfo, 1, bestStart)
+    array.set(localInfo, 2, 0)
+    bestDegree
+
+// Prepare recent parent hypotheses across scales, then choose a supported local run.
+f_prepareLocal() =>
+    array<int> recentRoots = array.new_int()
+    array<NodeBucket> byScale = array.new<NodeBucket>()
+    // Each eligible scale receives a candidate allocation. Node insertion order
+    // must not let one coarse scale consume every slot.
+    if array.size(layers) > 1
+        for degree = 1 to math.min(3, array.size(layers) - 1)
+            array<int> ids = array.new_int()
+            array<float> recency = array.new_float()
+            if array.size(nodes) > 0
+                for id = 0 to array.size(nodes) - 1
+                    HNode n = array.get(nodes, id)
+                    if n.layer == degree and array.get(n.pts, 0).x >= asof - localBars * 2
+                        array.push(ids, id)
+                        array.push(recency, array.get(n.pts, n.stage).x)
+            array<int> sorted = array.sort_indices(recency, order.descending)
+            array<int> scaleRoots = array.new_int()
+            if array.size(sorted) > 0
+                for i = 0 to math.min(16, array.size(sorted)) - 1
+                    array.push(scaleRoots, array.get(ids, array.get(sorted, i)))
+            array.push(byScale, NodeBucket.new(scaleRoots))
+    for rank = 0 to 15
+        for bucket in byScale
+            if rank < array.size(bucket.ids)
+                array.push(recentRoots, array.get(bucket.ids, rank))
+    array.set(workLimit, 0, int(childBudget / 2))
+    f_enrichChildren(recentRoots)
+    array.set(workLimit, 0, childBudget)
+    for id in childVisited
+        [ok, why] = f_support(id)
+        map.put(supportedNodes, id, ok)
+        map.put(supportReasons, id, why)
+    array.size(recentRoots)
+
+// Parent hypotheses first, then fixed-endpoint children, then promotion/selection.
+// Sort by existing geometry merit, with no added preference for impulses.
+f_prepareParents(int degree) =>
+    array<int> roots = array.new_int()
+    array<float> merits = array.new_float()
+    int originalCount = array.size(nodes)
+    if originalCount > 0
+        for id = 0 to originalCount - 1
+            HNode n = array.get(nodes, id)
+            if n.layer == degree and (bias == "Neutral" or n.family == bias)
+                array.push(roots, id)
+                array.push(merits, n.merit)
+    array.set(promotionStats, 0, array.size(roots))
+    array<int> sortedIds = array.sort_indices(merits, order.descending)
+    array<int> toEnrich = array.new_int()
+    if array.size(sortedIds) > 0
+        for i = 0 to math.min(parentBudget, array.size(sortedIds)) - 1
+            array.push(toEnrich, array.get(roots, array.get(sortedIds, i)))
+    if array.size(roots) > parentBudget
+        array.set(promotionStats, 3, 1)
+    f_enrichChildren(toEnrich)
+    // Cache finite-depth support for root candidates and linked descendants alike.
+    // Unsupported roots are still explained even if the enrichment budget excluded them.
+    array<int> auditIds = array.copy(childVisited)
+    for id in roots
+        if not array.includes(auditIds, id)
+            array.push(auditIds, id)
+    for id in auditIds
+        [ok, reason] = f_support(id)
+        map.put(supportedNodes, id, ok)
+        map.put(supportReasons, id, reason)
+    for id in roots
+        bool ok = map.get(supportedNodes, id)
+        array.set(promotionStats, ok ? 1 : 2, array.get(promotionStats, ok ? 1 : 2) + 1)
+    array.size(roots)
+
+f_visible(int left, int right) =>
+    int from = viewMode == "Visible chart" ? chart.left_visible_bar_time : viewMode == "Custom dates" ? displayStart : 0
+    int until = viewMode == "Visible chart" ? chart.right_visible_bar_time : viewMode == "Custom dates" and displayEnd > 0 ? displayEnd : 9223372036854775807
+    right >= from and left <= until
+
+f_line(int t1, float p1, int t2, float p2, color col, string style) =>
+    if array.size(strokes) < (drawingForecast ? 495 : 460) and not na(p1) and not na(p2)
+        array.push(strokes, line.new(t1, f_price(p1), t2, f_price(p2), xloc=xloc.bar_time, color=col, width=1, style=style))
+    else
+        array.set(drawStats, 2, array.get(drawStats, 2) + 1)
+
+f_label(int ts, float price, string caption, color col, string tip, string labelSize, string key, bool reserve) =>
+    bool known = array.includes(labelKeys, key)
+    if not known and f_visible(ts, ts)
+        if array.size(tags) < (reserve ? 495 : labelBudget)
+            array.push(tags, label.new(ts, f_price(price), caption, xloc=xloc.bar_time, style=labelBadges and not reserve ? label.style_label_center : label.style_none, color=color.new(col, badgeTransparency), textcolor=col, size=labelSize, tooltip=tip))
+            array.push(labelKeys, key)
+        else
+            array.set(drawStats, 1, array.get(drawStats, 1) + 1)
+
+f_waveName(string family, int wave, int depth) =>
+    string letter = wave == 1 ? "A" : wave == 2 ? "B" : "C"
+    string roman = wave == 1 ? "i" : wave == 2 ? "ii" : wave == 3 ? "iii" : wave == 4 ? "iv" : "v"
+    string value = family == "Impulse" ? (depth % 3 == 0 ? str.upper(roman) : depth % 3 == 1 ? str.tostring(wave) : roman) : (depth % 3 == 2 ? str.lower(letter) : letter)
+    string referenceValue = family == "Impulse" ? roman : str.lower(letter)
+    labelMode == "Reference hierarchy" ? (depth == 0 ? "((" + str.upper(referenceValue) + "))" : depth == 1 ? "(" + referenceValue + ")" : referenceValue) : labelMode == "Clean" ? (family == "Impulse" ? str.tostring(wave) : letter) : depth % 3 == 0 ? "[" + value + "]" : depth % 3 == 1 ? "(" + value + ")" : value
+
+f_nodeTip(HNode n) =>
+    [passed, report] = f_ruleAudit(n.pts, n.family)
+    string children = ""
+    for leg = 0 to n.stage - 1
+        int child = array.get(n.kids, leg)
+        children += "Leg " + str.tostring(leg + 1) + ": " + (child >= 0 ? "child candidate found; deeper validation UNKNOWN" : "UNKNOWN: required child pattern absent") + "\n"
+    "PROVISIONAL " + n.family + " | L" + str.tostring(n.layer + 1) + "\n" + report + "SUBDIVISIONS\n" + children + "Full recursive validation: UNKNOWN. Geometry PASS does not confirm an Elliott count.\n" + (n.stage == 2 ? "1-2 versus A-B remains ambiguous.\n" : "") + "Strict grammar excludes diagonals / truncated fifths. Rank is not probability."
+
+f_logCount(int id, string context) =>
+    if showRejectionAudit and not array.includes(auditLogged, id) and array.size(auditLogged) < 100
+        array.push(auditLogged, id)
+        HNode n = array.get(nodes, id)
+        string message = context + " NODE " + str.tostring(id) + " " + n.family + " L" + str.tostring(n.layer + 1)
+        for q in n.pts
+            message += "\n" + str.format_time(q.ts, "yyyy-MM-dd HH:mm") + " price=" + f_str(q.p) + " pivotBar=" + str.tostring(q.x) + " knownBar=" + str.tostring(q.known)
+        message += "\n" + (map.contains(supportReasons, id) ? map.get(supportReasons, id) : "Not audited to requested depth") + "\n" + f_nodeTip(n)
+        log.info(message)
+    array.size(auditLogged)
+
+f_drawNode(int id, int depth, bool alternate, bool parentUnresolved, bool localRoot = false) =>
+    HNode n = array.get(nodes, id)
+    f_logCount(id, localRoot ? "LOCAL" : "CONTEXT")
+    bool evidenceSupported = f_promotable(id)
+    color degreeColor = colorMode == "Vivid degrees" ? (depth == 0 ? #E6EDF5 : depth == 1 ? #4C78FF : #FF5A5F) : (depth == 0 ? primaryColor : depth == 1 ? localColor : targetColor)
+    color col = alternate ? alternateColor : useEvidenceGreen and evidenceSupported ? evidenceColor : colorMode == "Direction" ? (n.dir > 0 ? bullColor : bearColor) : degreeColor
+    int labelsBefore = array.size(tags)
+    float span = math.abs(array.get(n.pts, n.stage).p - array.get(n.pts, 0).p)
+    string support = map.contains(supportReasons, id) ? map.get(supportReasons, id) : "Geometry only; subtree not audited for promotion"
+    string tip = (map.contains(selectedAncestry, id) ? "Count ancestry: " + map.get(selectedAncestry, id) + "\n" : "Unattached diagnostic candidate\n") + (localRoot ? "LOCAL PATTERN; ancestry is provisional.\n" : "") + support + "\n" + f_nodeTip(n) + (parentUnresolved ? "\nLOCAL COUNT ONLY: parent context unresolved; this is not a validated subdivision of the root count." : "")
+    for leg = 0 to n.stage - 1
+        string reasonKey = str.tostring(id) + ":" + str.tostring(leg)
+        if map.contains(childReasons, reasonKey)
+            tip += "\nLeg " + str.tostring(leg + 1) + " search: " + map.get(childReasons, reasonKey)
+    for wave = 1 to n.stage
+        Pivot a = array.get(n.pts, wave - 1)
+        Pivot b = array.get(n.pts, wave)
+        if f_visible(a.ts, b.ts)
+            if connectors and not array.includes(labelKeys, "node:" + str.tostring(id) + ":wave:" + str.tostring(wave))
+                f_line(a.ts, a.p, b.ts, b.p, color.new(col, math.min(90, connectorTransparency + depth * 8)), alternate ? line.style_dotted : line.style_solid)
+            float gap = math.max(4.0, asofAtr / syminfo.mintick * 0.22) * (1 + math.max(0, visibleLayers - depth) * 0.45 + (alternate ? 1 : 0))
+            gap *= labelSpacing * f_countScaleFactor()
+            // Unsupported ancestry stays marked; all interpretations remain
+            // provisional in the panel and tooltip even after finite evidence checks.
+            string caption = (labelMode == "Audit" ? (parentUnresolved ? "~" : not f_promotable(id) or not requireEvidence ? "g:" : "") : "") + f_waveName(n.family, wave, depth) + (evidenceSupported and requireEvidence and not parentUnresolved ? "" : "?")
+            if showDuration and labelMode == "Audit"
+                caption += "\n" + str.tostring(b.x - a.x) + "b"
+            if audit and labelMode == "Audit"
+                caption += "\n+" + str.tostring(b.known - b.x)
+            string key = "pivot:" + str.tostring(b.ts) + ":degree:" + str.tostring(n.layer) + ":" + f_waveName(n.family, wave, depth)
+            int occupancy = 0
+            for occupied in labelSlots
+                occupancy += occupied == b.x ? 1 : 0
+            int laneKey = b.x * 2 + (b.side > 0 ? 1 : 0)
+            int lane = map.contains(labelLanes, laneKey) ? map.get(labelLanes, laneKey) : 0
+            if not array.includes(labelKeys, key)
+                array.push(labelSlots, b.x)
+                map.put(labelLanes, laneKey, lane + 1)
+            float laneStep = math.max(6.0, asofAtr / syminfo.mintick * 0.48) * f_countScaleFactor()
+            // Reserve outer lanes for parents and inner lanes for subdivisions.
+            // Drawing parents first must not push child labels outside the parent.
+            gap += math.max(0, visibleLayers - depth - 1) * laneStep
+            f_label(b.ts, b.p + b.side * gap, caption, col, tip + "\nTurn " + str.format_time(b.ts, "yyyy-MM-dd HH:mm") + "; confirmed " + str.tostring(b.known - b.x) + " bars later.\nSegment starts " + str.format_time(array.get(n.pts, 0).ts, "yyyy-MM-dd") + ".", f_countTextSize(parentUnresolved ? "Small" : depth == 0 ? parentText : depth == 1 ? childText : fineText), key, false)
+    if array.size(tags) > labelsBefore
+        array.set(drawStats, 0, array.get(drawStats, 0) + 1)
+        array.set(drawStats, 3, math.max(array.get(drawStats, 3), depth + 1))
+
+f_drawGap(Pivot a, Pivot b, int depth) =>
+    if showUnknown and f_visible(a.ts, b.ts)
+        if connectors
+            f_line(a.ts, a.p, b.ts, b.p, color.new(color.gray, 50), line.style_dotted)
+        f_label(b.ts, b.p + b.side * math.abs(b.p) * 0.005 * (1 + visibleLayers - depth), labelMode == "Audit" ? "?" : "·", color.gray, "Unresolved segment. No admissible connected impulse/zigzag interpretation at this layer. Unsupported families are not forced into a 1–5 count.", size.tiny, "gap:" + str.tostring(depth) + ":" + str.tostring(b.ts), false)
+
+// Breadth-first rendering reserves labels for the whole-history parent before children.
+// Lower-layer paths are allowed inside ROOT GAPS, with explicitly unresolved parent context.
+f_selectTree(int degree) =>
+    array.clear(selectedTreeIds)
+    map.clear(selectedDepth)
+    map.clear(selectedAncestry)
+    map.clear(selectedSupported)
+    Layer root = array.get(layers, degree)
+    HistoryPath path = f_cover(degree, 0, array.size(root.pts) - 1, pick - 1, true)
+    // Preserve supported segments and resolve EACH contiguous gap for display.
+    // A supported node outside the viewport must not hide provisional history.
+    // Geometry-only display never bypasses the selectedSupported forecast gate.
+    if showUnresolvedContext
+        HistoryPath resolvedPath = HistoryPath.new(array.new_int(), array.new_int(), array.new_int(), path.merit)
+        int at = 0
+        while at < array.size(path.ids)
+            int id = array.get(path.ids, at)
+            int left = array.get(path.lefts, at)
+            int right = array.get(path.rights, at)
+            if id >= 0
+                array.push(resolvedPath.ids, id)
+                array.push(resolvedPath.lefts, left)
+                array.push(resolvedPath.rights, right)
+                at += 1
+            else
+                at += 1
+                while at < array.size(path.ids)
+                    if array.get(path.ids, at) >= 0
+                        break
+                    right := array.get(path.rights, at)
+                    at += 1
+                HistoryPath provisional = f_cover(degree, left, right, 0, false, false, true)
+                // Retain a whole gap if no root geometry exists so lower-layer
+                // diagnostics can inspect more than one isolated swing.
+                bool found = false
+                for provisionalId in provisional.ids
+                    found := found or provisionalId >= 0
+                if found
+                    if array.size(provisional.ids) > 0
+                        for k = 0 to array.size(provisional.ids) - 1
+                            array.push(resolvedPath.ids, array.get(provisional.ids, k))
+                            array.push(resolvedPath.lefts, array.get(provisional.lefts, k))
+                            array.push(resolvedPath.rights, array.get(provisional.rights, k))
+                else
+                    array.push(resolvedPath.ids, -1)
+                    array.push(resolvedPath.lefts, left)
+                    array.push(resolvedPath.rights, right)
+        path := resolvedPath
+    for id in path.ids
+        if id >= 0 and not map.contains(selectedDepth, id)
+            array.push(selectedTreeIds, id)
+            map.put(selectedDepth, id, 0)
+            map.put(selectedSupported, id, map.contains(supportedNodes, id) ? map.get(supportedNodes, id) : false)
+            HNode n = array.get(nodes, id)
+            map.put(selectedAncestry, id, f_key(n.layer, array.get(n.pts, 0).ts, array.get(n.pts, n.stage).ts, n.family))
+    int cursor = 0
+    while cursor < array.size(selectedTreeIds)
+        int id = array.get(selectedTreeIds, cursor)
+        cursor += 1
+        HNode n = array.get(nodes, id)
+        for leg = 0 to n.stage - 1
+            int child = array.get(n.kids, leg)
+            if child >= 0 and not map.contains(selectedDepth, child)
+                HNode sub = array.get(nodes, child)
+                Pivot a = array.get(n.pts, leg)
+                Pivot b = array.get(n.pts, leg + 1)
+                Pivot sa = array.get(sub.pts, 0)
+                Pivot sb = array.get(sub.pts, sub.stage)
+                // Exact observed endpoints; a child cannot migrate to a new leg.
+                if sub.layer < n.layer and sa.ts == a.ts and sb.ts == b.ts and sa.p == a.p and sb.p == b.p
+                    array.push(selectedTreeIds, child)
+                    map.put(selectedDepth, child, map.get(selectedDepth, id) + 1)
+                    map.put(selectedSupported, child, map.get(selectedSupported, id) and (map.contains(supportedNodes, child) ? map.get(supportedNodes, child) : false))
+                    map.put(selectedAncestry, child, map.get(selectedAncestry, id) + "/leg" + str.tostring(leg + 1) + "/" + f_key(sub.layer, sa.ts, sb.ts, sub.family))
+    path
+
+f_drawHistory(HistoryPath path, int degree, bool alternate) =>
+    array<DrawTask> queue = array.new<DrawTask>()
+    array<int> selectedIds = array.new_int()
+    Layer root = array.get(layers, degree)
+    int count = array.size(path.ids)
+    if count > 0
+        for i = 0 to count - 1
+            int id = array.get(path.ids, i)
+            if id >= 0
+                array.push(queue, DrawTask.new(id, 0, not f_promotable(id)))
+            else
+                Pivot a = array.get(root.pts, array.get(path.lefts, i))
+                Pivot b = array.get(root.pts, array.get(path.rights, i))
+                f_drawGap(a, b, 0)
+                if showLocalCandidates and degree > 0 and not alternate and visibleLayers > 1
+                    Layer lower = array.get(layers, degree - 1)
+                    int lo = -1
+                    int hi = -1
+                    for j = 0 to array.size(lower.pts) - 1
+                        int ts = array.get(lower.pts, j).ts
+                        if ts == a.ts
+                            lo := j
+                        if ts == b.ts
+                            hi := j
+                    if lo >= 0 and hi > lo
+                        HistoryPath sub = f_cover(degree - 1, lo, hi, 0, false)
+                        if array.size(sub.ids) > 0
+                            for subId in sub.ids
+                                if subId >= 0
+                                    array.push(queue, DrawTask.new(subId, 1, true))
+    int at = 0
+    while at < array.size(queue)
+        DrawTask task = array.get(queue, at)
+        int id = task.nodeId
+        int depth = task.depth
+        array.push(selectedIds, id)
+        HNode node = array.get(nodes, id)
+        if showParentABC or depth != 0 or node.family != "Zigzag"
+            f_drawNode(id, depth, alternate, task.parentUnresolved)
+        else if showUnknown and labelMode == "Audit"
+            for leg = 0 to node.stage - 1
+                if array.get(node.kids, leg) < 0
+                    Pivot endpoint = array.get(node.pts, leg + 1)
+                    string reasonKey = str.tostring(id) + ":" + str.tostring(leg)
+                    string reason = map.contains(childReasons, reasonKey) ? map.get(childReasons, reasonKey) : "UNKNOWN: no child candidate; child search disabled or unavailable"
+                    f_label(endpoint.ts, endpoint.p, "subdivision ?", color.gray, reason + "\nLargest ABC context hidden by display setting.", size.small, "missing:" + reasonKey, false)
+        if depth + 1 < visibleLayers and not alternate and (f_promotable(id) or (showProvisionalCandidates and depth < provisionalChildLayers))
+            for leg = 0 to array.size(node.kids) - 1
+                int child = array.get(node.kids, leg)
+                if child >= 0
+                    array.push(queue, DrawTask.new(child, depth + 1, task.parentUnresolved or not f_promotable(child)))
+        at += 1
+    selectedIds
+
+f_drawTree(int rootId, int rootDepth, array<int> selected) =>
+    array<DrawTask> queue = array.new<DrawTask>()
+    array.push(queue, DrawTask.new(rootId, rootDepth, false))
+    int cursor = 0
+    while cursor < array.size(queue)
+        DrawTask task = array.get(queue, cursor)
+        cursor += 1
+        HNode n = array.get(nodes, task.nodeId)
+        f_drawNode(task.nodeId, task.depth, false, false)
+        if not array.includes(selected, task.nodeId)
+            array.push(selected, task.nodeId)
+        if task.depth + 1 < visibleLayers and (f_promotable(task.nodeId) or (showProvisionalCandidates and task.depth < provisionalChildLayers))
+            for child in n.kids
+                if child >= 0
+                    array.push(queue, DrawTask.new(child, task.depth + 1, false))
+    selected
+
+f_drawAllGeometry(int degree) =>
+    array<int> selected = array.new_int()
+    // Render chronological, separated candidates at each degree. Always retain the
+    // newest candidate in each band so the latest completed swing cannot disappear.
+    for depth = 0 to visibleLayers - 1
+        int layerIndex = degree - depth
+        if layerIndex >= 0 and layerIndex < array.size(layers)
+            int lastEnd = -1
+            int accepted = 0
+            int latestId = -1
+            int latestEnd = -1
+            for id = 0 to array.size(nodes) - 1
+                HNode n = array.get(nodes, id)
+                if n.layer == layerIndex and n.stage >= 2 and (f_promotable(id) or showProvisionalCandidates)
+                    Pivot first = array.get(n.pts, 0)
+                    Pivot last = array.get(n.pts, n.stage)
+                    if f_visible(first.ts, last.ts)
+                        if last.x > latestEnd
+                            latestEnd := last.x
+                            latestId := id
+                        int span = math.max(1, last.x - first.x)
+                        bool separated = accepted == 0 or first.x >= lastEnd - math.max(2, int(span * 0.20))
+                        if separated and accepted < 80
+                            selected := f_drawTree(id, depth, selected)
+                            lastEnd := last.x
+                            accepted += 1
+            if latestId >= 0 and not array.includes(selected, latestId)
+                selected := f_drawTree(latestId, depth, selected)
+    selected
+
+f_drawLocal() =>
+    int degree = array.get(localInfo, 0)
+    array.set(localInfo, 2, 0)
+    if degree >= 0 and degree < array.size(layers)
+        int first = array.get(localInfo, 1)
+        Layer layer = array.get(layers, degree)
+        HistoryPath local = f_connectedTail(f_cover(degree, first, array.size(layer.pts) - 1, 0, true, true))
+        // Draw parent then supported children, preserving actual degree relationships.
+        array<DrawTask> queue = array.new<DrawTask>()
+        for id in local.ids
+            array.push(queue, DrawTask.new(id, 0, false))
+        int cursor = 0
+        while cursor < array.size(queue)
+            DrawTask task = array.get(queue, cursor)
+            cursor += 1
+            f_drawNode(task.nodeId, task.depth, false, false, true)
+            HNode n = array.get(nodes, task.nodeId)
+            if task.depth + 1 < visibleLayers and (f_promotable(task.nodeId) or (showProvisionalCandidates and task.depth < provisionalChildLayers))
+                for child in n.kids
+                    if child >= 0
+                        array.push(queue, DrawTask.new(child, task.depth + 1, false))
+        array.set(localInfo, 2, array.size(local.ids))
+        array.size(local.ids)
+    array.get(localInfo, 2)
+
+f_candidate(int id) =>
+    HNode n = array.get(nodes, id)
+    array<Pivot> p = n.pts
+    Pivot first = array.get(p, 0)
+    Pivot last = array.get(p, n.stage)
+    float one = array.get(p, 1).p
+    float t1 = na
+    float t2 = na
+    float inv = na
+    int nextDir = n.dir
+    string nextWave = "Unresolved"
+    if n.family == "Impulse"
+        if n.stage == 2
+            t1 := f_projection(last.p, first.p, one, 1.618)
+            t2 := f_projection(last.p, first.p, one, 2)
+            inv := first.p
+            nextWave := "3"
+        if n.stage == 3
+            float two = array.get(p, 2).p
+            t1 := f_projection(last.p, last.p, two, 0.236)
+            t2 := f_projection(last.p, last.p, two, 0.382)
+            float limit = one + n.dir
+            t1 := n.dir == 1 ? math.max(t1, limit) : math.min(t1, limit)
+            t2 := n.dir == 1 ? math.max(t2, limit) : math.min(t2, limit)
+            // Wave 4 may not overlap wave 1 territory; use the wave-1 endpoint.
+            inv := one
+            nextDir := -n.dir
+            nextWave := "4"
+        if n.stage == 4
+            float w1 = math.abs(one - first.p)
+            float w3 = math.abs(array.get(p, 3).p - array.get(p, 2).p)
+            t1 := f_projection(last.p, first.p, one, 1)
+            t2 := f_projection(last.p, first.p, one, 1.618)
+            if w3 < w1
+                float cap = last.p + n.dir * w3
+                t1 := n.dir == 1 ? math.min(t1, cap) : math.max(t1, cap)
+                t2 := n.dir == 1 ? math.min(t2, cap) : math.max(t2, cap)
+            float floor5 = array.get(p, 3).p + n.dir
+            t1 := n.dir == 1 ? math.max(t1, floor5) : math.min(t1, floor5)
+            if (t2 - array.get(p, 3).p) * n.dir <= 0
+                t1 := na
+                t2 := na
+            inv := last.p
+            nextWave := "5"
+        if n.stage == 5
+            t1 := f_projection(last.p, last.p, first.p, 0.236)
+            t2 := f_projection(last.p, last.p, first.p, 0.382)
+            inv := last.p
+            nextDir := -n.dir
+            nextWave := "A"
+    else if n.stage == 2
+        t1 := f_projection(last.p, first.p, one, 1)
+        t2 := f_projection(last.p, first.p, one, 1.618)
+        inv := first.p
+        nextWave := "C"
+    if n.family == "Zigzag" and n.stage == 3
+        // Conditional rebound after the assumed C low/high, not an asserted new impulse.
+        float b = array.get(p, 2).p
+        t1 := f_projection(last.p, last.p, b, 0.382)
+        t2 := f_projection(last.p, last.p, b, 0.618)
+        inv := last.p
+        nextDir := -n.dir
+        nextWave := "1/A rebound"
+    if syminfo.type == "crypto" and (t1 <= 0 or t2 <= 0)
+        t1 := na
+        t2 := na
+    string key = syminfo.tickerid + ":" + timeframe.period + ":v0.6.6-visible-count-fallback:" + measurement + ":" + f_key(n.layer, first.ts, last.ts, n.family) + ":" + str.tostring(n.stage)
+    for q in p
+        key += ":" + str.tostring(q.ts) + ":" + str.tostring(q.p)
+    Candidate candidate = Candidate.new(p, n.family, n.stage, n.layer, n.dir, n.merit, n.evidence, n.stage, t1, t2, inv, nextDir, nextWave, key, f_nodeTip(n))
+    // Confirm a proposed next leg by closing beyond the preceding confirmed
+    // pivot in its direction (e.g., W3 above W1, or rebound above B).
+    candidate.trigger := array.get(p, math.max(0, n.stage - 1)).p + nextDir
+    candidate
+
+// A completed impulse can also be the first leg of a larger corrective C wave.
+// This alternate reuses the observed low and projects a rebound (wave 2) before
+// a conditional larger wave 3. It is a recount hypothesis, never a second
+// independent probability estimate and never a replacement for parent evidence.
+f_recountAlternative(Candidate base) =>
+    Candidate c = Candidate.new(base.pts, base.family, base.stage, base.degree, base.dir, base.score, base.evidence, base.needed, base.t1, base.t2, base.inv, base.nextDir, "2/C?", base.key + ":larger-C-recount", base.rules)
+    Pivot first = array.get(base.pts, 0)
+    Pivot last = array.get(base.pts, base.stage)
+    float leg = math.abs(last.p - first.p)
+    c.t3 := last.p - base.nextDir * leg
+    c.t3Inv := base.t1 + base.nextDir
+    c.role := "Recount"
+    c.rules := "PARENT RECOUNT: the observed terminal low is treated as wave 1 of a larger C wave; the rebound is wave 2; the next downside leg is conditional wave 3. Rebound invalidation: " + f_str(c.inv) + ". Larger-C continuation invalidation after rebound: " + f_str(c.t3Inv) + ".\n" + base.rules
+    c
+
+f_alive(Candidate c) =>
+    Pivot last = array.get(c.pts, c.stage)
+    int age = asof - last.x
+    bool alive = age > 0 and age <= maxAge and not na(c.t1) and (asofClose - c.inv) * c.nextDir > 0
+    alive := alive and age <= array.size(closedHighs)
+    bool reached1 = false
+    bool reached2 = false
+    if alive
+        for k = 0 to age - 1
+            int index = array.size(closedHighs) - 1 - k
+            float adverse = c.nextDir == 1 ? array.get(closedLows, index) : array.get(closedHighs, index)
+            float favorable = c.nextDir == 1 ? array.get(closedHighs, index) : array.get(closedLows, index)
+            reached1 := reached1 or (favorable - c.t1) * c.nextDir >= 0
+            reached2 := reached2 or (favorable - c.t2) * c.nextDir >= 0
+            if (adverse - c.inv) * c.nextDir <= 0
+                alive := false
+                break
+    // Never recycle an already reached T1 as a fresh prediction after a rebound.
+    if reached2
+        alive := false
+    else if reached1
+        c.t1 := c.t2
+        c.nextWave += " continuation"
+        c.key += ":T2-continuation"
+    alive and (c.t1 - asofClose) * c.nextDir > 0
+
+// Active scenarios come from the selected history tree, never a separate latest-swing scan.
+f_scenarios(array<int> selectedIds) =>
+    array<Candidate> result = array.new<Candidate>()
+    array<int> used = array.new_int()
+    if array.size(selectedIds) > 0
+        for id in selectedIds
+            if id < 0
+                continue
+            HNode node = array.get(nodes, id)
+            Layer layer = array.get(layers, node.layer)
+            if node.hi == array.size(layer.pts) - 1 and not array.includes(used, node.layer) and f_promotable(id)
+                Candidate c = f_candidate(id)
+                if f_alive(c)
+                    array.push(result, c)
+                    array.push(used, node.layer)
+    result
+
+// Search recent audited local hypotheses; alternatives share a degree.
+// No fabricated opposite path and no frequency/probability claim.
+// Local candidates must retain Elliott evidence; distant higher-degree targets
+// do not enter the near-term pair. Fallback uses named structure hypotheses.
+f_mtfDirectionAllowed(int direction) =>
+    not useMtfAlignment or not mtfRequireAgreement or chartIsDailyOrHigher or (mtfHierarchyReady and mtfHierarchyAligned and direction == mtfDirection)
+
+f_mtfPathAllowed(Candidate c) =>
+    f_mtfDirectionAllowed(c.nextDir)
+
+f_mtfCandidateDetail(Candidate c) =>
+    string state = c.evidence >= c.needed and c.needed > 0 ? "EVIDENCE-GATED CANDIDATE" : "PROVISIONAL / GEOMETRY-ONLY CANDIDATE"
+    "LOCAL EW candidate ID: " + c.key + "\nFamily " + c.family + " · degree L" + str.tostring(c.degree + 1) + " · stage " + str.tostring(c.stage) + " · state " + state + "\nLeadership scope: " + mtfScope + "\nDaily structural parent ID: " + dailyParentId + " · " + f_mtfDirectionName(dailyParentDir) + "\n4H structural parent ID: " + fourHourParentId + " · " + f_mtfDirectionName(fourHourParentDir) + "\nLeader gate: " + (f_mtfPathAllowed(c) ? "PASS" : "BLOCKED — path suppressed") + ". Candidate close trigger: " + (c.nextDir == 1 ? "above " : "below ") + f_str(c.trigger) + ". Structural IDs are confirmed swing anchors, not completed Elliott parent-count IDs."
+
+f_pair(int degree) =>
+    array<Candidate> result = array.new<Candidate>()
+    int localDegree = forecastDegree > 0 ? math.min(forecastDegree - 1, array.size(layers) - 1) : array.get(localInfo, 0)
+    array.fill(forecastAudit, 0)
+    array.fill(mtfAudit, 0)
+    array.clear(forecastNodeIds)
+    HistoryPath forecastTree = f_selectTree(degree)
+    // Search only the selected count tree. Each candidate retains its ancestry.
+    // The selected pair stays at one degree; no fabricated twin.
+    array<int> eligible = array.new_int()
+    array<float> priorities = array.new_float()
+    if array.size(nodes) > 0
+        for id = 0 to array.size(nodes) - 1
+            HNode n = array.get(nodes, id)
+            Pivot end = array.get(n.pts, n.stage)
+            bool inScope = forecastDegree > 0 ? n.layer == localDegree : n.layer <= 3
+            if map.contains(selectedDepth, id) and inScope and array.get(n.pts, 0).x >= asof - localBars * 2 and asof - end.x <= maxAge
+                array.push(eligible, id)
+                // Latest endpoint first, existing geometry merit only breaks ties.
+                array.push(priorities, end.x + math.min(0.99, n.merit / 100000.0))
+    array<int> ranked = array.sort_indices(priorities, order.descending)
+    int chosenDegree = forecastDegree > 0 ? localDegree : -1
+    if array.size(ranked) > 0
+        for k = 0 to math.min(96, array.size(ranked)) - 1
+            int id = array.get(eligible, array.get(ranked, k))
+            HNode n = array.get(nodes, id)
+            if chosenDegree >= 0 and n.layer != chosenDegree
+                continue
+            array.set(forecastAudit, 0, array.get(forecastAudit, 0) + 1)
+            bool supported = map.contains(selectedSupported, id) ? map.get(selectedSupported, id) : false
+            if supported
+                Candidate c = f_candidate(id)
+                if f_alive(c)
+                    if not f_mtfPathAllowed(c)
+                        array.set(mtfAudit, mtfHierarchyReady and mtfHierarchyAligned ? 1 : 2, array.get(mtfAudit, mtfHierarchyReady and mtfHierarchyAligned ? 1 : 2) + 1)
+                    else if math.abs(c.t1 - asofClose) <= targetAtrLimit * asofAtr / syminfo.mintick
+                        bool duplicate = false
+                        for prior in result
+                            duplicate := duplicate or prior.key == c.key or (prior.nextDir == c.nextDir and math.abs(prior.t1 - c.t1) < 1 and math.abs(prior.inv - c.inv) < 1)
+                        if not duplicate
+                            chosenDegree := n.layer
+                            c.rules += "\nSelected chart count ancestry: " + map.get(selectedAncestry, id) + ". Chart-tree attachment does not establish an Elliott parent on another timeframe."
+                            c.rules += "\n" + f_mtfCandidateDetail(c)
+                            array.push(result, c)
+                            array.push(forecastNodeIds, id)
+                            array.set(mtfAudit, 0, array.get(mtfAudit, 0) + 1)
+                            if array.size(result) == 2
+                                break
+                        else
+                            array.set(forecastAudit, 4, array.get(forecastAudit, 4) + 1)
+                    else
+                        array.set(forecastAudit, 3, array.get(forecastAudit, 3) + 1)
+                else
+                    array.set(forecastAudit, 2, array.get(forecastAudit, 2) + 1)
+            else
+                array.set(forecastAudit, 1, array.get(forecastAudit, 1) + 1)
+    // No geometry-only fallback: failed lifetime, evidence, or ancestry checks
+    // leave the forecast empty. In particular a non-na target is not validity.
+    if structureFallback and array.size(closedHighs) >= rangeBars
+        float top = asofClose
+        float bottom = asofClose
+        for k = 0 to rangeBars - 1
+            int index = array.size(closedHighs) - 1 - k
+            top := math.max(top, array.get(closedHighs, index))
+            bottom := math.min(bottom, array.get(closedLows, index))
+        if top - bottom >= 2
+            // Replace incomplete Elliott pair with a matched conditional range pair.
+            array.clear(result)
+            array.clear(forecastNodeIds)
+            for side = 0 to 1
+                int dir = side == 0 ? 1 : -1
+                bool directionAllowed = f_mtfDirectionAllowed(dir)
+                if not directionAllowed
+                    continue
+                float trigger = dir == 1 ? top + 1 : bottom - 1
+                float inv = dir == 1 ? bottom - 1 : top + 1
+                float target = trigger + dir * (top - bottom) * 0.5
+                array<Pivot> pts = array.new<Pivot>()
+                array.push(pts, Pivot.new(asof, asofTime, asofClose, dir, asof))
+                string key = syminfo.tickerid + ":" + timeframe.period + ":v0.6.6-visible-count-fallback:structure:" + str.tostring(asofTime) + ":" + str.tostring(dir)
+                Candidate c = Candidate.new(pts, "Structure", 0, localDegree, dir, 0, 0, 0, target, target, inv, dir, dir == 1 ? "Breakout" : "Breakdown", key, "CONDITIONAL STRUCTURE, NOT an Elliott count. Requires a closed bar beyond the range trigger. Target = half the prior range beyond trigger; uncalibrated. Invalidation = one tick beyond opposite range boundary.")
+                c.trigger := trigger
+                array.push(result, c)
+    result
+
+f_rootDegree() =>
+    int degree = 0
+    for i = 0 to array.size(layers) - 1
+        if array.size(array.get(layers, i).pts) >= 6
+            degree := i
+        if array.size(array.get(layers, i).pts) <= 36
+            break
+    rootLayer > 0 ? math.min(rootLayer - 1, array.size(layers) - 1) : degree
+
+f_futureLabel(int ts, float p, string caption, color col, string tip) =>
+    // Forecast labels must remain visible beyond the rightmost loaded candle.
+    if array.size(tags) < 495 and not na(p)
+        array.push(tags, label.new(ts, f_price(p), caption, xloc=xloc.bar_time, style=labelBadges ? label.style_label_center : label.style_none, color=color.new(col, badgeTransparency), textcolor=col, size=f_textSize(forecastText), tooltip=tip))
+
+// Future drawing coordinates are trading-bar indices, not weekend timestamps.
+f_projectionLine(int a, float p, int b, float q, color col, string style) =>
+    if array.size(strokes) < 495 and a >= bar_index - 9999 and b <= bar_index + 500
+        array.push(strokes, line.new(a, f_price(p), b, f_price(q), xloc=xloc.bar_index, color=col, width=1, style=style))
+f_projectionLabel(int x, float p, string caption, color col, string tip) =>
+    if array.size(tags) < 495 and x >= bar_index - 9999 and x <= bar_index + 500
+        array.push(tags, label.new(x, f_price(p), caption, xloc=xloc.bar_index, style=label.style_none, textcolor=col, size=f_textSize(forecastText), tooltip=tip))
+
+f_forecast(Candidate c, int slot, bool alternate, int anchorTime, float origin, int anchorBar) =>
+    Pivot last = array.get(c.pts, c.stage)
+    int step = math.min(100, c.family == "Structure" ? math.max(futureBars, rangeBars * 2) : futureBars)
+    // Each scenario receives its own future lane so target and invalidation labels do not collide.
+    int laneShift = alternate ? math.max(8, int(step * 0.35)) : 0
+    int end = anchorBar + step + laneShift
+    color col = alternate ? secondPathColor : projectionColor
+    string pathTitle = alternate ? "Prediction: Path 2 (alternate)" : "Prediction: Path 1 (preferred)"
+    string levelPrefix = alternate ? "P2" : "P1"
+    string tip = "CONDITIONAL future path; all projected wave labels are unconfirmed. Horizontal spacing is schematic, NOT a timing forecast. Measurement: " + measurement + ".\n" + c.rules
+    if showLevels
+        f_projectionLine(anchorBar, c.t1, end, c.t1, color.new(col, 20), alternate ? line.style_dotted : line.style_solid)
+        if c.t2 != c.t1
+            f_projectionLine(anchorBar, c.t2, end, c.t2, color.new(col, 60), line.style_dotted)
+        f_projectionLine(anchorBar, c.inv, end, c.inv, invalidColor, line.style_dashed)
+        if not showPath
+            f_projectionLabel(end, c.t1, pathTitle + "\nTarget " + f_str(c.t1), col, tip)
+        f_projectionLabel(end, c.inv, levelPrefix + " invalidation\n" + f_str(c.inv), invalidColor, "Scenario pivot-completion invalidation, not an execution stop. Some levels invalidate assumed completion rather than the whole larger count.")
+    if showTrigger and not na(c.trigger)
+        bool triggerPassed = c.nextDir == 1 ? f_ticks(close) > c.trigger : f_ticks(close) < c.trigger
+        f_projectionLine(anchorBar, c.trigger, end, c.trigger, color.new(col, 35), line.style_dotted)
+        f_projectionLabel(end, c.trigger, levelPrefix + (triggerPassed ? " trigger confirmed\n" : " trigger · wait for close\n") + f_str(c.trigger), col, "Candidate-specific close trigger for this conditional path. Current chart close " + (triggerPassed ? "has crossed" : "has not crossed") + " the trigger. Target and invalidation remain scenario-specific; this is not a trade signal.")
+    if showPath and c.family == "Structure"
+        int middle = anchorBar + int(step / 2)
+        f_projectionLine(anchorBar, origin, middle, c.trigger, col, alternate ? line.style_dotted : line.style_dashed)
+        f_projectionLine(middle, c.trigger, end, c.t1, col, alternate ? line.style_dotted : line.style_dashed)
+        f_projectionLabel(middle, c.trigger, alternate ? "P2 trigger" : "P1 trigger", col, c.rules + "\nTrigger " + f_str(c.trigger))
+        f_projectionLabel(end, c.t1, pathTitle + "\n" + c.nextWave + " · Target " + f_str(c.t1), col, c.rules + "\nTarget " + f_str(c.t1))
+    if showPath and c.family != "Structure"
+        f_projectionLine(anchorBar, origin, end, c.t1, col, alternate ? line.style_dotted : line.style_dashed)
+        f_projectionLabel(end, c.t1, labelMode == "Audit" ? pathTitle + "\nL" + str.tostring(c.degree + 1) + " " + c.nextWave + "? · " + f_str(c.t1) : pathTitle + "\n" + str.replace_all(str.replace_all(c.nextWave, " continuation", ""), " rebound", "") + " · Target " + f_str(c.t1), col, levelPrefix + " · T1 " + f_str(c.t1) + " · T2 " + f_str(c.t2) + " · INV " + f_str(c.inv) + "\n" + tip)
+        // Additional path points are only drawn where their assumptions have a defined formula.
+        if c.family == "Impulse" and c.stage == 2 and not str.contains(c.nextWave, "continuation")
+            float four = f_projection(c.t1, c.t1, last.p, 0.382)
+            float limit = array.get(c.pts, 1).p + c.dir
+            four := c.dir == 1 ? math.max(four, limit) : math.min(four, limit)
+            float five = f_projection(four, array.get(c.pts, 0).p, array.get(c.pts, 1).p, 1)
+            if (five - c.t1) * c.dir > 0
+                f_projectionLine(end, c.t1, end + step, four, color.new(col, 25), line.style_dotted)
+                f_projectionLine(end + step, four, end + step * 2, five, color.new(col, 25), line.style_dotted)
+                f_projectionLabel(end + step, four, labelMode == "Audit" ? "4?" : "4", col, tip + "\nAssumes W3 ends at T1; W4 retraces 38.2%, strict non-overlap retained.")
+                f_projectionLabel(end + step * 2, five, labelMode == "Audit" ? "5?" : "5", col, tip + "\nAssumes the projected W4; W5 equals W1.")
+        if c.family == "Impulse" and c.stage == 3 and not str.contains(c.nextWave, "continuation")
+            float five = f_projection(c.t1, array.get(c.pts, 0).p, array.get(c.pts, 1).p, 1)
+            float w1 = math.abs(array.get(c.pts, 1).p - array.get(c.pts, 0).p)
+            float w3 = math.abs(array.get(c.pts, 3).p - array.get(c.pts, 2).p)
+            if w3 < w1
+                float cap = c.t1 + c.dir * w3
+                five := c.dir == 1 ? math.min(five, cap) : math.max(five, cap)
+            if (five - last.p) * c.dir > 0
+                f_projectionLine(end, c.t1, end + step, five, col, line.style_dotted)
+                f_projectionLabel(end + step, five, "5", col, tip + "\nAssumes projected W4 holds. W5 equality estimate, with W3-not-shortest cap; progression required.")
+        if c.family == "Impulse" and c.stage == 4 and not str.contains(c.nextWave, "continuation")
+            float a = f_projection(c.t1, c.t1, array.get(c.pts, 0).p, 0.236)
+            float b = f_projection(a, a, c.t1, 0.5)
+            f_projectionLine(end, c.t1, end + step, a, col, line.style_dotted)
+            f_projectionLine(end + step, a, end + step * 2, b, col, line.style_dotted)
+            f_projectionLabel(end + step, a, "A", col, tip + "\nConditional reaction after hypothetical W5; correction family is not established.")
+            f_projectionLabel(end + step * 2, b, "B", col, tip + "\nConditional 50% rebound of hypothetical A; not a confirmed zigzag.")
+        if c.family == "Impulse" and c.stage == 5 and c.role == "Recount" and not str.contains(c.nextWave, "continuation") and not na(c.t3)
+            int rebound = end + step
+            int continuation = end + step * 2
+            f_projectionLine(end, c.t1, rebound, c.t2, color.new(col, 25), line.style_dotted)
+            f_projectionLine(rebound, c.t2, continuation, c.t3, col, line.style_dotted)
+            f_projectionLabel(rebound, c.t2, "2?", col, tip + "\nRecount hypothesis: rebound treated as larger-C wave 2.")
+            f_projectionLabel(continuation, c.t3, "3?", col, tip + "\nRecount hypothesis: conditional larger-C wave 3 target; not a validated parent count.")
+        if c.family == "Impulse" and c.stage == 5 and c.role != "Recount" and not str.contains(c.nextWave, "continuation")
+            float b = f_projection(c.t1, c.t1, last.p, 0.5)
+            float cc = f_projection(b, last.p, c.t1, 1)
+            f_projectionLine(end, c.t1, end + step, b, color.new(col, 25), line.style_dotted)
+            f_projectionLine(end + step, b, end + step * 2, cc, color.new(col, 25), line.style_dotted)
+            f_projectionLabel(end + step, b, labelMode == "Audit" ? "B?" : "B", col, tip + "\nIllustrative zigzag only: B retraces 50% of hypothetical A. Other corrections remain possible.")
+            f_projectionLabel(end + step * 2, cc, labelMode == "Audit" ? "C?" : "C", col, tip + "\nIllustrative C equals hypothetical A; not a confirmed correction family.")
+    if showChannel and not alternate and c.family == "Impulse" and c.stage >= 3
+        Pivot a = array.get(c.pts, c.stage >= 4 ? 2 : 1)
+        Pivot b = array.get(c.pts, c.stage >= 4 ? 4 : 3)
+        Pivot parallel = array.get(c.pts, c.stage >= 4 ? 3 : 2)
+        float slope = (f_coord(b.p) - f_coord(a.p)) / (b.ts - a.ts)
+        f_line(a.ts, a.p, anchorTime + step * int(timeframe.in_seconds() * 1000), f_uncoord(f_coord(a.p) + slope * (anchorTime + step * int(timeframe.in_seconds() * 1000) - a.ts)), color.new(primaryColor, 70), line.style_dashed)
+        f_line(parallel.ts, parallel.p, anchorTime + step * int(timeframe.in_seconds() * 1000), f_uncoord(f_coord(parallel.p) + slope * (anchorTime + step * int(timeframe.in_seconds() * 1000) - parallel.ts)), color.new(primaryColor, 70), line.style_dashed)
+
+f_event(string eventName, Candidate c) =>
+    '{"indicator":"Batty - Elliot Wave","version":"0.4.2-search-repair","event":"' + eventName + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","known_at":' + str.tostring(asofTime) + ',"pattern_id":"' + c.key + '","target":' + str.tostring(f_price(c.t1)) + ',"invalidation":' + str.tostring(f_price(c.inv)) + ',"provisional":true,"score_type":"heuristic_not_probability","scenario_family":"' + c.family + '","trigger":' + (na(c.trigger) ? 'null' : str.tostring(f_price(c.trigger))) + '}'
+
+float atr = ta.atr(14)
+float pivotHi = ta.pivothigh(baseLen, baseLen)
+float pivotLo = ta.pivotlow(baseLen, baseLen)
+bool eligible = barstate.isconfirmed and time >= startTime and (endTime == 0 or time_close <= endTime) and chart.is_standard
+bool countChanged = false
+bool targetHit = false
+bool invalidated = false
+if eligible
+    if na(firstLoaded)
+        firstLoaded := time
+    analyzedBars += 1
+    array.push(closedHighs, f_ticks(high))
+    array.push(closedLows, f_ticks(low))
+    if array.size(closedHighs) > 1000
+        array.shift(closedHighs)
+        array.shift(closedLows)
+    asof := bar_index
+    asofTime := time_close
+    asofOpen := time
+    asofClose := f_ticks(close)
+    asofAtr := atr
+    bool dual = not na(pivotHi) and not na(pivotLo)
+    dualPivots += dual ? 1 : 0
+    if not dual and time[baseLen] >= startTime
+        if not na(pivotHi)
+            f_append(fast, Pivot.new(bar_index - baseLen, time[baseLen], f_ticks(pivotHi), 1, bar_index))
+        if not na(pivotLo)
+            f_append(fast, Pivot.new(bar_index - baseLen, time[baseLen], f_ticks(pivotLo), -1, bar_index))
+    if array.size(fast) > pivotCapacity
+        array.shift(fast)
+        dropped += 1
+    // Realtime observations are frozen; history reclassification cannot erase an outcome.
+    if array.size(observations) > 0
+        for o in observations
+            if o.state == "Open" and bar_index > o.issued
+                bool hit = o.dir == 1 ? f_ticks(high) >= o.target : f_ticks(low) <= o.target
+                bool fail = o.dir == 1 ? f_ticks(low) <= o.invalid : f_ticks(high) >= o.invalid
+                if hit or fail or bar_index >= o.expires
+                    o.state := hit and fail ? "Ambiguous" : hit ? "Target first" : fail ? "Invalidation first" : "Expired"
+                    resolved += o.state == "Target first" ? 1 : 0
+                    failed += o.state == "Invalidation first" ? 1 : 0
+                    uncertain += o.state == "Ambiguous" ? 1 : 0
+                    expired += o.state == "Expired" ? 1 : 0
+                    targetHit := targetHit or o.state == "Target first"
+                    invalidated := invalidated or o.state == "Invalidation first"
+                    lastOutcome := o.state
+                    if sendAlerts
+                        alert('{"indicator":"Batty - Elliot Wave","version":"0.4.2-search-repair","event":"' + o.state + '","pattern_id":"' + o.key + '","time":' + str.tostring(time_close) + '}', alert.freq_all)
+
+// Capture at the requested historical/live close, BEFORE later bars are ingested.
+// An empty capture remains empty: later data cannot repair a failed prediction.
+if eligible and lockPaths and lockTime > 0 and not lockAttempted and time_close >= lockTime and firstLoaded <= lockTime
+    lockAttempted := true
+    actualLockTime := time_close
+    f_buildHistory()
+    if array.size(layers) > 0
+        int lockDegree = f_rootDegree()
+        f_prepareParents(lockDegree)
+        f_prepareLocal()
+        f_refreshEvidence(lockDegree)
+        f_selectLocal()
+        HistoryPath lockHistory = f_cover(lockDegree, 0, array.size(array.get(layers, lockDegree).pts) - 1, pick - 1, true)
+        array<Candidate> pairAtLock = f_pair(lockDegree)
+        for c in pairAtLock
+            array.push(frozen, FrozenPath.new(c, asofTime, bar_index, asofClose, bar_index + horizon, c.family == "Structure" ? "Waiting trigger" : "Open", 0.0, 0.0))
+            if sendAlerts and barstate.isrealtime
+                alert(f_event("Locked path", c), alert.freq_all)
+
+// Closed-bar observations; same-bar target/invalidation order is unknowable.
+// Excursions include the entire terminal bar, not an assumed execution fill.
+if barstate.isconfirmed and chart.is_standard
+    for fp in frozen
+        bool wasWaiting = fp.state == "Waiting trigger"
+        if bar_index > fp.issued and wasWaiting
+            Candidate c = fp.candidate
+            bool triggerClose = (f_ticks(close) - c.trigger) * c.nextDir > 0
+            bool invalidTouch = (c.nextDir == 1 ? f_ticks(low) <= c.inv : f_ticks(high) >= c.inv)
+            bool targetTouch = (c.nextDir == 1 ? f_ticks(high) >= c.t1 : f_ticks(low) <= c.t1)
+            if invalidTouch or targetTouch or bar_index >= fp.expires
+                fp.state := triggerClose and (invalidTouch or targetTouch) ? "Ambiguous trigger bar" : invalidTouch ? "Cancelled before trigger" : targetTouch ? "Target before confirmed trigger" : "Expired untriggered"
+            else if triggerClose
+                fp.state := "Open"
+        if bar_index > fp.issued and fp.state == "Open" and not wasWaiting
+            Candidate c = fp.candidate
+            float favorable = c.nextDir == 1 ? f_ticks(high) - fp.origin : fp.origin - f_ticks(low)
+            float adverse = c.nextDir == 1 ? fp.origin - f_ticks(low) : f_ticks(high) - fp.origin
+            fp.mfe := math.max(fp.mfe, favorable)
+            fp.mae := math.max(fp.mae, adverse)
+            bool hit = c.nextDir == 1 ? f_ticks(high) >= c.t1 : f_ticks(low) <= c.t1
+            bool fail = c.nextDir == 1 ? f_ticks(low) <= c.inv : f_ticks(high) >= c.inv
+            if hit or fail or bar_index >= fp.expires
+                fp.state := hit and fail ? "Ambiguous" : hit ? "Target first" : fail ? "Invalidation first" : "Expired"
+                if sendAlerts and barstate.isrealtime
+                    alert(f_event("Locked " + fp.state, c), alert.freq_all)
+
+// Full history is searched on dataset initialization and each realtime close / replay step.
+// No viewport value enters ingestion, reduction, candidate rules, ranking or forecasting.
+bool rebuild = barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed)
+if rebuild and not na(asof)
+    f_buildHistory()
+    drawingForecast := false
+    while array.size(strokes) > 0
+        line.delete(array.pop(strokes))
+    while array.size(tags) > 0
+        label.delete(array.pop(tags))
+    array.clear(labelKeys)
+    array.clear(labelSlots)
+    map.clear(labelLanes)
+    array.clear(auditLogged)
+    array.fill(drawStats, 0)
+    usedVisibleFallback := false
+    table.clear(panel, 0, 0, 1, 15)
+    int degree = 0
+    if array.size(layers) > 0
+        for i = 0 to array.size(layers) - 1
+            if array.size(array.get(layers, i).pts) >= 6
+                degree := i
+            if array.size(array.get(layers, i).pts) <= 36
+                break
+        degree := rootLayer > 0 ? math.min(rootLayer - 1, array.size(layers) - 1) : degree
+        Layer root = array.get(layers, degree)
+        int n = array.size(root.pts)
+        f_prepareParents(degree)
+        f_prepareLocal()
+        f_refreshEvidence(degree)
+        f_selectLocal()
+        HistoryPath primary = f_cover(degree, 0, n - 1, pick - 1, true)
+        int covered = 0
+        int missing = 0
+        if array.size(primary.ids) > 0
+            for i = 0 to array.size(primary.ids) - 1
+                if array.get(primary.ids, i) >= 0
+                    covered += array.get(primary.rights, i) - array.get(primary.lefts, i)
+                else
+                    missing += 1
+        coverageSummary := str.tostring(covered) + "/" + str.tostring(n - 1) + " legs · " + str.tostring(missing) + " unresolved"
+        coverageDetails := "Coverage is not accuracy. L" + str.tostring(degree + 1) + "; evidence gate " + (requireEvidence ? "ON; required child generations " + str.tostring(evidenceDepth) : "OFF: geometric hypotheses only") + ".\n" + str.tostring(analyzedBars) + " closed bars. Counts can revise. Hover wave symbols for per-leg evidence."
+        HistoryPath displayPath = f_selectTree(degree)
+        array<int> chosenNodes = f_drawHistory(displayPath, degree, false)
+        if historyRender == "All candidate swings"
+            f_drawAllGeometry(degree)
+        // If the selected evidence-gated roots end before the visible window,
+        // show bounded geometric candidates in that window as provisional counts.
+        // These diagnostic nodes never enter selectedDepth/selectedSupported,
+        // so this display fallback cannot generate forecasts or alerts.
+        if array.get(drawStats, 0) == 0 and showUnresolvedContext and showProvisionalCandidates
+            array<int> fallbackNodes = f_drawAllGeometry(degree)
+            usedVisibleFallback := array.size(fallbackNodes) > 0
+        bool unresolvedLocalFallback = array.get(localInfo, 0) < 0
+        coverageSummary += array.get(localInfo, 0) < 0 ? " · no supported local run" : " · local " + str.tostring(array.get(localInfo, 2))
+        coverageDetails += "\nLocal candidates audited/supported: " + str.tostring(array.get(localDiagnostics, 0)) + "/" + str.tostring(array.get(localDiagnostics, 1)) + "; selected scale " + str.tostring(array.get(localInfo, 0) + 1) + ".\nLocal run requires subdivision evidence; unresolved gaps are not bridged. Children retain their own evidence disclosure."
+        if unresolvedLocalFallback
+            coverageDetails += "\nGray parent geometry is displayed because no supported local run exists; ? labels are provisional and do not certify subdivisions."
+
+        // Drawings, alerts and observations share exactly the same eligible pair.
+        livePair := f_pair(degree)
+        array<Candidate> scenarios = array.copy(livePair)
+        drawingForecast := true
+        if not lockPaths and f_visible(asofOpen, asofOpen)
+            for i = 0 to array.size(livePair) - 1
+                if array.size(livePair) > 0
+                    f_forecast(array.get(livePair, i), i, i == 1, asofTime, asofClose, asof)
+        drawingForecast := false
+        Pivot tailPivot = array.get(root.pts, n - 1)
+        if showDeveloping and tailPivot.ts < asofTime and f_visible(tailPivot.ts, asofTime)
+            string tailCaption = labelMode == "Audit" ? "developing ?" : "?"
+            f_label(asofTime, asofClose, tailCaption, localColor, "Developing tail: the latest closed price has not formed a confirmed pivot. It is shown provisionally and must not be treated as a completed Elliott wave until a pivot confirms.", f_textSize(childText), "developing-provisional", true)
+        if compareAlt
+            HistoryPath alt = f_cover(degree, 0, n - 1, pick == 1 ? 1 : 0, true)
+            array<int> altNodes = f_drawHistory(alt, degree, true)
+            array<Candidate> altScenarios = f_scenarios(altNodes)
+
+        Pivot first = array.get(root.pts, 0)
+        Pivot last = array.get(root.pts, n - 1)
+        if labelMode == "Audit"
+            f_label(first.ts, first.p, "START", primaryColor, "First retained analysis pivot. Prior bars may be warmup. Changing display dates does not change this anchor.", size.tiny, "start", true)
+        if showDeveloping and last.ts < asofTime and f_visible(last.ts, asofTime)
+            f_line(last.ts, last.p, asofTime, asofClose, color.new(color.gray, 45), line.style_dotted)
+            if labelMode == "Audit"
+                f_label(asofTime, asofClose, "developing", color.gray, "Last confirmed pivot to the latest closed-bar close. This is NOT a confirmed swing or assigned Elliott wave.", size.tiny, "developing", true)
+        string key = array.size(scenarios) > 0 ? array.get(scenarios, 0).key : ""
+        countChanged := key != lastPrimary
+        lastPrimary := key
+        // Do not backfill a performance statistic from retrospective historical counts.
+        if barstate.isrealtime and barstate.isconfirmed and array.size(scenarios) > 0
+            Candidate c = array.get(scenarios, 0)
+            if countChanged and sendAlerts
+                alert(f_event("Selected scenario changed", c), alert.freq_all)
+            if not array.includes(issuedKeys, c.key) and array.size(issuedKeys) < 2000
+                array.push(observations, Observation.new(c.key, bar_index, c.t1, c.inv, c.nextDir, bar_index + horizon, "Open"))
+                array.push(issuedKeys, c.key)
+        if showPanel and detailedPanel
+            color fg = chart.fg_color
+            table.cell(panel, 0, 0, "Batty - Elliot Wave", text_color=primaryColor, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 0, "v0.6.6-visible-count-fallback · PROVISIONAL", text_color=color.orange, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 1, syminfo.ticker + " · " + timeframe.period, text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 1, str.tostring(analyzedBars) + " closed bars · " + measurement, text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 2, "Analyzed pivot range", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 2, str.format_time(first.ts, "yyyy-MM-dd") + " → " + str.format_time(last.ts, "yyyy-MM-dd"), text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 3, "Cutoff / layers", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 3, str.format_time(asofTime, "yyyy-MM-dd HH:mm") + " / " + str.tostring(array.size(layers)), text_color=fg, text_size=f_textSize(panelText))
+            for slot = 0 to 3
+                HistoryPath path = slot == pick - 1 ? primary : f_cover(degree, 0, n - 1, slot, true)
+                int gaps = 0
+                int counted = 0
+                if array.size(path.ids) > 0
+                    for i = 0 to array.size(path.ids) - 1
+                        if array.get(path.ids, i) < 0
+                            gaps += 1
+                        else
+                            counted += array.get(path.rights, i) - array.get(path.lefts, i)
+                table.cell(panel, 0, slot + 4, slot == 0 ? "Primary" : "Alt " + str.tostring(slot), text_color=slot == pick - 1 ? primaryColor : fg, text_size=f_textSize(panelText))
+                table.cell(panel, 1, slot + 4, path.merit <= -1e11 ? "Not available" : (gaps > 0 ? "INCOMPLETE · " : requireEvidence ? "Evidence-gated · " : "Geometry only · ") + str.tostring(counted) + "/" + str.tostring(n - 1) + " root legs · " + str.tostring(gaps) + " unresolved", text_color=slot == pick - 1 ? primaryColor : fg, text_size=f_textSize(panelText))
+            for i = 0 to 2
+                string desc = "No admissible forward scenario"
+                if array.size(scenarios) > i
+                    Candidate c = array.get(scenarios, i)
+                    desc := "L" + str.tostring(c.degree + 1) + " " + c.family + " → " + c.nextWave + "? " + (c.nextDir == 1 ? "↑ " : "↓ ") + f_str(c.t1) + " · INV " + f_str(c.inv) + " · children " + str.tostring(c.evidence) + "/" + str.tostring(c.needed)
+                table.cell(panel, 0, i + 8, i == 0 ? "Next waves" : "Sublayer", text_color=fg, text_size=f_textSize(panelText))
+                table.cell(panel, 1, i + 8, desc, text_color=i < array.size(scenarios) ? projectionColor : color.gray, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 11, "Drawn / hidden labels", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 11, str.tostring(array.size(tags)) + " / " + str.tostring(array.get(drawStats, 1)) + " · layers " + str.tostring(array.get(drawStats, 3)) + "/" + str.tostring(visibleLayers) + " shown/requested", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 12, "Search bounds", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 12, dropped > 0 ? "TRUNCATED: " + str.tostring(dropped) + " pivots dropped" : "Child +" + str.tostring(array.get(childStats, 1)) + " / unresolved " + str.tostring(array.get(childStats, 2)) + (array.get(childStats, 3) > 0 ? " CHILD CAPPED · " : " · ") + "Regroup +" + str.tostring(array.get(searchStats, 3)) + " · rejects B/G " + str.tostring(array.get(searchStats, 1)) + "/" + str.tostring(array.get(searchStats, 2)) + " · work " + str.tostring(array.get(searchStats, 0)) + (array.get(searchStats, 4) > 0 or array.get(searchStats, 5) > 0 ? " · CAPPED" : " · bounded search"), text_color=dropped > 0 ? invalidColor : fg, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 13, "Realtime T / I / ? / E", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 13, str.tostring(resolved) + " / " + str.tostring(failed) + " / " + str.tostring(uncertain) + " / " + str.tostring(expired), text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 0, 14, "MTF parent stack", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 14, showMtfContext ? mtfSummary : "Hidden", text_color=useMtfAlignment and mtfHierarchyReady and mtfHierarchyAligned ? evidenceColor : useMtfAlignment ? color.orange : fg, text_size=f_textSize(panelText), tooltip=mtfDetail)
+            table.cell(panel, 0, 15, "Forecast evidence", text_color=fg, text_size=f_textSize(panelText))
+            table.cell(panel, 1, 15, "Uncalibrated · no win probability", text_color=color.orange, text_size=f_textSize(panelText))
+
+            if not detailedPanel
+                table.clear(panel, 0, 2, 1, 2)
+                for slot = 0 to 3
+                    if slot != pick - 1
+                        table.clear(panel, 0, slot + 4, 1, slot + 4)
+                table.clear(panel, 0, 13, 1, 13)
+
+if rebuild and (not chart.is_standard or na(asof)) and showPanel
+    table.cell(panel, 0, 0, "Batty - Elliot Wave", text_color=primaryColor)
+    table.cell(panel, 1, 0, not chart.is_standard ? "Use standard OHLC candles" : "No closed bars in analysis range", text_color=invalidColor)
+
+alertcondition(countChanged and barstate.isrealtime, "Selected scenario changed", "Batty - Elliot Wave: selected history scenario changed at close.")
+alertcondition(targetHit, "Realtime target first", "Batty - Elliot Wave: frozen realtime forecast target reached first.")
+alertcondition(invalidated, "Realtime invalidation first", "Batty - Elliot Wave: frozen realtime forecast invalidated first.")
+
+// Redraw from frozen values, never from the new latest close or revised history.
+if rebuild and lockPaths
+    drawingForecast := true
+    for i = 0 to array.size(frozen) - 1
+        if array.size(frozen) > 0
+            FrozenPath fp = array.get(frozen, i)
+            f_forecast(fp.candidate, i, i == 1, fp.anchorTime, fp.origin, fp.issued)
+
+if rebuild and showPanel and detailedPanel and showLockResults
+    string lockStatus = not lockPaths ? "LIVE · revises at close" : lockTime == 0 ? "Choose a lock time" : not lockAttempted ? "Waiting / lock outside loaded range" : "LOCKED " + str.format_time(actualLockTime, "yyyy-MM-dd HH:mm")
+    table.cell(panel, 0, 8, "Predictions", text_color=projectionColor, text_size=f_textSize(panelText))
+    table.cell(panel, 1, 8, lockStatus, text_color=projectionColor, text_size=f_textSize(panelText))
+    for i = 0 to 1
+        string result = lockPaths ? "No admissible path captured" : "Live conditional scenario; not measured"
+        if not lockPaths
+            result := "No admissible / evidence-supported alternative at this degree"
+            if array.size(livePair) > i
+                Candidate c = array.get(livePair, i)
+                result := "L" + str.tostring(c.degree + 1) + " " + c.family + " → " + c.nextWave + " · T " + f_str(c.t1) + " / INV " + f_str(c.inv)
+        if array.size(frozen) > i
+            FrozenPath fp = array.get(frozen, i)
+            Candidate c = fp.candidate
+            float risk = math.abs(fp.origin - c.inv)
+            result := fp.state + " · " + (c.nextDir == 1 ? "UP" : "DOWN") + " · T " + f_str(c.t1) + " / INV " + f_str(c.inv) + " · MFE/MAE " + str.tostring(fp.mfe / risk, "#.##") + "/" + str.tostring(fp.mae / risk, "#.##") + "R"
+        table.cell(panel, 0, i + 9, "P" + str.tostring(i + 1) + " · first target", text_color=projectionColor, text_size=f_textSize(panelText))
+        table.cell(panel, 1, i + 9, result, text_color=projectionColor, text_size=f_textSize(panelText))
+    table.cell(panel, 1, 15, "Uncalibrated · first target ≠ full path success", text_color=color.orange, text_size=f_textSize(panelText))
+
+if rebuild and showPanel and detailedPanel and not na(asof)
+    string auditSummary = "Parents " + str.tostring(array.get(promotionStats, 1)) + "/" + str.tostring(array.get(promotionStats, 0)) + " supported to depth " + str.tostring(evidenceDepth) + " · " + str.tostring(array.get(promotionStats, 2)) + " unresolved"
+    auditSummary += array.get(promotionStats, 3) > 0 ? " · PARENT SEARCH CAPPED" : ""
+    table.cell(panel, 0, 13, requireEvidence ? "Evidence gate ON" : "GEOMETRY ONLY", text_color=requireEvidence ? primaryColor : color.orange, text_size=f_textSize(panelText))
+    table.cell(panel, 1, 13, auditSummary, text_color=projectionColor, text_size=f_textSize(panelText))
+if rebuild and showRejectionAudit
+    log.info("Forecast candidates=" + str.tostring(array.get(forecastAudit, 0)) + "; unsupported=" + str.tostring(array.get(forecastAudit, 1)) + "; inactive=" + str.tostring(array.get(forecastAudit, 2)) + "; distant=" + str.tostring(array.get(forecastAudit, 3)) + "; duplicate=" + str.tostring(array.get(forecastAudit, 4)))
+    log.info("SAMPLED anchor rejects (maximum 30); search is bounded, not exhaustive")
+    for entry in rejectionAudit
+        log.info(entry)
+    int localPrinted = 0
+    for id in map.keys(supportReasons)
+        HNode n = array.get(nodes, id)
+        if localPrinted < 24 and n.layer <= 3 and array.get(n.pts, n.stage).x >= asof - localBars
+            string reason = map.get(supportReasons, id)
+            log.info("LOCAL " + f_failureCode(reason) + " L" + str.tostring(n.layer + 1) + " " + n.family + " " + str.format_time(array.get(n.pts, 0).ts, "yyyy-MM-dd HH:mm") + " to " + str.format_time(array.get(n.pts, n.stage).ts, "yyyy-MM-dd HH:mm") + " | " + reason)
+            localPrinted += 1
+    int printed = 0
+    for id in map.keys(supportReasons)
+        if printed < 20 and not map.get(supportedNodes, id)
+            HNode n = array.get(nodes, id)
+            if n.layer == f_rootDegree()
+                log.info(n.family + " parent " + str.format_time(array.get(n.pts, 0).ts, "yyyy-MM-dd") + " to " + str.format_time(array.get(n.pts, n.stage).ts, "yyyy-MM-dd") + ": " + map.get(supportReasons, id))
+                printed += 1
+
+// Four text rows replace the diagnostic grid in the default view.
+// Uncertainty appears once; individual wave labels contain only wave symbols.
+if rebuild and informationMode == "Summary"
+    table.clear(panel, 0, 0, 1, 15)
+    bool capped = dropped > 0 or array.get(promotionStats, 3) > 0 or array.get(childStats, 3) > 0 or array.get(searchStats, 4) > 0 or array.get(searchStats, 5) > 0
+    string headline = "BATTY · " + (requireEvidence ? "PROVISIONAL" : "GEOMETRY ONLY") + (capped ? " · LIMITED SEARCH" : "")
+    string mode = lockPaths ? (lockTime == 0 ? "Select lock time" : not lockAttempted ? "Lock pending / outside data" : "Locked " + str.format_time(actualLockTime, "MMM dd HH:mm")) : "Live scenarios"
+    table.cell(panel, 0, 0, headline, text_color=primaryColor, text_size=f_textSize(panelText), text_halign=text.align_left, tooltip="v0.6.6-visible-count-fallback. All wave symbols are provisional. Cyan Path 1 and orange Path 2 are conditional, uncalibrated forecasts; not probability estimates. " + mode)
+    table.cell(panel, 0, 1, not chart.is_standard ? "Use standard OHLC candles" : na(asof) ? "No closed bars in range" : coverageSummary, text_color=chart.fg_color, text_size=f_textSize(panelText), text_halign=text.align_left, tooltip=coverageDetails + (capped ? "\nA history or search cap was reached. Unsearched alternatives may exist; see Detailed mode or Pine Logs." : ""))
+    string renderSummary = "Rendered " + str.tostring(array.get(drawStats, 0)) + " count segments · " + str.tostring(array.get(drawStats, 3)) + " layers" + (usedVisibleFallback ? " · provisional visible fallback" : "")
+    if array.get(drawStats, 0) == 0
+        renderSummary += showUnresolvedContext ? " · no drawable pattern in display range" : " · provisional history hidden in settings"
+    table.cell(panel, 0, 5, renderSummary, text_color=array.get(drawStats, 0) == 0 ? color.orange : chart.fg_color, text_size=f_textSize(panelText), text_halign=text.align_left)
+    if showMtfContext
+        table.cell(panel, 0, 4, mtfSummary, text_color=useMtfAlignment and mtfHierarchyReady and mtfHierarchyAligned ? evidenceColor : useMtfAlignment ? color.orange : chart.fg_color, text_size=f_textSize(panelText), text_halign=text.align_left, tooltip=mtfDetail)
+    for i = 0 to 1
+        string missing = useMtfAlignment and mtfRequireAgreement and (not mtfHierarchyReady or not mtfHierarchyAligned) ? "HTF filter blocked" : array.get(forecastAudit, 0) == 0 ? "no recent candidate" : array.get(forecastAudit, 1) == array.get(forecastAudit, 0) ? "subdivision unresolved" : array.get(forecastAudit, 2) > 0 ? "expired / invalidated" : array.get(forecastAudit, 3) > 0 ? "target beyond ATR limit" : "no distinct alternative"
+        string caption = "P" + str.tostring(i + 1) + " · " + missing
+        string detail = "No eligible same-degree scenario. No prediction is fabricated. " + mode + "\nCandidates " + str.tostring(array.get(forecastAudit, 0)) + "; inactive " + str.tostring(array.get(forecastAudit, 2)) + "; distant " + str.tostring(array.get(forecastAudit, 3)) + "; duplicate " + str.tostring(array.get(forecastAudit, 4))
+        Candidate c = na
+        if lockPaths and array.size(frozen) > i
+            FrozenPath fp = array.get(frozen, i)
+            c := fp.candidate
+            float risk = math.abs(fp.origin - c.inv)
+            detail := mode + " · " + fp.state + "\nMFE / MAE: " + str.tostring(fp.mfe / risk, "#.##") + " / " + str.tostring(fp.mae / risk, "#.##") + "R. First-target outcome only, not complete path success."
+            caption := "P" + str.tostring(i + 1) + " · " + fp.state
+        else if not lockPaths and array.size(livePair) > i
+            c := array.get(livePair, i)
+            caption := "P" + str.tostring(i + 1) + " · " + (c.family == "Structure" ? "IF " : c.role == "Recount" ? "EW RECOUNT " : "EW ") + (c.nextDir == 1 ? "UP" : "DOWN")
+        if not na(c)
+            caption += " · " + f_str(c.t1) + " / INV " + f_str(c.inv)
+            detail += (c.family == "Structure" ? "\nSTRUCTURE ONLY; close trigger " + f_str(c.trigger) : "") + "\nL" + str.tostring(c.degree + 1) + " " + c.family + "; next " + c.nextWave + "; T2 " + f_str(c.t2) + "\n" + c.rules
+        table.cell(panel, 0, i + 2, caption, text_color=i == 0 ? projectionColor : secondPathColor, text_size=f_textSize(panelText), text_halign=text.align_left, tooltip=detail)

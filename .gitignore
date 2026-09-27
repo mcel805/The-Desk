@@ -1,0 +1,22 @@
+# Local review surfaces and generated build artifacts; files remain on disk.
+.lavish/
+tmp/
+output/
+research/
+dashboard/data/
+dashboard/assets/*.png
+indicators/**/validation/
+indicators/**/releases/
+docs/RESEARCH-REPORT.md
+docs/elliott-indicator/MYM_*-AUDIT*.md
+
+# Machine-local metadata, secrets, private databases, and logs.
+.DS_Store
+.env
+.env.*
+**/.env
+**/.env.*
+*.sqlite
+*.sqlite3
+*.db
+*.log

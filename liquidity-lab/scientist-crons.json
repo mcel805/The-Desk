@@ -1,0 +1,77 @@
+{
+  "version": "scientist-crons-v0.1",
+  "timezone": "America/Chicago",
+  "assets": ["MYM", "MCL", "MGC"],
+  "session": {
+    "open": "17:00",
+    "close": "16:00",
+    "carry_beyond_close": false,
+    "holiday_calendar_required": true
+  },
+  "jobs": [
+    {
+      "id": "prepare_next_session",
+      "cron": "10 16 * * 0-4",
+      "step": "preparation",
+      "phase": "pre_open",
+      "expected_offset_minutes": -50,
+      "action": "Open or verify the next CME trade-date run for every tracked asset and snapshot eligible levels."
+    },
+    {
+      "id": "research_next_session",
+      "cron": "20 16 * * 0-4",
+      "step": "research",
+      "phase": "pre_open",
+      "expected_offset_minutes": -40,
+      "action": "Verify that a cited Lead Researcher packet exists for every asset run."
+    },
+    {
+      "id": "freeze_predictions",
+      "cron": "40 16 * * 0-4",
+      "step": "prediction",
+      "phase": "pre_open",
+      "expected_offset_minutes": -20,
+      "action": "Freeze the complete eligible-level prediction packet before the Globex open."
+    },
+    {
+      "id": "open_recording_window",
+      "cron": "55 16 * * 0-4",
+      "step": "recording",
+      "phase": "pre_open",
+      "expected_offset_minutes": -5,
+      "action": "Confirm immutable forecast hashes and mark the session recorder ready."
+    },
+    {
+      "id": "force_session_flat",
+      "cron": "0 16 * * 1-5",
+      "step": "recording",
+      "phase": "post_close",
+      "expected_offset_minutes": 0,
+      "action": "Resolve every remaining paper position as a session-close timeout and verify no carry."
+    },
+    {
+      "id": "evaluate_session",
+      "cron": "5 16 * * 1-5",
+      "step": "evaluation",
+      "phase": "post_close",
+      "expected_offset_minutes": 5,
+      "action": "Score the frozen cohort by asset, timeframe, and session disposition."
+    },
+    {
+      "id": "publish_daily_release",
+      "cron": "15 16 * * 1-5",
+      "step": "journal",
+      "phase": "post_close",
+      "expected_offset_minutes": 15,
+      "action": "Publish the detailed daily release with clickable outputs and audit narrative."
+    },
+    {
+      "id": "propose_daily_learning",
+      "cron": "25 16 * * 1-5",
+      "step": "daily_learning",
+      "phase": "post_close",
+      "expected_offset_minutes": 25,
+      "action": "Record one evidence-bound learning proposal without changing frozen history."
+    }
+  ]
+}

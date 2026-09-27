@@ -1,0 +1,53 @@
+{
+  "agent": "Chart Technician",
+  "report_version": 1,
+  "status": "insufficient_evidence",
+  "as_of": null,
+  "instrument": null,
+  "contract": null,
+  "data_source": null,
+  "timezone_and_session": null,
+  "adjustment_and_roll_convention": null,
+  "last_completed_bar": null,
+  "method": null,
+  "weekly_context": null,
+  "daily_count": null,
+  "four_hour_refinement": null,
+  "pivots": [],
+  "rule_checks": [],
+  "scenarios": [
+    {
+      "role": "primary",
+      "count": null,
+      "supporting_evidence": [],
+      "contradictory_evidence": [],
+      "trigger": null,
+      "invalidation": null,
+      "target_zones": [],
+      "projection_anchors_and_calculations": [],
+      "horizon_or_expiry": null,
+      "confidence_and_reasons": null,
+      "probability": null,
+      "calibration_record": null
+    },
+    {
+      "role": "alternative",
+      "count": null,
+      "supporting_evidence": [],
+      "contradictory_evidence": [],
+      "trigger": null,
+      "invalidation": null,
+      "target_zones": [],
+      "projection_anchors_and_calculations": [],
+      "horizon_or_expiry": null,
+      "confidence_and_reasons": null,
+      "probability": null,
+      "calibration_record": null
+    }
+  ],
+  "missing_inputs": [],
+  "source_locators": [],
+  "chart_artifacts": [],
+  "model_and_library_version": null,
+  "revision_history": []
+}

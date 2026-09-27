@@ -1,0 +1,2526 @@
+//@version=5
+// Probability Based Batty Liquidity v1
+// Built from BATTY_LIQUIDITY_SWINGS_SPARKY_FULL_MERLIN_NO_STATE_REALTIME.pine
+// Keeps SPARKY core zone logic as source of truth; adds Merlin measured HTF sweep probabilities from 2026-06-21 back-measurement.
+indicator("Batty Clean Zone View v1.9.6 - Bias Draw Lines Default Off", shorttitle = "Batty Clean v1.9.6", overlay = true, max_lines_count = 180, max_labels_count = 100, max_boxes_count = 20)
+
+//------------------------------------------------------------------------------
+// Settings
+//------------------------------------------------------------------------------
+length = input.int(14, "Pivot Lookback", minval = 1)
+
+area = input.string("Wick Extremity", "Swing Area", options = ["Wick Extremity", "Full Range"])
+
+intraPrecision = input.bool(false, "Intrabar Precision", inline = "intrabar")
+intrabarTf = input.timeframe("1", "", inline = "intrabar")
+
+filterOptions = input.string("Count", "Filter Areas By", options = ["Count", "Volume"], inline = "filter")
+filterValue = input.float(0, "", minval = 0, inline = "filter")
+
+// Style
+showTop = input.bool(true, "Swing High", inline = "top", group = "Style")
+topCss = input.color(color.red, "", inline = "top", group = "Style")
+topAreaCss = input.color(color.new(color.red, 50), "Area", inline = "top", group = "Style")
+
+showBtm = input.bool(true, "Swing Low", inline = "btm", group = "Style")
+btmCss = input.color(color.teal, "", inline = "btm", group = "Style")
+btmAreaCss = input.color(color.new(color.teal, 50), "Area", inline = "btm", group = "Style")
+
+labelSize = input.string("Small", "Labels Size", options = ["Tiny", "Small", "Normal", "Large", "Huge"], group = "Style")
+extendUnbrokenLines = input.bool(true, "Extend Unbroken Lines", group = "Style")
+showLiquidityTags = input.bool(true, "Show BSL/SSL Tags", group = "Style")
+showZoneLifecycleStyling = input.bool(true, "Broken line lifecycle styling", group = "Style")
+brokenZoneColor = input.color(color.rgb(180, 180, 180), "Current broken line color", group = "Style")
+historicalZoneColor = input.color(color.rgb(180, 180, 180), "Older broken line color", group = "Style")
+historicalZoneOpacity = input.int(50, "Older broken line opacity", minval = 0, maxval = 95, group = "Style")
+historicalZoneBoxOpacity = input.int(88, "Historical broken zone fill opacity", minval = 50, maxval = 100, group = "Style")
+
+
+// Clean Zone View
+const string cleanViewGroup = "Clean Zone View"
+zoneViewMode = input.string("Trade", "Zone View Mode", options = ["Trade", "Clean", "Detail", "Diagnostic"], group = cleanViewGroup)
+cleanTradePreset = input.string("Auto", "Trade View Preset", options = ["Auto", "1H Battlefield", "30M Battlefield", "5M Timing", "1M Execution", "Manual"], group = cleanViewGroup)
+cleanShowCurrentTfZones = input.bool(false, "Show current-chart historical zones (heavy)", group = cleanViewGroup)
+cleanShowMtfOverlay = input.bool(true, "Show right-side active HTF/LTF map", group = cleanViewGroup)
+cleanMtfZonesPerSide = input.int(1, "Active map zones per side/timeframe", minval = 1, maxval = 2, group = cleanViewGroup)
+cleanShow1h = input.bool(true, "Manual: Show T1 1H MAP", group = cleanViewGroup)
+cleanShow30m = input.bool(true, "Manual: Show T2 30M MAP", group = cleanViewGroup)
+cleanShow5m = input.bool(true, "Manual: Show T3 5M MAP", group = cleanViewGroup)
+cleanShow1m = input.bool(false, "Reserved: Show 1M MAP", group = cleanViewGroup)
+cleanShowLowerTfMapOn1h = input.bool(true, "Auto: Show T2/T3 MAP on 1H chart", group = cleanViewGroup)
+cleanMapLabelSize = input.string("Small", "Active map label size (50% larger)", options = ["Tiny", "Small", "Normal", "Large", "Huge"], group = cleanViewGroup)
+cleanOverlayBars = input.int(35, "Active map projection bars", minval = 10, maxval = 100, group = cleanViewGroup)
+cleanHideVolumeInTradeView = input.bool(true, "Hide raw volume text except Diagnostic", group = cleanViewGroup)
+cleanCompactNativeLabels = input.bool(true, "Compact native labels: External/Internal -> EXT/INT", group = cleanViewGroup)
+cleanNativeProbInTrade = input.bool(true, "Show native probabilities in Trade/Clean mode", group = cleanViewGroup)
+cleanFadeTouchedZones = input.bool(true, "Fade touched/swept active map zones", group = cleanViewGroup)
+cleanShowMapLabelPrefix = input.bool(true, "Prefix active-map labels with MAP", group = cleanViewGroup)
+cleanShowSetupTierPrefix = input.bool(true, "Prefix active-map labels with T1/T2/T3", group = cleanViewGroup)
+cleanShowSpikePrefix = input.bool(true, "Prefix active-map labels with SPIKE", group = cleanViewGroup)
+cleanHideMapOnChartTf = input.bool(true, "Hide active map when it matches chart timeframe", group = cleanViewGroup)
+cleanMapLineStyleInput = input.string("Dashed", "Active map line style", options = ["Dashed", "Dotted", "Solid"], group = cleanViewGroup)
+cleanHtfBslColor = input.color(color.rgb(255, 77, 91), "HTF BSL color", group = cleanViewGroup)
+cleanHtfSslColor = input.color(color.rgb(0, 180, 130), "HTF SSL color", group = cleanViewGroup)
+cleanLtfBslColor = input.color(color.rgb(255, 150, 60), "LTF BSL color", group = cleanViewGroup)
+cleanLtfSslColor = input.color(color.rgb(0, 190, 220), "LTF SSL color", group = cleanViewGroup)
+
+// Shadow Target / Invalidation Lines
+const string shadowLinesGroup = "Shadow Target / Invalidation Lines"
+shadowMode = input.string("Auto Light", "Shadow Mode", options = ["Auto Light", "Manual"], group = shadowLinesGroup)
+shadowManualBias = input.string("WAIT", "Manual Bias", options = ["WAIT", "LONG-WATCH", "SHORT-WATCH"], group = shadowLinesGroup)
+shadowManualBsl = input.float(0.0, "Manual Nearest BSL", step = 0.25, group = shadowLinesGroup)
+shadowManualSsl = input.float(0.0, "Manual Nearest SSL", step = 0.25, group = shadowLinesGroup)
+shadowManualInvalidation = input.float(0.0, "Manual Invalidation", step = 0.25, group = shadowLinesGroup)
+shadowManualTarget = input.float(0.0, "Manual Target", step = 0.25, group = shadowLinesGroup)
+shadowAutoLookback = input.int(20, "Auto Swing Lookback", minval = 3, maxval = 100, group = shadowLinesGroup)
+shadowSweepBufferTicks = input.int(1, "Sweep Buffer Ticks", minval = 0, maxval = 50, group = shadowLinesGroup)
+showShadowTargetLine = input.bool(true, "Show Shadow Target Line", group = shadowLinesGroup)
+showShadowInvalidationLine = input.bool(true, "Show Shadow Invalidation Line", group = shadowLinesGroup)
+showOnlyActiveShadowLines = input.bool(false, "Only Draw Active Shadow Setup", group = shadowLinesGroup)
+shadowLineOpacity = input.int(5, "Line Opacity", minval = 0, maxval = 95, group = shadowLinesGroup)
+shadowTargetColor = input.color(color.aqua, "Target Line", group = shadowLinesGroup)
+shadowInvalidationColor = input.color(color.orange, "Invalidation Line", group = shadowLinesGroup)
+
+// Probability Profile / Merlin Model
+const string probabilityGroup = "Probability Profile"
+probViewMode = input.string("All Zones + Prob States", "View Mode", options = ["All Zones + Prob States", "High Probability Only"], group = probabilityGroup)
+showProbabilityTiers = input.bool(true, "Show Probability A/B/C Tiers", group = probabilityGroup)
+showCleanMeasuredZoneTags = input.bool(true, "Clean Zone Tags: SIDE TYPE TIER PROB", group = probabilityGroup)
+probTierAPlusThreshold = input.float(78.0, "Tier A+ Probability %", minval = 0, maxval = 100, group = probabilityGroup)
+probTierAThreshold = input.float(68.0, "Tier A Probability %", minval = 0, maxval = 100, group = probabilityGroup)
+probTierBThreshold = input.float(58.0, "Tier B Probability %", minval = 0, maxval = 100, group = probabilityGroup)
+probTierCThreshold = input.float(48.0, "Tier C Probability %", minval = 0, maxval = 100, group = probabilityGroup)
+probHighProbMinimumTier = input.string("A", "High Probability Only: Minimum Tier", options = ["A+", "A", "B"], group = probabilityGroup)
+probGuideMode = input.string("High-prob zones only", "Stop/Target Micro-Lines", options = ["Off", "High-prob zones only", "All measured zones"], group = probabilityGroup)
+probGuideBars = input.int(10, "Stop/Target Projection Bars", minval = 2, maxval = 50, group = probabilityGroup)
+probGuideStopBufferTicks = input.int(2, "Stop Buffer Ticks", minval = 0, maxval = 50, group = probabilityGroup)
+probGuideLineOpacity = input.int(20, "Stop/Target Line Opacity", minval = 0, maxval = 95, group = probabilityGroup)
+probGuideStopColor = input.color(color.rgb(220, 80, 80), "Stop Micro-Line", group = probabilityGroup)
+probGuideTargetColor = input.color(color.rgb(80, 210, 160), "Target Micro-Line", group = probabilityGroup)
+probHighlightTopTier = input.bool(false, "White Highlight A/A+ Measured Labels", group = probabilityGroup)
+probTopTierBgColor = input.color(color.white, "A+ Highlight Background", group = probabilityGroup)
+probTopTierTextColor = input.color(color.black, "A+ Highlight Text", group = probabilityGroup)
+probMinSamples = input.int(30, "Minimum Samples For Measured Tier", minval = 1, maxval = 10000, group = probabilityGroup)
+probModelVersion = input.string("Merlin Probability Zones v1.9.6: class-conditioned edge plus optional running Bias/Draw overlays default OFF", "Probability Model Version", group = probabilityGroup)
+probFallbackBsl = input.float(52.0, "Fallback BSL Probability %", minval = 0, maxval = 100, group = probabilityGroup)
+probFallbackSsl = input.float(52.0, "Fallback SSL Probability %", minval = 0, maxval = 100, group = probabilityGroup)
+probMeasuredOnly = input.bool(false, "Hide Probability When Samples Are Low", group = probabilityGroup)
+
+
+// Internal Liquidity
+const string internalGroup = "Internal Liquidity"
+showInternalLiquidity = input.bool(true, "Show Internal Liquidity", group = internalGroup)
+internalLength = input.int(5, "Internal Pivot Lookback", minval = 1, group = internalGroup)
+internalDisplayMode = input.string("Present", "Display Mode", options = ["Present", "Historical"], group = internalGroup)
+internalBslColor = input.color(color.orange, "BSL INT", group = internalGroup)
+internalSslColor = input.color(color.aqua, "SSL INT", group = internalGroup)
+internalLineStyle = input.string("Dotted", "Line Style", options = ["Dotted", "Dashed", "Solid"], group = internalGroup)
+
+// Valid Liquidity Points
+const string validLiquidityGroup = "Valid Liquidity Points"
+showValidLiquidityPoints = input.bool(true, "Show Valid Liquidity Points", group = validLiquidityGroup)
+showPreviousDayLiquidity = input.bool(false, "Previous Day High/Low", group = validLiquidityGroup)
+showPreviousWeekLiquidity = input.bool(false, "Previous Week High/Low", group = validLiquidityGroup)
+showHtfLiquidity = input.bool(false, "Current HTF Range High/Low", group = validLiquidityGroup)
+validHtf = input.timeframe("60", "HTF Source", group = validLiquidityGroup)
+validHtfTag = input.string("1H", "HTF Tag", group = validLiquidityGroup)
+showSessionLiquidity = input.bool(false, "Prior Session High/Low", group = validLiquidityGroup)
+validSessionName = input.string("NY", "Session Tag", group = validLiquidityGroup)
+validSession = input.session("0930-1600", "Session", group = validLiquidityGroup)
+showEqualLiquidity = input.bool(true, "Equal Highs/Lows", group = validLiquidityGroup)
+equalLiquidityLength = input.int(3, "EQ Pivot Lookback", minval = 1, group = validLiquidityGroup)
+equalLiquidityAtrTolerance = input.float(0.1, "EQ ATR Tolerance", minval = 0.01, maxval = 1.0, step = 0.01, group = validLiquidityGroup)
+showSpikeLiquidityAreas = input.bool(false, "Spike Liquidity Areas", group = validLiquidityGroup)
+spikeLiquidityLookback = input.int(8, "Spike Lookback", minval = 2, group = validLiquidityGroup)
+spikeLiquidityMinBreakTicks = input.int(2, "Spike Min Break (Ticks)", minval = 0, group = validLiquidityGroup)
+spikeLiquidityMinRangeAtr = input.float(0.4, "Spike Min Range ATR", minval = 0.0, step = 0.1, group = validLiquidityGroup)
+spikeLiquidityWickPct = input.float(0.35, "Spike Wick/Rejection %", minval = 0.0, maxval = 1.0, step = 0.05, group = validLiquidityGroup)
+spikeLiquidityRequireReject = input.bool(true, "Require Rejection", group = validLiquidityGroup)
+spikeLiquidityZoneBars = input.int(6, "Spike Zone Width Bars", minval = 1, maxval = 100, group = validLiquidityGroup)
+showLtfInducementLevels = input.bool(false, "LTF Inducement Level", group = validLiquidityGroup)
+ltfInducementPivotLength = input.int(9, "LTF Pivot Length", minval = 1, group = validLiquidityGroup)
+ltfInducementLabelColor = input.color(color.white, "LTF Label Text", group = validLiquidityGroup)
+validBslColor = input.color(color.new(color.red, 0), "EXT BSL", group = validLiquidityGroup)
+validSslColor = input.color(color.new(color.teal, 0), "EXT SSL", group = validLiquidityGroup)
+validEqualBslColor = input.color(color.new(color.orange, 0), "EQH BSL", group = validLiquidityGroup)
+validEqualSslColor = input.color(color.new(color.aqua, 0), "EQL SSL", group = validLiquidityGroup)
+validMergeTicks = input.int(4, "Merge Nearby Levels (Ticks)", minval = 0, group = validLiquidityGroup)
+validMaxActivePerSide = input.int(12, "Max Active Per Side", minval = 1, maxval = 50, group = validLiquidityGroup)
+validKeepSweptLevels = input.bool(true, "Keep Broken Levels", group = validLiquidityGroup)
+
+// Liquidity Respect Pockets
+const string pocketsGroup = "Liquidity Respect Pockets"
+showLiquidityPockets = input.bool(false, "Show Respect Pockets", group = pocketsGroup)
+pocketSwingLength = input.int(5, "Major Swing Lookback", minval = 1, group = pocketsGroup)
+pocketMinorSwingLength = input.int(2, "Minor Swing Lookback", minval = 1, group = pocketsGroup)
+pocketUseExternalAnchors = input.bool(true, "Use External Swings", group = pocketsGroup)
+pocketUseInternalAnchors = input.bool(false, "Use Internal Swings", group = pocketsGroup)
+pocketUseObjectiveAnchors = input.bool(true, "Use PD/Session/HTF/EQ Levels", group = pocketsGroup)
+pocketUseMajorSwings = input.bool(true, "Count Major Swings", group = pocketsGroup)
+pocketUseMinorSwings = input.bool(true, "Count Minor Swings", group = pocketsGroup)
+pocketUseWickRejects = input.bool(true, "Count Wick Rejections", group = pocketsGroup)
+pocketUseCloseClusters = input.bool(true, "Count Close Clusters", group = pocketsGroup)
+pocketAtrLength = input.int(14, "Distance ATR Length", minval = 1, group = pocketsGroup)
+pocketMaxDistanceAtr = input.float(1.0, "Max Distance (ATR)", minval = 0.1, step = 0.1, group = pocketsGroup)
+pocketMaxDistanceTicks = input.int(0, "Max Distance Override Ticks", minval = 0, group = pocketsGroup)
+pocketMinQuality = input.int(20, "Minimum Quality", minval = 1, maxval = 100, group = pocketsGroup)
+pocketEventCooldown = input.int(2, "Min Bars Between Events", minval = 0, maxval = 50, group = pocketsGroup)
+pocketExtendBars = input.int(8, "Extend Pocket Bars", minval = 1, maxval = 200, group = pocketsGroup)
+pocketMaxActive = input.int(40, "Max Pockets", minval = 1, maxval = 100, group = pocketsGroup)
+pocketShowStrengthText = input.bool(true, "Show Strength Text", group = pocketsGroup)
+pocketColor = input.color(color.rgb(150, 150, 150), "Pocket Color", group = pocketsGroup)
+pocketOpacity = input.int(90, "Pocket Transparency", minval = 0, maxval = 100, group = pocketsGroup)
+
+// Strong Zone Highlights
+const string strongZonesGroup = "Strong Zone Highlights"
+showStrongZoneHighlights = input.bool(true, "Highlight Strong Zones", group = strongZonesGroup)
+strongZoneMinScore = input.int(5, "Minimum Strength Score", minval = 1, maxval = 10, group = strongZonesGroup)
+strongZoneLineWidth = input.int(1, "Strong Line Width", minval = 1, maxval = 3, group = strongZonesGroup)
+strongZoneLineColor = input.color(color.white, "Strong Line Color", group = strongZonesGroup)
+strongZoneShowTag = input.bool(true, "Show Strength Tag", group = strongZonesGroup)
+strongZoneTagTextColor = input.color(color.white, "Tag Text Color", group = strongZonesGroup)
+strongZoneTagBgColor = input.color(color.new(color.black, 35), "Tag Background", group = strongZonesGroup)
+
+// Strong Zone MTF Panel
+const string strongMtfPanelGroup = "Strong Zone MTF Panel"
+showStrongMtfPanel = input.bool(false, "Show On-Chart Panel", group = strongMtfPanelGroup)
+strongMtfPanelPositionInput = input.string("Top Right", "Panel Position", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = strongMtfPanelGroup)
+strongMtfShowScores = input.bool(true, "Show Strength Grades", group = strongMtfPanelGroup)
+strongMtfStackTicks = input.int(20, "Stacked Zone Distance (Ticks)", minval = 1, maxval = 1000, group = strongMtfPanelGroup)
+strongMtfPanelBg = input.color(color.rgb(15, 15, 18), "Panel Background", group = strongMtfPanelGroup)
+strongMtfBullColor = input.color(color.rgb(0, 180, 130), "Bullish Signal", group = strongMtfPanelGroup)
+strongMtfBearColor = input.color(color.rgb(255, 77, 91), "Bearish Signal", group = strongMtfPanelGroup)
+strongMtfNeutralColor = input.color(color.rgb(90, 90, 90), "Waiting Signal", group = strongMtfPanelGroup)
+strongMtfStackColor = input.color(color.rgb(210, 170, 0), "Stacked Zone Highlight", group = strongMtfPanelGroup)
+
+// MTF Premium & Discount Zones
+const string mtfZonesGroup = "MTF Premium & Discount Zones"
+showMtfPremiumDiscount = input.bool(false, "Premium/Discount Zones", group = mtfZonesGroup)
+mtfPremiumDiscountTf = input.timeframe("60", "Timeframe", group = mtfZonesGroup)
+mtfPremiumDiscountLength = input.int(50, "Swing Length", minval = 10, group = mtfZonesGroup)
+mtfPremiumZoneColor = input.color(color.red, "Premium Zone", group = mtfZonesGroup)
+mtfEquilibriumZoneColor = input.color(color.gray, "Equilibrium Zone", group = mtfZonesGroup)
+mtfDiscountZoneColor = input.color(color.teal, "Discount Zone", group = mtfZonesGroup)
+mtfPremiumDiscountLineColor = input.color(color.white, "Highlight Line / Label", group = mtfZonesGroup)
+mtfZoneOpacity = input.int(80, "Zone Opacity", minval = 0, maxval = 100, group = mtfZonesGroup)
+
+// Bias / Draw Panel
+const string panelGroup = "Bias / Draw Panel"
+showBiasDrawPanel = input.bool(true, "Show Bias / Draw Panel (restored)", group = panelGroup)
+panelOnlyOnHtfCharts = input.bool(false, "Only Show On HTF Charts", group = panelGroup)
+panelMinChartTf = input.timeframe("60", "Minimum Chart Timeframe", group = panelGroup)
+showPanelDailyBias = input.bool(true, "Bias Block", group = panelGroup)
+showPanelCurrentDraw = input.bool(true, "Current Draw Block", group = panelGroup)
+showPanelDetails = input.bool(false, "Show Panel Details", group = panelGroup)
+panelPositionInput = input.string("Bottom Right", "Panel Position", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = panelGroup)
+panelUsePreviousDay = input.bool(true, "Use Previous Day", group = panelGroup)
+panelUsePreviousWeek = input.bool(true, "Use Previous Week", group = panelGroup)
+panelUseHtfContext = input.bool(false, "Use HTF Context", group = panelGroup)
+panelSweepBufferTicks = input.int(1, "Sweep Buffer (Ticks)", minval = 0, maxval = 100, group = panelGroup)
+panelBosBufferTicks = input.int(1, "Acceptance Buffer (Ticks)", minval = 0, maxval = 100, group = panelGroup)
+panelMaxSweepLevels = input.int(20, "Max Sweep Levels To Scan", minval = 1, maxval = 100, group = panelGroup)
+showPanelBiasLine = input.bool(false, "Show Running Bias Line", group = panelGroup)
+showPanelBiasShade = input.bool(false, "Shade Bias Line", group = panelGroup)
+showPanelDrawLine = input.bool(false, "Show Running Draw Line", group = panelGroup)
+panelBiasLineAtrLength = input.int(10, "Bias/Draw Line ATR Length", minval = 1, maxval = 100, group = panelGroup)
+panelBiasLineAtrMult = input.float(1.0, "Bias Line ATR Offset", minval = 0.1, maxval = 10.0, step = 0.1, group = panelGroup)
+panelDrawLineAtrMult = input.float(0.45, "Draw Line ATR Offset", minval = 0.1, maxval = 10.0, step = 0.05, group = panelGroup)
+panelBiasShadeOpacity = input.int(88, "Bias Shade Opacity", minval = 0, maxval = 100, group = panelGroup)
+panelBullColor = input.color(color.rgb(0, 180, 130), "Bullish Color", group = panelGroup)
+panelBearColor = input.color(color.rgb(255, 77, 91), "Bearish Color", group = panelGroup)
+panelNeutralColor = input.color(color.rgb(90, 90, 90), "Neutral Color", group = panelGroup)
+
+//------------------------------------------------------------------------------
+// Functions
+//------------------------------------------------------------------------------
+n = bar_index
+pocketAtrValue = ta.atr(pocketAtrLength)
+zoneAtrValue = ta.atr(14)
+zoneAvgVolume = ta.sma(volume, 20)
+cleanIsTrade = zoneViewMode == "Trade"
+cleanIsClean = zoneViewMode == "Clean"
+cleanIsDetail = zoneViewMode == "Detail"
+cleanIsDiagnostic = zoneViewMode == "Diagnostic"
+cleanShowInternal = showInternalLiquidity and (cleanIsDetail or cleanIsDiagnostic)
+cleanShowStrongTags = showStrongZoneHighlights and cleanShowCurrentTfZones and not cleanIsClean
+cleanShowRawVolume = showLiquidityTags and (not cleanHideVolumeInTradeView or cleanIsDiagnostic)
+
+shadow_clean_level(x) =>
+    x > 0 ? x : na
+
+get_data() =>
+    [high, low, volume]
+
+// Lower-timeframe precision is optional and must never be allowed to crash the
+// alert runtime. On a 1m chart, the default intrabarTf="1" is not actually lower
+// than the chart timeframe, so TradingView can throw a calculation error unless
+// invalid LTF requests are ignored and the array path is explicitly gated.
+[h, l, v] = request.security_lower_tf(syminfo.tickerid, intrabarTf, get_data(), ignore_invalid_timeframe = true)
+lowerTfSeconds = timeframe.in_seconds(intrabarTf)
+chartTfSeconds = timeframe.in_seconds(timeframe.period)
+lowerTfIsValid = not na(lowerTfSeconds) and not na(chartTfSeconds) and lowerTfSeconds < chartTfSeconds
+
+// Shadow target/invalidation lines ported from V. Shadow. This keeps only the
+// target and invalidation features; no Shadow badge, panel, decision box, or sync
+// alerts are merged into the clean-zone source of truth.
+shadowSweepBuffer = shadowSweepBufferTicks * syminfo.mintick
+shadowAutoBsl = ta.highest(high[1], shadowAutoLookback)
+shadowAutoSsl = ta.lowest(low[1], shadowAutoLookback)
+shadowBslSweepReject = high >= shadowAutoBsl + shadowSweepBuffer and close < shadowAutoBsl
+shadowSslSweepReclaim = low <= shadowAutoSsl - shadowSweepBuffer and close > shadowAutoSsl
+shadowManualMode = shadowMode == "Manual"
+shadowManualBslClean = shadow_clean_level(shadowManualBsl)
+shadowManualSslClean = shadow_clean_level(shadowManualSsl)
+shadowManualInvalidClean = shadow_clean_level(shadowManualInvalidation)
+shadowManualTargetClean = shadow_clean_level(shadowManualTarget)
+shadowTradeBias = shadowManualMode ? shadowManualBias : shadowBslSweepReject ? "SHORT-WATCH" : shadowSslSweepReclaim ? "LONG-WATCH" : "WAIT"
+shadowIsLong = shadowTradeBias == "LONG-WATCH"
+shadowIsShort = shadowTradeBias == "SHORT-WATCH"
+shadowInvalidation = shadowManualMode ? shadowManualInvalidClean : shadowIsLong ? shadowAutoSsl : shadowIsShort ? shadowAutoBsl : na
+shadowTarget = shadowManualMode ? shadowManualTargetClean : shadowIsLong ? shadowAutoBsl : shadowIsShort ? shadowAutoSsl : na
+shadowActiveSetup = shadowTradeBias != "WAIT" and not na(shadowTarget) and not na(shadowInvalidation)
+shadowShouldDraw = showOnlyActiveShadowLines ? shadowActiveSetup : true
+plot(shadowShouldDraw and showShadowTargetLine and not na(shadowTarget) ? shadowTarget : na, "Shadow Target", color = color.new(shadowTargetColor, shadowLineOpacity), linewidth = 2, style = plot.style_linebr)
+plot(shadowShouldDraw and showShadowInvalidationLine and not na(shadowInvalidation) ? shadowInvalidation : na, "Shadow Invalidation", color = color.new(shadowInvalidationColor, shadowLineOpacity), linewidth = 2, style = plot.style_linebr)
+
+get_counts(condition, top, btm) =>
+    var int count = 0
+    var float vol = 0.0
+
+    if condition
+        count := 0
+        vol := 0.0
+    else
+        overlapReady = n > length and not na(top) and not na(btm) and not na(low[length]) and not na(high[length])
+        if overlapReady
+            if intraPrecision and lowerTfIsValid and array.size(v[length]) > 0 and array.size(l[length]) == array.size(v[length]) and array.size(h[length]) == array.size(v[length])
+                for [index, element] in v[length]
+                    vol += array.get(l[length], index) < top and array.get(h[length], index) > btm ? element : 0
+            else
+                vol += low[length] < top and high[length] > btm ? volume[length] : 0
+
+            count += low[length] < top and high[length] > btm ? 1 : 0
+
+    [count, vol]
+
+
+get_label_size() =>
+    switch labelSize
+        "Tiny" => size.tiny
+        "Small" => size.small
+        "Normal" => size.normal
+        "Large" => size.large
+        "Huge" => size.huge
+
+get_active_map_label_size() =>
+    // v1.7: MAP labels render one size step larger than the selected input.
+    // This makes default Small render as Normal and previous Tiny-sized MAP tags render as Small.
+    switch cleanMapLabelSize
+        "Tiny" => size.small
+        "Small" => size.normal
+        "Normal" => size.large
+        "Large" => size.huge
+        "Huge" => size.huge
+
+get_strong_zone_label_size() =>
+    switch labelSize
+        "Tiny" => size.small
+        "Small" => size.normal
+        "Normal" => size.large
+        "Large" => size.huge
+        "Huge" => size.huge
+
+//------------------------------------------------------------------------------
+// Merlin measured probability profile
+//------------------------------------------------------------------------------
+// v1.9.6 generated 2026-07-05 from Merlin resolver snapshots. Current-chart labels use measured side + zone-class target-hit buckets; running Bias/Draw overlays are available but default OFF for a cleaner chart.
+// 1m: Opposing Liquidity Resolver v1, nearest prior opposing target hit before invalidation/expiration.
+// 1m headline: 1216/1855 = 65.6%, Wilson 95% CI 63.4%-67.7%, reliable.
+// HTF: Liquidity Sweep Resolver v1, HTF BSL sweep to zone_top before invalidation/expiration using 1m proxy ranges.
+// HTF sweep headline: 658/1025 = 64.2%, Wilson 95% CI 61.2%-67.1%, reliable.
+prob_tf_key(tf) =>
+    t = str.lower(str.tostring(tf))
+    t == "1" or t == "1m" ? "1m" : t == "5" or t == "5m" ? "5m" : t == "30" or t == "30m" ? "30m" : t == "60" or t == "1h" or t == "60m" ? "60m" : t == "240" or t == "4h" or t == "4H" ? "4H" : str.tostring(tf)
+
+prob_is_one_minute(tf) =>
+    prob_tf_key(tf) == "1m"
+
+prob_is_htf_tf(tf) =>
+    key = prob_tf_key(tf)
+    key == "5m" or key == "30m" or key == "60m" or key == "4H"
+
+prob_symbol_key() =>
+    ticker = syminfo.tickerid
+    str.contains(ticker, "MGC") ? "MGC" : str.contains(ticker, "MCL") ? "MCL" : str.contains(ticker, "MYM") ? "MYM" : ""
+
+prob_profile_probability(side, tf, zoneClass, structuralScore) =>
+    float p = na
+    int samples = 0
+    tfKey = prob_tf_key(tf)
+    sym = prob_symbol_key()
+
+    if tfKey == "1m"
+        // Highest-specificity 1m resolver buckets: zone class first.
+        if zoneClass == "internal_liquidity"
+            p := 83.2
+            samples := 607
+        else if zoneClass == "external_swing"
+            p := 72.6
+            samples := 270
+        else if zoneClass == "spike_bsl"
+            p := 52.6
+            samples := 439
+        else if zoneClass == "spike_ssl"
+            p := 50.0
+            samples := 474
+        else if zoneClass == "equal_highs"
+            p := 77.4
+            samples := 31
+        else if zoneClass == "equal_lows"
+            p := 67.6
+            samples := 34
+        else if sym == "MGC"
+            p := 62.8
+            samples := 737
+        else if sym == "MCL"
+            p := 68.4
+            samples := 561
+        else if sym == "MYM"
+            p := 66.2
+            samples := 557
+        else if side == "BSL"
+            p := 67.6
+            samples := 908
+        else if side == "SSL"
+            p := 63.6
+            samples := 947
+        else
+            p := 65.6
+            samples := 1855
+    else if tfKey == "5m" and sym == "MYM"
+        // v1.9.3: MYM current-chart 5m labels use Merlin measured class-conditioned target-hit buckets.
+        // This is the actionable zone-quality model: same side is NOT enough; INT/EXT/spike/EQ classes carry different expectancy.
+        // Source snapshot: indicator-lab opposing_liquidity_targets, MYM 1m resolved rows, grouped by side + zone_class.
+        // Used on 5m labels because TradingView can classify the native zone, while the HTF 5m sweep matrix is only side-level.
+        if side == "BSL" and zoneClass == "internal_liquidity"
+            p := 84.6
+            samples := 259
+        else if side == "SSL" and zoneClass == "internal_liquidity"
+            p := 77.3
+            samples := 247
+        else if side == "BSL" and zoneClass == "external_swing"
+            p := 74.3
+            samples := 171
+        else if side == "SSL" and zoneClass == "external_swing"
+            p := 74.9
+            samples := 175
+        else if side == "BSL" and zoneClass == "spike_bsl"
+            p := 50.7
+            samples := 448
+        else if side == "SSL" and zoneClass == "spike_ssl"
+            p := 57.3
+            samples := 403
+        else if side == "BSL" and zoneClass == "equal_highs"
+            p := 70.8
+            samples := 72
+        else if side == "SSL" and zoneClass == "equal_lows"
+            p := 54.5
+            samples := 33
+        else if side == "BSL"
+            p := 65.4
+            samples := 901
+        else if side == "SSL"
+            p := 66.6
+            samples := 858
+        else
+            p := 65.9
+            samples := 1759
+    else if prob_is_htf_tf(tfKey)
+        // HTF sweep probabilities. HTF-only labels keep the side/timeframe sweep model when no native class is available.
+        if tfKey == "5m" and side == "BSL"
+            p := 61.7
+            samples := 2091
+        else if tfKey == "5m" and side == "SSL"
+            p := 0.0
+            samples := 37
+        else if tfKey == "5m" and sym == "MCL"
+            p := 68.1
+            samples := 270
+        else if tfKey == "5m" and sym == "MYM"
+            p := 62.5
+            samples := 272
+        else if tfKey == "5m" and sym == "MGC"
+            p := 53.6
+            samples := 265
+        else if tfKey == "30m" and sym == "MCL"
+            p := 80.0
+            samples := 45
+        else if tfKey == "30m" and sym == "MGC"
+            p := 80.0
+            samples := 45
+        else if tfKey == "30m" and sym == "MYM"
+            p := 73.3
+            samples := 45
+        else if tfKey == "5m"
+            p := 61.5
+            samples := 807
+        else if tfKey == "30m"
+            p := 77.8
+            samples := 135
+        else if tfKey == "60m"
+            p := 73.0
+            samples := 63
+        else if tfKey == "4H"
+            p := 55.0
+            samples := 20
+        else if sym == "MCL"
+            p := 70.6
+            samples := 343
+        else if sym == "MYM"
+            p := 63.7
+            samples := 344
+        else if sym == "MGC"
+            p := 58.3
+            samples := 338
+        else
+            p := 64.2
+            samples := 1025
+
+    [p, samples]
+
+prob_fallback_probability(side, structuralScore) =>
+    base = side == "BSL" ? probFallbackBsl : probFallbackSsl
+    adjustment = structuralScore >= 8 ? 6.0 : structuralScore >= 6 ? 3.0 : structuralScore >= 4 ? 1.0 : 0.0
+    math.min(100.0, math.max(0.0, base + adjustment))
+
+prob_blended_probability(side, tf, zoneClass, structuralScore) =>
+    [profileProbability, profileSamples] = prob_profile_probability(side, tf, zoneClass, structuralScore)
+    enoughSamples = profileSamples >= probMinSamples and not na(profileProbability)
+    fallbackProbability = prob_fallback_probability(side, structuralScore)
+    probability = enoughSamples ? profileProbability : fallbackProbability
+    probabilitySamples = enoughSamples ? profileSamples : 0
+    probabilitySource = enoughSamples ? "measured" : "fallback"
+    [probability, probabilitySamples, probabilitySource]
+
+prob_structural_tier(structuralScore) =>
+    structuralScore >= 8 ? "A+" : structuralScore >= 6 ? "A" : structuralScore >= 4 ? "B" : "C"
+
+prob_combined_tier(probability, samples, source, structuralScore) =>
+    measured = source == "measured" and samples >= probMinSamples
+    structureOkAPlus = structuralScore >= 5
+    structureOkA = structuralScore >= 5
+    structureOkB = structuralScore >= 4
+    // v1.9.0: trade tier = Merlin measured edge + Batty structure. Probability alone is not enough,
+    // but strong measured data no longer requires an A+ structural score to show as tradable.
+    if probMeasuredOnly and not measured
+        ""
+    else if measured and probability >= probTierAPlusThreshold and structureOkAPlus
+        "A+"
+    else if measured and probability >= probTierAThreshold and structureOkA
+        "A"
+    else if measured and probability >= probTierBThreshold and structureOkB
+        "B"
+    else if measured and probability >= probTierCThreshold
+        "C"
+    else if measured
+        "C"
+    else if not measured
+        prob_structural_tier(structuralScore)
+    else
+        ""
+
+prob_tier_rank(tier) =>
+    tier == "A+" ? 4 : tier == "A" ? 3 : tier == "B" ? 2 : tier == "C" ? 1 : 0
+
+prob_min_high_rank() =>
+    probHighProbMinimumTier == "A+" ? 4 : probHighProbMinimumTier == "A" ? 3 : 2
+
+prob_measured_tier(side, tf, zoneClass, structuralScore) =>
+    [probability, samples, source] = prob_blended_probability(side, tf, zoneClass, structuralScore)
+    tier = prob_combined_tier(probability, samples, source, structuralScore)
+    measured = source == "measured" and samples >= probMinSamples
+    [tier, measured]
+
+prob_top_tier(side, tf, zoneClass, structuralScore) =>
+    [tier, measured] = prob_measured_tier(side, tf, zoneClass, structuralScore)
+    measured and prob_tier_rank(tier) >= prob_min_high_rank()
+
+prob_should_show_zone(side, tf, zoneClass, structuralScore) =>
+    probViewMode != "High Probability Only" or prob_top_tier(side, tf, zoneClass, structuralScore)
+
+prob_tag_type(zoneType) =>
+    zoneType == "ORG" ? "" : " " + zoneType
+
+prob_evidence_code(source, samples) =>
+    source == "measured" ? samples >= 100 ? "M" : "D" : "F"
+
+prob_compact_tag(side, zoneType, tf, zoneClass, structuralScore) =>
+    [probability, samples, source] = prob_blended_probability(side, tf, zoneClass, structuralScore)
+    tier = prob_combined_tier(probability, samples, source, structuralScore)
+    evidence = prob_evidence_code(source, samples)
+    prefix = side + prob_tag_type(zoneType)
+    showProbabilityTiers and tier != "" ? prefix + " " + tier + " " + str.tostring(math.round(probability)) + "% " + evidence : prefix
+
+prob_tier_text_for_tf(side, tf, zoneClass, structuralScore) =>
+    [probability, samples, source] = prob_blended_probability(side, tf, zoneClass, structuralScore)
+    tier = prob_combined_tier(probability, samples, source, structuralScore)
+    evidence = prob_evidence_code(source, samples)
+    showProbabilityTiers and tier != "" ? " " + tier + " " + str.tostring(math.round(probability)) + "% " + evidence : ""
+
+prob_tier_text(side, zoneClass, structuralScore) =>
+    prob_tier_text_for_tf(side, timeframe.period, zoneClass, structuralScore)
+
+clean_native_side(tag) =>
+    str.contains(tag, "BSL") ? "BSL" : str.contains(tag, "SSL") ? "SSL" : ""
+
+clean_native_type(tag) =>
+    str.contains(tag, "INT") or str.contains(tag, "Internal") ? "INT" : str.contains(tag, "EXT") or str.contains(tag, "External") ? "EXT" : str.contains(tag, "HTF") ? "HTF" : ""
+
+clean_native_class(tag) =>
+    str.contains(tag, "EQH") ? "equal_highs" : str.contains(tag, "EQL") ? "equal_lows" : str.contains(tag, "Spike BSL") ? "spike_bsl" : str.contains(tag, "Spike SSL") ? "spike_ssl" : str.contains(tag, "INT") or str.contains(tag, "Internal") ? "internal_liquidity" : "external_swing"
+
+clean_native_base_tag(tag) =>
+    str.replace_all(str.replace_all(tag, "External", "EXT"), "Internal", "INT")
+
+clean_native_label_text(tag, vol, structuralScore) =>
+    side = clean_native_side(tag)
+    zoneType = clean_native_type(tag)
+    zoneClass = clean_native_class(tag)
+    showProb = showCleanMeasuredZoneTags and side != "" and zoneType != "" and (cleanIsDetail or cleanIsDiagnostic or cleanNativeProbInTrade)
+    base = cleanCompactNativeLabels ? clean_native_base_tag(tag) : tag
+    labelText = showProb ? prob_compact_tag(side, zoneType, timeframe.period, zoneClass, structuralScore) : base
+    cleanShowRawVolume ? labelText + "\n" + str.tostring(vol, format.volume) : labelText
+
+external_label_text(tag, vol) =>
+    clean_native_label_text(tag, vol, 5)
+
+
+set_label(count, vol, x, y, css, lbl_style, tag) =>
+    var label lbl = na
+
+    target = switch filterOptions
+        "Count" => count
+        "Volume" => vol
+
+    side = clean_native_side(tag)
+    zoneClass = clean_native_class(tag)
+    shouldShow = side == "" or prob_should_show_zone(side, timeframe.period, zoneClass, 5)
+
+    if ta.crossover(target, filterValue) and shouldShow
+        lbl := label.new(x, y, external_label_text(tag, vol), style = lbl_style, size = get_label_size(), color = #00000000, textcolor = css)
+
+    if not shouldShow and not na(lbl)
+        label.delete(lbl)
+        lbl := na
+
+    if shouldShow and target > filterValue and not na(lbl)
+        label.set_text(lbl, external_label_text(tag, vol))
+        label.set_size(lbl, get_label_size())
+
+get_internal_style() =>
+    switch internalLineStyle
+        "Dotted" => line.style_dotted
+        "Dashed" => line.style_dashed
+        "Solid" => line.style_solid
+
+remove_active_line(activeLines, activePrices, lineId) =>
+    activeIndex = array.indexof(activeLines, lineId)
+
+    if activeIndex >= 0
+        array.remove(activeLines, activeIndex)
+        array.remove(activePrices, activeIndex)
+
+trim_active_price_lines(activeLines, activePrices, maxItems) =>
+    while array.size(activeLines) > maxItems and array.size(activePrices) > 0
+        oldLine = array.shift(activeLines)
+        array.shift(activePrices)
+        line.delete(oldLine)
+
+set_internal_liquidity(condition, value, x, css, lbl_style, tag, activeLines, activePrices) =>
+    var line latestLine = na
+    var label latestLabel = na
+    internalSide = str.contains(tag, "BSL") ? "BSL" : "SSL"
+    internalTopTier = prob_top_tier(internalSide, timeframe.period, "internal_liquidity", 5)
+    shouldShow = prob_should_show_zone(internalSide, timeframe.period, "internal_liquidity", 5)
+
+    if condition and shouldShow
+        if internalDisplayMode == "Present" and not na(latestLine)
+            remove_active_line(activeLines, activePrices, latestLine)
+            line.delete(latestLine)
+            label.delete(latestLabel)
+
+        latestLine := line.new(x, value, n, value, color = css, style = get_internal_style(), width = 1, extend = extendUnbrokenLines ? extend.right : extend.none)
+        internalText = clean_native_label_text(tag, 0.0, 5)
+        latestLabel := label.new(x, value, internalText, style = lbl_style, size = get_label_size(), color = probHighlightTopTier and internalTopTier ? probTopTierBgColor : #00000000, textcolor = probHighlightTopTier and internalTopTier ? probTopTierTextColor : css)
+
+        if extendUnbrokenLines
+            array.push(activeLines, latestLine)
+            array.push(activePrices, value)
+            trim_active_price_lines(activeLines, activePrices, panelMaxSweepLevels)
+
+valid_level_exists(activePrices, value) =>
+    exists = false
+    tolerance = validMergeTicks * syminfo.mintick
+
+    if array.size(activePrices) > 0
+        for index = 0 to array.size(activePrices) - 1
+            if math.abs(array.get(activePrices, index) - value) <= tolerance
+                exists := true
+
+    exists
+
+valid_non_ltf_level_exists(activePrices, activeLabels, value) =>
+    exists = false
+    tolerance = validMergeTicks * syminfo.mintick
+    safeSize = math.min(array.size(activePrices), array.size(activeLabels))
+
+    if safeSize > 0
+        for index = 0 to safeSize - 1
+            labelText = label.get_text(array.get(activeLabels, index))
+            isLtfLevel = labelText == "LTF BSL" or labelText == "LTF SSL" or labelText == "BSL INT" or labelText == "SSL INT"
+
+            if not isLtfLevel and math.abs(array.get(activePrices, index) - value) <= tolerance
+                exists := true
+
+    exists
+
+remove_ltf_level_conflicts(activeLines, activePrices, activeLabels, value) =>
+    tolerance = validMergeTicks * syminfo.mintick
+    index = math.min(array.size(activePrices), math.min(array.size(activeLines), array.size(activeLabels))) - 1
+
+    while index >= 0
+        labelText = label.get_text(array.get(activeLabels, index))
+        isLtfLevel = labelText == "LTF BSL" or labelText == "LTF SSL" or labelText == "BSL INT" or labelText == "SSL INT"
+
+        if isLtfLevel and math.abs(array.get(activePrices, index) - value) <= tolerance
+            oldLine = array.remove(activeLines, index)
+            array.remove(activePrices, index)
+            oldLabel = array.remove(activeLabels, index)
+            line.delete(oldLine)
+            label.delete(oldLabel)
+
+        index -= 1
+
+valid_line_exists(lvl, value) =>
+    tolerance = validMergeTicks * syminfo.mintick
+    not na(lvl) and math.abs(line.get_y1(lvl) - value) <= tolerance
+
+zone_lifecycle_historical_color() =>
+    color.new(historicalZoneColor, historicalZoneOpacity)
+
+zone_lifecycle_historical_fill_color() =>
+    color.new(historicalZoneColor, historicalZoneBoxOpacity)
+
+zone_lifecycle_style_line_broken(lineId) =>
+    if showZoneLifecycleStyling and not na(lineId)
+        line.set_color(lineId, brokenZoneColor)
+        line.set_style(lineId, line.style_dashed)
+
+zone_lifecycle_style_line_historical(lineId) =>
+    if showZoneLifecycleStyling and not na(lineId)
+        line.set_color(lineId, zone_lifecycle_historical_color())
+        line.set_style(lineId, line.style_dashed)
+        line.set_width(lineId, 1)
+
+zone_lifecycle_style_box_broken(boxId) =>
+    // v1.8.4: lifecycle is grey line-only. Boxes keep their original zone colors.
+    false
+
+zone_lifecycle_style_box_historical(boxId) =>
+    // v1.8.4: lifecycle is grey line-only. Boxes keep their original zone colors.
+    false
+
+zone_lifecycle_style_label_historical(labelId) =>
+    if showZoneLifecycleStyling and not na(labelId)
+        label.set_color(labelId, #00000000)
+        label.set_textcolor(labelId, zone_lifecycle_historical_color())
+
+trim_valid_liquidity(activeLines, activePrices, activeLabels) =>
+    while array.size(activeLines) > validMaxActivePerSide
+        oldLine = array.shift(activeLines)
+        array.shift(activePrices)
+        oldLabel = array.shift(activeLabels)
+        line.delete(oldLine)
+        label.delete(oldLabel)
+
+set_valid_liquidity(condition, value, tag, css, lblStyle, lineStyle, lineWidth, activeLines, activePrices, activeLabels) =>
+    validSide = str.contains(tag, "BSL") ? "BSL" : str.contains(tag, "SSL") ? "SSL" : ""
+    validClass = str.contains(tag, "EQH") ? "equal_highs" : str.contains(tag, "EQL") ? "equal_lows" : str.contains(tag, "Spike BSL") ? "spike_bsl" : str.contains(tag, "Spike SSL") ? "spike_ssl" : "external_swing"
+    shouldShow = prob_should_show_zone(validSide, timeframe.period, validClass, 5)
+    if showValidLiquidityPoints and condition and shouldShow and not na(value)
+        remove_ltf_level_conflicts(activeLines, activePrices, activeLabels, value)
+
+    if showValidLiquidityPoints and condition and shouldShow and not na(value) and not valid_level_exists(activePrices, value)
+        newLine = line.new(n, value, n + 1, value, color = css, style = lineStyle, width = lineWidth, extend = extend.right)
+        validType = str.contains(tag, "HTF") ? "HTF" : "EXT"
+        validText = clean_native_label_text(tag, 0.0, 5)
+        validTopTier = validSide != "" and prob_top_tier(validSide, timeframe.period, validClass, 5)
+        newLabel = label.new(n, value, validText, style = lblStyle, size = get_label_size(), color = probHighlightTopTier and validTopTier ? probTopTierBgColor : #00000000, textcolor = probHighlightTopTier and validTopTier ? probTopTierTextColor : css)
+
+        array.push(activeLines, newLine)
+        array.push(activePrices, value)
+        array.push(activeLabels, newLabel)
+        trim_valid_liquidity(activeLines, activePrices, activeLabels)
+
+set_valid_liquidity_with_label_color(condition, value, tag, lineColor, labelColor, lblStyle, lineStyle, lineWidth, activeLines, activePrices, activeLabels) =>
+    validSide = str.contains(tag, "BSL") ? "BSL" : str.contains(tag, "SSL") ? "SSL" : ""
+    validClass = str.contains(tag, "EQH") ? "equal_highs" : str.contains(tag, "EQL") ? "equal_lows" : "external_swing"
+    shouldShow = prob_should_show_zone(validSide, timeframe.period, validClass, 5)
+    if showValidLiquidityPoints and condition and shouldShow and not na(value) and not valid_level_exists(activePrices, value)
+        newLine = line.new(n, value, n + 1, value, color = lineColor, style = lineStyle, width = lineWidth, extend = extend.right)
+        validText = clean_native_label_text(tag, 0.0, 5)
+        validTopTier = validSide != "" and prob_top_tier(validSide, timeframe.period, validClass, 5)
+        newLabel = label.new(n, value, validText, style = lblStyle, size = get_label_size(), color = probHighlightTopTier and validTopTier ? probTopTierBgColor : #00000000, textcolor = probHighlightTopTier and validTopTier ? probTopTierTextColor : labelColor)
+
+        array.push(activeLines, newLine)
+        array.push(activePrices, value)
+        array.push(activeLabels, newLabel)
+        trim_valid_liquidity(activeLines, activePrices, activeLabels)
+
+set_spike_liquidity_area(condition, anchor, boundary, tag, css, lblStyle, activeLines, activePrices, activeLabels) =>
+    if showValidLiquidityPoints and showSpikeLiquidityAreas and condition and not na(anchor) and not na(boundary) and not valid_level_exists(activePrices, anchor)
+        zoneTop = math.max(anchor, boundary)
+        zoneBottom = math.min(anchor, boundary)
+        box.new(n, zoneTop, n + spikeLiquidityZoneBars, zoneBottom, border_color = color.new(css, 0), bgcolor = color.new(css, 82))
+        set_valid_liquidity(true, anchor, tag, css, lblStyle, line.style_dashed, 1, activeLines, activePrices, activeLabels)
+
+update_valid_liquidity(activeLines, activePrices, activeLabels, isTop) =>
+    var line pendingBrokenLine = na
+    var label pendingBrokenLabel = na
+    int idx = math.min(array.size(activeLines), math.min(array.size(activePrices), array.size(activeLabels))) - 1
+
+    while idx >= 0
+        activeLine = array.get(activeLines, idx)
+        activePrice = array.get(activePrices, idx)
+        activeLabel = array.get(activeLabels, idx)
+        swept = isTop ? high >= activePrice : low <= activePrice
+
+        if swept
+            if validKeepSweptLevels
+                zone_lifecycle_style_line_historical(pendingBrokenLine)
+                zone_lifecycle_style_label_historical(pendingBrokenLabel)
+                line.set_extend(activeLine, extend.none)
+                line.set_x2(activeLine, n)
+                line.set_style(activeLine, line.style_dashed)
+                zone_lifecycle_style_line_broken(activeLine)
+                if showZoneLifecycleStyling
+                    label.set_textcolor(activeLabel, brokenZoneColor)
+                pendingBrokenLine := activeLine
+                pendingBrokenLabel := activeLabel
+            else
+                line.delete(activeLine)
+                label.delete(activeLabel)
+
+            array.remove(activeLines, idx)
+            array.remove(activePrices, idx)
+            array.remove(activeLabels, idx)
+        else
+            line.set_extend(activeLine, extend.right)
+            label.set_xy(activeLabel, n, activePrice)
+            label.set_size(activeLabel, get_label_size())
+
+        idx -= 1
+
+update_unbroken_lines(activeLines, activePrices, isTop) =>
+    var line pendingBrokenLine = na
+    if extendUnbrokenLines
+        int idx = math.min(array.size(activeLines), array.size(activePrices)) - 1
+        while idx >= 0
+            activeLine = array.get(activeLines, idx)
+            activePrice = array.get(activePrices, idx)
+            swept = isTop ? close > activePrice : close < activePrice
+
+            if swept
+                zone_lifecycle_style_line_historical(pendingBrokenLine)
+                line.set_extend(activeLine, extend.none)
+                line.set_x2(activeLine, n)
+                line.set_style(activeLine, line.style_dashed)
+                zone_lifecycle_style_line_broken(activeLine)
+                pendingBrokenLine := activeLine
+                array.remove(activeLines, idx)
+                array.remove(activePrices, idx)
+            else
+                line.set_extend(activeLine, extend.right)
+
+            idx -= 1
+
+nearest_opposing_target(level, oppositePrices, wantBelow) =>
+    float best = na
+    float bestDist = na
+    if array.size(oppositePrices) > 0
+        for idx = 0 to array.size(oppositePrices) - 1
+            candidate = array.get(oppositePrices, idx)
+            valid = wantBelow ? candidate < level : candidate > level
+            dist = math.abs(level - candidate)
+            if valid and (na(bestDist) or dist < bestDist)
+                best := candidate
+                bestDist := dist
+    best
+
+clear_prob_guides(guideLines) =>
+    while array.size(guideLines) > 0
+        oldLine = array.pop(guideLines)
+        line.delete(oldLine)
+
+prob_guides_should_draw(side, tf, zoneClass, structuralScore) =>
+    if probGuideMode == "Off"
+        false
+    else
+        [tier, measured] = prob_measured_tier(side, tf, zoneClass, structuralScore)
+        probGuideMode == "All measured zones" ? measured : measured and prob_tier_rank(tier) >= prob_min_high_rank()
+
+draw_prob_guide_for_level(level, isBsl, oppositePrices, guideLines) =>
+    side = isBsl ? "BSL" : "SSL"
+    if not na(level) and prob_guides_should_draw(side, timeframe.period, "external_swing", 5)
+        target = nearest_opposing_target(level, oppositePrices, isBsl)
+        stop = isBsl ? level + probGuideStopBufferTicks * syminfo.mintick : level - probGuideStopBufferTicks * syminfo.mintick
+        leftX = bar_index
+        rightX = bar_index + probGuideBars
+        stopLine = line.new(leftX, stop, rightX, stop, color = color.new(probGuideStopColor, probGuideLineOpacity), style = line.style_dotted, width = 1)
+        array.push(guideLines, stopLine)
+        if not na(target)
+            targetLine = line.new(leftX, target, rightX, target, color = color.new(probGuideTargetColor, probGuideLineOpacity), style = line.style_dotted, width = 1)
+            array.push(guideLines, targetLine)
+
+draw_probability_guides(bslPrices, sslPrices, guideLines) =>
+    if barstate.islast
+        clear_prob_guides(guideLines)
+        if probGuideMode != "Off"
+            maxBsl = math.min(array.size(bslPrices), 8)
+            maxSsl = math.min(array.size(sslPrices), 8)
+            if maxBsl > 0
+                for idx = 0 to maxBsl - 1
+                    level = array.get(bslPrices, array.size(bslPrices) - 1 - idx)
+                    draw_prob_guide_for_level(level, true, sslPrices, guideLines)
+            if maxSsl > 0
+                for idx = 0 to maxSsl - 1
+                    level = array.get(sslPrices, array.size(sslPrices) - 1 - idx)
+                    draw_prob_guide_for_level(level, false, bslPrices, guideLines)
+
+zone_strength_score(count, vol, top, btm, crossed) =>
+    score = 2
+    score += count >= 8 ? 3 : count >= 4 ? 2 : count >= 2 ? 1 : 0
+    score += not na(zoneAvgVolume) and vol >= zoneAvgVolume * 8 ? 3 : not na(zoneAvgVolume) and vol >= zoneAvgVolume * 4 ? 2 : not na(zoneAvgVolume) and vol >= zoneAvgVolume * 2 ? 1 : 0
+    zoneHeight = math.abs(top - btm)
+    score += not na(zoneAtrValue) and zoneHeight <= zoneAtrValue * 0.25 ? 1 : 0
+    score += not crossed ? 1 : 0
+    math.min(score, 10)
+
+zone_strength_grade(score) =>
+    score >= 8 ? "A+" : score >= 6 ? "A" : "B"
+
+strong_mtf_snapshot() =>
+    mtfAtr = ta.atr(14)
+    mtfAvgVolume = ta.sma(volume, 20)
+
+    var float candidateBslTop = na
+    var float candidateBslBottom = na
+    var int candidateBslCount = 0
+    var float candidateBslVolume = 0.0
+    var bool candidateBslActive = false
+    var int candidateBslTime = na
+
+    var float candidateSslTop = na
+    var float candidateSslBottom = na
+    var int candidateSslCount = 0
+    var float candidateSslVolume = 0.0
+    var bool candidateSslActive = false
+    var int candidateSslTime = na
+
+    var array<float> activeBslTops = array.new_float()
+    var array<float> activeBslBottoms = array.new_float()
+    var array<int> activeBslScores = array.new_int()
+    var array<int> activeBslTimes = array.new_int()
+    var array<bool> activeBslTouched = array.new_bool()
+
+    var array<float> activeSslTops = array.new_float()
+    var array<float> activeSslBottoms = array.new_float()
+    var array<int> activeSslScores = array.new_int()
+    var array<int> activeSslTimes = array.new_int()
+    var array<bool> activeSslTouched = array.new_bool()
+
+    var int signalDirection = 0
+    int signalPulse = 0
+
+    mtfPh = ta.pivothigh(length, length)
+    mtfPl = ta.pivotlow(length, length)
+    mtfPhFound = not na(mtfPh)
+    mtfPlFound = not na(mtfPl)
+
+    if mtfPhFound
+        candidateBslTop := high[length]
+        candidateBslBottom := area == "Wick Extremity" ? math.max(close[length], open[length]) : low[length]
+        candidateBslCount := 0
+        candidateBslVolume := 0.0
+        candidateBslActive := true
+        candidateBslTime := time[length]
+    else if candidateBslActive
+        bslOverlap = low[length] < candidateBslTop and high[length] > candidateBslBottom
+        candidateBslCount += bslOverlap ? 1 : 0
+        candidateBslVolume += bslOverlap ? volume[length] : 0.0
+
+        bslHeight = math.abs(candidateBslTop - candidateBslBottom)
+        bslScore = 2
+        bslScore += candidateBslCount >= 8 ? 3 : candidateBslCount >= 4 ? 2 : candidateBslCount >= 2 ? 1 : 0
+        bslScore += not na(mtfAvgVolume) and candidateBslVolume >= mtfAvgVolume * 8 ? 3 : not na(mtfAvgVolume) and candidateBslVolume >= mtfAvgVolume * 4 ? 2 : not na(mtfAvgVolume) and candidateBslVolume >= mtfAvgVolume * 2 ? 1 : 0
+        bslScore += not na(mtfAtr) and bslHeight <= mtfAtr * 0.25 ? 1 : 0
+        bslScore += close <= candidateBslTop ? 1 : 0
+        bslScore := math.min(bslScore, 10)
+        bslFilterTarget = filterOptions == "Count" ? candidateBslCount : candidateBslVolume
+
+        if bslFilterTarget > filterValue and bslScore >= strongZoneMinScore and close <= candidateBslTop
+            bslExistingIndex = array.indexof(activeBslTimes, candidateBslTime)
+
+            if bslExistingIndex == -1
+                array.push(activeBslTops, candidateBslTop)
+                array.push(activeBslBottoms, candidateBslBottom)
+                array.push(activeBslScores, bslScore)
+                array.push(activeBslTimes, candidateBslTime)
+                array.push(activeBslTouched, false)
+            else
+                array.set(activeBslTops, bslExistingIndex, candidateBslTop)
+                array.set(activeBslBottoms, bslExistingIndex, candidateBslBottom)
+                array.set(activeBslScores, bslExistingIndex, bslScore)
+
+        if close > candidateBslTop
+            candidateBslActive := false
+
+    if mtfPlFound
+        candidateSslTop := area == "Wick Extremity" ? math.min(close[length], open[length]) : high[length]
+        candidateSslBottom := low[length]
+        candidateSslCount := 0
+        candidateSslVolume := 0.0
+        candidateSslActive := true
+        candidateSslTime := time[length]
+    else if candidateSslActive
+        sslOverlap = low[length] < candidateSslTop and high[length] > candidateSslBottom
+        candidateSslCount += sslOverlap ? 1 : 0
+        candidateSslVolume += sslOverlap ? volume[length] : 0.0
+
+        sslHeight = math.abs(candidateSslTop - candidateSslBottom)
+        sslScore = 2
+        sslScore += candidateSslCount >= 8 ? 3 : candidateSslCount >= 4 ? 2 : candidateSslCount >= 2 ? 1 : 0
+        sslScore += not na(mtfAvgVolume) and candidateSslVolume >= mtfAvgVolume * 8 ? 3 : not na(mtfAvgVolume) and candidateSslVolume >= mtfAvgVolume * 4 ? 2 : not na(mtfAvgVolume) and candidateSslVolume >= mtfAvgVolume * 2 ? 1 : 0
+        sslScore += not na(mtfAtr) and sslHeight <= mtfAtr * 0.25 ? 1 : 0
+        sslScore += close >= candidateSslBottom ? 1 : 0
+        sslScore := math.min(sslScore, 10)
+        sslFilterTarget = filterOptions == "Count" ? candidateSslCount : candidateSslVolume
+
+        if sslFilterTarget > filterValue and sslScore >= strongZoneMinScore and close >= candidateSslBottom
+            sslExistingIndex = array.indexof(activeSslTimes, candidateSslTime)
+
+            if sslExistingIndex == -1
+                array.push(activeSslTops, candidateSslTop)
+                array.push(activeSslBottoms, candidateSslBottom)
+                array.push(activeSslScores, sslScore)
+                array.push(activeSslTimes, candidateSslTime)
+                array.push(activeSslTouched, false)
+            else
+                array.set(activeSslTops, sslExistingIndex, candidateSslTop)
+                array.set(activeSslBottoms, sslExistingIndex, candidateSslBottom)
+                array.set(activeSslScores, sslExistingIndex, sslScore)
+
+        if close < candidateSslBottom
+            candidateSslActive := false
+
+    bool bslRejected = false
+    bool bslAccepted = false
+    bool sslReclaimed = false
+    bool sslAccepted = false
+
+    bslIndex = array.size(activeBslTops) - 1
+    while bslIndex >= 0
+        bslTop = array.get(activeBslTops, bslIndex)
+        bslBottom = array.get(activeBslBottoms, bslIndex)
+        bslHit = high >= bslBottom
+
+        if bslHit
+            array.set(activeBslTouched, bslIndex, true)
+
+        bslRejected := bslRejected or (barstate.isconfirmed and bslHit and close < bslBottom and high[1] < bslBottom)
+        bslAccepted := bslAccepted or (barstate.isconfirmed and close > bslTop and close[1] <= bslTop)
+
+        if close > bslTop
+            array.remove(activeBslTops, bslIndex)
+            array.remove(activeBslBottoms, bslIndex)
+            array.remove(activeBslScores, bslIndex)
+            array.remove(activeBslTimes, bslIndex)
+            array.remove(activeBslTouched, bslIndex)
+
+        bslIndex -= 1
+
+    sslIndex = array.size(activeSslTops) - 1
+    while sslIndex >= 0
+        sslTop = array.get(activeSslTops, sslIndex)
+        sslBottom = array.get(activeSslBottoms, sslIndex)
+        sslHit = low <= sslTop
+
+        if sslHit
+            array.set(activeSslTouched, sslIndex, true)
+
+        sslReclaimed := sslReclaimed or (barstate.isconfirmed and sslHit and close > sslTop and low[1] > sslTop)
+        sslAccepted := sslAccepted or (barstate.isconfirmed and close < sslBottom and close[1] >= sslBottom)
+
+        if close < sslBottom
+            array.remove(activeSslTops, sslIndex)
+            array.remove(activeSslBottoms, sslIndex)
+            array.remove(activeSslScores, sslIndex)
+            array.remove(activeSslTimes, sslIndex)
+            array.remove(activeSslTouched, sslIndex)
+
+        sslIndex -= 1
+
+    if bslRejected or sslAccepted
+        signalDirection := -1
+        signalPulse := -1
+    else if sslReclaimed or bslAccepted
+        signalDirection := 1
+        signalPulse := 1
+
+    while array.size(activeBslTops) > 30
+        array.shift(activeBslTops)
+        array.shift(activeBslBottoms)
+        array.shift(activeBslScores)
+        array.shift(activeBslTimes)
+        array.shift(activeBslTouched)
+
+    while array.size(activeSslTops) > 30
+        array.shift(activeSslTops)
+        array.shift(activeSslBottoms)
+        array.shift(activeSslScores)
+        array.shift(activeSslTimes)
+        array.shift(activeSslTouched)
+
+    array<float> bslSnapshot = array.new_float(12, na)
+    array<float> sslSnapshot = array.new_float(12, na)
+    array<float> bslDistances = array.new_float()
+    array<float> sslDistances = array.new_float()
+
+    if array.size(activeBslTops) > 0
+        for index = 0 to array.size(activeBslTops) - 1
+            zoneTop = array.get(activeBslTops, index)
+            zoneBottom = array.get(activeBslBottoms, index)
+            zoneDistance = close < zoneBottom ? zoneBottom - close : close <= zoneTop ? 0.0 : close - zoneTop
+            array.push(bslDistances, zoneDistance)
+
+        bslSorted = array.sort_indices(bslDistances, order.ascending)
+        bslRankMax = math.min(2, array.size(bslSorted) - 1)
+
+        for rank = 0 to bslRankMax
+            sourceIndex = array.get(bslSorted, rank)
+            baseIndex = rank * 4
+            array.set(bslSnapshot, baseIndex, array.get(activeBslTops, sourceIndex))
+            array.set(bslSnapshot, baseIndex + 1, array.get(activeBslBottoms, sourceIndex))
+            array.set(bslSnapshot, baseIndex + 2, float(array.get(activeBslScores, sourceIndex)))
+            array.set(bslSnapshot, baseIndex + 3, array.get(activeBslTouched, sourceIndex) ? 1.0 : 0.0)
+
+    if array.size(activeSslTops) > 0
+        for index = 0 to array.size(activeSslTops) - 1
+            zoneTop = array.get(activeSslTops, index)
+            zoneBottom = array.get(activeSslBottoms, index)
+            zoneDistance = close > zoneTop ? close - zoneTop : close >= zoneBottom ? 0.0 : zoneBottom - close
+            array.push(sslDistances, zoneDistance)
+
+        sslSorted = array.sort_indices(sslDistances, order.ascending)
+        sslRankMax = math.min(2, array.size(sslSorted) - 1)
+
+        for rank = 0 to sslRankMax
+            sourceIndex = array.get(sslSorted, rank)
+            baseIndex = rank * 4
+            array.set(sslSnapshot, baseIndex, array.get(activeSslTops, sourceIndex))
+            array.set(sslSnapshot, baseIndex + 1, array.get(activeSslBottoms, sourceIndex))
+            array.set(sslSnapshot, baseIndex + 2, float(array.get(activeSslScores, sourceIndex)))
+            array.set(sslSnapshot, baseIndex + 3, array.get(activeSslTouched, sourceIndex) ? 1.0 : 0.0)
+
+    [bslSnapshot, sslSnapshot, signalDirection, signalPulse]
+
+set_level(condition, crossed, value, count, vol, css, activeLines, activePrices, zoneTop, zoneBtm, isTop) =>
+    var line lvl = na
+    var bool lvlRegistered = false
+
+    target = switch filterOptions
+        "Count" => count
+        "Volume" => vol
+
+    displayZone = prob_should_show_zone(isTop ? "BSL" : "SSL", timeframe.period, "external_swing", zone_strength_score(count, vol, zoneTop, zoneBtm, crossed))
+
+    if condition and displayZone
+        if target[1] < filterValue[1]
+            line.delete(lvl[1])
+        else if not crossed[1] and not na(lvl)
+            line.set_extend(lvl, extendUnbrokenLines ? extend.right : extend.none)
+            if not extendUnbrokenLines
+                line.set_x2(lvl, n - length)
+        else if crossed[1] and not na(lvl)
+            zone_lifecycle_style_line_historical(lvl)
+
+        lvl := line.new(n - length, value, n, value, color = na, extend = extendUnbrokenLines ? extend.right : extend.none)
+        lvlRegistered := false
+
+    if not displayZone and not na(lvl)
+        line.delete(lvl)
+        lvl := na
+        lvlRegistered := false
+
+    if displayZone and not crossed[1] and not na(lvl)
+        line.set_extend(lvl, extendUnbrokenLines ? extend.right : extend.none)
+        if not extendUnbrokenLines
+            line.set_x2(lvl, n)
+
+    if displayZone and crossed and not crossed[1] and not na(lvl)
+        line.set_extend(lvl, extend.none)
+        line.set_x2(lvl, n)
+        line.set_style(lvl, line.style_dashed)
+        zone_lifecycle_style_line_broken(lvl)
+        lvlRegistered := false
+
+    if displayZone and target > filterValue and not na(lvl)
+        strengthScore = zone_strength_score(count, vol, zoneTop, zoneBtm, crossed)
+        strongZone = cleanShowStrongTags and strengthScore >= strongZoneMinScore
+
+        if showZoneLifecycleStyling and crossed
+            zone_lifecycle_style_line_broken(lvl)
+        else
+            line.set_color(lvl, strongZone ? strongZoneLineColor : css)
+            line.set_width(lvl, strongZone ? strongZoneLineWidth : 1)
+        if extendUnbrokenLines and not crossed and not lvlRegistered
+            array.push(activeLines, lvl)
+            array.push(activePrices, value)
+            trim_active_price_lines(activeLines, activePrices, panelMaxSweepLevels)
+            lvlRegistered := true
+
+set_zone(condition, x, top, btm, count, vol, css, crossed, isTop) =>
+    var box bx = na
+    var label strengthLabel = na
+
+    target = switch filterOptions
+        "Count" => count
+        "Volume" => vol
+
+    strengthScore = zone_strength_score(count, vol, top, btm, crossed)
+    zoneSide = isTop ? "BSL" : "SSL"
+    displayZone = prob_should_show_zone(zoneSide, timeframe.period, "external_swing", strengthScore)
+
+    if ta.crossover(target, filterValue) and displayZone
+        if crossed[1] and not na(strengthLabel)
+            zone_lifecycle_style_label_historical(strengthLabel)
+        bx := box.new(x, top, x + count, btm, border_color = na, bgcolor = css)
+        strengthLabel := na
+
+    if not displayZone and not na(bx)
+        box.delete(bx)
+        bx := na
+        if not na(strengthLabel)
+            label.delete(strengthLabel)
+            strengthLabel := na
+
+    if displayZone and target > filterValue and not na(bx)
+        box.set_right(bx, x + count)
+        strongZone = cleanShowStrongTags and strengthScore >= strongZoneMinScore
+
+        if showZoneLifecycleStyling and crossed
+            zone_lifecycle_style_box_broken(bx)
+        else
+            box.set_border_color(bx, na)
+            box.set_border_width(bx, 1)
+
+        if strongZone and strongZoneShowTag
+            tagText = showCleanMeasuredZoneTags ? prob_compact_tag(zoneSide, "ORG", timeframe.period, "external_swing", strengthScore) : zoneSide + " " + zone_strength_grade(strengthScore) + prob_tier_text(zoneSide, "external_swing", strengthScore)
+            tagY = isTop ? top : btm
+            tagStyle = isTop ? label.style_label_down : label.style_label_up
+            topTierZone = prob_top_tier(zoneSide, timeframe.period, "external_swing", strengthScore)
+            tagBgColor = probHighlightTopTier and topTierZone ? probTopTierBgColor : strongZoneTagBgColor
+            tagTextColor = probHighlightTopTier and topTierZone ? probTopTierTextColor : strongZoneTagTextColor
+
+            if na(strengthLabel)
+                label newStrengthLabel = label.new(x + count, tagY, tagText, style = tagStyle, size = get_strong_zone_label_size(), color = tagBgColor, textcolor = tagTextColor)
+                strengthLabel := newStrengthLabel
+
+            if not na(strengthLabel)
+                label.set_xy(strengthLabel, x + count, tagY)
+                label.set_text(strengthLabel, tagText)
+                label.set_color(strengthLabel, tagBgColor)
+                label.set_textcolor(strengthLabel, tagTextColor)
+                label.set_size(strengthLabel, get_strong_zone_label_size())
+
+        if (not strongZone or not strongZoneShowTag) and not na(strengthLabel)
+            label.delete(strengthLabel)
+            strengthLabel := na
+
+mtf_premium_discount_data(swingLength) =>
+    var int legState = 0
+    var float trailingTop = na
+    var float trailingBottom = na
+    var int zoneStartTime = na
+
+    if not na(trailingTop)
+        trailingTop := math.max(high, trailingTop)
+    if not na(trailingBottom)
+        trailingBottom := math.min(low, trailingBottom)
+
+    newLegHigh = high[swingLength] > ta.highest(swingLength)
+    newLegLow = low[swingLength] < ta.lowest(swingLength)
+    previousLeg = legState
+
+    if newLegHigh
+        legState := 0
+    else if newLegLow
+        legState := 1
+
+    pivotLow = legState != previousLeg and legState == 1
+    pivotHigh = legState != previousLeg and legState == 0
+
+    if pivotLow
+        trailingBottom := low[swingLength]
+        zoneStartTime := time[swingLength]
+    else if pivotHigh
+        trailingTop := high[swingLength]
+        zoneStartTime := time[swingLength]
+
+    [trailingTop, trailingBottom, zoneStartTime]
+
+draw_mtf_zone(labelLevel, labelTime, leftTime, rightTime, top, bottom, tag, zoneColor, lblStyle) =>
+    var label lbl = label.new(na, na, text = tag, xloc = xloc.bar_time, color = #00000000, textcolor = mtfPremiumDiscountLineColor, style = lblStyle, size = get_label_size())
+    var box bx = box.new(na, na, na, na, xloc = xloc.bar_time, bgcolor = color.new(zoneColor, mtfZoneOpacity), border_color = mtfPremiumDiscountLineColor, border_width = 1)
+
+    box.set_lefttop(bx, leftTime, top)
+    box.set_rightbottom(bx, rightTime, bottom)
+    box.set_bgcolor(bx, color.new(zoneColor, mtfZoneOpacity))
+    box.set_border_color(bx, mtfPremiumDiscountLineColor)
+    box.set_border_width(bx, 1)
+
+    label.set_xy(lbl, labelTime, labelLevel)
+    label.set_text(lbl, tag)
+    label.set_textcolor(lbl, mtfPremiumDiscountLineColor)
+    label.set_size(lbl, get_label_size())
+
+draw_mtf_premium_discount_zones() =>
+    [mtfTop, mtfBottom, mtfLeftTime] = request.security(syminfo.tickerid, mtfPremiumDiscountTf, mtf_premium_discount_data(mtfPremiumDiscountLength), lookahead = barmerge.lookahead_on)
+
+    validZone = not na(mtfTop) and not na(mtfBottom) and not na(mtfLeftTime) and mtfTop > mtfBottom
+
+    if validZone
+        rightTime = last_bar_time
+        centerTime = int(math.round(0.5 * (mtfLeftTime + rightTime)))
+        equilibriumLevel = math.avg(mtfTop, mtfBottom)
+
+        draw_mtf_zone(mtfTop, centerTime, mtfLeftTime, rightTime, mtfTop, 0.95 * mtfTop + 0.05 * mtfBottom, "Premium", mtfPremiumZoneColor, label.style_label_down)
+        draw_mtf_zone(equilibriumLevel, rightTime, mtfLeftTime, rightTime, 0.525 * mtfTop + 0.475 * mtfBottom, 0.525 * mtfBottom + 0.475 * mtfTop, "Equilibrium", mtfEquilibriumZoneColor, label.style_label_left)
+        draw_mtf_zone(mtfBottom, centerTime, mtfLeftTime, rightTime, 0.95 * mtfBottom + 0.05 * mtfTop, mtfBottom, "Discount", mtfDiscountZoneColor, label.style_label_up)
+
+panel_position() =>
+    switch panelPositionInput
+        "Top Right" => position.top_right
+        "Bottom Right" => position.bottom_right
+        "Top Left" => position.top_left
+        "Bottom Left" => position.bottom_left
+
+strong_mtf_panel_position() =>
+    switch strongMtfPanelPositionInput
+        "Top Right" => position.top_right
+        "Bottom Right" => position.bottom_right
+        "Top Left" => position.top_left
+        "Bottom Left" => position.bottom_left
+
+strong_mtf_zone_value(snapshot, zoneIndex, fieldIndex) =>
+    valueIndex = zoneIndex * 4 + fieldIndex
+    float zoneValue = na
+
+    if not na(snapshot)
+        if array.size(snapshot) > valueIndex
+            zoneValue := array.get(snapshot, valueIndex)
+
+    zoneValue
+
+strong_mtf_zones_stacked(snapshot) =>
+    bool stacked = false
+    stackDistance = strongMtfStackTicks * syminfo.mintick
+
+    for firstZone = 0 to 1
+        firstTop = strong_mtf_zone_value(snapshot, firstZone, 0)
+        firstBottom = strong_mtf_zone_value(snapshot, firstZone, 1)
+
+        for secondZone = firstZone + 1 to 2
+            secondTop = strong_mtf_zone_value(snapshot, secondZone, 0)
+            secondBottom = strong_mtf_zone_value(snapshot, secondZone, 1)
+
+            if not na(firstTop) and not na(firstBottom) and not na(secondTop) and not na(secondBottom)
+                zoneGap = math.max(0.0, math.max(firstBottom, secondBottom) - math.min(firstTop, secondTop))
+                stacked := stacked or zoneGap <= stackDistance
+
+    stacked
+
+strong_mtf_zone_sets_stacked(firstSnapshot, secondSnapshot) =>
+    bool stacked = false
+    stackDistance = strongMtfStackTicks * syminfo.mintick
+
+    for firstZone = 0 to 2
+        firstTop = strong_mtf_zone_value(firstSnapshot, firstZone, 0)
+        firstBottom = strong_mtf_zone_value(firstSnapshot, firstZone, 1)
+
+        for secondZone = 0 to 2
+            secondTop = strong_mtf_zone_value(secondSnapshot, secondZone, 0)
+            secondBottom = strong_mtf_zone_value(secondSnapshot, secondZone, 1)
+
+            if not na(firstTop) and not na(firstBottom) and not na(secondTop) and not na(secondBottom)
+                zoneGap = math.max(0.0, math.max(firstBottom, secondBottom) - math.min(firstTop, secondTop))
+                stacked := stacked or zoneGap <= stackDistance
+
+    stacked
+
+strong_mtf_zones_touched(snapshot) =>
+    bool touched = false
+
+    for zoneIndex = 0 to 2
+        touched := touched or strong_mtf_zone_value(snapshot, zoneIndex, 3) == 1.0
+
+    touched
+
+strong_mtf_zones_text(snapshot, isBsl, stacked) =>
+    string zonesText = ""
+
+    for zoneIndex = 0 to 2
+        zoneTop = strong_mtf_zone_value(snapshot, zoneIndex, 0)
+        zoneBottom = strong_mtf_zone_value(snapshot, zoneIndex, 1)
+        zoneScore = strong_mtf_zone_value(snapshot, zoneIndex, 2)
+
+        if not na(zoneTop) and not na(zoneBottom)
+            ticksAway = isBsl ? close < zoneBottom ? (zoneBottom - close) / syminfo.mintick : close <= zoneTop ? 0.0 : (close - zoneTop) / syminfo.mintick : close > zoneTop ? (close - zoneTop) / syminfo.mintick : close >= zoneBottom ? 0.0 : (zoneBottom - close) / syminfo.mintick
+            gradeText = strongMtfShowScores and not na(zoneScore) ? " " + zone_strength_grade(int(zoneScore)) : ""
+            zoneLine = "#" + str.tostring(zoneIndex + 1) + " " + str.tostring(zoneBottom, format.mintick) + " - " + str.tostring(zoneTop, format.mintick) + gradeText + " | " + str.tostring(math.round(ticksAway)) + " ticks"
+            zonesText := zonesText == "" ? zoneLine : zonesText + "\n" + zoneLine
+
+    zonesText == "" ? "--" : (stacked ? "STACKED STRONG\n" : "") + zonesText
+
+strong_mtf_zones_bg(snapshot, isBsl, stacked) =>
+    stacked ? color.new(strongMtfStackColor, 10) : strong_mtf_zones_touched(snapshot) ? color.new(isBsl ? strongMtfBearColor : strongMtfBullColor, 35) : strongMtfPanelBg
+
+strong_mtf_signal_text(direction) =>
+    direction == 1 ? "BUY" : direction == -1 ? "SELL" : "WAIT"
+
+strong_mtf_signal_color(direction) =>
+    direction == 1 ? strongMtfBullColor : direction == -1 ? strongMtfBearColor : strongMtfNeutralColor
+
+strong_mtf_signal_bg(direction) =>
+    direction == 0 ? strongMtfPanelBg : strong_mtf_signal_color(direction)
+
+nearest_above_from_array(activePrices, seed) =>
+    float target = seed
+
+    if showBiasDrawPanel and barstate.islast and array.size(activePrices) > 0
+        level = array.get(activePrices, array.size(activePrices) - 1)
+        if not na(level) and level > close
+            target := na(target) ? level : math.min(target, level)
+
+    target
+
+nearest_below_from_array(activePrices, seed) =>
+    float target = seed
+
+    if showBiasDrawPanel and barstate.islast and array.size(activePrices) > 0
+        level = array.get(activePrices, array.size(activePrices) - 1)
+        if not na(level) and level < close
+            target := na(target) ? level : math.max(target, level)
+
+    target
+
+top_sweep_from_array(activePrices, buffer) =>
+    bool swept = false
+    bool rejected = false
+    float sweptLevel = na
+
+    if showBiasDrawPanel and barstate.islast and array.size(activePrices) > 0
+        level = array.get(activePrices, array.size(activePrices) - 1)
+        sweptNow = not na(level) and high >= level + buffer
+
+        if sweptNow
+            swept := true
+            rejected := close < level
+            sweptLevel := level
+
+    [swept, rejected, sweptLevel]
+
+bottom_sweep_from_array(activePrices, buffer) =>
+    bool swept = false
+    bool rejected = false
+    float sweptLevel = na
+
+    if showBiasDrawPanel and barstate.islast and array.size(activePrices) > 0
+        level = array.get(activePrices, array.size(activePrices) - 1)
+        sweptNow = not na(level) and low <= level - buffer
+
+        if sweptNow
+            swept := true
+            rejected := close > level
+            sweptLevel := level
+
+    [swept, rejected, sweptLevel]
+
+panel_line_target(lvl, isTop, seed) =>
+    float target = seed
+
+    if panelUseHtfContext and not na(lvl)
+        level = line.get_y1(lvl)
+        validLevel = isTop ? level > close : level < close
+
+        if validLevel
+            target := na(target) ? level : isTop ? math.min(target, level) : math.max(target, level)
+
+    target
+
+
+//------------------------------------------------------------------------------
+// Clean combined HTF/LTF overlay helpers
+//------------------------------------------------------------------------------
+var array<line> cleanMtfLines = array.new_line()
+var array<label> cleanMtfLabels = array.new_label()
+
+clean_clear_mtf_overlay() =>
+    lineCount = array.size(cleanMtfLines)
+    if lineCount > 0
+        for i = 0 to lineCount - 1
+            line.delete(array.get(cleanMtfLines, i))
+    labelCount = array.size(cleanMtfLabels)
+    if labelCount > 0
+        for i = 0 to labelCount - 1
+            label.delete(array.get(cleanMtfLabels, i))
+    array.clear(cleanMtfLines)
+    array.clear(cleanMtfLabels)
+
+clean_tf_weight(tfTag) =>
+    tfTag == "1H" ? 3 : tfTag == "30M" ? 2 : tfTag == "5M" ? 1 : 1
+
+clean_tf_type(tfTag) =>
+    tfTag == "1M" ? "INT" : tfTag
+
+clean_mtf_color(side, tfTag, touched) =>
+    base = side == "BSL" ? (tfTag == "5M" or tfTag == "1M" ? cleanLtfBslColor : cleanHtfBslColor) : (tfTag == "5M" or tfTag == "1M" ? cleanLtfSslColor : cleanHtfSslColor)
+    cleanFadeTouchedZones and touched ? color.new(base, 62) : base
+
+clean_map_line_style() =>
+    cleanMapLineStyleInput == "Dotted" ? line.style_dotted : cleanMapLineStyleInput == "Solid" ? line.style_solid : line.style_dashed
+
+clean_setup_prefix(tfTag) =>
+    tfTag == "1H" ? "T1 " : tfTag == "30M" ? "T2 " : tfTag == "5M" ? "T3 " : ""
+
+clean_spike_prefix() =>
+    cleanShowSpikePrefix ? "SPIKE " : ""
+
+clean_map_prefix(tfTag) =>
+    (cleanShowMapLabelPrefix ? "MAP " : "") + (cleanShowSetupTierPrefix ? clean_setup_prefix(tfTag) : "") + clean_spike_prefix()
+
+clean_chart_tf_key() =>
+    timeframe.isminutes and timeframe.multiplier == 60 ? "1H" : timeframe.isminutes and timeframe.multiplier == 30 ? "30M" : timeframe.isminutes and timeframe.multiplier == 5 ? "5M" : timeframe.isminutes and timeframe.multiplier == 1 ? "1M" : timeframe.period
+
+clean_auto_preset_key() =>
+    cleanTradePreset == "Auto" ? clean_chart_tf_key() : cleanTradePreset == "1H Battlefield" ? "1H" : cleanTradePreset == "30M Battlefield" ? "30M" : cleanTradePreset == "5M Timing" ? "5M" : cleanTradePreset == "1M Execution" ? "1M" : "Manual"
+
+clean_manual_tf_enabled(tfTag) =>
+    tfTag == "1H" ? cleanShow1h : tfTag == "30M" ? cleanShow30m : tfTag == "5M" ? cleanShow5m : tfTag == "1M" ? cleanShow1m : false
+
+clean_preset_tf_enabled(tfTag) =>
+    preset = clean_auto_preset_key()
+    preset == "Manual" ? clean_manual_tf_enabled(tfTag) : preset == "1H" ? (tfTag == "1H" or (cleanShowLowerTfMapOn1h and (tfTag == "30M" or tfTag == "5M"))) : preset == "30M" ? (tfTag == "1H" or tfTag == "30M" or tfTag == "5M") : preset == "5M" ? (tfTag == "1H" or tfTag == "30M" or tfTag == "5M") : preset == "1M" ? (tfTag == "1H" or tfTag == "30M" or tfTag == "5M" or tfTag == "1M") : clean_manual_tf_enabled(tfTag)
+
+clean_map_tf_visible(tfTag) =>
+    clean_preset_tf_enabled(tfTag) and (not cleanHideMapOnChartTf or clean_chart_tf_key() != tfTag)
+
+clean_draw_one_mtf_zone(snapshot, side, tfTag, zoneIndex) =>
+    top = strong_mtf_zone_value(snapshot, zoneIndex, 0)
+    bottom = strong_mtf_zone_value(snapshot, zoneIndex, 1)
+    scoreRaw = strong_mtf_zone_value(snapshot, zoneIndex, 2)
+    touchedRaw = strong_mtf_zone_value(snapshot, zoneIndex, 3)
+    tfLookup = tfTag == "1H" ? "60" : tfTag == "30M" ? "30" : tfTag == "5M" ? "5" : "1"
+    score = na(scoreRaw) ? 5 : int(math.round(scoreRaw))
+    valid = cleanShowMtfOverlay and clean_map_tf_visible(tfTag) and prob_should_show_zone(side, tfLookup, "external_swing", score) and not na(top) and not na(bottom) and top > bottom
+    if valid
+        touched = not na(touchedRaw) and touchedRaw > 0
+        tfType = clean_tf_type(tfTag)
+        labelText = clean_map_prefix(tfTag) + prob_compact_tag(side, tfType, tfLookup, "external_swing", score)
+        zoneColor = clean_mtf_color(side, tfTag, touched)
+        width = clean_tf_weight(tfTag)
+        rightBar = bar_index + cleanOverlayBars
+        // No midpoint logic: Batty trades liquidity spikes that break the real zone.
+        // BSL spike/break reference = zone top. SSL spike/break reference = zone bottom.
+        spikeLevel = side == "BSL" ? top : bottom
+        ln = line.new(bar_index, spikeLevel, rightBar, spikeLevel, color = zoneColor, width = width, style = clean_map_line_style())
+        lblStyle = side == "BSL" ? label.style_label_down : label.style_label_up
+        lblY = spikeLevel
+        lbl = label.new(rightBar, lblY, labelText, style = lblStyle, color = color.new(color.black, 15), textcolor = zoneColor, size = get_active_map_label_size())
+        array.push(cleanMtfLines, ln)
+        array.push(cleanMtfLabels, lbl)
+
+clean_draw_tf_overlay(bslSnapshot, sslSnapshot, tfTag, enabled) =>
+    if enabled
+        zoneMax = math.min(cleanMtfZonesPerSide, 2)
+        for zoneIndex = 0 to zoneMax - 1
+            clean_draw_one_mtf_zone(bslSnapshot, "BSL", tfTag, zoneIndex)
+            clean_draw_one_mtf_zone(sslSnapshot, "SSL", tfTag, zoneIndex)
+
+//------------------------------------------------------------------------------
+// Global variables
+//------------------------------------------------------------------------------
+// Pivot high
+var float ph_top = na
+var float ph_btm = na
+var bool ph_crossed = na
+var int ph_x1 = 0
+var array<line> ph_active_lines = array.new_line()
+var array<float> ph_active_prices = array.new_float()
+
+// Pivot low
+var float pl_top = na
+var float pl_btm = na
+var bool pl_crossed = na
+var int pl_x1 = 0
+var array<line> pl_active_lines = array.new_line()
+var array<float> pl_active_prices = array.new_float()
+
+// Internal liquidity
+var array<line> internal_bsl_active_lines = array.new_line()
+var array<float> internal_bsl_active_prices = array.new_float()
+var array<line> internal_ssl_active_lines = array.new_line()
+var array<float> internal_ssl_active_prices = array.new_float()
+
+// Valid liquidity points
+var array<line> valid_bsl_active_lines = array.new_line()
+var array<float> valid_bsl_active_prices = array.new_float()
+var array<label> valid_bsl_active_labels = array.new_label()
+var array<line> valid_ssl_active_lines = array.new_line()
+var array<float> valid_ssl_active_prices = array.new_float()
+var array<label> valid_ssl_active_labels = array.new_label()
+var array<line> probability_guide_lines = array.new_line()
+var float sessionHigh = na
+var float sessionLow = na
+var float previousEqHigh = na
+var float previousEqLow = na
+var line htfBslLine = na
+var label htfBslLabel = na
+var line htfSslLine = na
+var label htfSslLabel = na
+
+// Bias / draw panel
+var string panelDailyBias = "BIAS: NEUTRAL"
+var string panelDailyReason = "Waiting for external sweep"
+var string panelDailyTarget = "Target: n/a"
+var color panelDailyColor = panelNeutralColor
+var string panelCurrentDraw = "DRAW: WAITING"
+var string panelCurrentReason = "No fresh trap"
+var string panelCurrentTarget = "Target: n/a"
+var string panelCurrentInvalidation = "Invalid: n/a"
+var string panelCurrentDistance = "T/R: n/a"
+var color panelCurrentColor = panelNeutralColor
+var table panelTable = table.new(panel_position(), 1, 10, border_width = 1)
+var int panelActiveBosDirection = 0
+var float panelActiveBosHigh = na
+var float panelActiveBosLow = na
+var float panelActiveProtectedLevel = na
+var int panelBullishRaidCount = 0
+var int panelBearishRaidCount = 0
+var bool panelDiscountDecisionPrinted = false
+var bool panelPremiumDecisionPrinted = false
+
+// Strong zone MTF on-chart table disabled in this build; data-window bridge plots remain active.
+// Liquidity respect pockets
+var array<float> pocket_cluster_anchors = array.new_float()
+var array<int> pocket_cluster_sides = array.new_int()
+var array<int> pocket_cluster_counts = array.new_int()
+var array<float> pocket_cluster_quality = array.new_float()
+var array<float> pocket_cluster_volumes = array.new_float()
+var array<int> pocket_cluster_left_bars = array.new_int()
+var array<int> pocket_cluster_last_bars = array.new_int()
+var array<float> pocket_cluster_zone_edges = array.new_float()
+var array<box> pocket_boxes = array.new_box()
+var array<label> pocket_labels = array.new_label()
+
+//------------------------------------------------------------------------------
+// Merlin Phase 6 Live Zone Scoring - SPARKY only — stable zone_created build
+//------------------------------------------------------------------------------
+const string merlinGroup = "Liquidity Lab Forward Recorder"
+const string labProtocolVersion = "mym-lz-forward-v0.1"
+const string labIndicatorVersion = "v1.9.6-lab"
+const string labBaseSourceSha256 = "c6995242c85143af4dc11973e8e4efd0a7e4d5c7723de8d207793a72393c8688"
+const string labBuildId = "mym-lz-forward-v0.1-20260926"
+merlinEnabled = input.bool(false, "Send new printed zones to Liquidity Lab", group = merlinGroup)
+merlinSecret = input.string("", "Webhook secret optional", group = merlinGroup)
+merlin_json_str(x) => "\"" + str.replace_all(str.replace_all(str.tostring(x), "\"", "'"), "\n", " ") + "\""
+merlin_json_num(x) => na(x) ? "null" : str.tostring(x, format.mintick)
+merlin_json_bool(x) => x ? "true" : "false"
+
+merlin_zone_id(side, zoneClass, createdTime, top, bottom) =>
+    syminfo.tickerid + "|" + timeframe.period + "|" + side + "|" + zoneClass + "|" + str.tostring(createdTime) + "|" + str.tostring(top, format.mintick) + "|" + str.tostring(bottom, format.mintick)
+
+merlin_forecast_event(tf, probabilitySource) =>
+    tfKey = prob_tf_key(tf)
+    probabilitySource == "fallback" or tfKey == "15m" ? "fallback_unscored" : tfKey == "1m" or tfKey == "5m" ? "reaction" : tfKey == "30m" or tfKey == "60m" ? "attraction" : "unscored"
+
+merlin_bias_value() =>
+    panelDailyBias == "BIAS: BULLISH" ? "bullish" : panelDailyBias == "BIAS: BEARISH" ? "bearish" : "neutral"
+
+merlin_payload(eventName, zoneId, side, zoneClass, createdTime, top, bottom, price) =>
+    payload = "{"
+    payload += "\"secret\":" + merlin_json_str(merlinSecret)
+    payload += ",\"agent\":\"Merlin\""
+    payload += ",\"indicator\":\"Probability Based Batty Liquidity v1\""
+    payload += ",\"event\":" + merlin_json_str(eventName)
+    payload += ",\"dataset\":\"forward_live\""
+    payload += ",\"source\":\"live_tradingview_indicator\""
+    payload += ",\"symbol\":" + merlin_json_str(syminfo.tickerid)
+    payload += ",\"contract\":" + merlin_json_str(syminfo.tickerid)
+    payload += ",\"timeframe\":" + merlin_json_str(timeframe.period)
+    payload += ",\"bar_index\":" + str.tostring(bar_index)
+    payload += ",\"bar_time\":" + merlin_json_str(str.tostring(time))
+    payload += ",\"available_at\":" + merlin_json_str(str.tostring(time_close))
+    payload += ",\"pivot_time\":" + merlin_json_str(str.tostring(createdTime))
+    payload += ",\"created_at_bar_time\":" + merlin_json_str(str.tostring(createdTime))
+    payload += ",\"zone_id\":" + merlin_json_str(zoneId)
+    payload += ",\"side\":" + merlin_json_str(side)
+    payload += ",\"zone_class\":" + merlin_json_str(zoneClass)
+    payload += ",\"price\":" + merlin_json_num(price)
+    payload += ",\"zone_top\":" + merlin_json_num(top)
+    payload += ",\"zone_bottom\":" + merlin_json_num(bottom)
+    payload += ",\"volume\":" + merlin_json_num(volume)
+    payload += ",\"atr\":" + merlin_json_num(ta.atr(14))
+    structuralScore = zone_strength_score(1, volume, top, bottom, false)
+    [probability, probabilitySamples, probabilitySource] = prob_blended_probability(side, timeframe.period, zoneClass, structuralScore)
+    payload += ",\"synthetic\":false"
+    payload += ",\"protocol_version\":" + merlin_json_str(labProtocolVersion)
+    payload += ",\"indicator_version\":" + merlin_json_str(labIndicatorVersion)
+    payload += ",\"indicator_base_source_sha256\":" + merlin_json_str(labBaseSourceSha256)
+    payload += ",\"lab_build_id\":" + merlin_json_str(labBuildId)
+    payload += ",\"model_version\":" + merlin_json_str(probModelVersion)
+    payload += ",\"structural_score\":" + str.tostring(structuralScore)
+    payload += ",\"probability\":" + merlin_json_num(probability)
+    payload += ",\"probability_samples\":" + str.tostring(probabilitySamples)
+    payload += ",\"probability_source\":" + merlin_json_str(probabilitySource)
+    payload += ",\"forecast_event\":" + merlin_json_str(merlin_forecast_event(timeframe.period, probabilitySource))
+    payload += ",\"probability_tier\":" + merlin_json_str(prob_combined_tier(probability, probabilitySamples, probabilitySource, structuralScore))
+    payload += ",\"bias\":" + merlin_json_str(merlin_bias_value())
+    payload += ",\"quantity\":1"
+    payload += ",\"stop_ticks\":30"
+    payload += ",\"expiry_bars\":20"
+    payload += "}"
+    payload
+
+merlin_is_live_bar() =>
+    barstate.isrealtime and barstate.isconfirmed
+
+merlin_send(eventName, zoneId, side, zoneClass, createdTime, top, bottom, price) =>
+    if merlinEnabled and merlin_is_live_bar()
+        alert(merlin_payload(eventName, zoneId, side, zoneClass, createdTime, top, bottom, price), alert.freq_once_per_bar_close)
+
+merlin_track_zone(side, zoneClass, createdTime, top, bottom, price) =>
+    // No-state realtime build: avoid arrays/dedup entirely to prevent alert-runtime calculation errors.
+    if merlinEnabled and merlin_is_live_bar() and not na(top) and not na(bottom) and not na(price)
+        merlin_send("zone_created", merlin_zone_id(side, zoneClass, createdTime, top, bottom), side, zoneClass, createdTime, top, bottom, price)
+
+// Stable build: no snapshot/lifecycle/target loops. Once fresh alerts stay Active,
+// baseline snapshot will be reintroduced as a separate smaller diagnostic build.
+merlin_update_zone_lifecycle() =>
+    false
+
+merlin_update_zone_targets(panelActiveTarget, panelActiveInvalid) =>
+    false
+
+pocket_max_distance() =>
+    float tickDistance = pocketMaxDistanceTicks > 0 ? pocketMaxDistanceTicks * syminfo.mintick : na
+    float atrDistance = not na(pocketAtrValue) ? pocketAtrValue * pocketMaxDistanceAtr : pocketSwingLength * syminfo.mintick
+    pocketMaxDistanceTicks > 0 ? tickDistance : atrDistance
+
+nearest_anchor_from_array(activePrices, candidatePrice, isTop, currentAnchor, currentDistance) =>
+    bestAnchor = currentAnchor
+    bestDistance = currentDistance
+    maxDistance = pocket_max_distance()
+
+    if array.size(activePrices) > 0
+        for index = 0 to array.size(activePrices) - 1
+            anchor = array.get(activePrices, index)
+            distance = isTop ? anchor - candidatePrice : candidatePrice - anchor
+            validRespect = distance > 0 and distance <= maxDistance
+
+            if validRespect and (na(bestDistance) or distance < bestDistance)
+                bestAnchor := anchor
+                bestDistance := distance
+
+    [bestAnchor, bestDistance]
+
+nearest_liquidity_anchor(candidatePrice, isTop) =>
+    float bestAnchor = na
+    float bestDistance = na
+
+    if pocketUseExternalAnchors
+        [externalAnchor, externalDistance] = nearest_anchor_from_array(isTop ? ph_active_prices : pl_active_prices, candidatePrice, isTop, bestAnchor, bestDistance)
+        bestAnchor := externalAnchor
+        bestDistance := externalDistance
+
+    if pocketUseInternalAnchors
+        [internalAnchor, internalDistance] = nearest_anchor_from_array(isTop ? internal_bsl_active_prices : internal_ssl_active_prices, candidatePrice, isTop, bestAnchor, bestDistance)
+        bestAnchor := internalAnchor
+        bestDistance := internalDistance
+
+    if pocketUseObjectiveAnchors
+        [objectiveAnchor, objectiveDistance] = nearest_anchor_from_array(isTop ? valid_bsl_active_prices : valid_ssl_active_prices, candidatePrice, isTop, bestAnchor, bestDistance)
+        bestAnchor := objectiveAnchor
+        bestDistance := objectiveDistance
+
+        if isTop and not na(htfBslLine)
+            htfAnchor = line.get_y1(htfBslLine)
+            htfDistance = htfAnchor - candidatePrice
+            if htfDistance > 0 and htfDistance <= pocket_max_distance() and (na(bestDistance) or htfDistance < bestDistance)
+                bestAnchor := htfAnchor
+                bestDistance := htfDistance
+
+        if not isTop and not na(htfSslLine)
+            htfAnchor = line.get_y1(htfSslLine)
+            htfDistance = candidatePrice - htfAnchor
+            if htfDistance > 0 and htfDistance <= pocket_max_distance() and (na(bestDistance) or htfDistance < bestDistance)
+                bestAnchor := htfAnchor
+                bestDistance := htfDistance
+
+    [bestAnchor, bestDistance]
+
+pocket_cluster_find(anchor, side) =>
+    int result = -1
+    tolerance = math.max(2, validMergeTicks) * syminfo.mintick
+
+    if array.size(pocket_cluster_anchors) > 0
+        for index = 0 to array.size(pocket_cluster_anchors) - 1
+            sameSide = array.get(pocket_cluster_sides, index) == side
+            sameArea = math.abs(array.get(pocket_cluster_anchors, index) - anchor) <= tolerance
+
+            if result == -1 and sameSide and sameArea
+                result := index
+
+    result
+
+trim_liquidity_pockets() =>
+    while array.size(pocket_cluster_anchors) > pocketMaxActive
+        array.shift(pocket_cluster_anchors)
+        array.shift(pocket_cluster_sides)
+        array.shift(pocket_cluster_counts)
+        array.shift(pocket_cluster_quality)
+        array.shift(pocket_cluster_volumes)
+        array.shift(pocket_cluster_left_bars)
+        array.shift(pocket_cluster_last_bars)
+        array.shift(pocket_cluster_zone_edges)
+
+        oldBox = array.shift(pocket_boxes)
+        oldLabel = array.shift(pocket_labels)
+
+        if not na(oldBox)
+            box.delete(oldBox)
+        if not na(oldLabel)
+            label.delete(oldLabel)
+
+record_liquidity_pocket(anchor, respectPrice, eventBar, isTop, eventVolume, quality, eventWeight) =>
+    side = isTop ? 1 : -1
+    clusterIndex = pocket_cluster_find(anchor, side)
+
+    if clusterIndex == -1
+        array.push(pocket_cluster_anchors, anchor)
+        array.push(pocket_cluster_sides, side)
+        array.push(pocket_cluster_counts, 0)
+        array.push(pocket_cluster_quality, 0.0)
+        array.push(pocket_cluster_volumes, 0.0)
+        array.push(pocket_cluster_left_bars, eventBar)
+        int emptyLastBar = na
+        array.push(pocket_cluster_last_bars, emptyLastBar)
+        array.push(pocket_cluster_zone_edges, respectPrice)
+        box emptyBox = na
+        label emptyLabel = na
+        array.push(pocket_boxes, emptyBox)
+        array.push(pocket_labels, emptyLabel)
+        clusterIndex := array.size(pocket_cluster_anchors) - 1
+
+    lastEventBar = array.get(pocket_cluster_last_bars, clusterIndex)
+    canRecord = na(lastEventBar) or eventBar - lastEventBar >= pocketEventCooldown
+
+    if canRecord
+        newCount = array.get(pocket_cluster_counts, clusterIndex) + 1
+        weightedQuality = quality * eventWeight
+        newQualitySum = array.get(pocket_cluster_quality, clusterIndex) + weightedQuality
+        newVolume = array.get(pocket_cluster_volumes, clusterIndex) + eventVolume
+        currentEdge = array.get(pocket_cluster_zone_edges, clusterIndex)
+        newEdge = isTop ? math.max(currentEdge, respectPrice) : math.min(currentEdge, respectPrice)
+        leftBar = array.get(pocket_cluster_left_bars, clusterIndex)
+        avgQuality = int(math.round(newQualitySum / newCount))
+
+        array.set(pocket_cluster_counts, clusterIndex, newCount)
+        array.set(pocket_cluster_quality, clusterIndex, newQualitySum)
+        array.set(pocket_cluster_volumes, clusterIndex, newVolume)
+        array.set(pocket_cluster_last_bars, clusterIndex, eventBar)
+        array.set(pocket_cluster_zone_edges, clusterIndex, newEdge)
+
+        boxTransparency = int(math.max(18, pocketOpacity - avgQuality * 0.35))
+        top = isTop ? anchor : newEdge
+        bottom = isTop ? newEdge : anchor
+        sideTag = isTop ? "BSL" : "SSL"
+        pocketText = pocketShowStrengthText ? sideTag + " Build x" + str.tostring(newCount) + "\nQ " + str.tostring(avgQuality) + "  V " + str.tostring(newVolume, format.volume) : ""
+        pocketBox = array.get(pocket_boxes, clusterIndex)
+        pocketLabel = array.get(pocket_labels, clusterIndex)
+
+        if na(pocketBox)
+            pocketBox := box.new(leftBar, top, eventBar + pocketExtendBars, bottom, border_color = color.new(pocketColor, 0), bgcolor = color.new(pocketColor, boxTransparency))
+            array.set(pocket_boxes, clusterIndex, pocketBox)
+        else
+            box.set_lefttop(pocketBox, leftBar, top)
+            box.set_rightbottom(pocketBox, eventBar + pocketExtendBars, bottom)
+            box.set_border_color(pocketBox, color.new(pocketColor, 0))
+            box.set_bgcolor(pocketBox, color.new(pocketColor, boxTransparency))
+
+        if pocketShowStrengthText
+            if na(pocketLabel)
+                pocketLabel := label.new(eventBar + pocketExtendBars, isTop ? top : bottom, pocketText, style = label.style_label_left, size = get_label_size(), color = #00000000, textcolor = pocketColor)
+                array.set(pocket_labels, clusterIndex, pocketLabel)
+            else
+                label.set_xy(pocketLabel, eventBar + pocketExtendBars, isTop ? top : bottom)
+                label.set_text(pocketLabel, pocketText)
+                label.set_textcolor(pocketLabel, pocketColor)
+                label.set_size(pocketLabel, get_label_size())
+        else if not na(pocketLabel)
+            label.delete(pocketLabel)
+            label emptyPocketLabel = na
+            array.set(pocket_labels, clusterIndex, emptyPocketLabel)
+
+        trim_liquidity_pockets()
+
+detect_liquidity_pocket(respectPrice, eventBar, isTop, eventVolume, eventWeight) =>
+    if showLiquidityPockets and not na(respectPrice)
+        [anchor, distance] = nearest_liquidity_anchor(respectPrice, isTop)
+        maxDistance = pocket_max_distance()
+
+        if not na(anchor) and not na(distance) and maxDistance > 0
+            quality = int(math.round(100 * (1 - distance / maxDistance)))
+
+            if quality >= pocketMinQuality
+                record_liquidity_pocket(anchor, respectPrice, eventBar, isTop, eventVolume, math.max(1, quality), eventWeight)
+
+//------------------------------------------------------------------------------
+// Swing high liquidity
+//------------------------------------------------------------------------------
+ph = ta.pivothigh(length, length)
+phFound = not na(ph)
+
+[ph_count, ph_vol] = get_counts(phFound, ph_top, ph_btm)
+
+if phFound and showTop
+    ph_top := high[length]
+    ph_btm := switch area
+        "Wick Extremity" => math.max(close[length], open[length])
+        "Full Range" => low[length]
+
+    ph_x1 := n - length
+    ph_crossed := false
+else
+    ph_crossed := close > ph_top ? true : ph_crossed
+
+if showTop
+    set_zone(phFound, ph_x1, ph_top, ph_btm, ph_count, ph_vol, topAreaCss, ph_crossed, true)
+    set_level(phFound, ph_crossed, ph_top, ph_count, ph_vol, topCss, ph_active_lines, ph_active_prices, ph_top, ph_btm, true)
+    set_label(ph_count, ph_vol, ph_x1, ph_top, topCss, label.style_label_down, "BSL EXT")
+    ph_merlin_target = filterOptions == "Count" ? ph_count : ph_vol
+    if ta.crossover(ph_merlin_target, filterValue)
+        merlin_track_zone("BSL", "external_swing", time[length], ph_top, ph_btm, ph_top)
+
+    if phFound and valid_level_exists(ph_active_prices, ph_top)
+        remove_ltf_level_conflicts(valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels, ph_top)
+
+//------------------------------------------------------------------------------
+// Swing low liquidity
+//------------------------------------------------------------------------------
+pl = ta.pivotlow(length, length)
+plFound = not na(pl)
+
+[pl_count, pl_vol] = get_counts(plFound, pl_top, pl_btm)
+
+if plFound and showBtm
+    pl_top := switch area
+        "Wick Extremity" => math.min(close[length], open[length])
+        "Full Range" => high[length]
+    pl_btm := low[length]
+
+    pl_x1 := n - length
+    pl_crossed := false
+else
+    pl_crossed := close < pl_btm ? true : pl_crossed
+
+if showBtm
+    set_zone(plFound, pl_x1, pl_top, pl_btm, pl_count, pl_vol, btmAreaCss, pl_crossed, false)
+    set_level(plFound, pl_crossed, pl_btm, pl_count, pl_vol, btmCss, pl_active_lines, pl_active_prices, pl_top, pl_btm, false)
+    set_label(pl_count, pl_vol, pl_x1, pl_btm, btmCss, label.style_label_up, "SSL EXT")
+    pl_merlin_target = filterOptions == "Count" ? pl_count : pl_vol
+    if ta.crossover(pl_merlin_target, filterValue)
+        merlin_track_zone("SSL", "external_swing", time[length], pl_top, pl_btm, pl_btm)
+
+    if plFound and valid_level_exists(pl_active_prices, pl_btm)
+        remove_ltf_level_conflicts(valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels, pl_btm)
+
+//------------------------------------------------------------------------------
+// Internal liquidity
+//------------------------------------------------------------------------------
+internalPh = ta.pivothigh(internalLength, internalLength)
+internalPl = ta.pivotlow(internalLength, internalLength)
+internalPhFound = not na(internalPh)
+internalPlFound = not na(internalPl)
+dealingRangeReady = not na(ph_top) and not na(pl_btm) and ph_top > pl_btm
+
+internalBslPrice = high[internalLength]
+internalSslPrice = low[internalLength]
+internalX = n - internalLength
+
+internalBslCondition = cleanShowInternal and internalPhFound and dealingRangeReady and internalBslPrice < ph_top and internalBslPrice > pl_btm
+internalSslCondition = cleanShowInternal and internalPlFound and dealingRangeReady and internalSslPrice < ph_top and internalSslPrice > pl_btm
+
+set_internal_liquidity(internalBslCondition, internalBslPrice, internalX, internalBslColor, label.style_label_down, "BSL INT", internal_bsl_active_lines, internal_bsl_active_prices)
+if internalBslCondition
+    merlin_track_zone("BSL", "internal_liquidity", time[internalLength], internalBslPrice, internalBslPrice, internalBslPrice)
+set_internal_liquidity(internalSslCondition, internalSslPrice, internalX, internalSslColor, label.style_label_up, "SSL INT", internal_ssl_active_lines, internal_ssl_active_prices)
+if internalSslCondition
+    merlin_track_zone("SSL", "internal_liquidity", time[internalLength], internalSslPrice, internalSslPrice, internalSslPrice)
+
+if internalBslCondition
+    remove_ltf_level_conflicts(valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels, internalBslPrice)
+
+if internalSslCondition
+    remove_ltf_level_conflicts(valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels, internalSslPrice)
+
+//------------------------------------------------------------------------------
+// Valid objective liquidity points
+//------------------------------------------------------------------------------
+[pdh, pdl, pdTime] = request.security(syminfo.tickerid, "D", [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl, pwTime] = request.security(syminfo.tickerid, "W", [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
+[htfHigh, htfLow, htfTime] = request.security(syminfo.tickerid, validHtf, [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
+ltfInducementPh = ta.pivothigh(ltfInducementPivotLength, ltfInducementPivotLength)
+ltfInducementPl = ta.pivotlow(ltfInducementPivotLength, ltfInducementPivotLength)
+
+newPreviousDay = ta.change(pdTime) != 0
+newPreviousWeek = ta.change(pwTime) != 0
+newHtfLevel = ta.change(htfTime) != 0
+
+set_valid_liquidity(showPreviousDayLiquidity and newPreviousDay, pdh, "PDH BSL EXT", validBslColor, label.style_label_down, line.style_solid, 2, valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels)
+set_valid_liquidity(showPreviousDayLiquidity and newPreviousDay, pdl, "PDL SSL EXT", validSslColor, label.style_label_up, line.style_solid, 2, valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels)
+
+set_valid_liquidity(showPreviousWeekLiquidity and newPreviousWeek, pwh, "PWH BSL EXT", validBslColor, label.style_label_down, line.style_solid, 2, valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels)
+set_valid_liquidity(showPreviousWeekLiquidity and newPreviousWeek, pwl, "PWL SSL EXT", validSslColor, label.style_label_up, line.style_solid, 2, valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels)
+if showPreviousDayLiquidity and newPreviousDay
+    merlin_track_zone("BSL", "previous_day_high", pdTime, pdh, pdh, pdh)
+    merlin_track_zone("SSL", "previous_day_low", pdTime, pdl, pdl, pdl)
+if showPreviousWeekLiquidity and newPreviousWeek
+    merlin_track_zone("BSL", "previous_week_high", pwTime, pwh, pwh, pwh)
+    merlin_track_zone("SSL", "previous_week_low", pwTime, pwl, pwl, pwl)
+
+spikeAtr = ta.atr(spikeLiquidityLookback)
+spikeRange = high - low
+spikeMinBreak = spikeLiquidityMinBreakTicks * syminfo.mintick
+spikePriorHigh = ta.highest(high[1], spikeLiquidityLookback)
+spikePriorLow = ta.lowest(low[1], spikeLiquidityLookback)
+spikeUpperWick = high - math.max(open, close)
+spikeLowerWick = math.min(open, close) - low
+spikeRangeOk = spikeLiquidityMinRangeAtr <= 0 or (not na(spikeAtr) and spikeRange >= spikeAtr * spikeLiquidityMinRangeAtr)
+spikeBslBreak = high > spikePriorHigh + spikeMinBreak
+spikeSslBreak = low < spikePriorLow - spikeMinBreak
+spikeBslReject = close < spikePriorHigh or (spikeRange > 0 and spikeUpperWick / spikeRange >= spikeLiquidityWickPct)
+spikeSslReject = close > spikePriorLow or (spikeRange > 0 and spikeLowerWick / spikeRange >= spikeLiquidityWickPct)
+spikeBslValid = spikeBslBreak and spikeRangeOk and (not spikeLiquidityRequireReject or spikeBslReject)
+spikeSslValid = spikeSslBreak and spikeRangeOk and (not spikeLiquidityRequireReject or spikeSslReject)
+
+set_spike_liquidity_area(spikeBslValid, high, spikePriorHigh, "Spike BSL EXT", validBslColor, label.style_label_down, valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels)
+set_spike_liquidity_area(spikeSslValid, low, spikePriorLow, "Spike SSL EXT", validSslColor, label.style_label_up, valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels)
+if spikeBslValid
+    merlin_track_zone("BSL", "spike_bsl", time, high, spikePriorHigh, high)
+if spikeSslValid
+    merlin_track_zone("SSL", "spike_ssl", time, spikePriorLow, low, low)
+
+if showValidLiquidityPoints and showHtfLiquidity and newHtfLevel
+    line.delete(htfBslLine)
+    label.delete(htfBslLabel)
+    line.delete(htfSslLine)
+    label.delete(htfSslLabel)
+
+    if not na(htfHigh) and prob_should_show_zone("BSL", validHtf, "htf_" + validHtfTag + "_high", 5)
+        htfBslTopTier = prob_top_tier("BSL", validHtf, "htf_" + validHtfTag + "_high", 5)
+        htfBslColor = validBslColor
+        htfBslTextColor = probHighlightTopTier and htfBslTopTier ? probTopTierTextColor : validBslColor
+        htfBslLine := line.new(n, htfHigh, n + 1, htfHigh, color = htfBslColor, style = line.style_solid, width = 1, extend = extend.right)
+        htfBslLabel := label.new(n, htfHigh, prob_compact_tag("BSL", "HTF " + validHtfTag, validHtf, "htf_" + validHtfTag + "_high", 5), style = label.style_label_down, size = get_label_size(), color = probHighlightTopTier and htfBslTopTier ? probTopTierBgColor : #00000000, textcolor = htfBslTextColor)
+        remove_ltf_level_conflicts(valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels, htfHigh)
+        merlin_track_zone("BSL", "htf_" + validHtfTag + "_high", htfTime, htfHigh, htfHigh, htfHigh)
+
+    if not na(htfLow) and prob_should_show_zone("SSL", validHtf, "htf_" + validHtfTag + "_low", 5)
+        htfSslTopTier = prob_top_tier("SSL", validHtf, "htf_" + validHtfTag + "_low", 5)
+        htfSslColor = validSslColor
+        htfSslTextColor = probHighlightTopTier and htfSslTopTier ? probTopTierTextColor : validSslColor
+        htfSslLine := line.new(n, htfLow, n + 1, htfLow, color = htfSslColor, style = line.style_solid, width = 1, extend = extend.right)
+        htfSslLabel := label.new(n, htfLow, prob_compact_tag("SSL", "HTF " + validHtfTag, validHtf, "htf_" + validHtfTag + "_low", 5), style = label.style_label_up, size = get_label_size(), color = probHighlightTopTier and htfSslTopTier ? probTopTierBgColor : #00000000, textcolor = htfSslTextColor)
+        remove_ltf_level_conflicts(valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels, htfLow)
+        merlin_track_zone("SSL", "htf_" + validHtfTag + "_low", htfTime, htfLow, htfLow, htfLow)
+else if not showValidLiquidityPoints or not showHtfLiquidity
+    line.delete(htfBslLine)
+    label.delete(htfBslLabel)
+    line.delete(htfSslLine)
+    label.delete(htfSslLabel)
+    htfBslLine := na
+    htfBslLabel := na
+    htfSslLine := na
+    htfSslLabel := na
+
+if not na(htfBslLine)
+    htfBslPrice = line.get_y1(htfBslLine)
+
+    if high >= htfBslPrice
+        if validKeepSweptLevels
+            line.set_extend(htfBslLine, extend.none)
+            line.set_x2(htfBslLine, n)
+            line.set_style(htfBslLine, line.style_dashed)
+        else
+            line.delete(htfBslLine)
+            label.delete(htfBslLabel)
+
+        htfBslLine := na
+        htfBslLabel := na
+    else
+        line.set_extend(htfBslLine, extend.right)
+        label.set_xy(htfBslLabel, n, htfBslPrice)
+        label.set_size(htfBslLabel, get_label_size())
+
+if not na(htfSslLine)
+    htfSslPrice = line.get_y1(htfSslLine)
+
+    if low <= htfSslPrice
+        if validKeepSweptLevels
+            line.set_extend(htfSslLine, extend.none)
+            line.set_x2(htfSslLine, n)
+            line.set_style(htfSslLine, line.style_dashed)
+        else
+            line.delete(htfSslLine)
+            label.delete(htfSslLabel)
+
+        htfSslLine := na
+        htfSslLabel := na
+    else
+        line.set_extend(htfSslLine, extend.right)
+        label.set_xy(htfSslLabel, n, htfSslPrice)
+        label.set_size(htfSslLabel, get_label_size())
+
+inValidSession = not na(time(timeframe.period, validSession))
+sessionStarted = inValidSession and not inValidSession[1]
+sessionEnded = not inValidSession and inValidSession[1]
+
+if sessionStarted
+    sessionHigh := high
+    sessionLow := low
+else if inValidSession
+    sessionHigh := math.max(nz(sessionHigh, high), high)
+    sessionLow := math.min(nz(sessionLow, low), low)
+
+set_valid_liquidity(showSessionLiquidity and sessionEnded, sessionHigh, validSessionName + "H BSL EXT", validBslColor, label.style_label_down, line.style_solid, 1, valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels)
+set_valid_liquidity(showSessionLiquidity and sessionEnded, sessionLow, validSessionName + "L SSL EXT", validSslColor, label.style_label_up, line.style_solid, 1, valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels)
+if showSessionLiquidity and sessionEnded
+    merlin_track_zone("BSL", "session_high", time, sessionHigh, sessionHigh, sessionHigh)
+    merlin_track_zone("SSL", "session_low", time, sessionLow, sessionLow, sessionLow)
+
+eqAtr = ta.atr(200)
+eqTolerance = eqAtr * equalLiquidityAtrTolerance
+eqh = ta.pivothigh(equalLiquidityLength, equalLiquidityLength)
+eql = ta.pivotlow(equalLiquidityLength, equalLiquidityLength)
+eqhFound = not na(eqh)
+eqlFound = not na(eql)
+eqhPrice = high[equalLiquidityLength]
+eqlPrice = low[equalLiquidityLength]
+eqhInsideRange = not dealingRangeReady or (eqhPrice < ph_top and eqhPrice > pl_btm)
+eqlInsideRange = not dealingRangeReady or (eqlPrice < ph_top and eqlPrice > pl_btm)
+eqhValid = showEqualLiquidity and eqhFound and not na(previousEqHigh) and math.abs(eqhPrice - previousEqHigh) <= eqTolerance and eqhInsideRange
+eqlValid = showEqualLiquidity and eqlFound and not na(previousEqLow) and math.abs(eqlPrice - previousEqLow) <= eqTolerance and eqlInsideRange
+
+set_valid_liquidity(eqhValid, math.avg(eqhPrice, previousEqHigh), "EQH BSL INT", validEqualBslColor, label.style_label_down, line.style_dotted, 1, valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels)
+set_valid_liquidity(eqlValid, math.avg(eqlPrice, previousEqLow), "EQL SSL INT", validEqualSslColor, label.style_label_up, line.style_dotted, 1, valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels)
+if eqhValid
+    eqhMerlinLevel = math.avg(eqhPrice, previousEqHigh)
+    merlin_track_zone("BSL", "equal_highs", time[equalLiquidityLength], eqhMerlinLevel, eqhMerlinLevel, eqhMerlinLevel)
+if eqlValid
+    eqlMerlinLevel = math.avg(eqlPrice, previousEqLow)
+    merlin_track_zone("SSL", "equal_lows", time[equalLiquidityLength], eqlMerlinLevel, eqlMerlinLevel, eqlMerlinLevel)
+
+ltfBslHasPriorityOverlap = showLtfInducementLevels and not na(ltfInducementPh) and (valid_level_exists(ph_active_prices, ltfInducementPh) or valid_level_exists(internal_bsl_active_prices, ltfInducementPh) or valid_non_ltf_level_exists(valid_bsl_active_prices, valid_bsl_active_labels, ltfInducementPh) or valid_line_exists(htfBslLine, ltfInducementPh))
+ltfSslHasPriorityOverlap = showLtfInducementLevels and not na(ltfInducementPl) and (valid_level_exists(pl_active_prices, ltfInducementPl) or valid_level_exists(internal_ssl_active_prices, ltfInducementPl) or valid_non_ltf_level_exists(valid_ssl_active_prices, valid_ssl_active_labels, ltfInducementPl) or valid_line_exists(htfSslLine, ltfInducementPl))
+
+if showLtfInducementLevels and not na(ltfInducementPh) and not ltfBslHasPriorityOverlap
+    set_valid_liquidity_with_label_color(true, ltfInducementPh, "LTF BSL", validBslColor, ltfInducementLabelColor, label.style_label_down, line.style_dotted, 1, valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels)
+
+if showLtfInducementLevels and not na(ltfInducementPl) and not ltfSslHasPriorityOverlap
+    set_valid_liquidity_with_label_color(true, ltfInducementPl, "LTF SSL", validSslColor, ltfInducementLabelColor, label.style_label_up, line.style_dotted, 1, valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels)
+
+if eqhFound
+    previousEqHigh := eqhPrice
+if eqlFound
+    previousEqLow := eqlPrice
+
+//------------------------------------------------------------------------------
+// Bias / draw panel state
+//------------------------------------------------------------------------------
+panelSweepBuffer = panelSweepBufferTicks * syminfo.mintick
+panelAcceptanceBuffer = panelBosBufferTicks * syminfo.mintick
+
+if newPreviousDay
+    panelDailyBias := "BIAS: NEUTRAL"
+    panelDailyReason := "Waiting for external sweep"
+    panelDailyTarget := "Target: n/a"
+    panelDailyColor := panelNeutralColor
+
+float panelBullExternalTarget = na
+if panelUsePreviousDay and not na(pdh) and pdh > close
+    panelBullExternalTarget := pdh
+if panelUsePreviousWeek and not na(pwh) and pwh > close
+    panelBullExternalTarget := na(panelBullExternalTarget) ? pwh : math.min(panelBullExternalTarget, pwh)
+if panelUseHtfContext and not na(htfHigh) and htfHigh > close
+    panelBullExternalTarget := na(panelBullExternalTarget) ? htfHigh : math.min(panelBullExternalTarget, htfHigh)
+
+float panelBearExternalTarget = na
+if panelUsePreviousDay and not na(pdl) and pdl < close
+    panelBearExternalTarget := pdl
+if panelUsePreviousWeek and not na(pwl) and pwl < close
+    panelBearExternalTarget := na(panelBearExternalTarget) ? pwl : math.max(panelBearExternalTarget, pwl)
+if panelUseHtfContext and not na(htfLow) and htfLow < close
+    panelBearExternalTarget := na(panelBearExternalTarget) ? htfLow : math.max(panelBearExternalTarget, htfLow)
+
+pdLowReclaimed = panelUsePreviousDay and not na(pdl) and low <= pdl - panelSweepBuffer and close > pdl
+pdHighRejected = panelUsePreviousDay and not na(pdh) and high >= pdh + panelSweepBuffer and close < pdh
+pdLowAccepted = panelUsePreviousDay and not na(pdl) and close < pdl - panelAcceptanceBuffer
+pdHighAccepted = panelUsePreviousDay and not na(pdh) and close > pdh + panelAcceptanceBuffer
+pwlReclaimed = panelUsePreviousWeek and not na(pwl) and low <= pwl - panelSweepBuffer and close > pwl
+pwhRejected = panelUsePreviousWeek and not na(pwh) and high >= pwh + panelSweepBuffer and close < pwh
+pwlAccepted = panelUsePreviousWeek and not na(pwl) and close < pwl - panelAcceptanceBuffer
+pwhAccepted = panelUsePreviousWeek and not na(pwh) and close > pwh + panelAcceptanceBuffer
+
+panelBullishDailySignal = pdLowReclaimed or pwlReclaimed or pdHighAccepted or pwhAccepted
+panelBearishDailySignal = pdHighRejected or pwhRejected or pdLowAccepted or pwlAccepted
+
+if panelBullishDailySignal
+    panelDailyBias := "BIAS: BULLISH"
+    panelDailyReason := pdLowReclaimed ? "PDL swept + reclaimed" : pwlReclaimed ? "PWL swept + reclaimed" : pdHighAccepted ? "PDH accepted" : "PWH accepted"
+    panelDailyTarget := not na(panelBullExternalTarget) ? "Target: " + str.tostring(panelBullExternalTarget, format.mintick) : "Target: n/a"
+    panelDailyColor := panelBullColor
+
+if panelBearishDailySignal
+    panelDailyBias := "BIAS: BEARISH"
+    panelDailyReason := pdHighRejected ? "PDH swept + rejected" : pwhRejected ? "PWH swept + rejected" : pdLowAccepted ? "PDL accepted" : "PWL accepted"
+    panelDailyTarget := not na(panelBearExternalTarget) ? "Target: " + str.tostring(panelBearExternalTarget, format.mintick) : "Target: n/a"
+    panelDailyColor := panelBearColor
+
+panelBullishBos = not na(ph_top) and not na(pl_btm) and close > ph_top + panelAcceptanceBuffer and close[1] <= ph_top
+panelBearishBos = not na(ph_top) and not na(pl_btm) and close < pl_btm - panelAcceptanceBuffer and close[1] >= pl_btm
+
+if panelBullishBos or panelBearishBos
+    panelActiveBosDirection := panelBullishBos ? 1 : -1
+    panelActiveBosHigh := panelBullishBos ? high : ph_top
+    panelActiveBosLow := panelBullishBos ? pl_btm : low
+    panelActiveProtectedLevel := panelBullishBos ? pl_btm : ph_top
+    panelDiscountDecisionPrinted := false
+    panelPremiumDecisionPrinted := false
+    panelCurrentDraw := panelBullishBos ? "DRAW: BUY-SIDE" : "DRAW: SELL-SIDE"
+    panelCurrentReason := panelBullishBos ? "Bullish BOS dealing range" : "Bearish BOS dealing range"
+    panelCurrentColor := panelBullishBos ? panelBullColor : panelBearColor
+
+if panelActiveBosDirection != 0
+    panelActiveBosHigh := panelActiveBosDirection == 1 ? math.max(nz(panelActiveBosHigh, high), high) : panelActiveBosHigh
+    panelActiveBosLow := panelActiveBosDirection == -1 ? math.min(nz(panelActiveBosLow, low), low) : panelActiveBosLow
+
+    panelProtectedBroken = panelActiveBosDirection == 1 ? close < panelActiveProtectedLevel - panelAcceptanceBuffer : close > panelActiveProtectedLevel + panelAcceptanceBuffer
+
+    if panelProtectedBroken
+        panelActiveBosDirection := 0
+
+[panelPhBslSwept, panelPhBslRejected, panelPhBslLevel] = top_sweep_from_array(ph_active_prices, panelSweepBuffer)
+[panelInternalBslSwept, panelInternalBslRejected, panelInternalBslLevel] = top_sweep_from_array(internal_bsl_active_prices, panelSweepBuffer)
+[panelValidBslSwept, panelValidBslRejected, panelValidBslLevel] = top_sweep_from_array(valid_bsl_active_prices, panelSweepBuffer)
+[panelPlSslSwept, panelPlSslRejected, panelPlSslLevel] = bottom_sweep_from_array(pl_active_prices, panelSweepBuffer)
+[panelInternalSslSwept, panelInternalSslRejected, panelInternalSslLevel] = bottom_sweep_from_array(internal_ssl_active_prices, panelSweepBuffer)
+[panelValidSslSwept, panelValidSslRejected, panelValidSslLevel] = bottom_sweep_from_array(valid_ssl_active_prices, panelSweepBuffer)
+
+panelHtfBslLevel = panelUseHtfContext ? htfHigh : na
+panelHtfSslLevel = panelUseHtfContext ? htfLow : na
+panelHtfBslSwept = not na(panelHtfBslLevel) and high >= panelHtfBslLevel + panelSweepBuffer
+panelHtfSslSwept = not na(panelHtfSslLevel) and low <= panelHtfSslLevel - panelSweepBuffer
+
+bool panelBslSwept = false
+bool panelBslRejected = false
+float panelBslSweepLevel = na
+if panelPhBslSwept
+    panelBslSwept := true
+    panelBslRejected := panelPhBslRejected
+    panelBslSweepLevel := panelPhBslLevel
+else if panelInternalBslSwept
+    panelBslSwept := true
+    panelBslRejected := panelInternalBslRejected
+    panelBslSweepLevel := panelInternalBslLevel
+else if panelValidBslSwept
+    panelBslSwept := true
+    panelBslRejected := panelValidBslRejected
+    panelBslSweepLevel := panelValidBslLevel
+else if panelHtfBslSwept
+    panelBslSwept := true
+    panelBslRejected := close < panelHtfBslLevel
+    panelBslSweepLevel := panelHtfBslLevel
+
+bool panelSslSwept = false
+bool panelSslRejected = false
+float panelSslSweepLevel = na
+if panelPlSslSwept
+    panelSslSwept := true
+    panelSslRejected := panelPlSslRejected
+    panelSslSweepLevel := panelPlSslLevel
+else if panelInternalSslSwept
+    panelSslSwept := true
+    panelSslRejected := panelInternalSslRejected
+    panelSslSweepLevel := panelInternalSslLevel
+else if panelValidSslSwept
+    panelSslSwept := true
+    panelSslRejected := panelValidSslRejected
+    panelSslSweepLevel := panelValidSslLevel
+else if panelHtfSslSwept
+    panelSslSwept := true
+    panelSslRejected := close > panelHtfSslLevel
+    panelSslSweepLevel := panelHtfSslLevel
+
+float panelBuyTarget = na
+panelBuyTarget := nearest_above_from_array(ph_active_prices, panelBuyTarget)
+panelBuyTarget := nearest_above_from_array(internal_bsl_active_prices, panelBuyTarget)
+panelBuyTarget := nearest_above_from_array(valid_bsl_active_prices, panelBuyTarget)
+panelBuyTarget := panel_line_target(htfBslLine, true, panelBuyTarget)
+if panelUseHtfContext and not na(htfHigh) and htfHigh > close
+    panelBuyTarget := na(panelBuyTarget) ? htfHigh : math.min(panelBuyTarget, htfHigh)
+if panelUsePreviousDay and not na(pdh) and pdh > close
+    panelBuyTarget := na(panelBuyTarget) ? pdh : math.min(panelBuyTarget, pdh)
+if panelUsePreviousWeek and not na(pwh) and pwh > close
+    panelBuyTarget := na(panelBuyTarget) ? pwh : math.min(panelBuyTarget, pwh)
+
+float panelSellTarget = na
+panelSellTarget := nearest_below_from_array(pl_active_prices, panelSellTarget)
+panelSellTarget := nearest_below_from_array(internal_ssl_active_prices, panelSellTarget)
+panelSellTarget := nearest_below_from_array(valid_ssl_active_prices, panelSellTarget)
+panelSellTarget := panel_line_target(htfSslLine, false, panelSellTarget)
+if panelUseHtfContext and not na(htfLow) and htfLow < close
+    panelSellTarget := na(panelSellTarget) ? htfLow : math.max(panelSellTarget, htfLow)
+if panelUsePreviousDay and not na(pdl) and pdl < close
+    panelSellTarget := na(panelSellTarget) ? pdl : math.max(panelSellTarget, pdl)
+if panelUsePreviousWeek and not na(pwl) and pwl < close
+    panelSellTarget := na(panelSellTarget) ? pwl : math.max(panelSellTarget, pwl)
+
+panelDiscountRaid = panelActiveBosDirection == 1 and not na(panelActiveBosLow) and low <= panelActiveBosLow - panelSweepBuffer
+panelDiscountReclaimed = panelDiscountRaid and close > panelActiveBosLow
+panelDiscountAccepted = panelActiveBosDirection == 1 and not na(panelActiveBosLow) and close < panelActiveBosLow - panelAcceptanceBuffer
+panelPremiumRaid = panelActiveBosDirection == -1 and not na(panelActiveBosHigh) and high >= panelActiveBosHigh + panelSweepBuffer
+panelPremiumRejected = panelPremiumRaid and close < panelActiveBosHigh
+panelPremiumAccepted = panelActiveBosDirection == -1 and not na(panelActiveBosHigh) and close > panelActiveBosHigh + panelAcceptanceBuffer
+
+if panelDiscountReclaimed and not panelDiscountDecisionPrinted
+    panelDiscountDecisionPrinted := true
+    panelBullishRaidCount += 1
+    panelBearishRaidCount := 0
+    panelCurrentDraw := "DRAW: BUY-SIDE"
+    panelCurrentReason := panelBullishRaidCount >= 2 ? "Sellers engineered x" + str.tostring(panelBullishRaidCount) : "Discount raid reclaimed"
+    panelCurrentColor := panelBullColor
+
+if panelPremiumRejected and not panelPremiumDecisionPrinted
+    panelPremiumDecisionPrinted := true
+    panelBearishRaidCount += 1
+    panelBullishRaidCount := 0
+    panelCurrentDraw := "DRAW: SELL-SIDE"
+    panelCurrentReason := panelBearishRaidCount >= 2 ? "Buyers engineered x" + str.tostring(panelBearishRaidCount) : "Premium raid rejected"
+    panelCurrentColor := panelBearColor
+
+if panelDiscountAccepted and not panelDiscountDecisionPrinted
+    panelDiscountDecisionPrinted := true
+    panelCurrentDraw := "DRAW: SELL-SIDE"
+    panelCurrentReason := "Discount accepted below protected low"
+    panelCurrentColor := panelBearColor
+
+if panelPremiumAccepted and not panelPremiumDecisionPrinted
+    panelPremiumDecisionPrinted := true
+    panelCurrentDraw := "DRAW: BUY-SIDE"
+    panelCurrentReason := "Premium accepted above protected high"
+    panelCurrentColor := panelBullColor
+
+if panelBslSwept
+    panelCurrentDraw := panelBslRejected ? "DRAW: SELL-SIDE" : "DRAW: BUY-SIDE"
+    panelCurrentReason := panelBslRejected ? "Buy-side sweep rejected" : "Buy-side accepted"
+    panelCurrentColor := panelBslRejected ? panelBearColor : panelBullColor
+
+if panelSslSwept
+    panelCurrentDraw := panelSslRejected ? "DRAW: BUY-SIDE" : "DRAW: SELL-SIDE"
+    panelCurrentReason := panelSslRejected ? "Sell-side sweep reclaimed" : "Sell-side accepted"
+    panelCurrentColor := panelSslRejected ? panelBullColor : panelBearColor
+
+panelIsBuyDraw = panelCurrentDraw == "DRAW: BUY-SIDE"
+panelIsSellDraw = panelCurrentDraw == "DRAW: SELL-SIDE"
+panelRangeBuyTarget = panelActiveBosDirection != 0 and not na(panelActiveBosHigh) and panelActiveBosHigh > close ? panelActiveBosHigh : na
+panelRangeSellTarget = panelActiveBosDirection != 0 and not na(panelActiveBosLow) and panelActiveBosLow < close ? panelActiveBosLow : na
+panelBuyTargetLevel = not na(panelRangeBuyTarget) ? panelRangeBuyTarget : panelBuyTarget
+panelSellTargetLevel = not na(panelRangeSellTarget) ? panelRangeSellTarget : panelSellTarget
+panelBuyTargetSource = not na(panelRangeBuyTarget) ? "Range BSL" : not na(panelBullExternalTarget) and not na(panelBuyTargetLevel) and panelBuyTargetLevel == panelBullExternalTarget ? "EXT BSL" : "INT BSL"
+panelSellTargetSource = not na(panelRangeSellTarget) ? "Range SSL" : not na(panelBearExternalTarget) and not na(panelSellTargetLevel) and panelSellTargetLevel == panelBearExternalTarget ? "EXT SSL" : "INT SSL"
+panelActiveTarget = panelIsBuyDraw ? panelBuyTargetLevel : panelIsSellDraw ? panelSellTargetLevel : na
+panelActiveTargetSource = panelIsBuyDraw ? panelBuyTargetSource : panelIsSellDraw ? panelSellTargetSource : "Target"
+
+panelBuyInvalidLevel = panelActiveBosDirection != 0 and not na(panelActiveProtectedLevel) and panelActiveProtectedLevel < close ? panelActiveProtectedLevel : not na(panelActiveBosLow) and panelActiveBosLow < close ? panelActiveBosLow : not na(panelSslSweepLevel) ? panelSslSweepLevel : panelSellTarget
+panelSellInvalidLevel = panelActiveBosDirection != 0 and not na(panelActiveProtectedLevel) and panelActiveProtectedLevel > close ? panelActiveProtectedLevel : not na(panelActiveBosHigh) and panelActiveBosHigh > close ? panelActiveBosHigh : not na(panelBslSweepLevel) ? panelBslSweepLevel : panelBuyTarget
+panelBuyInvalidSource = panelActiveBosDirection != 0 and not na(panelActiveProtectedLevel) and panelActiveProtectedLevel < close ? "Protected low" : not na(panelActiveBosLow) and panelActiveBosLow < close ? "Range low" : "Nearest SSL"
+panelSellInvalidSource = panelActiveBosDirection != 0 and not na(panelActiveProtectedLevel) and panelActiveProtectedLevel > close ? "Protected high" : not na(panelActiveBosHigh) and panelActiveBosHigh > close ? "Range high" : "Nearest BSL"
+panelActiveInvalid = panelIsBuyDraw ? panelBuyInvalidLevel : panelIsSellDraw ? panelSellInvalidLevel : na
+panelActiveInvalidSource = panelIsBuyDraw ? panelBuyInvalidSource : panelIsSellDraw ? panelSellInvalidSource : "n/a"
+
+panelCurrentTarget := not na(panelActiveTarget) ? panelActiveTargetSource + ": " + str.tostring(panelActiveTarget, format.mintick) : "Target: n/a"
+panelCurrentInvalidation := not na(panelActiveInvalid) ? "Invalid: " + panelActiveInvalidSource + " " + str.tostring(panelActiveInvalid, format.mintick) : "Invalid: n/a"
+merlin_update_zone_targets(panelActiveTarget, panelActiveInvalid)
+panelRewardTicks = panelIsBuyDraw and not na(panelActiveTarget) ? (panelActiveTarget - close) / syminfo.mintick : panelIsSellDraw and not na(panelActiveTarget) ? (close - panelActiveTarget) / syminfo.mintick : na
+panelRiskTicks = panelIsBuyDraw and not na(panelActiveInvalid) ? (close - panelActiveInvalid) / syminfo.mintick : panelIsSellDraw and not na(panelActiveInvalid) ? (panelActiveInvalid - close) / syminfo.mintick : na
+panelCurrentDistance := not na(panelRewardTicks) and not na(panelRiskTicks) and panelRewardTicks > 0 and panelRiskTicks > 0 ? "T/R: +" + str.tostring(math.round(panelRewardTicks)) + " / -" + str.tostring(math.round(panelRiskTicks)) + " ticks" : "T/R: n/a"
+
+// Running Bias / Draw overlay. Bias mirrors a Supertrend-style visual: green below price for bullish,
+// red above price for bearish, with optional price-to-line shading. Draw is a separate unshaded dotted
+// guide, closer to price, so it does not get confused with the main Bias line.
+panelBiasLineAtr = ta.atr(panelBiasLineAtrLength)
+panelBiasDirection = panelDailyBias == "BIAS: BULLISH" ? 1 : panelDailyBias == "BIAS: BEARISH" ? -1 : 0
+panelDrawDirection = panelIsBuyDraw ? 1 : panelIsSellDraw ? -1 : 0
+panelBiasLine = showPanelBiasLine and panelBiasDirection != 0 ? panelBiasDirection == 1 ? close - panelBiasLineAtr * panelBiasLineAtrMult : close + panelBiasLineAtr * panelBiasLineAtrMult : na
+panelDrawLine = showPanelDrawLine and panelDrawDirection != 0 ? panelDrawDirection == 1 ? close - panelBiasLineAtr * panelDrawLineAtrMult : close + panelBiasLineAtr * panelDrawLineAtrMult : na
+panelBiasLineColor = panelBiasDirection == 1 ? panelBullColor : panelBiasDirection == -1 ? panelBearColor : panelNeutralColor
+panelDrawLineColor = panelDrawDirection == 1 ? panelBullColor : panelDrawDirection == -1 ? panelBearColor : panelNeutralColor
+panelBiasPlot = plot(panelBiasLine, "Batty Running Bias", color = panelBiasLineColor, linewidth = 2, style = plot.style_linebr)
+panelBiasPricePlot = plot(showPanelBiasLine and showPanelBiasShade and panelBiasDirection != 0 ? hl2 : na, "Batty Bias Shade Anchor", color = color.new(color.white, 100), display = display.none)
+plot(panelDrawLine, "Batty Running Draw", color = panelDrawLineColor, linewidth = 2, style = plot.style_circles)
+fill(panelBiasPlot, panelBiasPricePlot, color = showPanelBiasShade and panelBiasDirection != 0 ? color.new(panelBiasLineColor, panelBiasShadeOpacity) : na, title = "Batty Bias Shade")
+
+update_unbroken_lines(ph_active_lines, ph_active_prices, true)
+update_unbroken_lines(pl_active_lines, pl_active_prices, false)
+update_unbroken_lines(internal_bsl_active_lines, internal_bsl_active_prices, true)
+update_unbroken_lines(internal_ssl_active_lines, internal_ssl_active_prices, false)
+update_valid_liquidity(valid_bsl_active_lines, valid_bsl_active_prices, valid_bsl_active_labels, true)
+update_valid_liquidity(valid_ssl_active_lines, valid_ssl_active_prices, valid_ssl_active_labels, false)
+draw_probability_guides(valid_bsl_active_prices, valid_ssl_active_prices, probability_guide_lines)
+merlin_update_zone_lifecycle()
+
+majorPocketBslPivot = ta.pivothigh(pocketSwingLength, pocketSwingLength)
+majorPocketSslPivot = ta.pivotlow(pocketSwingLength, pocketSwingLength)
+minorPocketBslPivot = ta.pivothigh(pocketMinorSwingLength, pocketMinorSwingLength)
+minorPocketSslPivot = ta.pivotlow(pocketMinorSwingLength, pocketMinorSwingLength)
+topWickReject = high > math.max(open, close) and close < high
+bottomWickReject = low < math.min(open, close) and close > low
+
+if showLiquidityPockets and pocketUseMajorSwings and not na(majorPocketBslPivot)
+    detect_liquidity_pocket(high[pocketSwingLength], n - pocketSwingLength, true, volume[pocketSwingLength], 1.25)
+
+if showLiquidityPockets and pocketUseMajorSwings and not na(majorPocketSslPivot)
+    detect_liquidity_pocket(low[pocketSwingLength], n - pocketSwingLength, false, volume[pocketSwingLength], 1.25)
+
+if showLiquidityPockets and pocketUseMinorSwings and not na(minorPocketBslPivot)
+    detect_liquidity_pocket(high[pocketMinorSwingLength], n - pocketMinorSwingLength, true, volume[pocketMinorSwingLength], 1.0)
+
+if showLiquidityPockets and pocketUseMinorSwings and not na(minorPocketSslPivot)
+    detect_liquidity_pocket(low[pocketMinorSwingLength], n - pocketMinorSwingLength, false, volume[pocketMinorSwingLength], 1.0)
+
+if showLiquidityPockets and pocketUseWickRejects and topWickReject
+    detect_liquidity_pocket(high, n, true, volume, 0.75)
+
+if showLiquidityPockets and pocketUseWickRejects and bottomWickReject
+    detect_liquidity_pocket(low, n, false, volume, 0.75)
+
+if showLiquidityPockets and pocketUseCloseClusters
+    detect_liquidity_pocket(close, n, true, volume, 0.45)
+    detect_liquidity_pocket(close, n, false, volume, 0.45)
+
+if showMtfPremiumDiscount
+    draw_mtf_premium_discount_zones()
+
+// Memory-lite right-side active spike map: only request execution source frames; map lines use real zone break edges, never midpoint.
+// 1M is intentionally not requested here; keep it for the execution strategy, not this zone-view layer.
+[strong1hBslZones, strong1hSslZones, strong1hDirection, strong1hPulse] = request.security(syminfo.tickerid, "60", strong_mtf_snapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[strong30mBslZones, strong30mSslZones, strong30mDirection, strong30mPulse] = request.security(syminfo.tickerid, "30", strong_mtf_snapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[strong5mBslZones, strong5mSslZones, strong5mDirection, strong5mPulse] = request.security(syminfo.tickerid, "5", strong_mtf_snapshot(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+if barstate.islast
+    clean_clear_mtf_overlay()
+    clean_draw_tf_overlay(strong1hBslZones, strong1hSslZones, "1H", true)
+    clean_draw_tf_overlay(strong30mBslZones, strong30mSslZones, "30M", true)
+    clean_draw_tf_overlay(strong5mBslZones, strong5mSslZones, "5M", true)
+
+// Strong MTF entry-alert matrix removed from this memory-lite visual candidate.
+// Strategy/collector scripts should handle entries and alerts; this script only renders clean zones.
+
+// Invisible data-window bridge for the external React panel. Clean View keeps 1H/30M/5M and omits 4H/1M plots to stay under TradingView plot limits.
+plot(strong_mtf_zone_value(strong1hBslZones, 0, 0), "BATTY 1H BSL 1 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hBslZones, 0, 1), "BATTY 1H BSL 1 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hBslZones, 1, 0), "BATTY 1H BSL 2 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hBslZones, 1, 1), "BATTY 1H BSL 2 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hBslZones, 2, 0), "BATTY 1H BSL 3 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hBslZones, 2, 1), "BATTY 1H BSL 3 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hSslZones, 0, 0), "BATTY 1H SSL 1 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hSslZones, 0, 1), "BATTY 1H SSL 1 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hSslZones, 1, 0), "BATTY 1H SSL 2 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hSslZones, 1, 1), "BATTY 1H SSL 2 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hSslZones, 2, 0), "BATTY 1H SSL 3 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong1hSslZones, 2, 1), "BATTY 1H SSL 3 BOTTOM", display = display.data_window)
+plot(strong1hDirection, "BATTY 1H DIRECTION", display = display.data_window)
+
+plot(strong_mtf_zone_value(strong30mBslZones, 0, 0), "BATTY 30M BSL 1 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mBslZones, 0, 1), "BATTY 30M BSL 1 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mBslZones, 1, 0), "BATTY 30M BSL 2 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mBslZones, 1, 1), "BATTY 30M BSL 2 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mBslZones, 2, 0), "BATTY 30M BSL 3 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mBslZones, 2, 1), "BATTY 30M BSL 3 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mSslZones, 0, 0), "BATTY 30M SSL 1 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mSslZones, 0, 1), "BATTY 30M SSL 1 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mSslZones, 1, 0), "BATTY 30M SSL 2 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mSslZones, 1, 1), "BATTY 30M SSL 2 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mSslZones, 2, 0), "BATTY 30M SSL 3 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong30mSslZones, 2, 1), "BATTY 30M SSL 3 BOTTOM", display = display.data_window)
+plot(strong30mDirection, "BATTY 30M DIRECTION", display = display.data_window)
+
+plot(strong_mtf_zone_value(strong5mBslZones, 0, 0), "BATTY 5M BSL 1 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mBslZones, 0, 1), "BATTY 5M BSL 1 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mBslZones, 1, 0), "BATTY 5M BSL 2 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mBslZones, 1, 1), "BATTY 5M BSL 2 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mBslZones, 2, 0), "BATTY 5M BSL 3 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mBslZones, 2, 1), "BATTY 5M BSL 3 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mSslZones, 0, 0), "BATTY 5M SSL 1 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mSslZones, 0, 1), "BATTY 5M SSL 1 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mSslZones, 1, 0), "BATTY 5M SSL 2 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mSslZones, 1, 1), "BATTY 5M SSL 2 BOTTOM", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mSslZones, 2, 0), "BATTY 5M SSL 3 TOP", display = display.data_window)
+plot(strong_mtf_zone_value(strong5mSslZones, 2, 1), "BATTY 5M SSL 3 BOTTOM", display = display.data_window)
+plot(strong5mDirection, "BATTY 5M DIRECTION", display = display.data_window)
+
+if barstate.islast
+    panelBg = color.rgb(20, 20, 24)
+    panelSpacerBg = color.new(panelBg, 100)
+    panelBlankText = ""
+    panelSourceText = "EXT: " + (panelUsePreviousDay ? "PD" : "") + (panelUsePreviousDay and panelUsePreviousWeek ? " + " : "") + (panelUsePreviousWeek ? "PW" : "") + (panelUseHtfContext ? " | HTF " + validHtf : "")
+    panelChartIsHtf = not panelOnlyOnHtfCharts or timeframe.in_seconds() >= timeframe.in_seconds(panelMinChartTf)
+    panelIsVisible = showBiasDrawPanel and panelChartIsHtf
+    panelShowDrawBlock = panelIsVisible and showPanelCurrentDraw
+    panelShowFullDetails = panelIsVisible and showPanelDetails
+
+    if panelIsVisible
+        if panelShowFullDetails
+            table.cell(panelTable, 0, 0, showPanelDailyBias ? panelDailyBias : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = showPanelDailyBias ? color.new(panelDailyColor, 0) : panelSpacerBg)
+            table.cell(panelTable, 0, 1, showPanelDailyBias ? panelDailyReason : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = showPanelDailyBias ? panelBg : panelSpacerBg)
+            table.cell(panelTable, 0, 2, showPanelDailyBias ? panelDailyTarget : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = showPanelDailyBias ? panelBg : panelSpacerBg)
+            table.cell(panelTable, 0, 3, showPanelDailyBias ? panelSourceText : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = showPanelDailyBias ? panelBg : panelSpacerBg)
+            table.cell(panelTable, 0, 4, panelShowDrawBlock ? " " : panelBlankText, text_color = color.new(color.white, 100), text_size = size.small, bgcolor = panelSpacerBg)
+            table.cell(panelTable, 0, 5, panelShowDrawBlock ? panelCurrentDraw : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = panelShowDrawBlock ? color.new(panelCurrentColor, 0) : panelSpacerBg)
+            table.cell(panelTable, 0, 6, panelShowDrawBlock ? panelCurrentReason : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = panelShowDrawBlock ? panelBg : panelSpacerBg)
+            table.cell(panelTable, 0, 7, panelShowDrawBlock ? panelCurrentTarget : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = panelShowDrawBlock ? panelBg : panelSpacerBg)
+            table.cell(panelTable, 0, 8, panelShowDrawBlock ? panelCurrentInvalidation : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = panelShowDrawBlock ? panelBg : panelSpacerBg)
+            table.cell(panelTable, 0, 9, panelShowDrawBlock ? panelCurrentDistance : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = panelShowDrawBlock ? panelBg : panelSpacerBg)
+        else
+            table.cell(panelTable, 0, 0, showPanelDailyBias ? panelDailyBias : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = showPanelDailyBias ? color.new(panelDailyColor, 0) : panelSpacerBg)
+            table.cell(panelTable, 0, 1, panelShowDrawBlock ? panelCurrentDraw : panelBlankText, text_color = color.white, text_size = size.small, bgcolor = panelShowDrawBlock ? color.new(panelCurrentColor, 0) : panelSpacerBg)
+
+            for row = 2 to 9
+                table.cell(panelTable, 0, row, panelBlankText, text_color = color.new(color.white, 100), text_size = size.small, bgcolor = panelSpacerBg)
+    else
+        for row = 0 to 9
+            table.cell(panelTable, 0, row, panelBlankText, text_color = color.new(color.white, 100), text_size = size.small, bgcolor = panelSpacerBg)
+
+// Strong MTF on-chart table intentionally disabled in this build.
+// Data-window BATTY MTF bridge plots and MTF alerts above remain active.

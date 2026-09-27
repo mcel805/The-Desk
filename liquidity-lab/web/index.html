@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Batty · Multi-Asset Liquidity Lab</title>
+  <link rel="icon" href="favicon.svg">
+  <link rel="stylesheet" href="style.css?v=scientist-session-loop-v03">
+  <style>
+    .breadcrumbs .app-tab{height:29px;padding:0 9px;font-size:11px;color:#aeb8c5;border:1px solid transparent;border-radius:5px}
+    .breadcrumbs .app-tab:hover{color:#f4f6f8;background:#151b23;border-color:#2f3c4b}
+    .breadcrumbs .app-tab.active{color:#eaf5ff;background:#193653;border-color:#326da9}
+    .user-level-panel{margin-top:28px}.user-level-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);margin:16px 0 12px}.user-level-stat{background:#101318;padding:11px 12px;min-width:0}.user-level-stat small{display:block;color:#8792a0;font-size:9px;text-transform:uppercase;letter-spacing:1px}.user-level-stat strong{display:block;font:650 17px ui-monospace,monospace;margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.user-level-panel .table-wrap{border-radius:5px}.user-level-panel table{min-width:700px}.user-level-panel th,.user-level-panel td{padding:10px 12px}.user-level-panel tbody tr:hover td{background:#111820}
+    .user-cohort-title{font-size:11px;color:#aeb8c5;margin:18px 0 8px;font-weight:600}
+    @media(max-width:900px){.user-level-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+    @media(max-width:700px){.breadcrumbs .app-tab{padding:0 7px;font-size:10px}.breadcrumbs .crumb-slash{display:none}}
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <div class="rail-brand"><span class="mark">B</span><div><strong>BATTY</strong><small>RESEARCH OPS</small></div></div>
+      <nav aria-label="Primary">
+        <a class="nav-item active" href="#overview"><span class="nav-icon">▦</span><span>Overview</span></a>
+        <a class="nav-item" href="#scorecards"><span class="nav-icon">≡</span><span>Scorecards</span></a>
+        <a class="nav-item" href="#quality"><span class="nav-icon">∿</span><span>Quality</span></a>
+        <a class="nav-item" href="#audit"><span class="nav-icon">⌁</span><span>Audit log</span></a>
+      </nav>
+      <div class="rail-bottom">
+        <div class="rail-label">WORKSPACE</div>
+        <div class="workspace-chip"><span class="blue-dot"></span><span>MYM · MCL · MGC</span></div>
+        <div class="rail-meta">Scientist <span>v0.3</span><br>Mode <span>session-flat paper</span></div>
+      </div>
+    </aside>
+
+    <div class="content-shell">
+      <header class="topbar">
+        <div class="breadcrumbs"><a class="app-tab" href="http://127.0.0.1:8770/">Count Desk</a><a class="app-tab" href="http://127.0.0.1:8770/resources.html">Resources</a><span class="crumb-slash">/</span><strong>Liquidity Lab</strong></div>
+        <div class="top-actions"><button id="mobileDashboardToggle" class="mobile-dashboard-toggle" type="button">Open lab</button><button id="scientistAgent" class="scientist-agent" type="button" aria-haspopup="dialog" aria-controls="scientistRoleDialog"><span class="pixel-head" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="scientist-agent-label"><strong>Chief Scientist</strong><small>DAILY FORECAST</small></span></button><div class="connection"><span class="status-dot"></span><span id="serviceStatus">Connecting…</span></div><button id="refresh" class="refresh-btn"><span>↻</span> Refresh</button><div class="avatar">MC</div></div>
+      </header>
+
+      <main>
+        <section id="overview" class="workbench-head">
+          <div><div class="kicker"><span class="blue-rule"></span> FORWARD TESTING WORKSPACE</div><h1>Liquidity zone benchmark</h1><p>Read the evidence. Check the gates. Keep the execution ledger separate.</p></div>
+          <div class="mode-card"><div class="mode-label"><span class="orange-dot"></span> MODE</div><strong>PAPER / SHADOW ONLY</strong><span>No live order routing</span></div>
+        </section>
+
+        <div id="warning" class="warning" hidden></div>
+
+        <section class="summary-strip" aria-label="Lab summary">
+          <div class="strip-heading"><span class="kicker">AT A GLANCE</span><span class="muted">Updated from local ledger</span></div>
+          <div id="summary" class="stats"></div>
+        </section>
+
+        <section class="scientist-objective panel" aria-labelledby="scientistObjectiveTitle">
+          <div><div class="kicker">SCIENTIFIC JOURNAL · DAILY FORWARD FORECASTS</div><h2 id="scientistObjectiveTitle">75% target accuracy</h2><p>Chief Scientist ranks existing MYM, MCL, and MGC liquidity levels on 60m, 30m, 15m, 5m, and 1m, freezes risk/reward and evidence before the session, then closes every paper outcome by session end.</p></div>
+          <div class="scientist-objective-status"><strong>Not yet scored</strong><span>Daily Scientist forecast ledger is not connected</span></div>
+        </section>
+
+        <section class="panel scientist-loop-panel" aria-labelledby="scientistLoopTitle">
+          <div class="section-head"><div><div class="kicker">DAILY OPERATING LOOP · SESSION-FLAT</div><h2 id="scientistLoopTitle">Chief Scientist run tracker</h2></div><p>MYM · MCL · MGC · seven required steps · clickable evidence and daily release</p></div>
+          <details class="scientist-run-entry"><summary>Open a daily asset run</summary>
+            <form id="scientistRunForm" class="scientist-run-form">
+              <label>Trade date<input name="trade_date" type="date" required></label>
+              <label>Asset<select name="asset_code" required><option value="MYM">MYM · Micro E-mini Dow</option><option value="MCL">MCL · Micro WTI</option><option value="MGC">MGC · Micro Gold</option></select></label>
+              <label>Dated contract<input name="contract" placeholder="e.g. MYMZ2026" required></label>
+              <label>Method version<input name="method_version" value="liquidity-loop-v0.3" required></label>
+              <label class="wide-field">Mandate<input name="mandate" value="Measure which liquidity levels hold within frozen session risk and reward." required></label>
+              <p class="scientist-form-note">Regular session: 5:00 p.m. CT before the trade date through 4:00 p.m. CT. Holiday and early-close runs require an explicit calendar override through the API.</p>
+              <button type="submit">Open daily run</button><span id="scientistRunStatus" role="status"></span>
+            </form>
+          </details>
+          <div id="scientistRuns" class="scientist-runs"><p class="empty">No daily Scientist runs yet.</p></div>
+        </section>
+
+        <section class="panel scientist-journal-panel" aria-labelledby="scientistJournalTitle">
+          <div class="section-head"><div><div class="kicker">SCIENTIFIC RECORD · IMMUTABLE DAILY FORECASTS</div><h2 id="scientistJournalTitle">Scientist performance journal</h2></div><p>Session-bounded outcomes · actual broker fills remain a separate ledger</p></div>
+          <div id="scientistJournalSummary" class="scientist-journal-summary"></div>
+          <details class="scientist-forecast-entry"><summary>Freeze a daily Scientist forecast</summary>
+            <form id="scientistForecastForm" class="scientist-forecast-form">
+              <label>Daily asset run<select id="scientistRun" required><option value="">Open a run above first…</option></select></label>
+              <label>Existing liquidity level<select id="scientistZone" required><option value="">Loading active levels…</option></select></label>
+              <label>Forecast probability of hold (%)<input name="hold_probability" type="number" min="0" max="100" step="1" value="75" required></label>
+              <label>As-of time<input name="forecast_at" type="datetime-local" required></label>
+              <label>Forward expiry<input name="expires_at" type="datetime-local" required></label>
+              <label>Entry / trigger<input name="entry_price" type="number" step="any" required></label>
+              <label>Stop<input name="stop_price" type="number" step="any" required></label>
+              <label>Target<input name="target_price" type="number" step="any" required></label>
+              <label>Target zone<select id="scientistTargetZone"><option value="">Manual target price</option></select></label>
+              <label class="wide-field">Dashboard tools and indicators<input name="tools" placeholder="e.g., volume profile, confirmed swings, Fibonacci"></label>
+              <label class="wide-field">Research source links<input name="research_sources" placeholder="One URL per source, optional"></label>
+              <label class="wide-field">Rationale / invalidation<textarea name="rationale" rows="3" required></textarea></label>
+              <p class="scientist-form-note">This records a frozen research forecast only. It cannot place an order. Forecast dates before stored outcome bars are rejected.</p>
+              <button type="submit">Freeze forecast</button><span id="scientistForecastStatus" role="status"></span>
+            </form>
+          </details>
+          <div class="table-wrap"><table><thead><tr><th>Forecast date</th><th>TF</th><th>Liquidity level</th><th>Hold call / probability</th><th>Stop → target</th><th>Outcome</th><th>Realized R</th></tr></thead><tbody id="scientistForecastRows"><tr><td class="empty" colspan="7">No frozen Scientist forecasts yet.</td></tr></tbody></table></div>
+          <p class="journal-footnote">The 75% figure is a target, not current performance. Accuracy is reported per asset and timeframe: target is a hit; stop and post-touch session timeout are misses; no-touch, ambiguous, and invalidated remain separate visible dispositions.</p>
+        </section>
+
+        <section id="scorecards" class="section-block">
+          <div class="section-head"><div><div class="kicker">01 · LEGACY DIAGNOSTICS</div><h2>Indicator zone scorecards</h2></div><p>Current v0.1 attraction/reaction study · separate from daily Scientist forecasts.</p></div>
+          <div class="table-wrap"><table><thead><tr><th>TF</th><th>Zones</th><th>Touched</th><th>Trials</th><th>Clean resolved</th><th>Target rate</th><th>Expectancy</th><th>Gate progress</th></tr></thead><tbody id="timeframeRows"></tbody></table></div>
+        </section>
+
+        <section id="quality" class="split-block">
+          <article class="panel"><div class="panel-top"><div><div class="kicker">02 · FORECAST QUALITY</div><h2>Probability score</h2></div><span class="panel-tag">Brier / lower is better</span></div><div id="forecastScores" class="score-cards"></div></article>
+          <article class="panel"><div class="panel-top"><div><div class="kicker">03 · EXECUTION POLICY</div><h2>One-contract eligibility</h2></div><span class="panel-tag orange">first trigger wins</span></div><div id="policyCounts" class="policy"></div><p class="note">Every eligible zone remains in the scientific shadow ledger. Only the earliest open signal is executable-policy eligible.</p></article>
+        </section>
+
+        <section class="panel calibration-panel"><div class="section-head"><div><div class="kicker">04 · CALIBRATION</div><h2>Forecast versus observed rate</h2></div><p>Matched outcomes only · 95% intervals where available</p></div><div id="calibration" class="calibration"></div></section>
+
+        <section class="panel user-level-panel"><div class="section-head"><div><div class="kicker">05 · USER SUGGESTED LEVELS</div><h2>Count Desk journal results</h2></div><p>Independent manual cohort · tracked from Count Desk bars</p></div><div id="userLevelSummary" class="user-level-summary"></div><h3 class="user-cohort-title">By timeframe</h3><div class="table-wrap"><table><thead><tr><th>TF</th><th>Plans</th><th>Resolved</th><th>Win rate</th><th>Average R</th><th>Mean MFE</th><th>Mean MAE</th></tr></thead><tbody id="userLevelRows"></tbody></table></div><h3 class="user-cohort-title">Context cohorts</h3><div class="table-wrap"><table><thead><tr><th>Variable</th><th>Value</th><th>Plans</th><th>Resolved</th><th>Win rate</th><th>Average R</th><th>Mean MFE</th><th>Mean MAE</th></tr></thead><tbody id="userLevelContextRows"></tbody></table></div></section>
+
+        <section id="audit" class="section-block audit-block"><div class="section-head"><div><div class="kicker">06 · PROVENANCE</div><h2>Recent audit stream</h2></div><p>Zone events and trial outcomes, newest first.</p></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Zone</th><th>TF</th><th>Side</th><th>Class</th><th>Event</th><th>Price</th></tr></thead><tbody id="eventRows"></tbody></table></div></section>
+      </main>
+      <footer><span>LOCAL RESEARCH LEDGER</span><span>Broker/platform records remain authoritative for fills, commissions, and slippage.</span></footer>
+    </div>
+  <aside class="agent-dock" aria-labelledby="agentDialogTitle">
+    <header class="agent-dock-head">
+      <div class="agent-identity">
+        <span class="agent-portrait" id="agentPortrait" aria-hidden="true"><img src="favicon.svg" alt=""></span>
+        <div><h2 id="agentDialogTitle">Batty</h2><p>Firstmate · your trading desk</p></div>
+      </div>
+      <button class="agent-menu" type="button" aria-label="Agent options" title="Agent options">···</button>
+    </header>
+    <div class="agent-state-row"><span class="agent-state-dot"></span><span id="agentWorkStatus">Ready when you are</span><span class="agent-preview">PREVIEW</span></div>
+    <div class="agent-connection-note"><span class="notice-dot"></span><span>Firstmate connection is not active here. This chat is a local interface preview.</span></div>
+    <section class="agent-chat" aria-label="Chat with Batty">
+      <div class="chat-stream" id="chatStream" aria-live="polite">
+        <div class="chat-day">TODAY · MYM / MCL / MGC PAPER LAB</div>
+          <article class="chat-message assistant-message">
+          <span class="message-avatar"><img src="favicon.svg" alt=""></span>
+          <div class="message-body"><p>Hey Mark. I’m here in the lab with you. We’ll keep the read grounded in the ledger, call out what’s still a hypothesis, and stay paper-only.</p><div class="message-meta">BATTY <span>·</span> just now</div></div>
+        </article>
+        <article class="chat-message assistant-message">
+          <span class="message-avatar message-avatar-muted"><span>i</span></span>
+          <div class="message-body"><div class="finance-note"><div class="finance-note-head"><span class="finance-spark">✳</span><span>SCIENTIST OBJECTIVE</span><span class="sample-tag">75% TARGET</span></div><p>The Scientist freezes daily MYM, MCL, and MGC predictions across all five timeframes. Every paper position resolves by its futures session close; results remain separate by asset and timeframe.</p></div><div class="message-meta">Research objective <span>·</span> not a proven result</div></div>
+        </article>
+        <div class="quick-prompts" aria-label="Try a prompt">
+          <button type="button" data-prompt="What is blocking the next stage?">What’s blocking the next stage?</button>
+          <button type="button" data-prompt="Teach me something about liquidity.">Teach me something</button>
+          <button type="button" data-prompt="Help me customize the dashboard.">Customize my dashboard</button>
+        </div>
+      </div>
+      <form class="agent-composer" id="agentComposer" aria-label="Message Batty">
+        <label class="sr-only" for="agentMessage">Message Batty</label>
+        <textarea id="agentMessage" name="message" rows="2" placeholder="Talk markets, ask a question, or shape this dashboard…"></textarea>
+        <div class="composer-bottom"><div class="composer-context"><label class="sr-only" for="labChatModel">Model</label><select id="labChatModel" aria-label="Model"><option value="gpt-6-luna">GPT-6 Luna</option><option value="gpt-6-sol">GPT-6 Sol</option><option value="gpt-6-astra">GPT-6 Astra</option></select><label class="sr-only" for="labChatEffort">Reasoning effort</label><select id="labChatEffort" aria-label="Reasoning effort"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="xhigh">Xhigh</option></select><span class="composer-context-note">Visible lab context</span></div><button id="sendAgentMessage" type="submit" aria-label="Send message">↑</button></div>
+      </form>
+      <div class="agent-footer-note">Batty translates the workflow into plain trader talk.</div>
+    </section>
+  </aside>
+  </div>
+  <dialog id="scientistRoleDialog" class="scientist-role-dialog" aria-labelledby="scientistRoleTitle">
+    <header><span class="pixel-head pixel-head-large" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><div><h2 id="scientistRoleTitle">Chief Scientist</h2><p>Daily level forecasts · 75% research objective</p></div><button id="closeScientistRole" type="button" aria-label="Close role panel">×</button></header>
+    <div class="scientist-role-copy"><p>The Scientist ranks eligible levels by asset and timeframe, records probability and risk/reward, freezes the daily forecast, then resolves every paper position by the declared futures session close. The 75% target is not a current performance claim.</p><p>The Lead Researcher supplies dated citations and investigates the available chart indicators and analysis tools. Every daily run preserves seven steps, outputs, and a clickable release log.</p><nav><a href="/agent-skills/chief-scientist.md">Chief Scientist skill file</a><a href="/agent-skills/lead-researcher.md">Lead Researcher skill file</a></nav><div id="scientistRoleStatus" class="role-connection-note">Firstmate model dispatch is not connected. This panel shows role guidance; it does not generate or record forecasts.</div></div>
+  </dialog>
+  <dialog id="scientistOutcomeDialog" class="scientist-role-dialog outcome-dialog" aria-labelledby="scientistOutcomeTitle">
+    <form id="scientistOutcomeForm"><header><div><h2 id="scientistOutcomeTitle">Record next-day outcome</h2><p id="scientistOutcomeForecast"></p></div><button id="closeScientistOutcome" type="button" aria-label="Close outcome form">×</button></header><input name="forecast_id" type="hidden"><div class="outcome-fields"><label>Disposition<select name="outcome" required><option value="target">Target before stop</option><option value="stop">Stop before target</option><option value="timeout">Timeout / session close</option><option value="no_touch">No touch</option><option value="ambiguous">Ambiguous price path</option><option value="invalidated">Level invalidated</option></select></label><label>Outcome time<input name="outcome_time" type="datetime-local" required></label><label>Exit price<input name="exit_price" type="number" step="any"></label><label>Resolution source<input name="resolution_source" placeholder="Licensed tick feed / chart review" required></label><label class="wide-field">Evidence note<textarea name="detail" rows="2"></textarea></label><div class="outcome-actions"><button type="submit">Append outcome</button><button id="cancelScientistOutcome" type="button" class="secondary-action">Cancel</button><span id="scientistOutcomeStatus" role="status"></span></div></div></form>
+  </dialog>
+  <script type="module" src="app.js?v=scientist-session-loop-v03"></script>
+</body>
+</html>

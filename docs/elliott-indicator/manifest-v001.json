@@ -1,0 +1,16 @@
+{
+  "version": "v001",
+  "created_at_utc": "2026-09-12T18:50:23.528119+00:00",
+  "status": "scope proposal; no indicator implemented",
+  "pages": 13,
+  "artifacts": {
+    "SCOPE-AND-REQUIREMENTS-v001.md": "499504a02eb1243ccd2100d9ed5e962f7bdac041097215a162f6dbd86422c5b6",
+    "SCOPE-AND-REQUIREMENTS-v001.pdf": "e7aee4eb272a2e8d304a433538d73aad0e177429344620581a3391f3ae0ca852",
+    "VISUAL-SPECIMEN-v001.svg": "c6c9303ec75680d3d6b4444055b3c0ca530114b91ae7494a1cf1dfe43d28ddb9"
+  },
+  "reference_videos": {
+    "M6l8IrvhkhI": "partial player access; no transcript; not fully reviewed",
+    "NeSyZ26yjzA": "access failed; not reviewed"
+  },
+  "visual": "original synthetic design; exact visual parity not verified"
+}

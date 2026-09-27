@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Batty Resources · Count Desk</title>
+  <link rel="stylesheet" href="./style.css?v=batty-resources-20260927">
+  <link rel="stylesheet" href="./resources.css?v=batty-resources-20260927">
+</head>
+<body class="resources-page">
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./index.html">Count Desk</a>
+      <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
+      <a class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
+      <a class="app-tab active" href="./resources.html" aria-current="page">Resources</a>
+    </nav>
+    <div class="api-state">Batty guide</div>
+  </header>
+  <main class="resources-main">
+    <section class="resources-hero">
+      <div>
+        <div class="resources-kicker">COUNT DESK · HOW BATTY OPERATES</div>
+        <h1>Your desk partner, with the chart in view</h1>
+        <p>Batty starts from the tab you are using. On Count Desk, the reply receives a read-only snapshot of the selected asset, interval, stored bars, count layers, chart drawings, and feed freshness.</p>
+      </div>
+      <a class="resources-guide-link" href="./USER-GUIDE.md" download>Download user guide <span>↓</span></a>
+    </section>
+
+    <section class="resources-flow" aria-label="How a Batty question is handled">
+      <article><small>01 · YOU</small><strong>Ask Batty</strong><p>Questions default to the active tab and current selection.</p></article>
+      <i aria-hidden="true">→</i>
+      <article><small>02 · CONTEXT</small><strong>Read the desk</strong><p>Count Desk attaches stored chart evidence and labels its age.</p></article>
+      <i aria-hidden="true">→</i>
+      <article><small>03 · MODEL</small><strong>Batty reasons</strong><p>Your selected Codex model replies through your ChatGPT sign-in.</p></article>
+      <i aria-hidden="true">→</i>
+      <article class="resources-flow-pending"><small>04 · FIRSTMATE CREW</small><strong>Specialists report to Batty</strong><p>Designed workflow; live browser dispatch is not connected yet.</p></article>
+    </section>
+
+    <section class="resources-grid">
+      <article class="resources-card">
+        <div class="resources-card-kicker">USING THE CHAT</div><h2>Get a grounded chart read</h2>
+        <ol>
+          <li>Choose the asset and timeframe on Count Desk.</li>
+          <li>Build the count so the current chart snapshot is ready.</li>
+          <li>Ask a question such as “What is the 30-minute structure, and what would invalidate that read?”</li>
+          <li>Check Batty’s answer for the data source, last-bar time, and provisional labels.</li>
+        </ol>
+      </article>
+      <article class="resources-card resources-status-card">
+        <div class="resources-card-kicker">CURRENT INTEGRATION</div><h2>What Batty can read today</h2>
+        <ul>
+          <li><b>Count Desk:</b> selected asset/interval, up to 64 latest bars, structural count layers, saved drawings, key analytics, and feed status.</li>
+          <li><b>Trading Journal:</b> active tab and visible filters. Private account ledger rows are not sent with the prompt.</li>
+          <li><b>Resources:</b> this guide and the current integration notes.</li>
+          <li><b>Model:</b> local Codex CLI, authenticated with your ChatGPT sign-in and the model/effort selected below the composer.</li>
+        </ul>
+      </article>
+      <article class="resources-card resources-boundary-card">
+        <div class="resources-card-kicker">FIRSTMATE · COORDINATION LAYER</div><h2>How the crew model is intended to work</h2>
+        <p>Firstmate is the coordinator and agent operating system, not a language model. Batty is the human-facing first mate: it decides whether a specialist would help, delegates through Firstmate, checks the returned evidence, and gives you one answer.</p>
+        <p>The current local Firstmate installation does not have a supported browser-chat bridge for creating, continuing, reading, and stopping a crew task. The crew seats shown in the dashboard are role definitions and status UI; they do not mean a specialist ran. Batty will say when it worked alone.</p>
+      </article>
+      <article class="resources-card">
+        <div class="resources-card-kicker">DATA & CONTROL</div><h2>Clear limits, useful answers</h2>
+        <ul>
+          <li>Stored bars may be delayed or stale; a chart snapshot is not a live quote.</li>
+          <li>Structural count labels and projected paths are research aids, not validated Elliott counts.</li>
+          <li>The chat currently cannot search the web, take over another app, or change dashboard settings.</li>
+          <li>It cannot route orders. Research replies are not trade instructions.</li>
+          <li>Model use follows the signed-in ChatGPT plan and its limits; it is not an OpenAI API-key connection.</li>
+        </ul>
+      </article>
+    </section>
+    <footer class="resources-footer"><span>Batty · Count Desk</span><a href="./USER-GUIDE.md">Read the full guide</a><a href="./index.html">Back to Count Desk</a></footer>
+  </main>
+  <script type="module" src="./batty-agent.js?v=chatgpt-codex-auth-20260927"></script>
+</body>
+</html>

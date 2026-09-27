@@ -1,0 +1,20 @@
+{
+  "card_id": "",
+  "status": "pending_review",
+  "school": "",
+  "concept": "",
+  "classification": "rule_or_guideline_or_opinion_or_empirical_claim",
+  "original_paraphrase": "",
+  "conditions": [],
+  "exceptions": [],
+  "example": "",
+  "counterexample": "",
+  "source_id": "",
+  "source_url": "",
+  "edition_or_publication_date": null,
+  "page_or_section": "",
+  "rights_scope": "not_verified",
+  "conflicts_or_later_corrections": [],
+  "reviewer": null,
+  "reviewed_at": null
+}

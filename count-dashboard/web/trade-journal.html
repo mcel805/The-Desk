@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Batty Trading Journal</title>
+  <link rel="stylesheet" href="./style.css?v=batty-openai-composer-20260927">
+  <link rel="stylesheet" href="./trade-journal.css">
+</head>
+<body class="trade-journal-page">
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>TRADING JOURNAL</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./index.html">Count Desk</a>
+      <a class="app-tab active" href="./trade-journal.html" aria-current="page">Trading Journal</a>
+      <a class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
+      <a class="app-tab" href="./resources.html">Resources</a>
+    </nav>
+    <div id="journalApiState" class="api-state">Loading journal…</div>
+  </header>
+  <main class="trade-journal-main">
+    <section class="tj-hero">
+      <div><div class="tj-kicker">ACCOUNT LEDGER · IMPORTED EXECUTIONS</div><h1>Trading Journal</h1><p>Bring broker history into one account- and team-aware journal. CSV execution upload stays available beside read-only Robinhood MCP imports.</p></div>
+      <div class="tj-local-badge"><span></span>Local journal · Robinhood MCP snapshots imported on demand</div>
+    </section>
+
+    <section class="tj-filters" aria-label="Journal filters">
+      <label>Team<select id="filterTeam"><option value="">All teams</option></select></label>
+      <label>Trader<select id="filterMember"><option value="">All traders</option></select></label>
+      <label>Account<select id="filterAccount"><option value="">All accounts</option></select></label>
+      <button id="refreshLedger" class="tj-secondary" type="button">Refresh</button>
+    </section>
+
+    <section id="journalStats" class="tj-stats" aria-label="Journal totals"></section>
+
+    <section class="tj-card tj-import-history">
+      <div class="tj-card-head"><div><div class="tj-kicker">ROBINHOOD · READ ONLY</div><h2>Broker-reported trade history</h2><p>Imported from the connected Codex MCP on demand. These are broker summaries, not execution fills; entry price, costs, and fill-level detail may be unavailable.</p></div><div id="robinhoodSyncMeta" class="tj-ledger-meta">No Robinhood snapshot imported</div></div>
+      <div class="tj-table-wrap"><table class="tj-table"><thead><tr><th>Trade time</th><th>Trader / account</th><th>Instrument</th><th>Side</th><th>Qty</th><th>Reported price</th><th>Reported realized P&amp;L</th><th>Source</th></tr></thead><tbody id="reportedTradeRows"><tr><td colspan="8" class="tj-empty">Import a Robinhood MCP snapshot through Codex, or use CSV upload for execution-level records.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="tj-card tj-paper-card">
+      <div class="tj-card-head"><div><div class="tj-kicker">PAPER · SIMULATED ONLY</div><h2>Practice trades</h2><p>Choose any journal account and record hypothetical trades across brokerages. Close them with a simulated exit price; no order is sent and fees or fills are not modeled.</p></div><div id="paperTradeMeta" class="tj-ledger-meta">No paper trades yet</div></div>
+      <form id="paperTradeForm" class="tj-paper-form">
+        <label>Brokerage account<select id="paperAccount" required></select></label><label>Trader<select id="paperMember"><option value="">Use account trader</option></select></label>
+        <label>Asset class<select id="paperAssetClass"><option value="equity">Equity</option><option value="option">Options</option><option value="crypto">Crypto</option><option value="future">Futures</option><option value="forex">Forex</option><option value="other">Other</option></select></label>
+        <label>Ticker / contract<input id="paperSymbol" maxlength="100" placeholder="AAPL, BTC-USD, or option contract" required></label>
+        <label>Side<select id="paperSide"><option value="long">Long</option><option value="short">Short</option></select></label>
+        <label>Quantity<input id="paperQuantity" type="number" min="0.000001" step="any" value="1" required></label>
+        <label>Entry price<input id="paperEntry" type="number" min="0.000001" step="any" required></label>
+        <label>Stop, optional<input id="paperStop" type="number" min="0.000001" step="any"></label>
+        <label>Target, optional<input id="paperTarget" type="number" min="0.000001" step="any"></label>
+        <label>Multiplier<input id="paperMultiplier" type="number" min="0.000001" step="any" placeholder="Auto when known"></label>
+        <label class="tj-paper-notes">Setup notes<textarea id="paperNotes" maxlength="5000" rows="2" placeholder="Thesis, setup, or practice objective"></textarea></label>
+        <button class="tj-primary" type="submit">Log paper trade</button>
+      </form>
+      <div class="tj-table-wrap"><table class="tj-table"><thead><tr><th>Status / time</th><th>Trader / account</th><th>Instrument</th><th>Side</th><th>Qty</th><th>Entry · stop · target</th><th>Exit</th><th>Gross simulated P&amp;L</th><th>R</th><th>Action</th></tr></thead><tbody id="paperTradeRows"><tr><td colspan="10" class="tj-empty">Create a brokerage account, then record a hypothetical trade here.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="tj-workspace">
+      <article class="tj-card tj-import-card">
+        <div class="tj-card-head"><div><div class="tj-kicker">ALWAYS AVAILABLE</div><h2>Import CSV executions</h2><p>Upload a broker export, map its columns once, and review the import results.</p></div><span class="tj-step">01</span></div>
+        <label class="tj-field">Destination account<select id="importAccount"><option value="">Create an account first</option></select></label>
+        <label class="tj-drop" id="csvDrop"><input id="csvFile" type="file" accept=".csv,text/csv"><span class="tj-file-icon">↑</span><strong id="csvFileName">Choose a CSV file</strong><small>CSV · up to 20 MB · one account per import</small></label>
+        <div id="csvPreviewState" class="tj-preview-state" hidden></div>
+        <div id="csvMapping" class="tj-mapping" hidden></div>
+        <div class="tj-import-actions"><button id="previewCsv" class="tj-secondary" type="button" disabled>Read columns</button><button id="importCsv" class="tj-primary" type="button" disabled>Import executions</button></div>
+        <div class="tj-source-note"><strong>Persistent fallback</strong><span>Manual upload remains supported if a broker API is unavailable, disconnected, or missing historical rows.</span></div>
+      </article>
+
+      <article class="tj-card tj-setup-card">
+        <div class="tj-card-head"><div><div class="tj-kicker">ORGANIZATION</div><h2>Teams, traders & accounts</h2><p>Track who traded and which brokerage account produced each execution.</p></div><span class="tj-step">02</span></div>
+        <div class="tj-setup-grid">
+          <form id="teamForm" class="tj-mini-form"><h3>Team</h3><label>Team name<input id="teamName" maxlength="100" placeholder="Trading team" required></label><button class="tj-secondary" type="submit">Add team</button></form>
+          <form id="memberForm" class="tj-mini-form"><h3>Trader</h3><label>Team<select id="memberTeam" required></select></label><label>Trader name<input id="memberName" maxlength="100" placeholder="Name" required></label><button class="tj-secondary" type="submit">Add trader</button></form>
+          <form id="accountForm" class="tj-mini-form tj-account-form"><h3>Broker account</h3><div class="tj-account-fields"><label>Team<select id="accountTeam" required></select></label><label>Assigned trader<select id="accountMember"><option value="">Unassigned</option></select></label><label>Broker / source<input id="accountBroker" maxlength="100" value="Manual CSV" required></label><label>Account label<input id="accountName" maxlength="120" placeholder="Personal futures" required></label><label>Account reference<input id="accountRef" maxlength="120" placeholder="Optional label or last four"></label><label>Currency<input id="accountCurrency" maxlength="8" value="USD" required></label><label>Timezone<input id="accountTimezone" value="America/Los_Angeles" required></label></div><button class="tj-secondary" type="submit">Add account</button></form>
+        </div>
+        <div id="accountRoster" class="tj-account-roster"></div>
+        <p class="tj-security-note">This first local workspace records team and trader attribution. It does not provide user sign-in or private per-member access controls.</p>
+      </article>
+    </section>
+
+    <section class="tj-card tj-trades-card">
+      <div class="tj-card-head tj-trades-head"><div><div class="tj-kicker">RECONSTRUCTED FROM FILLS · FIFO</div><h2>Closed trades & open positions</h2><p>Trades are reconstructed from executions by account and instrument. Unmatched opening fills remain open; they are not scored as closed trades.</p></div><div id="ledgerMeta" class="tj-ledger-meta">No executions imported</div></div>
+      <div class="tj-table-wrap"><table class="tj-table"><thead><tr><th>Exit time</th><th>Trader / account</th><th>Instrument</th><th>Side</th><th>Qty</th><th>Entry → exit</th><th>Gross</th><th>Costs</th><th>Net</th><th>Review</th></tr></thead><tbody id="tradeRows"><tr><td colspan="10" class="tj-empty">Create a team, add an account, then upload an execution CSV.</td></tr></tbody></table></div>
+      <div id="openPositions" class="tj-open-positions"></div>
+      <div id="currencyTotals" class="tj-currency-totals"></div>
+    </section>
+
+    <section class="tj-card tj-import-history">
+      <div class="tj-card-head"><div><div class="tj-kicker">AUDIT TRAIL</div><h2>Import history</h2><p>Every CSV batch retains its source file, destination account, duplicate count, and rejected row details.</p></div></div>
+      <div class="tj-table-wrap"><table class="tj-table"><thead><tr><th>Imported</th><th>Source</th><th>Account</th><th>Rows</th><th>Imported</th><th>Duplicates</th><th>Rejected</th></tr></thead><tbody id="importRows"><tr><td colspan="7" class="tj-empty">No files imported yet.</td></tr></tbody></table></div>
+    </section>
+    <p class="tj-footnote">Robinhood MCP snapshots are pulled by Codex and saved into this local Count Desk database; this webpage does not keep a Robinhood session or run background sync. CSV upload remains available for execution history and reconciliation.</p>
+  </main>
+
+  <dialog id="reviewDialog" class="tj-review-dialog">
+    <form id="reviewForm" method="dialog"><div class="tj-kicker">TRADE REVIEW</div><h2 id="reviewTitle">Review trade</h2><input id="reviewTradeId" type="hidden"><label>Tags, separated by commas<input id="reviewTags" maxlength="1000" placeholder="breakout, followed plan"></label><label>Rule adherence<select id="reviewSatisfaction"><option value="">Not recorded</option><option value="followed_rules">Followed rules</option><option value="broke_rules">Broke rules</option></select></label><label>What happened?<textarea id="reviewNotes" rows="5" maxlength="5000" placeholder="Setup, execution quality, emotions, lesson…"></textarea></label><div class="tj-dialog-actions"><button class="tj-secondary" id="cancelReview" type="button">Cancel</button><button class="tj-primary" type="submit">Save review</button></div></form>
+  </dialog>
+  <dialog id="paperCloseDialog" class="tj-review-dialog">
+    <form id="paperCloseForm" method="dialog"><div class="tj-kicker">PAPER TRADE EXIT</div><h2 id="paperCloseTitle">Close paper trade</h2><input id="paperCloseTradeId" type="hidden"><label>Simulated exit price<input id="paperExitPrice" type="number" min="0.000001" step="any" required></label><label>Exit notes<textarea id="paperCloseNotes" rows="3" maxlength="5000"></textarea></label><div class="tj-dialog-actions"><button class="tj-secondary" id="cancelPaperClose" type="button">Cancel</button><button class="tj-primary" type="submit">Close paper trade</button></div></form>
+  </dialog>
+  <script type="module" src="./trade-journal.js"></script>
+  <script type="module" src="./batty-agent.js?v=chatgpt-codex-auth-20260927"></script>
+</body>
+</html>

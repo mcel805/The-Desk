@@ -1,0 +1,483 @@
+//@version=6
+indicator("Batty - Elliot Wave", overlay=true, max_lines_count=300, max_labels_count=200, max_bars_back=5000)
+// v0.1.0 | Independent implementation. Not WaveBasis source or calibrated probabilities.
+// Confirmed pivots are timestamped when known. Elliott labels remain provisional.
+
+string G1 = "Count engine"
+int baseLen = input.int(5, "Local pivot confirmation bars", minval=2, maxval=30, group=G1, tooltip="A pivot becomes known this many completed bars AFTER the turn. Three scales use L, 2L and 4L. Degree is not timeframe.")
+string bias = input.string("Neutral", "Pattern search", options=["Neutral", "Impulse", "Zigzag"], group=G1)
+int pick = input.int(1, "Displayed count rank", minval=1, maxval=4, group=G1)
+int maxAge = input.int(120, "Maximum bars after last pivot", minval=10, maxval=500, group=G1)
+int startTime = input.time(0, "Analysis start (0 = loaded history)", group=G1)
+int endTime = input.time(0, "Frozen cutoff (0 = live)", group=G1)
+bool requireEvidence = input.bool(false, "Require lower-scale motive evidence", group=G1, tooltip="Requires coarse 5-swing evidence in completed motive legs. This does NOT prove recursive Elliott subdivisions. Smallest scale has no lower-scale evidence.")
+string G2 = "Clean chart"
+bool connectors = input.bool(true, "Thin wave connectors", group=G2)
+bool compareAlt = input.bool(false, "Show one alternate", group=G2)
+bool childLabels = input.bool(false, "Show lower-scale swing evidence", group=G2)
+bool showLevels = input.bool(true, "Target and invalidation lines", group=G2)
+bool showChannel = input.bool(true, "Elliott channel", group=G2)
+bool showPath = input.bool(true, "Schematic forward path", group=G2)
+bool showPanel = input.bool(true, "Count context table", group=G2)
+bool audit = input.bool(false, "Show pivot confirmation markers", group=G2)
+int futureBars = input.int(25, "Projection drawing width (not timing forecast)", minval=5, maxval=100, group=G2)
+color primaryColor = input.color(#69B8FF, "Primary count", group=G2)
+color alternateColor = input.color(#B294DD, "Alternate count", group=G2)
+color targetColor = input.color(#72CFC4, "Targets", group=G2)
+color invalidColor = input.color(#FF7586, "Invalidation", group=G2)
+string G3 = "Forecast events"
+int horizon = input.int(20, "Forecast expiry in chart bars", minval=2, maxval=200, group=G3)
+bool sendAlerts = input.bool(false, "Enable alert() events", group=G3, tooltip="Create a TradingView alert using Any alert() function call. Events concern the PRIMARY rank, regardless of display selection. No trading orders.")
+
+// Tick-integer arithmetic gives explicit strict equality behavior.
+type Pivot
+    int x
+    int ts
+    float p
+    int side
+    int known
+
+type Candidate
+    array<Pivot> pts
+    string family
+    int stage
+    int degree
+    int dir
+    float score
+    int evidence
+    int needed
+    float t1
+    float t2
+    float inv
+    int nextDir
+    string nextWave
+    string key
+    string rules
+
+type Forecast
+    string key
+    int issued
+    float target
+    float invalid
+    int dir
+    int deadline
+    string state
+
+var array<Pivot> fast = array.new<Pivot>()
+var array<Pivot> medium = array.new<Pivot>()
+var array<Pivot> slow = array.new<Pivot>()
+var array<Candidate> ranked = array.new<Candidate>()
+var array<Forecast> ledger = array.new<Forecast>()
+var array<string> seen = array.new_string()
+var array<line> strokes = array.new_line()
+var array<label> tags = array.new_label()
+var table panel = table.new(position.top_right, 2, 14, bgcolor=color.new(chart.bg_color, 8))
+var string lastPrimary = ""
+var string lastEvent = "No forward outcomes yet"
+var int asof = na
+var int asofTime = na
+var float asofClose = na
+var float asofAtr = na
+var int ambiguousPivots = 0
+var int wins = 0
+var int losses = 0
+var int ambiguous = 0
+var int expired = 0
+
+f_ticks(float p) => math.round(p / syminfo.mintick)
+f_price(float p) => p * syminfo.mintick
+f_str(float p) => na(p) ? "-" : str.tostring(f_price(p), format.mintick)
+
+// Canonical swing stream: equal extrema retain the earlier pivot. Same-side
+// stronger pivots replace the canonical endpoint, but existing forecasts hold copies.
+f_push(array<Pivot> stream, float p, int side, int x, int ts) =>
+    bool changed = false
+    Pivot fresh = Pivot.new(x, ts, f_ticks(p), side, bar_index)
+    int n = array.size(stream)
+    if n == 0
+        array.push(stream, fresh)
+        changed := true
+    else
+        Pivot prev = array.get(stream, n - 1)
+        if x > prev.x
+            if prev.side == side
+                if (fresh.p - prev.p) * side > 0
+                    array.set(stream, n - 1, fresh)
+                    changed := true
+            else if (fresh.p - prev.p) * side > 0
+                array.push(stream, fresh)
+                changed := true
+    if array.size(stream) > 120
+        array.shift(stream)
+    changed
+
+f_ingest(array<Pivot> stream, float hi, float lo, int len) =>
+    bool changed = false
+    // Outside bars can be BOTH a pivot high and low: do not invent their order.
+    bool dual = not na(hi) and not na(lo)
+    if not dual and time[len] >= startTime
+        if not na(hi)
+            changed := f_push(stream, hi, 1, bar_index - len, time[len])
+        if not na(lo)
+            changed := f_push(stream, lo, -1, bar_index - len, time[len])
+    [changed, dual]
+
+f_impulse(array<Pivot> points) =>
+    int n = array.size(points)
+    bool ok = n >= 3 and n <= 6
+    if ok
+        float p0 = array.get(points, 0).p
+        int dir = -array.get(points, 0).side
+        float p1 = (array.get(points, 1).p - p0) * dir
+        float p2 = (array.get(points, 2).p - p0) * dir
+        ok := p1 > 0 and p2 > 0 and p2 < p1
+        if ok and n >= 4
+            float p3 = (array.get(points, 3).p - p0) * dir
+            ok := p3 > p1
+            if ok and n >= 5
+                float p4 = (array.get(points, 4).p - p0) * dir
+                ok := p4 > p1 and p4 < p3
+                if ok and n == 6
+                    float p5 = (array.get(points, 5).p - p0) * dir
+                    float w3 = p3 - p2
+                    float w5 = p5 - p4
+                    ok := p5 > p3 and w3 >= math.min(p1, w5)
+    ok
+
+f_zigzag(array<Pivot> points) =>
+    int n = array.size(points)
+    bool ok = n == 3 or n == 4
+    if ok
+        int dir = -array.get(points, 0).side
+        float p0 = array.get(points, 0).p
+        float a = (array.get(points, 1).p - p0) * dir
+        float b = (array.get(points, 2).p - p0) * dir
+        ok := a > 0 and b > 0 and b < a
+        if ok and n == 4
+            float c = (array.get(points, 3).p - p0) * dir
+            ok := c > a
+    ok
+
+// Coarse child evidence only. Exact endpoints required; no nearest-bar substitution.
+f_childImpulse(array<Pivot> children, Pivot left, Pivot right) =>
+    array<Pivot> segment = array.new<Pivot>()
+    if array.size(children) > 0
+        for q in children
+            if q.x >= left.x and q.x <= right.x
+                array.push(segment, q)
+    bool found = false
+    if array.size(segment) == 6
+        found := array.get(segment, 0).x == left.x and array.get(segment, 5).x == right.x and f_impulse(segment)
+    found
+
+f_fit(float ratio, float ideal) => math.max(0.0, 1.0 - math.abs(ratio - ideal) / math.max(ideal, 0.01))
+
+f_build(array<Pivot> points, array<Pivot> children, string family, int degree) =>
+    int n = array.size(points)
+    int stage = n - 1
+    Pivot first = array.get(points, 0)
+    Pivot last = array.get(points, n - 1)
+    int dir = -first.side
+    float len1 = math.abs(array.get(points, 1).p - first.p)
+    float retr = math.abs(array.get(points, 2).p - array.get(points, 1).p) / len1
+    float score = 10 + 5 * f_fit(retr, 0.618)
+    int evidence = 0
+    int needed = 0
+    if family == "Impulse"
+        for leg = 1 to stage
+            if leg % 2 == 1
+                needed += 1
+                if degree > 0 and f_childImpulse(children, array.get(points, leg - 1), array.get(points, leg))
+                    evidence += 1
+    else
+        needed := stage == 3 ? 2 : 1
+        if degree > 0
+            if f_childImpulse(children, first, array.get(points, 1))
+                evidence += 1
+            if stage == 3 and f_childImpulse(children, array.get(points, 2), last)
+                evidence += 1
+    score += evidence * 5
+    float t1 = na
+    float t2 = na
+    float inv = na
+    int nextDir = dir
+    string nextWave = "Unresolved"
+    string rules = "Coarse geometry only; recursive subdivisions UNKNOWN"
+    if family == "Impulse"
+        rules := "W2 inside origin; W3 beyond W1; W4 non-overlap when present; W3 not shortest at W5. Subdivisions UNKNOWN."
+        if stage == 2
+            t1 := last.p + dir * 1.618 * len1
+            t2 := last.p + dir * 2.0 * len1
+            inv := first.p
+            nextWave := "3?"
+        if stage == 3
+            float len3 = math.abs(last.p - array.get(points, 2).p)
+            t1 := last.p - dir * len3 * 0.236
+            t2 := last.p - dir * len3 * 0.382
+            inv := last.p
+            nextDir := -dir
+            nextWave := "4?"
+            score += 5 * f_fit(len3 / len1, 1.618)
+            // Keep wave-4 target strictly outside wave-1 territory.
+            float limit = array.get(points, 1).p + dir
+            t1 := dir == 1 ? math.max(t1, limit) : math.min(t1, limit)
+            t2 := dir == 1 ? math.max(t2, limit) : math.min(t2, limit)
+        if stage == 4
+            float len3 = math.abs(array.get(points, 3).p - array.get(points, 2).p)
+            float cap = len3 < len1 ? len3 : len1 * 1.618
+            t1 := last.p + dir * math.min(len1, cap)
+            t2 := last.p + dir * cap
+            float minimum5 = array.get(points, 3).p + dir
+            t1 := dir == 1 ? math.max(t1, minimum5) : math.min(t1, minimum5)
+            inv := last.p
+            nextWave := "5?"
+            score += 5 * f_fit(len3 / len1, 1.618)
+        if stage == 5
+            float span = math.abs(last.p - first.p)
+            t1 := last.p - dir * span * 0.236
+            t2 := last.p - dir * span * 0.382
+            inv := last.p
+            nextDir := -dir
+            nextWave := "A / correction?"
+            score += 3
+    else
+        rules := "B inside A origin; C beyond A when present. A/C motive and B corrective subdivisions UNKNOWN."
+        if stage == 2
+            t1 := last.p + dir * len1
+            t2 := last.p + dir * len1 * 1.618
+            inv := first.p
+            nextWave := "C?"
+        else
+            score += 3
+    // Recency only breaks otherwise comparable candidates. No win-rate semantics.
+    score -= math.min(5.0, (bar_index - last.x) * 0.02)
+    string key = family + ":" + str.tostring(degree) + ":" + str.tostring(stage)
+    for q in points
+        key += ":" + str.tostring(q.ts) + ":" + str.tostring(q.p)
+    Candidate.new(points, family, stage, degree, dir, score, evidence, needed, t1, t2, inv, nextDir, nextWave, key, rules)
+
+f_rank(Candidate cand) =>
+    bool duplicate = false
+    if array.size(ranked) > 0
+        for existing in ranked
+            duplicate := duplicate or existing.key == cand.key
+    if not duplicate
+        int index = 0
+        while index < array.size(ranked)
+            if cand.score > array.get(ranked, index).score
+                break
+            index += 1
+        array.insert(ranked, index, cand)
+        if array.size(ranked) > 4
+            array.pop(ranked)
+
+f_scan(array<Pivot> stream, array<Pivot> children, int degree) =>
+    int n = array.size(stream)
+    if n >= 3
+        Pivot endpoint = array.get(stream, n - 1)
+        int age = bar_index - endpoint.x
+        float afterHigh = -1e20
+        float afterLow = 1e20
+        if age > 0 and age <= maxAge
+            for ago = 0 to age - 1
+                afterHigh := math.max(afterHigh, f_ticks(high[ago]))
+                afterLow := math.min(afterLow, f_ticks(low[ago]))
+        // All candidates end at the latest canonical pivot of this scale.
+        for size = 3 to 6
+            if n >= size
+                array<Pivot> pts = array.new<Pivot>()
+                for i = n - size to n - 1
+                    array.push(pts, array.get(stream, i))
+                Pivot last = array.get(pts, size - 1)
+                if bar_index - last.x <= maxAge
+                    if bias != "Zigzag" and f_impulse(pts)
+                        Candidate c = f_build(pts, children, "Impulse", degree)
+                        bool possible5 = c.stage != 4 or (c.t2 - array.get(pts, 3).p) * c.dir > 0
+                        bool alive = c.nextDir == 1 ? afterLow > c.inv : afterHigh < c.inv
+                        if possible5 and alive and (not requireEvidence or c.evidence == c.needed)
+                            f_rank(c)
+                    if bias != "Impulse" and size <= 4 and f_zigzag(pts)
+                        Candidate c = f_build(pts, children, "Zigzag", degree)
+                        bool alive = c.stage == 3 ? (c.dir == 1 ? afterHigh < last.p : afterLow > last.p) : (c.nextDir == 1 ? afterLow > c.inv : afterHigh < c.inv)
+                        if alive and (not requireEvidence or c.evidence == c.needed)
+                            f_rank(c)
+
+f_line(int x1, float y1, int x2, float y2, color col, string style) =>
+    array.push(strokes, line.new(x1, f_price(y1), x2, f_price(y2), xloc=xloc.bar_index, color=col, width=1, style=style))
+
+f_label(int x, float p, string caption, color col, string tip, bool below) =>
+    array.push(tags, label.new(x, f_price(p), caption, style=label.style_none, textcolor=col, size=size.small, tooltip=tip))
+
+f_name(Candidate c, int i) =>
+    string v = i == 0 ? "0" : c.family == "Zigzag" ? (i == 1 ? "A" : i == 2 ? "B" : "C") : str.tostring(i)
+    c.degree == 2 ? "[" + v + "]" : c.degree == 1 ? "(" + v + ")" : v
+
+f_draw(Candidate c, color col, bool main) =>
+    int n = array.size(c.pts)
+    float spacing = math.max(nz(asofAtr) / syminfo.mintick * 0.18, 8)
+    for i = 0 to n - 1
+        Pivot q = array.get(c.pts, i)
+        string name = f_name(c, i) + (i == n - 1 ? "?" : "")
+        float y = q.p + q.side * spacing * (1 + c.degree * 0.7 + (main ? 0 : 1))
+        string tip = c.family + " candidate (NOT subdivision-confirmed)\nPivot: " + str.format_time(q.ts, "yyyy-MM-dd HH:mm") + "\nKnown " + str.tostring(q.known - q.x) + " bars later\n" + c.rules
+        f_label(q.x, y, name, col, tip, q.side < 0)
+        if connectors and i > 0
+            Pivot prev = array.get(c.pts, i - 1)
+            f_line(prev.x, prev.p, q.x, q.p, color.new(col, main ? 25 : 55), main ? line.style_solid : line.style_dotted)
+        if audit and main
+            f_label(q.known, q.p, "+", color.gray, "Pivot first knowable here; historical label is back-anchored.", false)
+    Pivot last = array.get(c.pts, n - 1)
+    if showChannel and main and c.family == "Impulse" and n >= 4
+        Pivot a = array.get(c.pts, n >= 5 ? 2 : 1)
+        Pivot b = array.get(c.pts, n >= 5 ? 4 : 3)
+        Pivot parallel = array.get(c.pts, n >= 5 ? 3 : 2)
+        float slope = (b.p - a.p) / (b.x - a.x)
+        int endX = asof + futureBars
+        f_line(a.x, a.p, endX, a.p + slope * (endX - a.x), color.new(col, 65), line.style_dashed)
+        f_line(parallel.x, parallel.p, endX, parallel.p + slope * (endX - parallel.x), color.new(col, 65), line.style_dashed)
+    if main and showLevels and not na(c.t1)
+        f_line(last.x, c.t1, asof + futureBars, c.t1, targetColor, line.style_solid)
+        f_line(last.x, c.t2, asof + futureBars, c.t2, color.new(targetColor, 40), line.style_solid)
+        f_line(last.x, c.inv, asof + futureBars, c.inv, invalidColor, line.style_dashed)
+        f_label(asof + futureBars, c.t1, "T1 " + f_str(c.t1), targetColor, "Formula target, not a probability range.", false)
+        f_label(asof + futureBars, c.inv, "INV " + f_str(c.inv), invalidColor, "Invalidates this next-wave scenario / assumed pivot completion. Not an execution stop.", false)
+    if showPath and not na(c.t1)
+        f_line(asof, asofClose, asof + futureBars, c.t1, main ? color.orange : alternateColor, line.style_dotted)
+
+float atr = ta.atr(14)
+float h1 = ta.pivothigh(baseLen, baseLen)
+float l1 = ta.pivotlow(baseLen, baseLen)
+float h2 = ta.pivothigh(baseLen * 2, baseLen * 2)
+float l2 = ta.pivotlow(baseLen * 2, baseLen * 2)
+float h3 = ta.pivothigh(baseLen * 4, baseLen * 4)
+float l3 = ta.pivotlow(baseLen * 4, baseLen * 4)
+bool eligible = barstate.isconfirmed and time >= startTime and (endTime == 0 or time_close <= endTime) and chart.is_standard
+bool countChanged = false
+bool targetHit = false
+bool invalidated = false
+if eligible
+    asof := bar_index
+    asofTime := time_close
+    asofClose := f_ticks(close)
+    asofAtr := atr
+    [c1, d1] = f_ingest(fast, h1, l1, baseLen)
+    [c2, d2] = f_ingest(medium, h2, l2, baseLen * 2)
+    [c3, d3] = f_ingest(slow, h3, l3, baseLen * 4)
+    ambiguousPivots += (d1 ? 1 : 0) + (d2 ? 1 : 0) + (d3 ? 1 : 0)
+    // Existing forecasts are evaluated BEFORE issuing a new one, never on issue bar.
+    if array.size(ledger) > 0
+        for f in ledger
+            if f.state == "Open" and bar_index > f.issued
+                bool hit = f.dir == 1 ? f_ticks(high) >= f.target : f_ticks(low) <= f.target
+                bool fail = f.dir == 1 ? f_ticks(low) <= f.invalid : f_ticks(high) >= f.invalid
+                if hit or fail or bar_index >= f.deadline
+                    f.state := hit and fail ? "Ambiguous" : hit ? "Target first" : fail ? "Invalidation first" : "Expired"
+                    wins += f.state == "Target first" ? 1 : 0
+                    losses += f.state == "Invalidation first" ? 1 : 0
+                    ambiguous += f.state == "Ambiguous" ? 1 : 0
+                    expired += f.state == "Expired" ? 1 : 0
+                    targetHit := targetHit or f.state == "Target first"
+                    invalidated := invalidated or f.state == "Invalidation first"
+                    lastEvent := f.state + " at " + str.format_time(time_close, "MM-dd HH:mm")
+                    if sendAlerts
+                        alert("Batty - Elliot Wave | " + syminfo.tickerid + " | " + timeframe.period + " | " + f.state + " | " + f.key, alert.freq_all)
+    bool needsScan = c1 or c2 or c3
+    if array.size(ranked) > 0
+        for active in ranked
+            Pivot endpoint = array.get(active.pts, array.size(active.pts) - 1)
+            bool stale = bar_index - endpoint.x > maxAge
+            bool broken = not na(active.inv) ? (active.nextDir == 1 ? f_ticks(low) <= active.inv : f_ticks(high) >= active.inv) : (active.dir == 1 ? f_ticks(high) >= endpoint.p : f_ticks(low) <= endpoint.p)
+            needsScan := needsScan or stale or broken
+    if needsScan
+        array.clear(ranked)
+        f_scan(fast, fast, 0)
+        f_scan(medium, fast, 1)
+        f_scan(slow, medium, 2)
+    string current = array.size(ranked) > 0 ? array.get(ranked, 0).key : ""
+    countChanged := current != lastPrimary
+    if countChanged
+        lastPrimary := current
+        if sendAlerts
+            alert("Batty - Elliot Wave | " + syminfo.tickerid + " | " + timeframe.period + " | Primary changed | " + (current == "" ? "No candidate" : current), alert.freq_all)
+    if array.size(ranked) > 0
+        Candidate best = array.get(ranked, 0)
+        bool validEntry = not na(best.t1) and (best.t1 - asofClose) * best.nextDir > 0 and (asofClose - best.inv) * best.nextDir > 0
+        if validEntry and not array.includes(seen, best.key)
+            array.push(ledger, Forecast.new(best.key, bar_index, best.t1, best.inv, best.nextDir, bar_index + horizon, "Open"))
+            array.push(seen, best.key)
+    // Bounded ledger; open observations are never silently discarded.
+    if array.size(ledger) > 250
+        int removeAt = -1
+        for i = 0 to array.size(ledger) - 1
+            if array.get(ledger, i).state != "Open"
+                removeAt := i
+                break
+        if removeAt >= 0
+            array.remove(ledger, removeAt)
+    if array.size(seen) > 2000
+        array.shift(seen)
+
+if barstate.islast
+    while array.size(strokes) > 0
+        line.delete(array.pop(strokes))
+    while array.size(tags) > 0
+        label.delete(array.pop(tags))
+    table.clear(panel, 0, 0, 1, 13)
+    bool drawable = not na(asof) and bar_index - asof < 9500
+    int chosen = pick - 1
+    if drawable and array.size(ranked) > chosen
+        Candidate c = array.get(ranked, chosen)
+        bool recentEnough = array.get(c.pts, 0).x >= bar_index - 9500
+        if recentEnough
+            f_draw(c, primaryColor, true)
+        if compareAlt and array.size(ranked) > 1
+            int altIndex = chosen == 0 ? 1 : 0
+            Candidate alt = array.get(ranked, altIndex)
+            if array.get(alt.pts, 0).x >= bar_index - 9500
+                f_draw(alt, alternateColor, false)
+        if childLabels and c.degree > 0
+            array<Pivot> child = c.degree == 2 ? medium : fast
+            int leftX = array.get(c.pts, 0).x
+            int rightX = array.get(c.pts, array.size(c.pts) - 1).x
+            int printed = 0
+            if array.size(child) > 0
+                for q in child
+                    if q.x >= leftX and q.x <= rightX and q.x >= bar_index - 9500 and printed < 40
+                        f_label(q.x, q.p + q.side * math.max(nz(asofAtr) / syminfo.mintick * 0.1, 4), "·", targetColor, "Lower-scale pivot evidence only; not an assigned Elliott subwave.", false)
+                        printed += 1
+    if showPanel
+        color fg = chart.fg_color
+        table.cell(panel, 0, 0, "Batty - Elliot Wave", text_color=primaryColor, text_size=size.small)
+        table.cell(panel, 1, 0, "v0.1.0 · EXPERIMENTAL", text_color=color.orange, text_size=size.tiny)
+        table.cell(panel, 0, 1, syminfo.ticker + " · " + timeframe.period, text_color=fg, text_size=size.small)
+        table.cell(panel, 1, 1, endTime == 0 ? "Closed bars" : "Frozen cutoff", text_color=fg, text_size=size.small)
+        for slot = 0 to 3
+            table.cell(panel, 0, slot + 2, slot == 0 ? "Primary" : "Alt " + str.tostring(slot), text_color=fg, text_size=size.small)
+            string desc = "Not available"
+            if array.size(ranked) > slot
+                Candidate c = array.get(ranked, slot)
+                desc := c.family + " " + str.tostring(c.stage) + "? · D" + str.tostring(c.degree + 1) + " · rank " + str.tostring(c.score, "#.0")
+            table.cell(panel, 1, slot + 2, desc, text_color=slot == chosen ? primaryColor : fg, text_size=size.small)
+        string context = not chart.is_standard ? "Use standard candles" : array.size(ranked) <= chosen ? "No candidate at selected rank" : "Geometric candidate ONLY"
+        table.cell(panel, 0, 6, "Status", text_color=fg, text_size=size.small)
+        table.cell(panel, 1, 6, context, text_color=color.orange, text_size=size.small)
+        if array.size(ranked) > chosen
+            Candidate c = array.get(ranked, chosen)
+            table.cell(panel, 0, 7, "Next / evidence", text_color=fg, text_size=size.small)
+            table.cell(panel, 1, 7, c.nextWave + " · " + str.tostring(c.evidence) + "/" + str.tostring(c.needed) + " motive legs", text_color=fg, text_size=size.small)
+            table.cell(panel, 0, 8, "T1 / T2", text_color=fg, text_size=size.small)
+            table.cell(panel, 1, 8, f_str(c.t1) + " / " + f_str(c.t2), text_color=targetColor, text_size=size.small)
+            table.cell(panel, 0, 9, "Scenario invalidation", text_color=fg, text_size=size.small)
+            table.cell(panel, 1, 9, f_str(c.inv), text_color=invalidColor, text_size=size.small)
+        table.cell(panel, 0, 10, "Probability", text_color=fg, text_size=size.small)
+        table.cell(panel, 1, 10, "Uncalibrated — none", text_color=fg, text_size=size.small)
+        table.cell(panel, 0, 11, "Overlapping T / I / ? / E", text_color=fg, text_size=size.tiny)
+        table.cell(panel, 1, 11, str.tostring(wins) + " / " + str.tostring(losses) + " / " + str.tostring(ambiguous) + " / " + str.tostring(expired), text_color=fg, text_size=size.tiny)
+        table.cell(panel, 0, 12, "Latest outcome", text_color=fg, text_size=size.tiny)
+        table.cell(panel, 1, 12, lastEvent, text_color=fg, text_size=size.tiny)
+        table.cell(panel, 0, 13, "Pivot delay L / 2L / 4L", text_color=fg, text_size=size.tiny)
+        table.cell(panel, 1, 13, str.tostring(baseLen) + " / " + str.tostring(baseLen * 2) + " / " + str.tostring(baseLen * 4), text_color=fg, text_size=size.tiny)
+
+alertcondition(countChanged, "Primary count changed", "Batty - Elliot Wave: primary candidate changed on a closed bar.")
+alertcondition(targetHit, "Forecast target first", "Batty - Elliot Wave: a frozen primary forecast reached its target first.")
+alertcondition(invalidated, "Forecast invalidation first", "Batty - Elliot Wave: a frozen primary forecast invalidated first.")

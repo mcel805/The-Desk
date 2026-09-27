@@ -1,0 +1,75 @@
+{
+  "protocol_version": "mym-lz-forward-v0.1",
+  "status": "paper_shadow_only",
+  "instrument": "MYM",
+  "scientist_protocol_version": "liquidity-loop-v0.3",
+  "tracked_assets": ["MYM", "MCL", "MGC"],
+  "asset_contracts": {
+    "MYM": {
+      "name": "Micro E-mini Dow",
+      "exchange": "CME/CBOT",
+      "tick_size": 1.0,
+      "tick_value_usd": 0.5,
+      "scientist_stop_ticks": 30,
+      "risk_status": "frozen_for_existing_mym_cohort"
+    },
+    "MCL": {
+      "name": "Micro WTI Crude Oil",
+      "exchange": "NYMEX",
+      "tick_size": 0.01,
+      "tick_value_usd": 1.0,
+      "scientist_stop_ticks": null,
+      "risk_status": "must_be_frozen_before_first_mcl_forecast"
+    },
+    "MGC": {
+      "name": "Micro Gold",
+      "exchange": "COMEX",
+      "tick_size": 0.1,
+      "tick_value_usd": 1.0,
+      "scientist_stop_ticks": null,
+      "risk_status": "must_be_frozen_before_first_mgc_forecast"
+    }
+  },
+  "session_policy": {
+    "timezone": "America/Chicago",
+    "regular_open": "17:00 previous calendar day",
+    "regular_close": "16:00 trade date",
+    "maximum_duration_hours": 23,
+    "carry_beyond_session": false,
+    "close_rule": "all paper positions resolve at or before session_close; unhit target/stop becomes timeout at the declared session-close mark",
+    "holiday_rule": "exchange holiday and early-close calendar overrides the regular boundary"
+  },
+  "quantity": 1,
+  "timeframes": ["60m", "30m", "15m", "5m", "1m"],
+  "attraction_expiry_bars": 20,
+  "reaction_expiry_bars": 20,
+  "stop_ticks": 30,
+  "tick_size": 1.0,
+  "tick_value_usd": 0.5,
+  "entry_rule": {
+    "BSL": "short_on_first_touch",
+    "SSL": "long_on_first_touch"
+  },
+  "target_rule": "nearest_active_opposite_side_zone_on_same_timeframe_frozen_at_entry",
+  "same_bar_rule": "ambiguous_if_entry_and_any_exit_threshold_share_an_aggregate_bar",
+  "one_contract_policy": "first_eligible_trigger_wins_until_flat",
+  "probability_semantics": {
+    "1m": "reaction",
+    "5m": "reaction",
+    "15m": "fallback_unscored",
+    "30m": "attraction",
+    "60m": "attraction"
+  },
+  "costs": {
+    "entry_slippage_ticks_default": 1.0,
+    "stop_slippage_ticks_default": 1.0,
+    "round_turn_commission_usd_default": 0.0,
+    "status": "placeholder_until_broker_schedule_is_supplied"
+  },
+  "data_policy": {
+    "forecast_source": "TradingView alert payload from completed realtime source bar",
+    "outcome_source": "licensed tick or one-second data preferred",
+    "execution_truth": "broker or platform fills",
+    "live_order_routing": false
+  }
+}

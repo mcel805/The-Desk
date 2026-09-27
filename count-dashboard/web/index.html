@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Batty Count Desk</title>
+  <link rel="stylesheet" href="./style.css?v=firstmate-activity-idle-neutral-20260927">
+</head>
+<body>
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <button id="countDeskTab" class="app-tab active" type="button">Count Desk</button>
+      <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
+      <a id="liquidityLabLink" class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
+      <a class="app-tab" href="./resources.html">Resources</a>
+    </nav>
+    <div id="apiState" class="api-state">Connecting…</div>
+  </header>
+  <section class="intellect-ribbon" aria-label="Intellect trading team">
+    <div class="intellect-ribbon-label"><span class="intellect-sigil" aria-hidden="true">I</span><div><strong>INTELLECT</strong><small>ELLIOTT WAVE LOOP</small></div></div>
+    <div id="agentRoster" class="agent-roster" role="group" aria-label="Firstmate workflow seats"></div>
+    <div class="intellect-loop-state"><i aria-hidden="true"></i><span>STANDBY</span><small>No active task</small></div>
+  </section>
+  <main>
+    <section id="chartWorkspace" class="workspace">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div id="countControls" class="chart-commandbar" aria-label="Chart request">
+            <label class="market-control"><span>Asset</span><select id="symbol" aria-label="Asset"></select></label>
+            <div class="timeframe-control"><span>Timeframe</span><div id="timeframeButtons" class="timeframe-buttons" role="group" aria-label="Chart timeframe"></div><select id="timeframe" class="timeframe-source" aria-label="Timeframe"></select></div>
+            <label class="cutoff-control"><span>Cutoff</span><input id="cutoff" type="datetime-local" aria-label="Historical cutoff"></label>
+            <button id="build">Build count</button>
+          </div>
+          <div class="chart-head-actions">
+            <button id="resetChart" class="chrome-button" type="button" title="Reset the chart to its default recent-bars view (right-click chart)">↺ Reset view</button>
+            <button id="toggleChartInfo" class="chrome-button" type="button" aria-pressed="false" title="Show chart symbol, date range, and degree legend">ⓘ Chart info</button>
+            <button id="toggleInspector" class="chrome-button inspector-collapsed" type="button" aria-pressed="false" title="Show or hide the analysis panel"><span>Insights</span><span id="inspectorCollapsedTag" class="inspector-collapsed-tag">COLLAPSED</span></button>
+            <button id="toggleChat" class="chrome-button" type="button" aria-pressed="true" title="Show or hide Batty chat">Batty</button>
+            <button id="expandChart" class="chrome-button" type="button" aria-pressed="false" title="Use the full browser workspace">Expand</button>
+            <details class="status-menu">
+              <summary><span class="status-dot" aria-hidden="true"></span><span>Data status</span></summary>
+              <div class="status-popover">
+                <section class="status-strip" aria-label="Count run status">
+                  <div><small>LAST CLOSE</small><strong id="lastClose">—</strong></div>
+                  <div><small>STORED BARS</small><strong id="barCount">—</strong></div>
+                  <div><small>COUNT NODES</small><strong id="nodeCount">—</strong></div>
+                  <div><small>RUN STATE</small><strong id="runState">—</strong></div>
+                </section>
+              </div>
+            </details>
+          </div>
+          <details id="feedDetails" class="feed-details" aria-label="Market data feed">
+            <summary class="feed-summary">
+              <span class="feed-summary-title">Market data</span>
+              <span id="feedConnectionFlag" class="feed-flag disconnected"><i></i><span>Checking connection…</span></span>
+              <span class="feed-summary-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <section class="feed-strip" aria-label="Market data feed controls">
+              <div class="feed-copy"><strong id="feedState">Historical only</strong><span id="feedMeta">No licensed market-data adapter is connected.</span><span id="syncSchedule">Last sync: never · Next sync: after first connection · 5 min cadence</span><span id="providerConnections">Sources: Massive, OpenStock/Finnhub, Yahoo Finance</span></div>
+              <label class="follow-control"><input id="followLive" type="checkbox"> Follow incoming bars</label>
+              <label class="sync-provider">Sync source<select id="syncProvider"><option value="massive">Massive Futures Basic</option><option value="openstock">OpenStock / Finnhub</option><option value="licensed">Licensed market-data adapter</option><option value="yahoo" disabled>Yahoo Finance (unavailable)</option></select></label>
+              <button id="refreshFeed" type="button">Sync now</button>
+            </section>
+          </details>
+          <div id="chartContext" class="chart-context" hidden>
+            <div><strong id="chartTitle">Historical chart</strong><span id="range">Waiting for data</span></div>
+            <div class="legend"><span class="parent">((parent))</span><span class="middle">(middle)</span><span class="inner">inner</span></div>
+          </div>
+        </div>
+        <section id="chartToolDock" class="tool-dock" aria-label="Chart tools" data-open="false">
+        <div class="tool-dock-main">
+        <div class="tool-dock-head">
+          <strong class="tool-dock-title">Tool bar</strong>
+          <span class="tool-dock-hint">Chart controls</span>
+          <details class="tool-dock-config">
+            <summary aria-label="Configure toolbar">⚙ Configure</summary>
+            <div class="tool-dock-popover">
+              <strong>Close with toolbar</strong>
+              <p>Uncheck a row to keep it visible when the toolbar is closed.</p>
+              <label><input type="checkbox" data-hide-row="layers" checked> Chart layers</label>
+              <label><input type="checkbox" data-hide-row="smart" checked> Smart hover</label>
+              <label><input type="checkbox" data-hide-row="drawings" checked> Drawing tools</label>
+              <label><input type="checkbox" data-hide-row="liquidity" checked> Liquidity tools</label>
+              <label><input type="checkbox" data-hide-row="mtf" checked> Premium / Discount settings</label>
+              <label><input type="checkbox" data-hide-row="templates" checked> Startup templates</label>
+              <label class="toolbar-color-setting">Tab color <input id="toolbarAccentColor" type="color" value="#f5d547"></label>
+            </div>
+          </details>
+        </div>
+        <div id="toolbarRows">
+        <div data-toolbar-row="templates" aria-label="Startup chart templates">
+          <div class="tool-template-bar" role="group" aria-label="Startup chart templates">
+            <label for="toolTemplateSelect">Startup template</label>
+            <select id="toolTemplateSelect" aria-label="Select startup chart template"><option value="">Choose a saved template</option></select>
+            <input id="toolTemplateName" type="text" maxlength="32" placeholder="Template name" aria-label="New template name">
+            <button id="saveToolTemplate" type="button">Save as new</button>
+            <button id="updateToolTemplate" type="button" disabled>Update selected</button>
+            <button id="deleteToolTemplate" type="button" disabled>Delete selected</button>
+            <span id="toolTemplateStatus" role="status" aria-live="polite">Choose tools, then save a startup template.</span>
+          </div>
+        </div>
+        <div class="overlay-toggles" data-toolbar-row="layers" aria-label="Chart layer visibility">
+          <label class="master-toggle"><input id="toggleAll" type="checkbox" checked> All</label>
+          <label><input data-layer="price" type="checkbox" checked> Price</label>
+          <label><input data-layer="counts" type="checkbox" checked> Counts</label>
+          <label><input data-layer="countPaths" type="checkbox" checked> Count paths</label>
+          <label><input data-layer="swings" type="checkbox" checked> Confirmed swings</label>
+          <label><input data-layer="profile" type="checkbox" checked> Volume profile</label>
+          <label><input data-layer="fibs" type="checkbox" checked> Fibonacci</label>
+          <label><input data-layer="confluence" type="checkbox" checked> Convergence</label>
+          <label><input data-layer="projections" type="checkbox" checked> Projections</label>
+          <label title="Indicator-style daily bias from previous day/week sweeps and acceptance"><input data-layer="bias" type="checkbox"> Bias</label>
+          <label><input data-layer="drawings" type="checkbox" checked> Drawings</label>
+        </div>
+        <div class="smart-tools" data-toolbar-row="smart" aria-label="Hover wave enhancements">
+          <div class="smart-tool-heading"><strong>SMART HOVER</strong><span>Point at any wave label</span></div>
+          <label class="smart-feature"><input id="smartSupportEnabled" type="checkbox" checked> Support / Resistance</label>
+          <label class="smart-feature"><input id="smartFibsEnabled" type="checkbox" checked> Smart Fibs</label>
+          <span class="tool-separator" aria-hidden="true"></span>
+          <label class="smart-style" title="Main 61.8% Fibonacci line color"><span>61.8% line</span><input id="smartFibColor" type="color" value="#5fe09d"></label>
+          <label class="smart-style smart-width" title="Fibonacci line thickness"><span>Width</span><input id="smartFibWidth" type="range" min="1" max="5" step="0.5" value="2"><output id="smartFibWidthValue" for="smartFibWidth">2px</output></label>
+          <span class="smart-key"><i class="smart-key-green"></i>61.8% main <i class="smart-key-yellow"></i>78.6% deep <i class="smart-key-cyan"></i>support / resistance</span>
+        </div>
+        <div class="chart-tools" data-toolbar-row="drawings" role="toolbar" aria-label="Chart drawing tools">
+          <button class="tool active" data-tool="pan" title="Pan and zoom chart (V)">↔ <span>Pan</span></button>
+          <button class="tool" data-tool="select" title="Select a drawing (S)">↖ <span>Select</span></button>
+          <button class="tool" data-tool="trend" title="Draw trend line (T)">╱ <span>Trend</span></button>
+          <button class="tool" data-tool="horizontal" title="Draw horizontal level (H)">─ <span>Level</span></button>
+          <button class="tool" data-tool="rectangle" title="Draw rectangle (R)">□ <span>Zone</span></button>
+          <button class="tool" data-tool="text" title="Place text (N)">T <span>Text</span></button>
+          <button class="tool danger" data-tool="erase" title="Click a drawing to delete it (E)">⌫ <span>Eraser</span></button>
+          <span class="tool-separator"></span>
+          <label class="color-tool" title="Drawing color"><input id="drawColor" type="color" value="#f4b942"><span>Color</span></label>
+          <button id="undoDrawing" title="Delete the newest drawing">↶ <span>Undo</span></button>
+          <button id="deleteDrawing" title="Delete selected drawing" disabled>⌫ <span>Delete</span></button>
+          <button id="clearDrawings" class="danger" title="Clear drawings on this market and timeframe">Clear</button>
+          <span id="toolState" class="tool-state">Pan and zoom</span>
+        </div>
+        <div class="liquidity-tools" id="liquidityTools" data-toolbar-row="liquidity">
+          <label>Direction<select id="tradeSide"><option value="long">Long</option><option value="short">Short</option></select></label>
+          <button id="positionTool" type="button">＋ Position tool</button>
+          <button id="cancelPosition" type="button" disabled>Cancel</button>
+          <label class="liquidity-layer-toggle"><input data-layer="liquidityZones" type="checkbox" checked> Liquidity zones</label>
+          <label class="liquidity-layer-toggle mtf-layer-toggle"><input data-layer="mtfPremiumDiscount" type="checkbox"> Premium / Discount</label>
+          <label class="liquidity-line-width" title="Liquidity level line thickness">Width<input id="liquidityLineWidth" type="range" min="1" max="4" step="0.5" value="1"><output id="liquidityLineWidthValue">1px</output></label>
+          <span id="positionInstructions" role="status">Choose a direction, then click entry, stop, and target on the chart.</span>
+          <span id="liquidityDataStatus" class="liquidity-data-status">Historical bars only</span>
+        </div>
+        <div class="mtf-zone-tools" data-toolbar-row="mtf" aria-label="Premium and discount zone settings">
+          <strong>PREMIUM / DISCOUNT SETTINGS</strong>
+          <label>Timeframe<select id="mtfZoneTimeframe" aria-label="Premium and discount source timeframe"></select></label>
+          <label>Swing length<input id="mtfZoneSwingLength" type="number" min="10" max="500" step="1" value="50"></label>
+          <label class="mtf-color">Premium<input id="mtfPremiumColor" type="color" value="#ff4d5b"></label>
+          <label class="mtf-color">Equilibrium<input id="mtfEquilibriumColor" type="color" value="#858995"></label>
+          <label class="mtf-color">Discount<input id="mtfDiscountColor" type="color" value="#009688"></label>
+          <label class="mtf-color">Highlight<input id="mtfHighlightColor" type="color" value="#ffffff"></label>
+          <label class="mtf-opacity">Opacity<input id="mtfZoneOpacity" type="range" min="0" max="100" step="1" value="80"><output id="mtfZoneOpacityValue">80%</output></label>
+          <span id="mtfZoneStatus" role="status">Off</span>
+        </div>
+        </div>
+        </div>
+        <button id="toolbarEdgeToggle" class="toolbar-edge-toggle" type="button" aria-expanded="false" aria-controls="toolbarRows" aria-label="Open toolbar">
+          <span class="toolbar-edge-glow" aria-hidden="true"></span><span class="toolbar-edge-label">TOOLS</span><span class="toolbar-edge-chevron" aria-hidden="true">›</span>
+        </button>
+        </section>
+        <div id="chartShell" class="chart-shell">
+          <div id="chart" role="img" aria-label="Interactive historical candlestick chart with Batty counts"></div>
+          <div id="emptyChart" class="empty-chart" hidden>
+            <strong id="emptyChartTitle">No stored bars for this interval</strong>
+            <span id="emptyChartText">Sync the selected market and timeframe to load chart data.</span>
+            <button id="emptySync" type="button">Sync this interval</button>
+          </div>
+          <svg id="drawingLayer" aria-label="Manual chart drawings and Batty wave paths"></svg>
+          <div class="tv-attribution"><a href="https://www.tradingview.com/" target="_blank" rel="noopener">Charts by TradingView</a></div>
+        </div>
+        <p id="chartMessage" class="chart-message">Choose a stored market and build a count.</p>
+      </div>
+
+      <aside class="inspector" aria-label="Wave analysis inspector">
+        <div class="inspector-tabs" role="tablist" aria-label="Analysis panels">
+          <button id="tab-ledger" class="inspector-tab active" role="tab" aria-selected="true" aria-controls="panel-ledger" data-inspector-tab="ledger">Ledger</button>
+          <button id="tab-forecast" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-forecast" data-inspector-tab="forecast">Next subwaves</button>
+          <button id="tab-ratios" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-ratios" data-inspector-tab="ratios">Wave ratios</button>
+          <button id="tab-autocounts" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-autocounts" data-inspector-tab="autocounts">Auto counts</button>
+          <button id="tab-alternates" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-alternates" data-inspector-tab="alternates">Alternates</button>
+          <button id="tab-guide" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-guide" data-inspector-tab="guide">Wave guide</button>
+          <button id="tab-journal" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-journal" data-inspector-tab="journal">Chart ideas</button>
+        </div>
+        <section class="inspector-panel active" id="panel-ledger" role="tabpanel" aria-labelledby="ledger">
+          <div class="aside-head"><small>COUNT LEDGER</small><strong id="runId">No run loaded</strong></div>
+          <dl>
+            <div><dt>Parent ID</dt><dd id="parentId">—</dd></div>
+            <div><dt>Algorithm</dt><dd id="algorithm">—</dd></div>
+            <div><dt>Snapshot</dt><dd id="snapshot">—</dd></div>
+            <div><dt>Cutoff</dt><dd id="cutoffReadout">—</dd></div>
+          </dl>
+          <div id="warning" class="warning">The first build will show the stored data contract and structural pivots. Elliott validation follows.</div>
+          <h2>Visible hierarchy</h2>
+          <div id="layers" class="layers"></div>
+          <h2>Market structure</h2>
+          <div id="analyticsSummary" class="analytics-summary"></div>
+        </section>
+        <section class="inspector-panel" id="panel-forecast" role="tabpanel" aria-labelledby="forecast" hidden>
+          <div class="panel-kicker">NEXT SUBWAVES</div>
+          <h2>Projected wave opportunities</h2>
+          <p class="panel-copy">Rows are ordered by scenario and degree. Targets, risk, and status are structural research values.</p>
+          <div id="forecastRows" class="forecast-rows"></div>
+          <div class="panel-kicker forecast-kicker">COUNT FORECAST</div>
+          <div id="termForecast" class="term-forecast"></div>
+        </section>
+        <section class="inspector-panel" id="panel-ratios" role="tabpanel" aria-labelledby="ratios" hidden>
+          <div class="panel-kicker">WAVE RATIOS</div>
+          <h2>Price and time fit</h2>
+          <p class="panel-copy">Comparisons use recent structural legs. Green rows fall inside the prototype guideline band.</p>
+          <div id="ratioRows" class="ratio-rows"></div>
+        </section>
+        <section class="inspector-panel" id="panel-autocounts" role="tabpanel" aria-labelledby="autocounts" hidden>
+          <div class="panel-kicker">AUTO COUNTS</div>
+          <h2>Degree leadership</h2>
+          <p class="panel-copy">Higher degrees lead the read; lower degrees are subdivisions. Confidence is a structural heuristic.</p>
+          <div id="autoCountRows" class="auto-count-rows"></div>
+        </section>
+        <section class="inspector-panel" id="panel-alternates" role="tabpanel" aria-labelledby="alternates" hidden>
+          <div class="panel-kicker">ALTERNATE COUNTS</div>
+          <h2>Scenario review</h2>
+          <p class="panel-copy">Use alternates when the preferred path fails its invalidation or the higher-degree pivot changes.</p>
+          <div id="alternateRows" class="alternate-rows"></div>
+        </section>
+        <section class="inspector-panel" id="panel-guide" role="tabpanel" aria-labelledby="guide" hidden>
+          <div class="panel-kicker">WAVE GUIDE</div>
+          <h2>Interactive pattern reference</h2>
+          <label class="guide-select-label">Pattern<select id="guidePattern" aria-label="Wave pattern"></select></label>
+          <div id="guideContent" class="guide-content"></div>
+        </section>
+        <section class="inspector-panel journal-inspector-panel" id="panel-journal" role="tabpanel" aria-labelledby="tab-journal" hidden>
+          <div class="journal-panel-head"><div><div class="panel-kicker">HYPOTHETICAL CHART IDEAS</div><h2>Level forward tracker</h2></div><button id="refreshJournal" type="button" class="journal-refresh">Refresh</button></div>
+          <p class="journal-panel-copy">Simulated chart ideas, separate from broker executions.</p>
+          <div id="journalSummary" class="journal-summary"></div>
+          <div id="journalRows" class="journal-cards" aria-live="polite"></div>
+          <p class="journal-footnote">Entry is assumed at save time. Later bars track the stop and target; ambiguous same-bar hits use the stop.</p>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <dialog id="tradeNotesDialog" class="trade-notes-dialog">
+    <form id="tradeNotesForm" method="dialog">
+      <div class="dialog-kicker">SAVE TO JOURNAL</div><h2>Document your setup</h2>
+      <p id="tradeDraftSummary" class="draft-summary"></p>
+      <label>Setup name<input id="tradeTitle" maxlength="120" value="User suggested level"></label>
+      <div class="context-grid">
+        <label>Market bias<select id="tradeBias"><option value="neutral">Neutral</option><option value="bullish">Bullish</option><option value="bearish">Bearish</option></select></label>
+        <label>Session<select id="tradeSession"><option value="unknown">Not recorded</option><option value="asia">Asia</option><option value="london">London</option><option value="new_york_am">New York AM</option><option value="new_york_pm">New York PM</option><option value="overnight">Overnight</option></select></label>
+        <label>Divergence<select id="tradeDivergence"><option value="not_checked">Not checked</option><option value="present">Present</option><option value="absent">Absent</option></select></label>
+        <label>Retracement area<select id="tradeFib"><option value="not_recorded">Not recorded</option><option value="0_236">0–23.6%</option><option value="236_382">23.6–38.2%</option><option value="382_500">38.2–50%</option><option value="500_618">50–61.8%</option><option value="618_786">61.8–78.6%</option><option value="786_1000">78.6–100%</option></select></label>
+      </div>
+      <label>Notes<textarea id="tradeNotes" rows="4" maxlength="5000" placeholder="What makes this level meaningful? What would invalidate the idea?"></textarea></label>
+      <div class="dialog-actions"><button id="discardTrade" type="button" class="quiet-button">Discard setup</button><button type="submit" class="save-trade">Save to journal</button></div>
+    </form>
+  </dialog>
+  <dialog id="agentSkillDialog" class="agent-skill-dialog" aria-labelledby="agentSkillTitle">
+    <div class="agent-skill-head"><div><small id="agentSkillGroup">FIRSTMATE WORKFLOW SEAT</small><h2 id="agentSkillTitle">Agent role</h2></div><button id="closeAgentSkill" class="chrome-button" type="button" aria-label="Close agent skill">Close</button></div>
+    <div id="agentSkillContent" class="agent-skill-content"></div>
+  </dialog>
+  <script src="./vendor/lightweight-charts.standalone.production.js"></script>
+  <script type="module" src="./app.js?v=ideas-tab-layout-20260927"></script>
+  <script type="module" src="./batty-agent.js?v=chatgpt-codex-auth-20260927"></script>
+</body>
+</html>
