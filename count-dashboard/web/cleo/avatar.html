@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Choose a simple avatar for your Cleo profile." />
+    <title>Create your avatar — Cleo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111214;
+        --muted: #77797d;
+        --line: #e4e5e8;
+        --focus: #5b9f90;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-height: 100svh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 34px 24px;
+        background: #fff;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main { width: min(100%, 570px); margin-top: -20px; }
+
+      h1 {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(32px, 4vw, 42px);
+        font-weight: 400;
+        line-height: 1.15;
+        letter-spacing: -0.045em;
+      }
+
+      .intro { margin: 16px 0 28px; color: var(--muted); font-size: 18px; line-height: 1.5; }
+
+      .preview {
+        width: 136px;
+        height: 136px;
+        margin: 0 auto 28px;
+        overflow: hidden;
+        border-radius: 50%;
+        background: var(--avatar-bg, #e9f2ef);
+      }
+
+      .preview svg, .choice svg { display: block; width: 100%; height: 100%; }
+      .line-art, .orbit-art, .shape-art { display: none; }
+      #avatar-preview[data-style="sketch"] .line-art { display: block; }
+      #avatar-preview[data-style="orbit"] .orbit-art { display: block; }
+      #avatar-preview[data-style="shapes"] .shape-art { display: block; }
+
+      .choices {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .choice {
+        min-width: 0;
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        padding: 14px 10px 13px;
+        border: 1.5px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        cursor: pointer;
+        font: inherit;
+        font-size: 15px;
+      }
+
+      .choice[aria-pressed="true"] { border-color: #333638; box-shadow: 0 0 0 1px #333638; }
+      .choice:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+      .choice-art { width: 52px; height: 52px; overflow: hidden; border-radius: 50%; background: var(--avatar-bg); }
+
+      #avatar-preview[data-style="sketch"], .choice[data-style="sketch"] .choice-art { --avatar-bg: #e9f2ef; }
+      #avatar-preview[data-style="orbit"], .choice[data-style="orbit"] .choice-art { --avatar-bg: #f2eee9; }
+      #avatar-preview[data-style="shapes"], .choice[data-style="shapes"] .choice-art { --avatar-bg: #eceefa; }
+
+      button.create {
+        width: 100%;
+        min-height: 66px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 24px;
+        border: 0;
+        border-radius: 15px;
+        background: var(--ink);
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      button.create:hover { background: #282a2c; }
+      button.create:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+      .note { min-height: 22px; margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; text-align: center; }
+      .back { display: block; width: fit-content; margin: 22px auto 0; color: #595b5e; font-size: 15px; text-underline-offset: 3px; }
+      .back:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+
+      @media (max-width: 420px) {
+        body { padding: 28px 20px; }
+        main { margin-top: -8px; }
+        .choice { padding-right: 5px; padding-left: 5px; font-size: 14px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Create your avatar</h1>
+      <p class="intro">Choose a simple look for your Cleo profile. You can change it later.</p>
+
+      <div class="preview" id="avatar-preview" data-style="sketch" role="img" aria-label="Avatar preview: Sketch">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <g class="line-art" fill="none" stroke="#252725" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M32 103c3-18 14-27 28-27s25 9 28 27" stroke-width="5" />
+            <path d="M43 42c0-13 8-22 18-22s18 9 18 22v10c0 12-8 21-18 21s-18-9-18-21V42Z" stroke-width="5" />
+            <path d="M40 42c1-17 10-25 22-25 10 0 17 7 18 18-7-1-12-5-15-10-4 7-12 12-25 13Z" fill="#252725" stroke-width="3" />
+            <path d="M51 53h1m16 0h1" stroke-width="4" />
+            <path d="M54 64c4 3 8 3 12 0" stroke-width="2.6" />
+          </g>
+          <g class="orbit-art" fill="none" stroke="#252725" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="60" cy="48" r="22" stroke-width="5" />
+            <path d="M30 100c5-17 15-25 30-25s25 8 30 25" stroke-width="5" />
+            <ellipse cx="60" cy="49" rx="35" ry="13" transform="rotate(-28 60 49)" stroke="#76b6a7" stroke-width="4" />
+            <circle cx="83" cy="32" r="5" fill="#76b6a7" stroke="none" />
+          </g>
+          <g class="shape-art">
+            <path d="M28 88c0-20 14-32 32-32s32 12 32 32v16H28V88Z" fill="#756fa9" />
+            <circle cx="60" cy="43" r="24" fill="#f0cdb1" />
+            <path d="M36 44c0-16 10-28 25-28 13 0 23 10 24 25-8-2-16-7-20-14-4 8-14 14-29 17Z" fill="#302c39" />
+            <circle cx="52" cy="47" r="2" fill="#252725" />
+            <circle cx="68" cy="47" r="2" fill="#252725" />
+            <path d="M54 57c4 3 8 3 12 0" fill="none" stroke="#252725" stroke-linecap="round" stroke-width="2" />
+          </g>
+        </svg>
+      </div>
+
+      <div class="choices" role="group" aria-label="Choose an avatar style">
+        <button class="choice" type="button" data-style="sketch" aria-pressed="true">
+          <span class="choice-art">
+            <svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke="#252725" stroke-linecap="round" stroke-linejoin="round"><path d="M32 103c3-18 14-27 28-27s25 9 28 27" stroke-width="5"/><path d="M43 42c0-13 8-22 18-22s18 9 18 22v10c0 12-8 21-18 21s-18-9-18-21V42Z" stroke-width="5"/><path d="M40 42c1-17 10-25 22-25 10 0 17 7 18 18-7-1-12-5-15-10-4 7-12 12-25 13Z" fill="#252725" stroke-width="3"/><path d="M51 53h1m16 0h1" stroke-width="4"/><path d="M54 64c4 3 8 3 12 0" stroke-width="2.6"/></g></svg>
+          </span>
+          <span>Sketch</span>
+        </button>
+        <button class="choice" type="button" data-style="orbit" aria-pressed="false">
+          <span class="choice-art">
+            <svg viewBox="0 0 120 120" aria-hidden="true"><g fill="none" stroke="#252725" stroke-linecap="round" stroke-linejoin="round"><circle cx="60" cy="48" r="22" stroke-width="5"/><path d="M30 100c5-17 15-25 30-25s25 8 30 25" stroke-width="5"/><ellipse cx="60" cy="49" rx="35" ry="13" transform="rotate(-28 60 49)" stroke="#76b6a7" stroke-width="4"/><circle cx="83" cy="32" r="5" fill="#76b6a7" stroke="none"/></g></svg>
+          </span>
+          <span>Orbit</span>
+        </button>
+        <button class="choice" type="button" data-style="shapes" aria-pressed="false">
+          <span class="choice-art">
+            <svg viewBox="0 0 120 120" aria-hidden="true"><path d="M28 88c0-20 14-32 32-32s32 12 32 32v16H28V88Z" fill="#756fa9"/><circle cx="60" cy="43" r="24" fill="#f0cdb1"/><path d="M36 44c0-16 10-28 25-28 13 0 23 10 24 25-8-2-16-7-20-14-4 8-14 14-29 17Z" fill="#302c39"/><circle cx="52" cy="47" r="2" fill="#252725"/><circle cx="68" cy="47" r="2" fill="#252725"/><path d="M54 57c4 3 8 3 12 0" fill="none" stroke="#252725" stroke-linecap="round" stroke-width="2"/></svg>
+          </span>
+          <span>Shapes</span>
+        </button>
+      </div>
+
+      <button class="create" id="create-avatar" type="button">Create avatar <span aria-hidden="true">→</span></button>
+      <p class="note" id="avatar-status" aria-live="polite">Preview only. Your choice won’t be saved yet.</p>
+      <a class="back" href="profile.html">Back</a>
+    </main>
+
+    <script>
+      const preview = document.getElementById("avatar-preview");
+      const choices = [...document.querySelectorAll(".choice")];
+      choices.forEach((choice) => {
+        choice.addEventListener("click", () => {
+          choices.forEach((item) => item.setAttribute("aria-pressed", String(item === choice)));
+          preview.dataset.style = choice.dataset.style;
+          preview.setAttribute("aria-label", `Avatar preview: ${choice.textContent.trim()}`);
+          document.getElementById("avatar-status").textContent = "Preview only. Your choice won’t be saved yet.";
+        });
+      });
+      document.getElementById("create-avatar").addEventListener("click", () => {
+        window.location.assign("connect.html");
+      });
+    </script>
+  </body>
+</html>

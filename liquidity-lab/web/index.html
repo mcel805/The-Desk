@@ -36,7 +36,7 @@
     <div class="content-shell">
       <header class="topbar">
         <div class="breadcrumbs"><a class="app-tab" href="http://127.0.0.1:8770/">Count Desk</a><a class="app-tab" href="http://127.0.0.1:8770/resources.html">Resources</a><span class="crumb-slash">/</span><strong>Liquidity Lab</strong></div>
-        <div class="top-actions"><button id="mobileDashboardToggle" class="mobile-dashboard-toggle" type="button">Open lab</button><button id="scientistAgent" class="scientist-agent" type="button" aria-haspopup="dialog" aria-controls="scientistRoleDialog"><span class="pixel-head" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="scientist-agent-label"><strong>Chief Scientist</strong><small>DAILY FORECAST</small></span></button><div class="connection"><span class="status-dot"></span><span id="serviceStatus">Connecting…</span></div><button id="refresh" class="refresh-btn"><span>↻</span> Refresh</button><div class="avatar">MC</div></div>
+        <div class="top-actions"><button id="mobileDashboardToggle" class="mobile-dashboard-toggle" type="button">Open lab</button><button id="scientistAgent" class="scientist-agent" type="button" aria-haspopup="dialog" aria-controls="scientistRoleDialog"><span class="pixel-head" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="scientist-agent-label"><strong>Chief Scientist</strong><small>WEEKLY REVIEW</small></span></button><div class="connection"><span class="status-dot"></span><span id="serviceStatus">Connecting…</span></div><button id="refresh" class="refresh-btn"><span>↻</span> Refresh</button><div class="avatar">MC</div></div>
       </header>
 
       <main>
@@ -53,23 +53,74 @@
         </section>
 
         <section class="scientist-objective panel" aria-labelledby="scientistObjectiveTitle">
-          <div><div class="kicker">SCIENTIFIC JOURNAL · DAILY FORWARD FORECASTS</div><h2 id="scientistObjectiveTitle">75% target accuracy</h2><p>Chief Scientist ranks existing MYM, MCL, and MGC liquidity levels on 60m, 30m, 15m, 5m, and 1m, freezes risk/reward and evidence before the session, then closes every paper outcome by session end.</p></div>
-          <div class="scientist-objective-status"><strong>Not yet scored</strong><span>Daily Scientist forecast ledger is not connected</span></div>
+          <div><div class="kicker">WEEKLY EXPERIMENT · DAILY FORWARD FORECASTS</div><h2 id="scientistObjectiveTitle">75% target-before-stop accuracy</h2><p>One frozen method runs through each scheduled trade date. The Chief Scientist reviews the complete week across MYM, MCL, and MGC, with outcomes flat by each session close.</p></div>
+          <div class="scientist-objective-status"><strong>Weekly decision: not recorded</strong><span>Daily ledgers feed descriptive weekly cohorts below</span></div>
+        </section>
+
+        <section class="panel scientist-weekly-panel" aria-labelledby="scientistWeeklyTitle">
+          <div class="section-head"><div><div class="kicker">WEEK-END REVIEW · METHOD CHANGE GATE</div><h2 id="scientistWeeklyTitle">Weekly experiment record</h2></div><p id="scientistWeeklyStatus">No weekly cohort recorded</p></div>
+          <div class="weekly-review-grid"><article><small>Primary measure</small><strong>Targets ÷ (targets + stops + post-touch timeouts)</strong><span>No-touch, ambiguous, invalidated, and data-gap outcomes remain visible with separate coverage.</span></article><article><small>Weekly report</small><strong>Accuracy · touch coverage · calibration · paper R · baseline</strong><span>Show daily results and asset, timeframe, direction, and session breakdowns with uncertainty intervals.</span></article><article><small>Next-week decision</small><strong>Retain · investigate · propose new method version · stop study</strong><span>Testing specialist reproduces results; independent review returns a disposition to Firstmate.</span></article></div>
+          <details class="scientist-weekly-review-entry scientist-weekly-prereg-entry"><summary>Freeze next week's research question, baseline, sample, and decision rule</summary>
+            <form id="scientistWeeklyPreregForm" class="scientist-weekly-review-form">
+              <label>Week start · Monday trade date<input name="week_start" type="date" required></label>
+              <label>Frozen method version<input name="method_version" value="liquidity-loop-v0.3" required></label>
+              <label>Minimum eligible forecasts<input name="minimum_eligible_forecasts" type="number" min="1" step="1" required></label>
+              <label>Minimum touched/resolved forecasts<input name="minimum_resolved_touched" type="number" min="1" step="1" required></label>
+              <label>Minimum touch coverage (%)<input name="minimum_touch_coverage_percent" type="number" min="1" max="100" step="1" required></label>
+              <label>Approved exchange calendar source<input name="calendar_source" required placeholder="Official source / record ID"></label>
+              <label class="wide-field">Research question<textarea name="question" rows="2" required placeholder="One question that can be answered by the frozen weekly cohort."></textarea></label>
+              <label>Declared baseline<textarea name="baseline" rows="2" required placeholder="Baseline method and how it is scored on the same records."></textarea></label>
+              <label>Approved source boundary<textarea name="source_boundary" rows="2" required placeholder="Data sources, rights, cutoff, retention, and exclusions."></textarea></label>
+              <label>Scheduled trade dates<textarea name="scheduled_trade_dates" rows="2" required placeholder="One YYYY-MM-DD trade date per line; confirm holidays against the calendar source."></textarea></label>
+              <label>Sequential analysis / stop plan<textarea name="sequential_plan" rows="2" required placeholder="When results may be inspected and the stopping rule."></textarea></label>
+              <label class="wide-field">Decision rule<textarea name="decision_rule" rows="2" required placeholder="Minimum sample, coverage, uncertainty, and evidence required to retain or propose a change."></textarea></label>
+              <p class="scientist-form-note wide-field">This record is append-only and must be frozen before the first linked forecast of the selected week. All three assets remain separate. The 75% target is not a guarantee.</p>
+              <div class="scientist-run-actions"><button type="submit">Freeze weekly preregistration</button><span id="scientistWeeklyPreregStatus" role="status" aria-live="polite"></span></div>
+            </form>
+          </details>
+          <div id="scientistWeeklyPreregistrations" class="scientist-weekly-reviews"><p class="empty">Loading frozen preregistrations…</p></div>
+          <div id="scientistWeeklyResults" class="scientist-weekly-results"><p class="empty">Loading weekly cohorts…</p></div>
+          <details class="scientist-weekly-review-entry"><summary>Record Chief synthesis, lab test, independent review, and Firstmate disposition</summary>
+            <form id="scientistWeeklyReviewForm" class="scientist-weekly-review-form">
+              <label>Completed week · method<select name="cohort" required><option value="">Waiting for a scored weekly cohort…</option></select></label>
+              <label>Chief Scientist · weekly finding<textarea name="chief_summary" rows="3" required placeholder="What does the full-week evidence show? Include denominators and uncertainty."></textarea></label>
+              <label>Lab Testing Specialist · reviewer<input name="testing_by" required placeholder="Name or task ID"></label>
+              <label>Reproduction result<select name="testing_disposition" required><option value="PASS">PASS</option><option value="RETURN">RETURN</option><option value="BLOCK">BLOCK</option></select></label>
+              <label class="wide-field">Test notes<textarea name="test_notes" rows="2" placeholder="Completeness, leakage, duplicates, session boundaries, and reproduced calculations."></textarea></label>
+              <label>Independent reviewer<input name="reviewed_by" required placeholder="Name or task ID"></label>
+              <label>Review disposition<select name="review_disposition" required><option value="ACCEPT">ACCEPT</option><option value="RETURN">RETURN</option><option value="REJECT">REJECT</option><option value="BLOCK">BLOCK</option></select></label>
+              <label class="wide-field">Reviewer notes<textarea name="review_notes" rows="2" placeholder="Interpretation concerns, alternate explanations, or required corrections."></textarea></label>
+              <label>Chief's next-week decision<select name="decision" required><option value="RETAIN">RETAIN current method</option><option value="INVESTIGATE">INVESTIGATE</option><option value="PROPOSE_NEW_VERSION">PROPOSE new method version</option><option value="STOP_STUDY">STOP study</option></select></label>
+              <label>Proposed method version<input name="next_method_version" placeholder="Required when proposing a new version"></label>
+              <label class="wide-field">Proposal and rationale<textarea name="proposal" rows="3" required placeholder="At most one primary change; state mechanism, expected effect, downside, and rejection criteria."></textarea></label>
+              <label>Firstmate disposition<select name="firstmate_disposition" required><option value="PENDING">PENDING</option><option value="SUBMITTED">SUBMITTED</option><option value="APPROVED">APPROVED</option><option value="RETURNED">RETURNED</option><option value="REJECTED">REJECTED</option></select></label>
+              <label>Firstmate task ID<input name="firstmate_task_id" placeholder="Only if one exists"></label>
+              <p class="scientist-form-note wide-field">Saving appends an immutable review revision with a hash and a frozen snapshot of the selected scorecard cohorts. It does not itself approve a method change.</p>
+              <div class="scientist-run-actions"><button id="scientistWeeklyReviewSubmit" type="submit" disabled>Append weekly review</button><span id="scientistWeeklyReviewStatus" role="status" aria-live="polite"></span></div>
+            </form>
+          </details>
+          <div id="scientistWeeklyReviews" class="scientist-weekly-reviews"><p class="empty">Loading saved reviews…</p></div>
+          <p class="scientist-weekly-note">A weekly result at or above 75% is descriptive, not method validation. <a href="/agent-skills/weekly-experiment-protocol.md">Open weekly protocol</a> · <a href="/agent-skills/weekly-review-template.md">Weekly review template</a></p>
         </section>
 
         <section class="panel scientist-loop-panel" aria-labelledby="scientistLoopTitle">
-          <div class="section-head"><div><div class="kicker">DAILY OPERATING LOOP · SESSION-FLAT</div><h2 id="scientistLoopTitle">Chief Scientist run tracker</h2></div><p>MYM · MCL · MGC · seven required steps · clickable evidence and daily release</p></div>
-          <details class="scientist-run-entry"><summary>Open a daily asset run</summary>
+          <div class="section-head"><div><div class="kicker">DAILY OPERATING LOOP · SESSION-FLAT</div><h2 id="scientistLoopTitle">Daily session run tracker</h2></div><p>MYM · MCL · MGC · seven required steps · clickable evidence and daily release</p></div>
+          <div class="scientist-run-entry">
+            <div class="scientist-entry-heading"><strong>Designated trading session</strong><span>Choose the trade date, asset, and dated contract to track this session.</span></div>
             <form id="scientistRunForm" class="scientist-run-form">
-              <label>Trade date<input name="trade_date" type="date" required></label>
-              <label>Asset<select name="asset_code" required><option value="MYM">MYM · Micro E-mini Dow</option><option value="MCL">MCL · Micro WTI</option><option value="MGC">MGC · Micro Gold</option></select></label>
-              <label>Dated contract<input name="contract" placeholder="e.g. MYMZ2026" required></label>
+              <label class="date-choice-label">Suggested trade date<input name="trade_date" type="date" required readonly></label>
+              <label>Asset scope<select name="asset_scope"><option value="all" selected>All 3 · measured independently</option><option value="one">One asset only</option></select></label>
+              <label id="singleAssetWrap" hidden>Choose asset<select name="single_asset_code" disabled><option value="MYM">MYM</option><option value="MCL">MCL</option><option value="MGC">MGC</option></select></label>
+              <fieldset class="scientist-contract-set wide-field"><legend>Dated contract for each asset</legend><div><label>MYM<input name="contract_MYM" placeholder="e.g. MYMZ2026" required></label><label>MCL<input name="contract_MCL" placeholder="e.g. MCLX2026" required></label><label>MGC<input name="contract_MGC" placeholder="e.g. MGCZ2026" required></label></div><small>Prefilled only from a saved local config or a previously recorded run. Confirm current contract and roll before starting.</small></fieldset>
               <label>Method version<input name="method_version" value="liquidity-loop-v0.3" required></label>
               <label class="wide-field">Mandate<input name="mandate" value="Measure which liquidity levels hold within frozen session risk and reward." required></label>
-              <p class="scientist-form-note">Regular session: 5:00 p.m. CT before the trade date through 4:00 p.m. CT. Holiday and early-close runs require an explicit calendar override through the API.</p>
-              <button type="submit">Open daily run</button><span id="scientistRunStatus" role="status"></span>
+              <p id="scientistDateReason" class="scientist-form-note wide-field" role="status">Checking today's reports and the Chicago session clock…</p>
+              <div class="scientist-run-options wide-field"><label class="check-option"><input id="manualDateOverride" type="checkbox"> Choose a different date</label><label class="check-option"><input id="rerunOverride" name="rerun_override" type="checkbox"> Rerun and supersede existing reports for this date</label></div>
+              <p class="scientist-form-note wide-field">Regular session: 5:00 p.m.–4:00 p.m. CT, flat by the declared close. The dashboard skips weekends; holidays and early closes need the approved calendar source.</p>
+              <div class="scientist-run-actions"><button type="submit" name="action" value="open">Open session tracker</button><button type="submit" name="action" value="manual">Start manual run</button><span id="scientistRunStatus" role="status" aria-live="polite"></span></div>
             </form>
-          </details>
+          </div>
+          <div id="scientistWorkflowStatus" class="scientist-workflow-status" role="status">Checking dispatch and scheduler readiness…</div>
           <div id="scientistRuns" class="scientist-runs"><p class="empty">No daily Scientist runs yet.</p></div>
         </section>
 
@@ -80,7 +131,7 @@
             <form id="scientistForecastForm" class="scientist-forecast-form">
               <label>Daily asset run<select id="scientistRun" required><option value="">Open a run above first…</option></select></label>
               <label>Existing liquidity level<select id="scientistZone" required><option value="">Loading active levels…</option></select></label>
-              <label>Forecast probability of hold (%)<input name="hold_probability" type="number" min="0" max="100" step="1" value="75" required></label>
+              <label>Forecast probability of hold (%)<input name="hold_probability" type="number" min="0" max="100" step="1" placeholder="Enter method estimate" required></label>
               <label>As-of time<input name="forecast_at" type="datetime-local" required></label>
               <label>Forward expiry<input name="expires_at" type="datetime-local" required></label>
               <label>Entry / trigger<input name="entry_price" type="number" step="any" required></label>
@@ -90,12 +141,12 @@
               <label class="wide-field">Dashboard tools and indicators<input name="tools" placeholder="e.g., volume profile, confirmed swings, Fibonacci"></label>
               <label class="wide-field">Research source links<input name="research_sources" placeholder="One URL per source, optional"></label>
               <label class="wide-field">Rationale / invalidation<textarea name="rationale" rows="3" required></textarea></label>
-              <p class="scientist-form-note">This records a frozen research forecast only. It cannot place an order. Forecast dates before stored outcome bars are rejected.</p>
+              <p class="scientist-form-note">Enter the forecast method’s estimate; 75% is the study objective, not a default probability. This freezes research only and cannot place an order.</p>
               <button type="submit">Freeze forecast</button><span id="scientistForecastStatus" role="status"></span>
             </form>
           </details>
           <div class="table-wrap"><table><thead><tr><th>Forecast date</th><th>TF</th><th>Liquidity level</th><th>Hold call / probability</th><th>Stop → target</th><th>Outcome</th><th>Realized R</th></tr></thead><tbody id="scientistForecastRows"><tr><td class="empty" colspan="7">No frozen Scientist forecasts yet.</td></tr></tbody></table></div>
-          <p class="journal-footnote">The 75% figure is a target, not current performance. Accuracy is reported per asset and timeframe: target is a hit; stop and post-touch session timeout are misses; no-touch, ambiguous, and invalidated remain separate visible dispositions.</p>
+          <p class="journal-footnote">The 75% figure is a target, not current performance. Accuracy is reported per asset and timeframe: target is a hit; stop and post-touch session timeout are misses; no-touch, ambiguous, and invalidated remain separate visible dispositions. See the <a href="/agent-skills/weekly-experiment-protocol.md">weekly experiment protocol</a>.</p>
         </section>
 
         <section id="scorecards" class="section-block">
@@ -124,8 +175,8 @@
       </div>
       <button class="agent-menu" type="button" aria-label="Agent options" title="Agent options">···</button>
     </header>
-    <div class="agent-state-row"><span class="agent-state-dot"></span><span id="agentWorkStatus">Ready when you are</span><span class="agent-preview">PREVIEW</span></div>
-    <div class="agent-connection-note"><span class="notice-dot"></span><span>Firstmate connection is not active here. This chat is a local interface preview.</span></div>
+    <div class="agent-state-row"><span class="agent-state-dot"></span><span id="agentWorkStatus">Ready when you are</span><span id="agentConnectionState" class="agent-preview">CHECKING CHAT</span></div>
+    <div class="agent-connection-note"><span class="notice-dot"></span><span id="agentConnectionNote">Checking the local Codex chat service…</span></div>
     <section class="agent-chat" aria-label="Chat with Batty">
       <div class="chat-stream" id="chatStream" aria-live="polite">
         <div class="chat-day">TODAY · MYM / MCL / MGC PAPER LAB</div>
@@ -153,8 +204,8 @@
   </aside>
   </div>
   <dialog id="scientistRoleDialog" class="scientist-role-dialog" aria-labelledby="scientistRoleTitle">
-    <header><span class="pixel-head pixel-head-large" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><div><h2 id="scientistRoleTitle">Chief Scientist</h2><p>Daily level forecasts · 75% research objective</p></div><button id="closeScientistRole" type="button" aria-label="Close role panel">×</button></header>
-    <div class="scientist-role-copy"><p>The Scientist ranks eligible levels by asset and timeframe, records probability and risk/reward, freezes the daily forecast, then resolves every paper position by the declared futures session close. The 75% target is not a current performance claim.</p><p>The Lead Researcher supplies dated citations and investigates the available chart indicators and analysis tools. Every daily run preserves seven steps, outputs, and a clickable release log.</p><nav><a href="/agent-skills/chief-scientist.md">Chief Scientist skill file</a><a href="/agent-skills/lead-researcher.md">Lead Researcher skill file</a></nav><div id="scientistRoleStatus" class="role-connection-note">Firstmate model dispatch is not connected. This panel shows role guidance; it does not generate or record forecasts.</div></div>
+    <header><span class="pixel-head pixel-head-large" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><div><h2 id="scientistRoleTitle">Chief Scientist</h2><p>Weekly experiment lead · 75% research objective</p></div><button id="closeScientistRole" type="button" aria-label="Close role panel">×</button></header>
+    <div class="scientist-role-copy"><p>The Chief Scientist owns the weekly question, preregistration, frozen method, daily forecast decisions, and week-end synthesis. The Junior Scientist runs daily records under that method. The 75% target is not a current performance claim.</p><p>The research team combines source review, provenance QA, chart mapping, reproducible scoring, and independent weekly review. Each daily run preserves seven steps; the weekly report links the complete set of daily releases.</p><nav><a href="/agent-skills/chief-scientist.md">Chief Scientist</a><a href="/agent-skills/junior-scientist.md">Junior Scientist</a><a href="/agent-skills/lead-researcher.md">Lead Researcher</a><a href="/agent-skills/research-associate.md">Research Associate</a><a href="/agent-skills/lab-testing-specialist.md">Lab Testing Specialist</a><a href="/agent-skills/outcome-method-review.md">Outcome / Method Reviewer</a><a href="/agent-skills/weekly-experiment-protocol.md">Weekly protocol</a><a href="/agent-skills/weekly-review-template.md">Weekly report template</a></nav><div id="scientistRoleStatus" class="role-connection-note">Firstmate model dispatch is not connected. This panel shows role guidance; it does not generate or record forecasts.</div></div>
   </dialog>
   <dialog id="scientistOutcomeDialog" class="scientist-role-dialog outcome-dialog" aria-labelledby="scientistOutcomeTitle">
     <form id="scientistOutcomeForm"><header><div><h2 id="scientistOutcomeTitle">Record next-day outcome</h2><p id="scientistOutcomeForecast"></p></div><button id="closeScientistOutcome" type="button" aria-label="Close outcome form">×</button></header><input name="forecast_id" type="hidden"><div class="outcome-fields"><label>Disposition<select name="outcome" required><option value="target">Target before stop</option><option value="stop">Stop before target</option><option value="timeout">Timeout / session close</option><option value="no_touch">No touch</option><option value="ambiguous">Ambiguous price path</option><option value="invalidated">Level invalidated</option></select></label><label>Outcome time<input name="outcome_time" type="datetime-local" required></label><label>Exit price<input name="exit_price" type="number" step="any"></label><label>Resolution source<input name="resolution_source" placeholder="Licensed tick feed / chart review" required></label><label class="wide-field">Evidence note<textarea name="detail" rows="2"></textarea></label><div class="outcome-actions"><button type="submit">Append outcome</button><button id="cancelScientistOutcome" type="button" class="secondary-action">Cancel</button><span id="scientistOutcomeStatus" role="status"></span></div></div></form>

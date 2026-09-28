@@ -1,5 +1,7 @@
 # Chief Scientist Daily Liquidity Lab — Operating Protocol v0.3
 
+The weekly cohort, review, and team structure are defined in [Chief Scientist Weekly Experiment Protocol v0.1](CHIEF-SCIENTIST-WEEKLY-EXPERIMENT.md). Daily runs are the session-level records that feed that weekly experiment.
+
 ## Goal
 
 Measure whether the Chief Scientist can reach at least 75% target-before-stop accuracy on untouched, session-bounded liquidity-level forecasts for MYM, MCL, and MGC. Accuracy is reported with coverage, sample size, uncertainty, probability calibration, and R results. It is not a guarantee or a substitute for expectancy.
@@ -105,3 +107,5 @@ The validator checks the IANA timezone, exact asset universe, session boundary, 
 - Connect the implemented session-close resolver to the scheduler and an approved close-price source.
 
 Until these gates pass, the dashboard supports a manually reviewed paper/shadow pilot and produces complete daily releases. It does not route live orders.
+
+The dashboard derives weekly scorecards from immutable daily records at `/api/scientist-weekly`. The weekly interpretation, independent review, and next-week proposal still require a linked review artifact and Firstmate disposition. The scorecard does not infer missing scheduled sessions or validate a method from its point estimate.

@@ -1,0 +1,8 @@
+interface:
+  display_name: "Cleo"
+  short_description: "Evidence-led chart analysis and trade coaching"
+  brand_color: "#F0B55B"
+  default_prompt: "Use $cleo to review this chart and give me a clear conditional plan."
+
+policy:
+  allow_implicit_invocation: true

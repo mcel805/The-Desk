@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://batty.local/schemas/scientist-daily-data-package-v1.json",
+  "title": "Chief Scientist Daily Data Package",
+  "description": "Immutable, provenance-bearing specialist evidence packet. It is not a forecast or order.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "owner",
+    "created_at",
+    "cutoff_at",
+    "run",
+    "source_boundary",
+    "session_calendar",
+    "timeframe_coverage",
+    "risk_rules",
+    "cost_assumptions",
+    "levels"
+  ],
+  "properties": {
+    "schema_version": {"const": "scientist-daily-data-package-v1"},
+    "owner": {"enum": ["Lead Researcher", "Analyst", "Cleo", "Chief Scientist"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "cutoff_at": {"type": "string", "format": "date-time"},
+    "run": {
+      "type": "object",
+      "required": ["trade_date", "asset_code", "contract", "method_version", "session_open", "session_close", "timezone"],
+      "properties": {
+        "trade_date": {"type": "string", "format": "date"},
+        "asset_code": {"enum": ["MYM", "MCL", "MGC"]},
+        "contract": {"type": "string", "minLength": 1},
+        "method_version": {"type": "string", "minLength": 1},
+        "session_open": {"type": "string", "format": "date-time"},
+        "session_close": {"type": "string", "format": "date-time"},
+        "timezone": {"const": "America/Chicago"}
+      },
+      "additionalProperties": true
+    },
+    "source_boundary": {
+      "type": "object",
+      "required": ["sources"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source_id", "title", "provider", "retrieved_at", "rights_status", "permitted_use"],
+            "properties": {
+              "source_id": {"type": "string", "minLength": 1},
+              "title": {"type": "string", "minLength": 1},
+              "provider": {"type": "string", "minLength": 1},
+              "url": {"type": "string"},
+              "retrieved_at": {"type": "string", "format": "date-time"},
+              "rights_status": {"enum": ["approved", "blocked", "unknown"]},
+              "permitted_use": {"type": "string", "minLength": 1},
+              "retention_limit": {"type": "string"},
+              "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "session_calendar": {
+      "type": "object",
+      "required": ["verified", "source_id"],
+      "properties": {
+        "verified": {"type": "boolean"},
+        "source_id": {"type": "string"},
+        "holiday_or_early_close": {"type": "boolean"},
+        "session_open": {"type": "string", "format": "date-time"},
+        "session_close": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": true
+    },
+    "timeframe_coverage": {
+      "type": "object",
+      "required": ["60m", "30m", "15m", "5m", "1m"],
+      "properties": {
+        "60m": {"$ref": "#/$defs/timeframe"},
+        "30m": {"$ref": "#/$defs/timeframe"},
+        "15m": {"$ref": "#/$defs/timeframe"},
+        "5m": {"$ref": "#/$defs/timeframe"},
+        "1m": {"$ref": "#/$defs/timeframe"}
+      },
+      "additionalProperties": false
+    },
+    "risk_rules": {
+      "type": "object",
+      "required": ["status", "entry_rule", "stop_rule", "target_rule", "expiry_rule", "session_close_rule", "contract_roll_rule"],
+      "properties": {
+        "status": {"enum": ["frozen", "unresolved"]},
+        "entry_rule": {"type": "string"},
+        "stop_rule": {"type": "string"},
+        "target_rule": {"type": "string"},
+        "expiry_rule": {"type": "string"},
+        "session_close_rule": {"type": "string"},
+        "contract_roll_rule": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "cost_assumptions": {
+      "type": "object",
+      "required": ["status", "round_turn_commission_usd", "entry_slippage_ticks", "exit_slippage_ticks", "source_id"],
+      "properties": {
+        "status": {"enum": ["verified", "unresolved"]},
+        "round_turn_commission_usd": {"type": "number", "minimum": 0},
+        "entry_slippage_ticks": {"type": "number", "minimum": 0},
+        "exit_slippage_ticks": {"type": "number", "minimum": 0},
+        "source_id": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "levels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["zone_id", "timeframe", "side", "status", "source_id", "available_at"],
+        "allOf": [{
+          "if": {"properties": {"status": {"const": "eligible"}}, "required": ["status"]},
+          "then": {"required": ["price_low", "price_high"]}
+        }],
+        "properties": {
+          "zone_id": {"type": "string"},
+          "timeframe": {"enum": ["60m", "30m", "15m", "5m", "1m"]},
+          "side": {"enum": ["BSL", "SSL"]},
+          "status": {"enum": ["eligible", "stale", "touched", "mitigated", "invalidated", "unsupported", "unavailable"]},
+          "source_id": {"type": "string"},
+          "available_at": {"type": "string", "format": "date-time"},
+          "price_low": {"type": "number"},
+          "price_high": {"type": "number"},
+          "rationale": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "empty_inventory_reason": {"type": "string"},
+    "research_notes": {"type": "array", "items": {"type": "object"}},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "timeframe": {
+      "type": "object",
+      "required": ["source_id", "status", "fresh", "bar_count", "first_bar_at", "last_bar_at"],
+      "properties": {
+        "source_id": {"type": "string"},
+        "status": {"enum": ["fresh", "stale", "missing", "blocked"]},
+        "fresh": {"type": "boolean"},
+        "bar_count": {"type": "integer", "minimum": 0},
+        "first_bar_at": {"type": "string", "format": "date-time"},
+        "last_bar_at": {"type": "string", "format": "date-time"},
+        "gap_count": {"type": "integer", "minimum": 0},
+        "source_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -25,26 +25,33 @@ Batty stays available on Count Desk, Trading Journal, and Resources. On those pa
 ## What happens during a reply
 
 1. The chat records your message locally in the browser session.
-2. The Count Desk server assembles the matching read-only dashboard context.
-3. The selected Codex model reasons over your question and that context using the ChatGPT sign-in.
-4. Batty streams the completed model text into the conversation.
+2. The Count Desk server attaches the active view and gives the model read-only tools for the dashboard areas.
+3. Batty decides whether the question needs a specialist. Technical chart reads go to the project-scoped Cleo agent, with the active instrument, timeframe, cutoff, stored evidence, and freshness details.
+4. Batty waits for the specialist result, then relays it with clear Cleo attribution. Batty may explain the terms but must not replace the technical read with its own count.
+5. For ordinary desk questions, Batty replies directly. Web research includes source links.
 
-The animation and activity card show Batty's request in progress. The specialist seats in the Intellect ribbon are role definitions, not proof those agents were called.
+The activity card shows Batty coordinating the request. A specialist should be described as dispatched only when the Cleo subagent actually ran and returned findings.
+
+## Recent chats
+
+Use **Recent** in the chat header to reopen a conversation, or **New** to start a separate chat while keeping older ones available. Recent conversations and message timestamps are stored in this browser on this device; they do not sync to other devices. Times use the device's local timezone. Older turns from before this feature had no saved timestamps and appear as **Date unavailable** rather than receiving an invented date. Clearing this site's browser storage removes the local chat log.
 
 ## Firstmate specialists: current status
 
-**Live specialist dispatch from the web chat is not connected.** The installed Firstmate runtime does not currently provide a supported browser-callable bridge that can create a crew task, send later messages, read its live result, stop the same task, and return the normal Firstmate lifecycle status. A partial thread or a decorative roster would not provide that supervision contract.
+Cleo analysis is delegated to the project-scoped Codex subagent when a technical chart read is requested. The separate Firstmate crew lifecycle bridge is not connected: this handoff does not create a durable Firstmate task ID, support follow-up/stop operations, or return Firstmate lifecycle status.
 
-So today, Batty answers with the selected model and attached Count Desk data. He must not say that the CFO, Scientist, Analyst, Chart Technician, Reviewer, Paper Trader, or Outcome agent completed work unless a later version shows a real dispatch and returned evidence. Firstmate crew dispatch remains a separate integration step.
+Batty must not say a specialist completed work unless the named subagent actually ran and returned findings. Other seats in the Intellect ribbon remain role definitions unless their own dispatch path is connected.
 
 ## Data, research, and trading boundaries
 
 - The chart snapshot comes from the locally stored dashboard bars and drawings. It may be delayed or stale; it is not automatically a live quote.
 - Structural swing labels, forecasts, and projected paths are research aids from the current prototype. They are not validated Elliott Wave counts.
-- The chat is not connected to a web-search tool, live-news service, broker, another application's controls, or order routing. Ask it to distinguish stored evidence from a hypothesis.
+- The chat can search the live web and read local Count Desk, Trading Journal, and Liquidity Lab data when relevant. Web results and local dashboard records are sent to the selected Codex model through your ChatGPT sign-in.
+- Dashboard tools are read-only. They cannot change settings or records, control another application, access a broker, or route orders.
+- A connected data feed and live web search are different sources. Web search does not turn stored chart bars into live market data.
 - Count Desk settings and drawing controls remain in the dashboard. Batty cannot yet change them by chat.
 - Research is not a trade instruction. Keep all market-data collection within your provider's written display, analysis, cost, and retention rights.
-- Trading Journal data is intentionally not attached to model prompts just because that tab is open.
+- Trading Journal records are retrieved only when relevant to the question; they are not copied into every chat turn.
 
 ## Better prompts
 
@@ -59,4 +66,4 @@ So today, Batty answers with the selected model and attached Count Desk data. He
 - **Chat says it cannot sign in:** Sign in to Codex with ChatGPT on this Mac, then restart Count Desk.
 - **Batty says there is no chart context:** Select a symbol/timeframe and build a count. If that timeframe has no stored bars, choose one with data.
 - **The chart is old:** Check the feed status and last-bar timestamp before interpreting the read. A connected feed label does not by itself make its data real time.
-- **You expected a Firstmate agent:** The dashboard does not currently dispatch the crew from browser chat. Its status display should say so until a supported bridge is implemented.
+- **No Cleo feedback appeared:** Batty should report that the handoff failed or identify missing chart inputs; it must not fill the gap with its own technical chart read. The local Codex subagent handoff is separate from durable Firstmate crew tracking.

@@ -68,6 +68,19 @@ def bar(minutes: int, low: float, high: float, close: float, timeframe: str = "5
     }
 
 
+def preregister_week(db, trade_date: str, method_version: str = "liquidity-loop-v0.3") -> None:
+    trading_day = datetime.fromisoformat(trade_date).date()
+    week_start = (trading_day - timedelta(days=trading_day.weekday())).isoformat()
+    server.append_scientist_weekly_preregistration(db, {
+        "week_start": week_start, "method_version": method_version,
+        "question": "Fixture question", "baseline": "Fixture baseline",
+        "calendar_source": "Fixture calendar", "source_boundary": "Fixture-only source boundary",
+        "scheduled_trade_dates": trade_date, "minimum_eligible_forecasts": 1,
+        "minimum_resolved_touched": 1, "minimum_touch_coverage_percent": 50,
+        "sequential_plan": "Fixture plan", "decision_rule": "Fixture rule",
+    })
+
+
 class LiquidityLabTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -210,6 +223,7 @@ class LiquidityLabTest(unittest.TestCase):
             "trade_date": "2026-09-28", "asset_code": "MYM", "contract": "MYMZ2026",
             "method_version": "liquidity-loop-v0.3",
         })["run"]
+        preregister_week(self.db, run["trade_date"], run["method_version"])
         available = "2026-09-27T20:00:00Z"
         payload = forecast("scientist-zone", "SSL", 101, 100, available=available)
         payload["symbol"] = payload["contract"] = "MYMZ2026"
@@ -247,6 +261,7 @@ class LiquidityLabTest(unittest.TestCase):
             "trade_date": "2026-09-28", "asset_code": "MYM", "contract": "MYMZ2026",
             "method_version": "liquidity-loop-v0.3",
         })["run"]
+        preregister_week(self.db, run["trade_date"], run["method_version"])
         forecast_at = "2026-09-27T21:50:00Z"
         created = []
         for index in (1, 2):

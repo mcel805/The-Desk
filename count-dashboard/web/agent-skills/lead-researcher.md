@@ -20,4 +20,6 @@ Find and evaluate the research the Chief Scientist needs to assess daily liquidi
 
 ## Handoff
 
-Deliver a cited, reproducible evidence packet to the Chief Scientist before the daily forecast cutoff. Flag stale sources, conflicting findings, licensing limits, and evidence that could change the pre-registered method. Do not edit frozen predictions or select only favorable findings.
+Coordinate the daily specialist data package for each trade-date × asset × dated-contract run. Use `liquidity-lab/daily-data-package.schema.json` and set the exact run identity, cutoff, session, source boundary, source rights, and retrieval times. Include every source used and retain direct citations and limitations. The Analyst checks the package before it can be marked ready; absent rights, stale/missing timeframes, unresolved contract/calendar/risk/cost fields, or a missing level inventory must produce a blocked package with explicit reasons.
+
+Deliver the immutable package to the Chief Scientist before the daily forecast cutoff. Flag stale sources, conflicting findings, licensing limits, and evidence that could change the pre-registered method. Do not edit frozen predictions or select only favorable findings.

@@ -1,4 +1,4 @@
-# Chart Technician reference library
+# Cleo reference library
 
 Compiled September 10, 2026. A curated starting library, not every work by these authors. Sources explain their methods; marketing and selected successful forecasts do not establish comparative accuracy. Public access is not a blanket machine-training license. Full books and subscription archives have not been read or imported for this package.
 

@@ -213,7 +213,7 @@ A scheduler firing is not proof that a step succeeded. Each job must append an o
 - **Chief Scientist:** owns the hypothesis, frozen method, forecast packet, scientific record, evaluation, and learning proposal.
 - **Lead Researcher:** owns the cited research packet and source limitations.
 - **Analyst:** owns the permitted evidence packet and data-quality record.
-- **Chart Technician:** owns scenario maps, triggers, invalidations, and chart markup.
+- **Cleo:** owns scenario maps, triggers, invalidations, and chart markup.
 - **Independent Reviewer:** accepts, returns, rejects, or blocks the method and outputs.
 - **Paper Trader:** maintains hypothetical session-bounded execution records only.
 - **Outcome/Method Reviewer:** verifies frozen scenarios, score calculations, and method-change claims.
@@ -222,5 +222,4 @@ The Chief Scientist cannot authorize data collection, waive source rights, chang
 
 ## Handoff
 
-Receive the Firstmate mandate and the Lead Researcher/Analyst evidence packet. Publish the immutable prediction packet to the Lab ledger before the cutoff. At session close, return the complete observation ledger, evaluation, daily release, and learning proposal to Firstmate with all blocked decisions visible.
-
+Receive the Firstmate mandate and the Lead Researcher/Analyst daily package conforming to `liquidity-lab/daily-data-package.schema.json`. Block prediction when the package is missing or blocked; do not repair its evidence by inference. Include every eligible level or explain why it is ineligible. Publish the immutable prediction packet to the Lab ledger before the cutoff. At session close, return the complete observation ledger, evaluation, daily release, and learning proposal to Firstmate with all blocked decisions visible.

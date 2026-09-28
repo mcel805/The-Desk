@@ -4,12 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Batty Count Desk</title>
-  <link rel="stylesheet" href="./style.css?v=firstmate-activity-idle-neutral-20260927">
+  <link rel="stylesheet" href="./style.css?v=batty-chat-sessions-20260927">
 </head>
-<body>
+<body class="trading-prototype">
   <header>
     <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
     <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./cleo/index.html">CLEO</a>
       <button id="countDeskTab" class="app-tab active" type="button">Count Desk</button>
       <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
       <a id="liquidityLabLink" class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
@@ -35,6 +36,7 @@
           <div class="chart-head-actions">
             <button id="resetChart" class="chrome-button" type="button" title="Reset the chart to its default recent-bars view (right-click chart)">↺ Reset view</button>
             <button id="toggleChartInfo" class="chrome-button" type="button" aria-pressed="false" title="Show chart symbol, date range, and degree legend">ⓘ Chart info</button>
+            <button id="togglePaperTerminal" class="chrome-button paper-terminal-button" type="button" aria-pressed="true" aria-controls="paperTerminal" title="Show or hide the chart paper trading ticket">Paper terminal</button>
             <button id="toggleInspector" class="chrome-button inspector-collapsed" type="button" aria-pressed="false" title="Show or hide the analysis panel"><span>Insights</span><span id="inspectorCollapsedTag" class="inspector-collapsed-tag">COLLAPSED</span></button>
             <button id="toggleChat" class="chrome-button" type="button" aria-pressed="true" title="Show or hide Batty chat">Batty</button>
             <button id="expandChart" class="chrome-button" type="button" aria-pressed="false" title="Use the full browser workspace">Expand</button>
@@ -172,6 +174,19 @@
             <button id="emptySync" type="button">Sync this interval</button>
           </div>
           <svg id="drawingLayer" aria-label="Manual chart drawings and Batty wave paths"></svg>
+          <section id="paperTerminal" class="paper-terminal" aria-label="Chart paper trading simulator">
+            <div class="paper-terminal-head"><div><small>COUNT DESK SIMULATOR</small><strong>Paper trading</strong></div><span class="paper-terminal-badge">SIM ONLY</span></div>
+            <p id="paperSource" class="paper-source">Waiting for a stored source bar.</p>
+            <form id="paperTicket" class="paper-ticket">
+              <div class="paper-ticket-row"><label>Direction<select id="paperSide"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select></label><label>Micro contracts<input id="paperQuantity" type="number" min="1" max="100" step="1" value="1" required></label></div>
+              <div class="paper-ticket-row"><label>Stop reference<input id="paperStop" type="number" min="0" step="any" placeholder="Optional"></label><label>Target reference<input id="paperTarget" type="number" min="0" step="any" placeholder="Optional"></label></div>
+              <button id="paperOpen" class="paper-open" type="submit">Queue paper order</button>
+            </form>
+            <p class="paper-fill-note">Entry and exit fill at the next bar open after that bar is confirmed complete. Stop and target are reference levels only. No fees or slippage are modeled.</p>
+            <div class="paper-positions-head"><strong>Positions</strong><span id="paperPositionCount">0 open</span></div>
+            <div id="paperPositions" class="paper-positions">No paper positions on this market.</div>
+            <p id="paperTerminalStatus" class="paper-terminal-status" role="status" aria-live="polite">Local simulation · no broker connection</p>
+          </section>
           <div class="tv-attribution"><a href="https://www.tradingview.com/" target="_blank" rel="noopener">Charts by TradingView</a></div>
         </div>
         <p id="chartMessage" class="chart-message">Choose a stored market and build a count.</p>
@@ -264,7 +279,8 @@
     <div id="agentSkillContent" class="agent-skill-content"></div>
   </dialog>
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script type="module" src="./app.js?v=ideas-tab-layout-20260927"></script>
-  <script type="module" src="./batty-agent.js?v=chatgpt-codex-auth-20260927"></script>
+  <script type="module" src="./app.js?v=chart-tech-handoff-20260927"></script>
+  <script type="module" src="./trading-terminal.js?v=paper-prototype-20260928"></script>
+  <script type="module" src="./batty-agent.js?v=batty-chat-sessions-20260927"></script>
 </body>
 </html>

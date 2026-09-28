@@ -13,6 +13,13 @@ Build a reproducible evidence packet from user-supplied charts or explicitly app
 - Do not fetch, scrape, or collect data before the rights gate passes. Do not use a source beyond its approved scope.
 - Stop the affected analysis if required evidence is missing; name the exact missing item.
 
+## Daily package handoff
+
+- Validate the Lead Researcher package against `liquidity-lab/daily-data-package.schema.json` and the exact run identity.
+- Check source rights, timestamps and cutoff, timeframe coverage, session calendar, contract/roll identity, per-asset frozen risk rules, verified costs, and all candidate-level dispositions.
+- Preserve package source references and hashes. Do not turn missing or approximate values into exact OHLC, contract, fee, or time claims.
+- Return `ready` only when every required gate passes. Otherwise return `blocked` with one itemized reason per failed gate.
+
 ## Handoff
 
-Deliver the evidence packet and provenance to the Chart Technician. Route scope or rights questions to Firstmate.
+Deliver the validated daily package and provenance to the Chief Scientist and Cleo. Route scope or rights questions to Firstmate.

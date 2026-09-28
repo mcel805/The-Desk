@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f5f1ee" />
+    <meta
+      name="description"
+      content="Cleo is a personal assistant and specialized day-trading agent for everything trading."
+    />
+    <title>CLEO — a personal assistant for day trading</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f5f1ee;
+        --ink: #252725;
+        --muted-ink: #414341;
+        --mint: #76b6a7;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { min-height: 100%; }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        min-height: 100svh;
+        display: flex;
+        flex-direction: column;
+        padding: 25px 28px 18px;
+      }
+
+      .brand-lockup {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 9px;
+        flex: 0 0 auto;
+        text-decoration: none;
+      }
+
+      .mark {
+        display: block;
+        width: 94px;
+        height: 94px;
+        flex: 0 0 auto;
+        background-image: url("cat-rotations.png");
+        background-size: 200% 200%;
+        background-repeat: no-repeat;
+        background-position: 0 0;
+      }
+
+      .brand-tagline {
+        margin: 0 0 5px -4px;
+        color: var(--tagline-color, #c0392b);
+        font-family: "Bradley Hand", "Marker Felt", "Comic Sans MS", cursive;
+        font-size: 17px;
+        font-style: italic;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: .005em;
+        white-space: nowrap;
+      }
+
+      header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+      header nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px 22px; }
+      header nav a { color: var(--muted-ink); font-size: 14px; font-weight: 620; text-decoration: none; }
+      header nav a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+      main {
+        width: min(100%, 870px);
+        margin-top: clamp(62px, 7.2vh, 92px);
+      }
+
+      .copy {
+        margin: 0;
+        font-size: clamp(20px, 1.55vw, 29px);
+        line-height: 1.29;
+        letter-spacing: -0.035em;
+        color: var(--muted-ink);
+      }
+
+      .copy + .copy { margin-top: 17px; }
+
+      .copy strong {
+        color: var(--ink);
+        font-weight: 690;
+      }
+
+      .start {
+        position: relative;
+        display: inline-block;
+        margin-top: clamp(54px, 6.5vh, 76px);
+        padding-bottom: 13px;
+        color: var(--ink);
+        font-size: clamp(20px, 1.55vw, 29px);
+        font-weight: 690;
+        line-height: 1.25;
+        letter-spacing: -0.04em;
+        text-decoration: none;
+      }
+
+      .start:focus-visible { outline: 3px solid var(--mint); outline-offset: 6px; }
+
+      .desk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
+      .desk-actions .start { margin-right: 4px; }
+      .tool-link { color: #263b35; font-size: clamp(17px, 1.25vw, 22px); font-weight: 680; text-decoration: underline; text-decoration-color: var(--mint); text-decoration-thickness: 5px; text-underline-offset: 7px; }
+      .wallet-signin { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 7px 20px; width: min(100%, 680px); margin-top: 34px; padding: 17px 19px; border: 1px solid #d3d0ca; border-radius: 8px; background: #f9f7f3; }
+      .wallet-signin-copy strong { display: block; font-size: 15px; }
+      .wallet-signin-copy p,.wallet-status { margin: 5px 0 0; color: #60635f; font-size: 12px; line-height: 1.5; }
+      .wallet-button { min-height: 38px; padding: 0 13px; border: 1px solid #2d5e51; border-radius: 5px; background: #234b40; color: white; font: 650 12px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor: pointer; }
+      .wallet-button:hover { background: #1a3f35; }
+      .wallet-button:disabled { opacity: .55; cursor: wait; }
+      .wallet-address { grid-column: 1/-1; color: #234b40; font: 600 12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
+      .wallet-status { grid-column: 1; }
+      .signout-button { justify-self: end; padding: 5px 8px; border: 1px solid #c8c5bf; border-radius: 4px; background: transparent; color: #454944; font-size: 11px; cursor: pointer; }
+      .wallet-boundary { grid-column: 1/-1; padding-top: 9px; border-top: 1px solid #e5e2dc; color: #797d78; font-size: 11px; line-height: 1.5; }
+
+      .start::after {
+        position: absolute;
+        z-index: 0;
+        right: 0;
+        bottom: 0;
+        left: 31%;
+        height: 9px;
+        border-radius: 9px 4px 8px 3px;
+        background: var(--mint);
+        content: "";
+        transform: rotate(-0.5deg);
+      }
+
+      footer {
+        display: grid;
+        grid-template-columns: 1fr auto auto 1fr;
+        align-items: center;
+        gap: clamp(20px, 6.5vw, 96px);
+        margin-top: auto;
+        padding-top: 80px;
+        color: #424442;
+        font-size: clamp(13px, 1.05vw, 18px);
+        letter-spacing: -0.02em;
+      }
+
+      footer span:last-child { text-align: right; }
+
+      @media (min-width: 1500px) {
+        .page { padding: 29px 28px 20px; }
+        .mark { width: 94px; height: 94px; }
+        main { margin-top: 80px; }
+      }
+
+      @media (max-width: 680px) {
+        .page { padding: 20px 20px 18px; }
+        .mark { width: 68px; height: 68px; }
+        .brand-lockup { gap: 5px; }
+        .brand-tagline { margin-bottom: 4px; margin-left: -3px; font-size: 12px; }
+        header { align-items: flex-start; flex-wrap: wrap; }
+        header nav { flex-basis: 100%; justify-content: flex-start; gap: 9px 14px; padding-top: 6px; }
+        header nav a { font-size: 12px; }
+        main { margin-top: 58px; }
+        .copy { font-size: 21px; line-height: 1.35; }
+        .copy + .copy { margin-top: 16px; }
+        .start { margin-top: 56px; font-size: 21px; }
+        .wallet-signin { grid-template-columns: 1fr; }
+        .wallet-button { width: fit-content; }
+        .wallet-status,.wallet-address,.wallet-boundary { grid-column: 1; }
+        .signout-button { justify-self: start; }
+        footer {
+          grid-template-columns: 1fr 1fr;
+          gap: 15px 20px;
+          padding-top: 72px;
+          font-size: 13px;
+        }
+        footer span:nth-child(2) { text-align: right; }
+        footer span:nth-child(3) { grid-column: 1; }
+        footer span:last-child { grid-column: 2; grid-row: 2; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header aria-label="CLEO by Batty Inc.">
+        <a class="brand-lockup" href="/cleo/index.html" aria-label="CLEO by Batty Inc., a block-chain company">
+          <span class="mark" role="img" aria-label="CLEO, grey-and-black tabby, front-facing portrait"></span>
+          <span id="brandTagline" class="brand-tagline">a block-chain company</span>
+        </a>
+        <nav aria-label="Trading Desk navigation">
+          <a href="/">Count Desk</a>
+          <a href="/trade-journal.html">Journal</a>
+          <a href="http://127.0.0.1:8041/">Liquidity Lab</a>
+          <a href="/resources.html">Resources</a>
+        </nav>
+      </header>
+
+      <main>
+        <p class="copy"><strong>Cleo is a personal assistant that understands what you’re working on and what matters to you.</strong></p>
+        <p class="copy">A specialized day-trading agent, Cleo connects with the apps and devices you already use.</p>
+        <p class="copy">CLEO is the product for everything trading.</p>
+        <div class="desk-actions">
+          <a class="start" href="signup.html">Text Cleo to start trading</a>
+          <a class="tool-link" href="/">Open Count Desk <span aria-hidden="true">→</span></a>
+        </div>
+        <section class="wallet-signin" aria-label="Base wallet sign-in">
+          <div class="wallet-signin-copy">
+            <strong>Sign in with a Base wallet</strong>
+            <p>Verify your address with a one-time message. No transaction, gas, or seed phrase.</p>
+          </div>
+          <button id="walletButton" class="wallet-button" type="button">Sign in with wallet</button>
+          <p id="walletStatus" class="wallet-status" role="status" aria-live="polite">No wallet session. Count Desk is available without signing in.</p>
+          <div id="walletAddress" class="wallet-address" hidden></div>
+          <button id="walletSignOut" class="signout-button" type="button" hidden>Sign out</button>
+          <small class="wallet-boundary">Wallet sign-in confirms a local identity only. It does not gate desk data, connect a broker, or authorize trades.</small>
+        </section>
+      </main>
+
+      <footer aria-label="Site information">
+        <span>Copyright © 2026 Batty Inc.</span>
+        <span>Privacy policy</span>
+        <span>Terms of service</span>
+        <span>A Batty Inc. product</span>
+      </footer>
+    </div>
+    <script type="module" src="cat-brand.js"></script>
+    <script type="module" src="../wallet-signin.js"></script>
+  </body>
+</html>

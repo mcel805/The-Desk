@@ -21,6 +21,27 @@ independent visibility toggles for price, count paths, confirmed swings,
 volume profile, Fibonacci levels, convergence zones, projections and drawings,
 plus an eraser tool for deleting a drawing directly from the chart.
 
+### Chart paper terminal prototype
+
+Count Desk is chart-first, with a paper ticket over the chart and Batty chat on
+the right. Use **Paper terminal** to hide or show the ticket. It is a local
+single-user simulator for the five listed micro futures. It uses the current
+stored chart bar, symbol, timeframe, and data source; the existing Count Desk
+count, liquidity, Premium / Discount, Fibonacci, and drawing tools remain on
+the chart.
+
+To simulate, choose Long or Short and 1–100 micro contracts, optionally enter
+stop and target reference prices, then queue the order. A paper entry fills at
+the **next stored bar's open only after a following bar confirms that bar is
+complete**. The same rule applies to a queued exit. "Check next bar" and
+"Check exit" re-evaluate stored data; newly ingested bars also advance queued
+orders. The position records the fill bar, dataset, source, and gross P&L.
+The stop and target are visual reference lines, **not automated exit orders**.
+Displayed P&L is gross and excludes fees and slippage. Historical or delayed
+bars do not imply live prices or executable fills. Simulation records live in
+the local SQLite store, separate from broker imports and the Trading Journal.
+No broker connection or live order route is present.
+
 The chart also offers a separate, optional MTF Premium / Discount layer. Toggle
 it beside Liquidity zones on the chart toolbar, choose a stored timeframe and swing length, and
 adjust Premium, Equilibrium, Discount, highlight colors, and fill opacity. The
@@ -70,21 +91,22 @@ work.
 ## Intellect Elliott Wave team
 
 The Count Desk has a compact Intellect ribbon for the Firstmate workflow seats:
-Batty, CFO, Chief Scientist, Analyst, Chart Technician, Independent Reviewer,
+Batty, CFO, Chief Scientist, Analyst, Cleo, Independent Reviewer,
 Paper Trader, and Outcome / Method Review. Selecting a pixel portrait opens
 the role responsibilities, handoff, and skill text. Role drafts live under
-`../agents/intellect/`; the Chart Technician prompt lives at
-`../agents/chart-technician/SYSTEM-PROMPT.md`. `web/agent-skills/` contains the
+`../agents/intellect/`; the Cleo prompt lives at
+`../agents/cleo/SYSTEM-PROMPT.md`. `web/agent-skills/` contains the
 static browser copies shown by the local dashboard and should be refreshed when
 those source files change.
 
-This is a role and interface alignment. The ribbon does not dispatch agents or
-create Firstmate tasks; it remains on **Standby** until a Firstmate task and
-rights-gate transport are connected. The supplied workflow's pre-collection
-gate, per-market lab isolation, independent disposition, paper-only simulation,
-and measured outcome review remain the intended loop. No data should be
-collected for a lab before its written rights, human approval, cost, and
-retention scope are recorded.
+The ribbon is a role and interface overview; selecting a portrait does not
+dispatch an agent or create a Firstmate task. Batty's chat can delegate chart
+interpretation to the project-scoped Codex Cleo. That local handoff
+does not provide durable Firstmate lifecycle tracking. The supplied workflow's
+pre-collection gate, per-market lab isolation, independent disposition,
+paper-only simulation, and measured outcome review remain the intended loop.
+No data should be collected for a lab before its written rights, human approval,
+cost, and retention scope are recorded.
 
 ## Run
 
@@ -94,6 +116,14 @@ retention scope are recorded.
 
 Open <http://127.0.0.1:8770>.
 
+### Trading Desk landing page and Base wallet sign-in
+
+Open <http://127.0.0.1:8770/trading-landing.html> for the product landing page and links to Count Desk, Trading Journal, Liquidity Lab, and Resources. The Count Desk header also links back to this overview.
+
+The landing page supports EIP-4361 Sign-In with Ethereum scoped to Base Mainnet (chain ID 8453). Wallet sign-in requests one short-lived nonce and verifies the wallet's message signature locally; it creates an eight-hour, HttpOnly local session cookie. Signing is off-chain: it sends no transaction, costs no gas, and never asks for a seed phrase or private key. Only externally owned accounts are supported by this preview; smart-contract wallet verification is not implemented.
+
+This is local wallet identity, not access control: it does not gate dashboard APIs or associate an address with a Trading Journal member/account. The app remains bound to loopback, and its in-memory wallet sessions are cleared when the local server restarts. Remote/public use needs a TLS deployment, persistent/rotatable session storage, production domain configuration, and an explicit authorization model. The launcher creates `count-dashboard/.venv` and installs the pinned verifier dependency from `count-dashboard/requirements.txt` when needed.
+
 ### Batty chat with your ChatGPT subscription
 
 The Batty composer uses the local Codex CLI signed in with ChatGPT. Sign in with
@@ -101,30 +131,41 @@ your ChatGPT account in Codex (`codex login` in Terminal if needed), then restar
 the Count Desk. No API key is required: the local Count Desk invokes Codex, and
 Codex sends the prompt to OpenAI under your signed-in ChatGPT account. Codex
 uses your ChatGPT plan's access and limits; API key requests are billed
-separately. Each reply runs in an ephemeral, read-only session from `/tmp`,
-without loading your personal Codex configuration or MCP connections. The
-composer defaults to GPT-6 Luna at Medium reasoning effort and also offers GPT-6
-Sol and GPT-6 Astra. The model and effort choice are saved in this browser.
+separately. Each reply runs in an ephemeral, read-only session rooted in this
+project so its project-scoped custom agents can load. It does not load your
+personal Codex configuration. The composer defaults to GPT-6 Luna at Medium
+reasoning effort and also offers GPT-6 Sol and GPT-6 Astra. The model and effort
+choice are saved in this browser.
 
-Count Desk requests attach a read-only snapshot from the selected chart: asset,
-timeframe and cutoff, feed status, run summary, up to 64 recent OHLC bars,
-recent count points, selected structural analytics, and saved drawings. The
-Trading Journal sends only its page and filter labels, not private ledger rows.
-Liquidity Lab's existing Batty panel uses the same local chat endpoint and
-sends visible page text (up to 6,000 characters). This browser-to-chat connection
-accepts requests only from loopback pages. Open the **Resources** tab for the
-feature overview and a downloadable [Batty user guide](USER-GUIDE.md).
+Count Desk requests attach an initial read-only snapshot from the selected
+chart. During a reply, Batty can also call bounded, read-only dashboard tools to
+retrieve additional stored bars, drawings, level plans, Trading Journal records,
+and Liquidity Lab research. Chart history is paged in windows so an entire
+database is not copied into every prompt. Current-information requests can use
+Codex's live web search and should include source links. This browser-to-chat
+connection accepts requests only from loopback pages. Open the **Resources**
+tab for the feature overview and a downloadable [Batty user guide](USER-GUIDE.md).
 
-Firstmate crew dispatch is not connected to the browser chat. The local
-Firstmate installation has no supported app-callable bridge for creating a
-task, sending follow-up messages, reading the live reply, and closing the same
-task endpoint. Its documented Codex App backend boundary requires that complete
-lifecycle and a status return path; partial app-server or shell probes are not
-a supported backend. Until that bridge is available, the chat uses the local
-Codex CLI and never represents role cards as dispatched crew. The live reply
-can use the local chart snapshot but does not have web search, live news,
-external application control, or chat-driven dashboard settings. Market-data
-feed integrations remain separate.
+Dashboard reads and web search results are sent to the selected model through
+the signed-in ChatGPT session when needed. Technical chart interpretation is
+delegated to the project-scoped `cleo` Codex subagent. Batty handles
+the question and context, waits for the specialist result, then relays it with
+clear Cleo attribution. Batty must not substitute its own chart
+count if that handoff fails. Chat tools are read-only: they cannot edit
+dashboard records, control a broker, route orders, or change chart settings.
+
+The chat header has **Recent** and **New** controls. It keeps the most recent
+conversations and message timestamps in this browser's local storage; entries
+show in the device's local timezone and do not sync between devices. Older chat
+turns that predate timestamps are preserved with their dates marked unknown.
+
+This local Codex subagent handoff is not a durable Firstmate crew task: it does
+not create a Firstmate task ID, support follow-up/stop operations, or record a
+Firstmate lifecycle status. Role cards remain definitions unless the chat
+actually invokes the matching project-scoped agent. Live web search and local
+read-only dashboard access are available to the chat; market-data feeds remain
+separate from general web search and must still satisfy their own source-rights
+and freshness requirements.
 
 The Count Desk header includes a Liquidity Lab tab. The launcher starts both
 local services: Count Desk on port `8770` and the paper/shadow Liquidity Lab

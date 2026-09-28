@@ -465,6 +465,32 @@ main.batty-main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;
 .batty-chat-identity strong{color:#eff7ff;font-size:.9rem;letter-spacing:-.02em}
 .batty-chat-identity small{margin-top:4px;color:#8197aa;font-size:.53rem;font-weight:700;letter-spacing:.1em}
 .batty-chat-menu{color:#8b9aaa;font-size:1.1rem;letter-spacing:.16em}
+.batty-chat-head{position:relative;z-index:5}
+.batty-chat-identity{gap:8px}
+.batty-chat-actions{display:flex;align-items:center;gap:4px;min-width:0}
+.batty-chat-action{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:30px;padding:0 6px;border:1px solid #344253;border-radius:5px;background:#111923;color:#b9c8d7;font:600 .55rem Inter,ui-sans-serif,system-ui,sans-serif;white-space:nowrap;cursor:pointer}
+.batty-chat-action>span:first-child{color:#75d8df;font-size:.8rem;line-height:1}
+.batty-chat-action:hover,.batty-chat-action[aria-expanded="true"]{border-color:#42808b;background:#14222b;color:#e5fbff}
+.batty-chat-action:focus-visible,.batty-recent-head button:focus-visible{outline:2px solid #69d8df;outline-offset:2px}
+.batty-chat-action:disabled{opacity:.45;cursor:progress}
+.batty-chat-action.is-primary{border-color:#2d6c73;background:#10242a;color:#bff4f1}
+.batty-recent-panel{position:absolute;z-index:30;top:54px;right:8px;display:flex;flex-direction:column;gap:8px;width:min(300px,calc(100% - 16px));max-height:min(52vh,390px);min-width:0;padding:10px;border:1px solid #405263;border-radius:7px;background:#111923;box-shadow:0 14px 34px #000b}
+.batty-recent-panel[hidden]{display:none}
+.batty-recent-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:0 0 8px;border-bottom:1px solid #263543}
+.batty-recent-head>div{display:grid;gap:3px;min-width:0}
+.batty-recent-head strong{color:#e4edf5;font-size:.68rem}
+.batty-recent-head small{color:#8292a1;font-size:.5rem}
+.batty-recent-head button{width:24px;height:24px;flex:none;border:1px solid #354454;border-radius:4px;background:#151e28;color:#aebbc8;font-size:1rem;cursor:pointer}
+.batty-recent-list{display:grid;gap:5px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-color:#354353 transparent;scrollbar-width:thin}
+.batty-recent-item{display:grid;gap:3px;min-width:0;padding:8px;border:1px solid #293745;border-radius:5px;background:#0e151d;color:#b8c5d0;text-align:left;cursor:pointer}
+.batty-recent-item:hover,.batty-recent-item:focus-visible{border-color:#43828c;background:#13212a;outline:0}
+.batty-recent-item.is-current{border-color:#39747c;background:#11232a}
+.batty-recent-item strong,.batty-recent-item span,.batty-recent-item small{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.batty-recent-item strong{color:#e0eaf1;font-size:.59rem;font-weight:650}
+.batty-recent-item span{color:#94a2b0;font-size:.52rem}
+.batty-recent-item small{color:#6f8291;font-size:.48rem}
+.batty-recent-empty{margin:8px 3px;color:#8996a4;font-size:.58rem;line-height:1.45}
+@media(min-width:761px) and (max-width:1279px){.batty-chat-head{gap:5px;padding-inline:8px}.batty-chat-identity{gap:6px}.batty-chat-identity small{font-size:.46rem;letter-spacing:.07em}.batty-chat-actions{gap:3px}.batty-chat-action{gap:3px;padding-inline:5px;font-size:.52rem}}
 .batty-chat-status{height:31px;min-height:31px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid #202a36;color:#aebdca;font-size:.61rem}
 .batty-chat-status i,.batty-chat-connection i,.batty-chat-scope i{width:6px;height:6px;flex:none;border-radius:50%;background:#73d7a2;box-shadow:0 0 0 3px #73d7a21c}
 .batty-chat-status b{margin-left:auto;padding:3px 5px;border:1px solid #4a4333;border-radius:3px;color:#d3bd80;font-size:.48rem;letter-spacing:.09em}
@@ -473,7 +499,8 @@ main.batty-main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;
 .batty-chat-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 12px 10px}
 .batty-chat-stream{flex:1;min-height:0;overflow:auto;padding:14px 2px 10px;scrollbar-color:#354353 transparent;scrollbar-width:thin}
 .batty-message{min-width:0;margin:0 0 14px;padding:0 2px}
-.batty-message p{margin:0;color:#dbe3eb;font-size:.71rem;line-height:1.62;overflow-wrap:anywhere}
+.batty-message p{margin:0;color:#dbe3eb;font-size:.71rem;line-height:1.62;overflow-wrap:anywhere;white-space:pre-wrap}
+.batty-message p a{color:#71dce5;text-decoration:underline;text-underline-offset:2px}
 .batty-message small{display:block;margin-top:7px;color:#7f90a1;font-size:.5rem;line-height:1.4}
 .batty-message.user{margin:0 0 14px auto;max-width:90%;padding:8px 10px;border:1px solid #3e3935;border-radius:7px 7px 2px 7px;background:#252320}
 .batty-message.user p{color:#f0ece6}
@@ -517,6 +544,50 @@ main.batty-main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;
 @media(max-width:760px){header{display:grid;grid-template-columns:auto minmax(0,1fr) auto;position:sticky;top:0;z-index:30;width:100%;min-width:0;padding-inline:7px;gap:4px}.brand{min-width:0;gap:6px}.brand>span{width:28px;height:28px}.brand strong{font-size:.65rem}.brand small{display:none}.app-tabs{min-width:0;overflow-x:auto;scrollbar-width:none}.app-tabs::-webkit-scrollbar{display:none}.app-tab{flex:0 0 auto;height:31px;padding-inline:5px;font-size:.59rem}.api-state{display:none}.batty-mobile-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:0;min-height:30px;padding:0 6px;border:1px solid #344052;border-radius:4px;background:#111923;color:#b9c9d7;font-size:.52rem;white-space:nowrap}main.batty-main,main.trade-journal-main.batty-main{display:block;padding:8px}.batty-page-content{display:none}.batty-dock{position:fixed;inset:58px 0 0;width:auto;height:auto;min-height:0;border-radius:0;border-width:1px 0 0;z-index:25}.batty-chat-head{height:66px;min-height:66px}.batty-chat-body{padding-inline:14px}body.batty-dashboard-focus .batty-page-content{display:block}body.batty-dashboard-focus .batty-dock{display:none}body.batty-dashboard-focus main.batty-main{display:block}.trade-journal-main.batty-main{width:100%;margin:0}.tj-content{display:grid;gap:10px}}
 @media(max-width:520px){header{grid-template-columns:32px minmax(0,1fr) auto}.brand{width:28px}.brand>div{display:none}}
 @media(prefers-reduced-motion:reduce){.batty-chat-icon.working,.batty-chat-icon.working::after{animation:none}}
+
+/* Single-trader chart terminal: keep the chart primary and Batty at the right. */
+body.trading-prototype .intellect-ribbon{min-height:37px;height:37px;padding-block:3px}
+body.trading-prototype .agent-roster{display:none}
+body.trading-prototype .intellect-ribbon-label{border-right:0}
+body.trading-prototype .intellect-loop-state{margin-left:auto}
+body.trading-prototype .chart-head{min-height:82px;padding:6px 9px;gap:5px}
+body.trading-prototype .chart-head-actions .chrome-button,
+body.trading-prototype .chart-head-actions .status-menu>summary{height:28px}
+body.trading-prototype .feed-summary{min-height:26px}
+.paper-terminal-button{border-color:#40845e;color:#c8f5d9;background:#12291f}
+.paper-terminal{position:absolute;z-index:8;top:12px;left:12px;width:min(306px,calc(100% - 24px));max-height:calc(100% - 24px);display:flex;flex-direction:column;min-width:0;overflow:hidden;border:1px solid #3e6656;border-radius:9px;background:#0d1717ed;box-shadow:0 17px 45px #000a;backdrop-filter:blur(9px);color:#eaf4ed}
+.paper-terminal[hidden]{display:none}
+.paper-terminal-head{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:10px 12px 8px;border-bottom:1px solid #29433b;background:#10251f}
+.paper-terminal-head small,.paper-terminal-head strong{display:block}
+.paper-terminal-head small{color:#70d3a8;font:700 .49rem ui-monospace,monospace;letter-spacing:.1em}
+.paper-terminal-head strong{margin-top:3px;font-size:.82rem}
+.paper-terminal-badge{padding:3px 5px;border:1px solid #4b8766;border-radius:3px;color:#a9f5c4;font:700 .5rem ui-monospace,monospace;white-space:nowrap}
+.paper-source{margin:0;padding:8px 12px;color:#b1c4bd;font-size:.6rem;line-height:1.4;border-bottom:1px solid #22362f}
+.paper-ticket{padding:9px 11px 7px}
+.paper-ticket-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:7px}
+.paper-ticket label{display:grid;gap:3px;min-width:0;color:#a6beb3;font-size:.56rem}
+.paper-ticket select,.paper-ticket input{width:100%;min-width:0;height:28px;padding:4px 6px;border:1px solid #38564a;border-radius:4px;background:#101d1a;color:#f0f8f2;font:600 .62rem Inter,system-ui,sans-serif}
+.paper-open{width:100%;min-height:31px;border:1px solid #4ca874;border-radius:4px;background:#1a6340;color:#ecfff1;font-size:.65rem;font-weight:700;cursor:pointer}
+.paper-open:hover:not(:disabled){background:#227b51}
+.paper-open:disabled{opacity:.43;cursor:default}
+.paper-fill-note{margin:0;padding:0 11px 8px;color:#8ea89a;font-size:.54rem;line-height:1.35}
+.paper-positions-head{display:flex;justify-content:space-between;padding:8px 11px 6px;border-top:1px solid #29433b;color:#d9ede0;font-size:.65rem}
+.paper-positions-head span{color:#8eb6a0;font-size:.56rem}
+.paper-positions{min-height:47px;max-height:185px;overflow:auto;padding:0 9px 5px;scrollbar-width:thin;scrollbar-color:#38564a transparent}
+.paper-empty{margin:5px 2px 9px;color:#839d8e;font-size:.59rem}
+.paper-position{display:grid;gap:3px;margin-bottom:6px;padding:7px;border:1px solid #2d4a3c;border-radius:5px;background:#10211b}
+.paper-position-top{display:flex;justify-content:space-between;gap:6px;color:#eaf6ed;font-size:.63rem}
+.paper-position-top span{color:#92cdae;font:700 .49rem ui-monospace,monospace}
+.paper-position small{color:#8ea99b;font-size:.53rem;overflow-wrap:anywhere}
+.paper-pnl{color:#c8e3d1;font-size:.59rem}
+.paper-position-actions{display:flex;gap:5px;margin-top:4px}
+.paper-position-actions:empty{display:none}
+.paper-position-actions button{padding:4px 6px;border:1px solid #4b735b;border-radius:3px;background:#173126;color:#bfeccb;font-size:.54rem;cursor:pointer}
+.paper-position-actions button:hover{background:#225138}
+.paper-terminal-status{margin:0;padding:8px 11px;border-top:1px solid #29433b;color:#a8d9b9;font-size:.54rem;line-height:1.35}
+.paper-terminal-status.error{color:#ff9da2}
+@media(min-width:761px){body.trading-prototype main.batty-main{height:calc(100dvh - 95px)}}
+@media(max-width:760px){body.trading-prototype .intellect-ribbon{display:none}.paper-terminal{top:8px;left:8px;width:min(306px,calc(100% - 16px));max-height:min(66vh,520px)}}
 
 /* Integrated Count Desk liquidity layers and journal */
 .liquidity-tools{min-height:46px;padding:7px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);background:#0c121a}

@@ -49,11 +49,46 @@ TradingView cannot call `127.0.0.1`; exposing the endpoint requires a separately
 - `GET /api/dashboard` — dashboard data.
 - `GET /api/scientist-levels` — currently active levels eligible for a frozen daily assessment.
 - `GET /api/scientist-journal` — daily Scientist forecast and outcome records, with per-timeframe accuracy summaries.
+- `GET /api/scientist-weekly` — descriptive full-week cohorts grouped by trade week, asset, dated contract, and method version, with touch coverage, Wilson intervals, Brier score, R, and timeframe breakdowns.
+- `GET /api/scientist-weekly-reviews` — append-only Chief review records with frozen weekly scorecard snapshots and integrity hashes.
+- `GET /api/scientist-weekly-preregistrations` — frozen weekly questions, baselines, sample/coverage requirements, scheduled sessions, data boundary, and decision rules.
+- `POST /api/v1/scientist-weekly-preregistration` — freeze the weekly experiment before its first linked forecast; later edits append a preregistration revision only while no forecast has been recorded.
+- `POST /api/v1/scientist-weekly-review` — append the Chief synthesis, Lab Testing Specialist result, independent reviewer disposition, next-week proposal, and recorded Firstmate status. Requires a closed week and fully resolved forecasts.
 - `POST /api/v1/scientist-forecast` — append an immutable forecast with its level, probability, risk/reward, tools, sources, and rationale.
 - `POST /api/v1/scientist-outcome` — append one next-day disposition for a frozen Scientist forecast.
+- `POST /api/v1/scientist-data-package` — append an immutable Lead Researcher/Analyst evidence package; readiness is recomputed by Lab gates.
+- `POST /api/v1/scientist-trigger` — manual or cron trigger for the shared daily run; creates a Firstmate task only when the dispatch bridge accepts it.
+- `POST /api/v1/scientist-trigger-event` — append Firstmate task completion/failure against the exact dispatched task ID.
 - `GET /api/zones`, `/api/trials`, `/api/outcomes`, `/api/calendar-events`, `/api/fills` — local exports.
 
 Example requests are under [`examples/`](examples/).
+
+## Chief Scientist manual and cron paths
+
+The run tracker has **Run Chief Scientist now**, **Run / resume Chief Scientist**, and **Upload specialist data package** controls. Manual requests use the same `trade_date × asset × dated contract × method_version` run as scheduled jobs. A completed manual prediction suppresses duplicate pre-session cron work for that run. Session close, evaluation, release, and daily learning remain scheduled.
+
+The daily package format is [`daily-data-package.schema.json`](daily-data-package.schema.json). The Lead Researcher coordinates it; the Analyst checks rights, source identity, cutoff, freshness, timeframe coverage, session calendar, contract, risk rules, costs, and every candidate-level disposition. Cleo contributes level mapping. A blocked package is retained with explicit reasons. A prediction step cannot be marked complete without a ready package.
+
+The weekly experiment and team review gates are defined in [`docs/CHIEF-SCIENTIST-WEEKLY-EXPERIMENT.md`](../docs/CHIEF-SCIENTIST-WEEKLY-EXPERIMENT.md). Freeze the weekly question, baseline, sample/coverage thresholds, session dates, source boundary, and decision rules in the dashboard before forecasting; manual pre-session dispatch and forecast completion require a matching registration. The dashboard can append a weekly review after Friday has closed and every included forecast is resolved. Each review stores its scorecard snapshot and hash, preregistration ID/hash, Chief synthesis, testing and independent dispositions, proposed next-week action, and the Firstmate disposition entered by the user. These rows are immutable; a pre-forecast plan correction or later review correction appends a revision. The scorecard remains descriptive, and the form does not dispatch reviewers or approve a method change. Use [`templates/weekly-review-template.md`](templates/weekly-review-template.md) for the full completeness checks.
+
+The local Firstmate dispatch adapter uses these runtime environment variables:
+
+```bash
+export LIQUIDITY_LAB_FIRSTMATE_DISPATCH_URL='https://<approved-firstmate-dispatch-endpoint>'
+export LIQUIDITY_LAB_FIRSTMATE_DISPATCH_TOKEN='<local-secret>'
+```
+
+The adapter contract is `firstmate-scientist-dispatch-v1`; it must enqueue the task and return a `task_id` before the task runs. The task receives the run and trigger event IDs, required roles, package-first instructions, and submission endpoints. It later posts `completed` or `failed` against that exact trigger event ID. Use HTTPS except for loopback development. Keep the token out of Git and the browser. Without the bridge, trigger attempts append a `blocked` event and do not claim that analysis ran.
+
+If Firstmate workers cannot reach the same host's loopback interface, set `LIQUIDITY_LAB_CALLBACK_BASE_URL` to the Lab's approved HTTPS endpoint. The bridge must authenticate its callbacks using the Lab's configured webhook secret, and return the supplied `trigger_event_id` with the task ID so completion can be attached to the exact dispatch.
+
+The cron adapter reads `scientist-crons.json` and runs any job due in the current Chicago minute. Before enabling it, create `data/scientist-scheduler.local.json` from [`examples/scientist-scheduler.local.example.json`](examples/scientist-scheduler.local.example.json), then set dated contracts and approved exchange-calendar boundaries for upcoming trade dates. A missing contract or calendar entry is logged as blocked and does not create a forecast. Install this line in the operating system crontab only after the local config and Firstmate bridge are ready:
+
+```cron
+* * * * * cd "/path/to/The Trader - a trading company" && python3 liquidity-lab/scientist_cron.py --tick >> liquidity-lab/data/scientist-cron-console.log 2>&1
+```
+
+The Lab does not install a system crontab automatically, and the dashboard cannot detect whether an OS crontab was installed. Local scheduler config and logs are gitignored. The runner requires an approved session record for each target trade date; it does not infer holiday or early-close hours from regular-session defaults.
 
 ## Outcome semantics
 

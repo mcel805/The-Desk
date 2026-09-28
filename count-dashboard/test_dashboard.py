@@ -46,6 +46,54 @@ class DashboardTest(unittest.TestCase):
         self.assertGreaterEqual(daily["bars"], 500)
         self.assertGreaterEqual(daily["last_time"] - daily["first_time"], 700 * 86400)
 
+    def test_chart_sim_waits_for_confirmed_next_bar_and_records_source(self):
+        symbol = "CBOT_MINI:MYM1!"
+        base = 1_800_000_000
+
+        def ingest(*bars):
+            return server.ingest_bars(self.db, {
+                "provider": "Permitted paper test feed", "symbol": symbol,
+                "timeframe": "1M", "mode": "DELAYED", "bars": list(bars),
+            })
+
+        def bar(offset, opening, closing):
+            return {"time": base + offset * 60, "open": opening,
+                    "high": max(opening, closing) + 1,
+                    "low": min(opening, closing) - 1, "close": closing, "volume": 10}
+
+        ingest(bar(0, 100, 100))
+        no_levels = server.open_chart_sim_position(self.db, {
+            "symbol": symbol, "timeframe": "1M", "side": "short", "quantity": "1",
+            "bar_time": base, "stop_price": None, "target_price": None,
+        })
+        self.assertIsNone(no_levels["stop_price"])
+        server.cancel_chart_sim_order(self.db, no_levels["order_id"])
+        order = server.open_chart_sim_position(self.db, {
+            "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
+            "bar_time": base, "stop_price": 99, "target_price": 105,
+        })
+        self.assertEqual("queued", server.advance_chart_sim_order(self.db, order["order_id"])["status"])
+        ingest(bar(1, 101, 102))
+        self.assertEqual([], server.chart_sim_rows(self.db, symbol))
+        result = ingest(bar(2, 102, 102))
+        self.assertEqual(1, result["paperFills"])
+        position = server.chart_sim_rows(self.db, symbol)[0]
+        self.assertEqual(101, position["entry_price"])
+        self.assertEqual(base + 60, position["entry_bar_time"])
+        self.assertIn("Permitted paper test feed", position["entry_source"])
+        exit_request = server.close_chart_sim_position(self.db, {
+            "position_id": position["position_id"], "bar_time": base + 120,
+        })
+        self.assertEqual("closing", exit_request["status"])
+        ingest(bar(3, 103, 104))
+        self.assertEqual("closing", server.chart_sim_rows(self.db, symbol)[0]["status"])
+        result = ingest(bar(4, 104, 104))
+        self.assertEqual(1, result["paperExits"])
+        closed = server.chart_sim_rows(self.db, symbol)[0]
+        self.assertEqual("closed", closed["status"])
+        self.assertEqual(103, closed["exit_price"])
+        self.assertEqual(1.0, closed["gross_pnl"])
+
     def test_cutoff_excludes_future_bars_and_run_is_cached(self):
         last = self.db.execute("SELECT MAX(time) FROM bars WHERE symbol='COINBASE:BTCUSD' AND timeframe='1D'").fetchone()[0]
         first = server.build_count(self.db, "COINBASE:BTCUSD", "1D", last - 30 * 86400)

@@ -1,4 +1,4 @@
-# Chart Technician — pre-market practice baseline
+# Cleo — Elliott Wave pre-market practice baseline
 
 Draft v0.2 · September 10, 2026
 

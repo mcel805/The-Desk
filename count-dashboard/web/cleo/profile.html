@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Add your name and email to set up Cleo." />
+    <title>Tell us who you are — Cleo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111214;
+        --muted: #77797d;
+        --line: #e4e5e8;
+        --focus: #5b9f90;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-height: 100svh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 36px 24px;
+        background: #fff;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main { width: min(100%, 496px); margin-top: -24px; }
+
+      h1 {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(32px, 4vw, 42px);
+        font-weight: 400;
+        line-height: 1.15;
+        letter-spacing: -0.045em;
+      }
+
+      .intro {
+        max-width: 420px;
+        margin: 18px 0 42px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      .fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .fields input {
+        width: 100%;
+        min-width: 0;
+        height: 62px;
+        padding: 0 20px;
+        border: 1.5px solid var(--line);
+        border-radius: 5px;
+        outline: 0;
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+        font-size: 19px;
+      }
+
+      .fields input::placeholder { color: #b5b6b9; opacity: 1; }
+      .fields input:focus { border-color: #929497; box-shadow: 0 0 0 2px rgb(91 159 144 / 20%); }
+      .email { grid-column: 1 / -1; }
+
+      button {
+        width: 100%;
+        min-height: 66px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 30px;
+        border: 0;
+        border-radius: 15px;
+        background: var(--ink);
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      button:hover { background: #282a2c; }
+      button:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+
+      .note { min-height: 21px; margin: 12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+      .session {
+        display: flex;
+        justify-content: center;
+        gap: 22px;
+        margin-top: 50px;
+        color: #9a9b9e;
+        font-size: 14px;
+      }
+
+      a { color: inherit; text-underline-offset: 3px; }
+      a:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+
+      @media (max-width: 520px) {
+        body { padding: 28px 22px; }
+        main { margin-top: -8px; }
+        .intro { margin-bottom: 34px; }
+        .fields { gap: 10px; }
+        .fields input { height: 56px; padding: 0 12px; font-size: 17px; }
+        button { margin-top: 24px; }
+        .session { margin-top: 36px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Tell us who you are</h1>
+      <p class="intro">We’ll use your email to reach you about your account.</p>
+
+      <form id="profile-form">
+        <div class="fields">
+          <input name="first-name" type="text" autocomplete="given-name" placeholder="First name" aria-label="First name" required />
+          <input name="last-name" type="text" autocomplete="family-name" placeholder="Last name" aria-label="Last name" required />
+          <input class="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email address" required />
+        </div>
+        <button type="submit">Continue <span aria-hidden="true">→</span></button>
+        <p class="note" id="profile-note" aria-live="polite">Preview only. These details won’t be saved or sent.</p>
+      </form>
+
+      <div class="session"><a href="index.html">Back to CLEO</a></div>
+    </main>
+
+    <script>
+      document.getElementById("profile-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        window.location.assign("avatar.html");
+      });
+    </script>
+  </body>
+</html>

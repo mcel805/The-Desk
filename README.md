@@ -10,9 +10,9 @@ The repository is research-led and paper/shadow only. Local generated artifacts 
 
 [Forward-lab protocol](docs/MYM-LIQUIDITY-ZONE-FORWARD-LAB-PLAN-v0.1.md) documents the scientific design and promotion gates.
 
-## Chart Technician Agent
+## Cleo Agent
 
-[Chart Technician](agents/chart-technician/README.md) provides reusable Daily Elliott Wave agent instructions, a primary-source reference library, a literature curriculum, and a blind evaluation plan. The package is ready to load into an agent; it is not a deployed service or a trained model.
+[Cleo](agents/cleo/README.md) provides reusable Daily Elliott Wave agent instructions, a primary-source reference library, a literature curriculum, and a blind evaluation plan. The package is ready to load into an agent; it is not a deployed service or a trained model.
 
 ## First evidence drop
 

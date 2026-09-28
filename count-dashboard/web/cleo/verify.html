@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Enter your Cleo sign-up code." />
+    <title>Enter your code — Cleo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111214;
+        --muted: #77797d;
+        --line: #e2e3e6;
+        --focus: #5b9f90;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-height: 100svh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 36px 24px;
+        background: #fff;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main { width: min(100%, 536px); margin-top: -24px; }
+
+      h1 {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(32px, 4vw, 42px);
+        font-weight: 400;
+        line-height: 1.15;
+        letter-spacing: -0.045em;
+      }
+
+      .intro {
+        margin: 18px 0 42px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+      legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+
+      .digits {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .digit {
+        width: 100%;
+        min-width: 0;
+        height: 88px;
+        padding: 0;
+        border: 1.5px solid var(--line);
+        border-radius: 7px;
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+        font-size: 30px;
+        text-align: center;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
+      }
+
+      .digit:focus { border-color: #929497; outline: 2px solid rgb(91 159 144 / 24%); }
+      .notice { margin: 24px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+
+      button {
+        width: 100%;
+        min-height: 66px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 42px;
+        border: 0;
+        border-radius: 15px;
+        background: var(--ink);
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      button:hover { background: #282a2c; }
+      button:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+
+      .status { min-height: 24px; margin: 13px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+      .links { margin: 20px 0 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
+      a { color: inherit; text-underline-offset: 3px; }
+      a:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+
+      @media (max-width: 520px) {
+        body { padding: 28px 22px; }
+        main { margin-top: -8px; }
+        .intro { margin-bottom: 34px; }
+        .digits { gap: 8px; }
+        .digit { height: 68px; font-size: 26px; }
+        button { margin-top: 34px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Enter your code</h1>
+      <p class="intro">Demo account: +1 (916) 833-3557. No code was sent. Enter any six digits to preview the next step.</p>
+
+      <form id="verify-form">
+        <fieldset>
+          <legend>Six-digit verification code</legend>
+          <div class="digits">
+            <input class="digit" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{1,6}" aria-label="Digit 1 of 6" required />
+            <input class="digit" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]" aria-label="Digit 2 of 6" required />
+            <input class="digit" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]" aria-label="Digit 3 of 6" required />
+            <input class="digit" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]" aria-label="Digit 4 of 6" required />
+            <input class="digit" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]" aria-label="Digit 5 of 6" required />
+            <input class="digit" type="text" inputmode="numeric" maxlength="1" pattern="[0-9]" aria-label="Digit 6 of 6" required />
+          </div>
+        </fieldset>
+        <button type="submit">Continue <span aria-hidden="true">→</span></button>
+        <p class="status" id="verify-status" aria-live="polite"></p>
+      </form>
+
+      <p class="links">Demo preview only; SMS delivery and code checking aren’t active. <a href="index.html">Back to CLEO</a></p>
+    </main>
+
+    <script>
+      const fields = [...document.querySelectorAll(".digit")];
+
+      function fillFrom(index, text) {
+        const digits = text.replace(/\D/g, "").slice(0, fields.length - index);
+        [...digits].forEach((digit, offset) => {
+          fields[index + offset].value = digit;
+        });
+        const next = Math.min(index + digits.length, fields.length - 1);
+        fields[next].focus();
+        fields[next].select();
+      }
+
+      fields.forEach((field, index) => {
+        field.addEventListener("input", () => {
+          const digits = field.value.replace(/\D/g, "");
+          if (digits.length > 1) {
+            fillFrom(index, digits);
+          } else {
+            field.value = digits;
+            if (digits && index < fields.length - 1) fields[index + 1].focus();
+          }
+        });
+
+        field.addEventListener("keydown", (event) => {
+          if (event.key === "Backspace" && !field.value && index > 0) fields[index - 1].focus();
+          if (event.key === "ArrowLeft" && index > 0) fields[index - 1].focus();
+          if (event.key === "ArrowRight" && index < fields.length - 1) fields[index + 1].focus();
+        });
+
+        field.addEventListener("paste", (event) => {
+          event.preventDefault();
+          fillFrom(index, event.clipboardData.getData("text"));
+        });
+      });
+
+      document.getElementById("verify-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        window.location.assign("profile.html");
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "version": "scientist-scheduler-local-v1",
+  "method_version": "liquidity-loop-v0.3",
+  "contracts": {
+    "MYM": "",
+    "MCL": "",
+    "MGC": ""
+  },
+  "sessions": {
+    "YYYY-MM-DD": {
+      "approved": true,
+      "source_id": "approved-exchange-calendar-source-id",
+      "session_open": "YYYY-MM-DDTHH:MM:SSZ",
+      "session_close": "YYYY-MM-DDTHH:MM:SSZ"
+    }
+  }
+}

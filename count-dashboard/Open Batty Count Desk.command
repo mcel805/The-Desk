@@ -4,8 +4,16 @@ set -e
 SCRIPT_DIR="${0:A:h}"
 cd "$SCRIPT_DIR/.."
 
+COUNT_DESK_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+if [[ ! -x "$COUNT_DESK_PYTHON" ]]; then
+  python3 -m venv "$SCRIPT_DIR/.venv"
+fi
+if ! "$COUNT_DESK_PYTHON" -c 'import eth_account' >/dev/null 2>&1; then
+  "$COUNT_DESK_PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt"
+fi
+
 if ! curl -fsS http://127.0.0.1:8770/api/health >/dev/null 2>&1; then
-  nohup python3 count-dashboard/server.py >count-dashboard/data/server.log 2>&1 &
+  nohup "$COUNT_DESK_PYTHON" count-dashboard/server.py >count-dashboard/data/server.log 2>&1 &
   for attempt in {1..40}; do
     curl -fsS http://127.0.0.1:8770/api/health >/dev/null 2>&1 && break
     sleep 0.1

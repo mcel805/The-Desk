@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Log in to CLEO with the demo account." />
+    <title>Log in to CLEO</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111214;
+        --muted: #77797d;
+        --line: #a5a6a8;
+        --focus: #5b9f90;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-height: 100svh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 36px 24px;
+        background: #fff;
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main {
+        width: min(100%, 458px);
+        margin-top: -24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(32px, 4vw, 42px);
+        font-weight: 400;
+        line-height: 1.15;
+        letter-spacing: -0.045em;
+      }
+
+      .intro {
+        margin: 18px 0 42px;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.45;
+      }
+
+      .phone-field {
+        display: flex;
+        min-height: 64px;
+        align-items: center;
+        border: 1.5px solid var(--line);
+        border-radius: 5px;
+        box-shadow: 0 0 0 1px rgb(0 0 0 / 3%);
+      }
+
+      .phone-field:focus-within {
+        border-color: var(--focus);
+        box-shadow: 0 0 0 2px rgb(91 159 144 / 18%);
+      }
+
+      select {
+        width: 94px;
+        min-height: 42px;
+        padding: 0 12px;
+        border: 0;
+        border-right: 1px solid #dedede;
+        border-radius: 0;
+        background: transparent;
+        color: #333;
+        font: inherit;
+        font-size: 15px;
+      }
+
+      input {
+        width: 100%;
+        min-width: 0;
+        padding: 13px 14px;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        font-size: 20px;
+      }
+
+      input::placeholder { color: #b6b7b9; opacity: 1; }
+
+      .terms {
+        margin: 27px 0 47px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      button {
+        width: 100%;
+        min-height: 66px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        border: 0;
+        border-radius: 15px;
+        background: var(--ink);
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      button:hover { background: #282a2c; }
+      button:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+      button svg { width: 20px; height: 20px; }
+
+      .notice {
+        min-height: 24px;
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .back {
+        display: inline-block;
+        margin-top: 28px;
+        color: #595b5e;
+        font-size: 15px;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      .back:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
+
+      @media (max-width: 520px) {
+        body { padding: 28px 22px; }
+        main { margin-top: -8px; }
+        .intro { margin-bottom: 34px; }
+        .terms { margin-top: 22px; margin-bottom: 36px; font-size: 15px; }
+      }
+
+      body {
+        display: block;
+        min-height: 100svh;
+        padding: 0;
+        overflow-x: hidden;
+        background: #05040b;
+        color: #f6f3fb;
+      }
+
+      .screen { position: relative; min-height: 100svh; display: flex; flex-direction: column; isolation: isolate; padding: 22px 28px 17px; }
+      .scene { position: absolute; z-index: -2; right: 0; bottom: 0; left: 0; height: min(58vh, 660px); background: linear-gradient(180deg, #05040b 0%, rgb(5 4 11 / 4%) 36%), url("cleo-scene.svg") center bottom / cover no-repeat; }
+      .scene::after { position: absolute; inset: 0; background: linear-gradient(180deg, #05040b 0%, rgb(5 4 11 / 8%) 28%, rgb(5 4 11 / 4%) 60%, rgb(5 4 11 / 24%) 100%); content: ""; }
+      .brand { position: relative; z-index: 2; display: flex; align-items: center; gap: 11px; color: #f3eff7; }
+      .brand svg,.brand img { width: 34px; height: 38px; object-fit: contain; }
+      .brand span { font-size: 13px; font-weight: 750; letter-spacing: .18em; }
+      main { position: relative; z-index: 2; width: min(100%, 456px); margin: clamp(72px, 13vh, 152px) auto 0; }
+      h1 { max-width: 390px; margin: 0 auto; color: #f6f3fb; text-align: center; font-family: inherit; font-size: clamp(29px, 4vw, 38px); line-height: 1.14; font-weight: 680; letter-spacing: -.04em; }
+      .intro { margin: 17px auto 27px; color: #c2bfcb; text-align: center; }
+      .phone-field { min-height: 58px; border-color: rgb(234 230 242 / 28%); border-radius: 10px; background: rgb(13 12 23 / 86%); box-shadow: none; }
+      select { color: #eeeaf5; border-color: rgb(234 230 242 / 19%); }
+      select option { background: #11101d; color: #f6f3fb; }
+      input { color: #f6f3fb; font-size: 17px; }
+      .terms { margin: 14px 0 14px; color: #a7a4b4; text-align: center; font-size: 13px; line-height: 1.45; }
+      button { min-height: 58px; border-radius: 999px; background: #f8f7fb; color: #111018; }
+      button:hover { background: #fff; }
+      .notice { color: #a7a4b4; text-align: center; }
+      .back { position: relative; z-index: 2; display: block; width: fit-content; margin: 20px auto 0; color: #cecad5; }
+      footer { position: relative; z-index: 2; display: flex; justify-content: space-between; gap: 14px; margin-top: auto; padding-top: 30px; color: #aaa7b3; font-size: 12px; }
+      footer span:last-child { text-align: right; }
+      .phone-field:focus-within { border-color: #7de2d0; box-shadow: 0 0 0 3px rgb(125 226 208 / 16%); }
+
+      @media (max-width: 600px) {
+        .screen { padding: 18px 18px 15px; }
+        .scene { height: 46vh; min-height: 300px; background-size: auto 100%; }
+        main { margin-top: clamp(62px, 10vh, 86px); }
+        .intro { margin-bottom: 23px; font-size: 15px; }
+        .phone-field { min-height: 54px; }
+        .terms { margin-top: 14px; margin-bottom: 14px; font-size: 13px; }
+        button { min-height: 56px; margin-top: 0; }
+        .back { margin-top: 17px; }
+        footer { font-size: 11px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="scene" aria-hidden="true"></div>
+      <header class="brand" aria-label="CLEO by Batty Inc.">
+        <img src="../cleo-mark.svg" alt="" />
+        <span>CLEO</span>
+      </header>
+    <main>
+      <h1>Log in to CLEO</h1>
+      <p class="intro">Continue with the CLEO demo account.</p>
+
+      <form id="signup-form">
+        <div class="phone-field">
+          <label for="country" hidden>Country calling code</label>
+          <select id="country" name="country" aria-label="Country calling code" disabled>
+            <option value="+1">🇺🇸 +1</option>
+            <option value="+1">🇨🇦 +1</option>
+            <option value="+44">🇬🇧 +44</option>
+            <option value="+61">🇦🇺 +61</option>
+          </select>
+          <label for="phone" hidden>Phone number</label>
+          <input id="phone" name="phone" type="tel" aria-label="Demo account phone number" inputmode="tel" autocomplete="tel-national" value="(916) 833-3557" readonly />
+        </div>
+
+        <p class="terms">Demo account for testing. SMS delivery isn’t connected, so no code will be sent.</p>
+
+        <button type="submit">
+          Continue
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 12h15m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <p class="notice" id="signup-status" aria-live="polite">Preview only. Verification isn’t active.</p>
+      </form>
+
+      <a class="back" href="index.html">Back to CLEO</a>
+    </main>
+      <footer><span>Everything trading.</span><span>A Batty Inc. product · Preview</span></footer>
+    </div>
+
+    <script>
+      document.getElementById("signup-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        window.location.assign("verify.html");
+      });
+    </script>
+  </body>
+</html>
