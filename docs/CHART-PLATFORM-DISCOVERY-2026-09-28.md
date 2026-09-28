@@ -69,7 +69,9 @@ feed, and any other recurring fees before setting a dollar target. Compare
 **incremental** Count Desk cost and **all-in** cost separately; broker/exchange
 fees may remain in either workflow. The local chart library avoids a TradingView
 platform subscription, but it does not include futures data or broker API
-rights. A provider-neutral adapter should make the data path replaceable.
+rights. This recurring-bill target does not count the time and expense of
+building and maintaining the custom platform; track those separately. A
+provider-neutral adapter should make the data path replaceable.
 
 The user confirmed **AMP with CQG** as their current broker/feed. [AMP's
 published nonprofessional exchange schedule](https://www.ampfutures.com/trading-info/exchange-data-fees)
@@ -109,7 +111,7 @@ Advanced subscription is **not** a demonstrated low-cost solution compared
 with an Essential-level TradingView setup. A broker-feed reuse path may be
 cheaper, but API access, entitlements, allowed local display, latency, and
 cost remain unverified for the user's actual broker. Do not promise a savings
-percentage until that path and the user's current bill are known.
+percentage until that path and the user's estimated bill are verified.
 
 Priority order: (1) make the simulator's chart trading and bracket workflow
 excellent on stored data, (2) qualify a low-cost, authorized, timely futures
