@@ -60,6 +60,78 @@ TIMEFRAME_ORDER = ("1M", "2M", "3M", "5M", "15M", "30M", "1H", "4H", "1D")
 FEED_SYNC_INTERVAL_SECONDS = 5 * 60
 LIQUIDITY_LAB_URL = "http://127.0.0.1:8041/"
 _LIQUIDITY_LAB_START_LOCK = Lock()
+LUXALGO_ROOT = WORKSPACE / "integrations" / "luxalgo"
+LUXALGO_MCP_TOOLS = (
+    "library_search", "library_get_concept", "library_get_indicator", "library_get_source_code",
+    "journal_list_accounts", "journal_overview", "journal_calendar", "journal_breakdown",
+    "journal_list_trades", "journal_get_trade", "journal_get_day", "journal_list_tags",
+    "journal_search_notes", "broker_setup", "broker_accounts", "broker_positions",
+    "broker_trades", "broker_stats", "broker_refresh", "edge_symbols", "edge_presets",
+    "edge_report", "trackers_datasets", "trackers_query", "trackers_latest", "trackers_ticker",
+    "propfirms_search", "propfirms_search_challenges", "propfirms_search_offers", "propfirms_get",
+    "propfirms_pass_rates", "propfirms_validate_strategy",
+)
+
+
+def luxalgo_integration_status() -> dict:
+    """Return a credential-free, read-only capability report for LuxAlgo modules."""
+    mcp_binary = LUXALGO_ROOT / "node_modules" / ".bin" / "luxalgo-mcp"
+    sdk_installed = (LUXALGO_ROOT / "node_modules" / "@luxalgo" / "broker-sdk").is_dir()
+    mcp_installed = mcp_binary.is_file()
+    enabled = os.environ.get("BATTY_LUXALGO_MCP_ENABLED", "").strip().lower() in {"1", "true", "yes"}
+    catalog = []
+    catalog_error = ""
+    if sdk_installed and (LUXALGO_ROOT / "broker-catalog.mjs").is_file():
+        try:
+            result = subprocess.run(
+                ["node", "broker-catalog.mjs"], cwd=LUXALGO_ROOT,
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            if result.returncode == 0:
+                catalog = json.loads(result.stdout).get("brokers", [])
+            else:
+                catalog_error = (result.stderr or "broker catalog failed").strip()[:240]
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            catalog_error = str(exc)[:240]
+    return {
+        "readOnly": True,
+        "generatedAt": utc_now(),
+        "mcp": {
+            "installed": mcp_installed,
+            "enabledForCleo": enabled,
+            "command": str(mcp_binary) if mcp_installed else None,
+            "allowedTools": list(LUXALGO_MCP_TOOLS),
+            "writeToolsEnabled": False,
+            "executionRelayEnabled": False,
+        },
+        "brokerSdk": {
+            "installed": sdk_installed,
+            "catalogAvailable": bool(catalog),
+            "catalogError": catalog_error or None,
+            "brokers": catalog,
+            "credentialsConfigured": False,
+            "accountWritesEnabled": False,
+            "orderRoutingEnabled": False,
+        },
+        "tradeJournal": {
+            "status": "local_count_desk_journal",
+            "countDeskRoutes": ["/api/trade-journal", "/api/trade-journal/import", "/api/trade-journal/paper-trades"],
+            "brokerImport": "read-only summaries or CSV execution import",
+            "luxAlgoWriteThrough": False,
+        },
+        "edgeStats": {
+            "status": "read_only_paper_gate",
+            "mcpTools": ["edge_symbols", "edge_presets", "edge_report"],
+            "requiredInputs": ["authorized source", "time window", "sample size", "uncertainty", "freshness"],
+            "liveClaimsEnabled": False,
+        },
+        "optionalModules": {
+            "propFirmSim": {"status": "paper_only", "mcpTools": ["propfirms_pass_rates", "propfirms_validate_strategy"]},
+            "marketTrackers": {"status": "public_record_read_only", "mcpTools": ["trackers_datasets", "trackers_query", "trackers_latest", "trackers_ticker"]},
+            "whaleOptions": {"status": "blocked_until_authorized_feed"},
+            "tradeRelay": {"status": "disabled", "reason": "execution-capable module"},
+        },
+    }
 
 
 def liquidity_lab_health() -> dict:
@@ -2477,6 +2549,10 @@ class Handler(SimpleHTTPRequestHandler):
                         {"id": "gpt-6-astra", "label": "GPT-6 Astra"},
                     ],
                 })
+            if parsed.path == "/api/integrations/luxalgo":
+                if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                    return self.send_json({"error": "Integration status is available on this local device only."}, 403)
+                return self.send_json(luxalgo_integration_status())
             try:
                 with connect(self.server.db_path) as db:  # type: ignore[attr-defined]
                     if parsed.path == "/api/health":
@@ -2844,16 +2920,7 @@ class Handler(SimpleHTTPRequestHandler):
                     ],
                 }
                 luxalgo_mcp_path = ROOT.parent / "integrations" / "luxalgo" / "node_modules" / ".bin" / "luxalgo-mcp"
-                luxalgo_mcp_tools = [
-                    "library_search", "library_get_concept", "library_get_indicator", "library_get_source_code",
-                    "journal_list_accounts", "journal_overview", "journal_calendar", "journal_breakdown",
-                    "journal_list_trades", "journal_get_trade", "journal_get_day", "journal_list_tags",
-                    "journal_search_notes", "broker_setup", "broker_accounts", "broker_positions",
-                    "broker_trades", "broker_stats", "broker_refresh", "edge_symbols", "edge_presets",
-                    "edge_report", "trackers_datasets", "trackers_query", "trackers_latest", "trackers_ticker",
-                    "propfirms_search", "propfirms_search_challenges", "propfirms_search_offers", "propfirms_get",
-                    "propfirms_pass_rates", "propfirms_validate_strategy",
-                ]
+                luxalgo_mcp_tools = list(LUXALGO_MCP_TOOLS)
                 for key, value in mcp_config.items():
                     if isinstance(value, dict):
                         for nested_key, nested_value in value.items():

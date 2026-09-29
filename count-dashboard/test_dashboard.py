@@ -92,6 +92,22 @@ class DashboardTest(unittest.TestCase):
         }, clear=True):
             self.assertEqual("quote_configured", tickstream.config_status())
 
+    def test_luxalgo_status_is_read_only_and_credentials_free(self):
+        catalog = MagicMock(returncode=0, stdout=json.dumps({"brokers": [{"id": "topstep"}]}), stderr="")
+        with patch.object(server.subprocess, "run", return_value=catalog) as run, patch.dict(
+            os.environ, {"BATTY_LUXALGO_MCP_ENABLED": "1"}, clear=False
+        ):
+            status = server.luxalgo_integration_status()
+        self.assertTrue(status["readOnly"])
+        self.assertTrue(status["mcp"]["enabledForCleo"])
+        self.assertFalse(status["mcp"]["writeToolsEnabled"])
+        self.assertFalse(status["mcp"]["executionRelayEnabled"])
+        self.assertFalse(status["brokerSdk"]["credentialsConfigured"])
+        self.assertFalse(status["brokerSdk"]["orderRoutingEnabled"])
+        self.assertEqual("read_only_paper_gate", status["edgeStats"]["status"])
+        self.assertEqual("disabled", status["optionalModules"]["tradeRelay"]["status"])
+        run.assert_called_once()
+
     def test_seeded_catalog_and_derived_timeframes(self):
         items = {x["symbol"]: x for x in server.catalog(self.db)}
         self.assertIn("COINBASE:BTCUSD", items)

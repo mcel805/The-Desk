@@ -341,6 +341,24 @@ instrument and session rules as well: for example, MYM continuous-contract roll
 handling and the exchange session used to build Daily bars. The data provider
 name returned by the adapter is recorded with each import.
 
+## LuxAlgo integration gates
+
+The local LuxAlgo workspace at `integrations/luxalgo/` contains the MIT broker
+SDK and MCP sidecar. Count Desk starts the sidecar only for a local Cleo chat
+turn when `BATTY_LUXALGO_MCP_ENABLED=1` is set; its allowlist includes library,
+journal-read, broker-read, Edge Stats, tracker, and prop-firm research tools.
+Journal writes, broker account changes, the experimental orders module, and
+Trade Relay are disabled. Credentials never enter browser code or chat
+prompts.
+
+`GET /api/integrations/luxalgo` exposes a credential-free capability report,
+including the installed broker catalog, MCP enablement, Count Desk journal
+boundary, Edge Stats requirements, and optional-module gates. The Resources
+page renders that report so a disabled or rights-gated source is visible rather
+than implied to be connected. Edge Stats remains limited to authorized bars or
+paper/shadow fills and must retain its time window, sample size, confidence,
+uncertainty, and freshness.
+
 ## MCP data sync controls
 
 The Count Desk offers a licensed-adapter source, a manual **Sync now** button,
