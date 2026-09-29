@@ -8,7 +8,7 @@ COUNT_DESK_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
 if [[ ! -x "$COUNT_DESK_PYTHON" ]]; then
   python3 -m venv "$SCRIPT_DIR/.venv"
 fi
-if ! "$COUNT_DESK_PYTHON" -c 'import eth_account' >/dev/null 2>&1; then
+if ! "$COUNT_DESK_PYTHON" -c 'import eth_account, tickstream, websocket' >/dev/null 2>&1; then
   "$COUNT_DESK_PYTHON" -m pip install -r "$SCRIPT_DIR/requirements.txt"
 fi
 

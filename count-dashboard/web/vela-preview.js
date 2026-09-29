@@ -217,23 +217,31 @@ function renderCleoBriefing(contract) {
 }
 
 function tickstreamTicker(symbol) {
-  const match = String(symbol || '').match(/(?:^|:)(MES|MNQ|MCL|MGC|MYM)(?:1!|$)/i);
-  return match ? match[1].toUpperCase() : '';
+  if (String(symbol || '').toUpperCase() === 'TICKSTREAM:NQ') return 'NQ';
+  return '';
 }
 
 function renderTickstreamReadiness(source) {
-  const status = source?.status || 'unknown';
+  const status = source?.state || source?.status || 'unknown';
   const labels = {
-    not_connected: ['SETUP NEEDED', 'Add the server key; the browser never receives it.'],
-    rights_confirmation_required: ['RIGHTS CHECK', 'Confirm the plan terms for displaying recent ticks before probing.'],
-    quote_only: ['READY · TICK PROBE', 'Read-only recent-tick check; no chart candles or paper fills.'],
+    not_connected: ['KEY NEEDED', 'Add the server key to count-dashboard/.env, then restart Count Desk.'],
+    connecting: ['CONNECTING · NQ', 'Opening the server-side stream and loading recent ticks.'],
+    connected: ['CONNECTED · NQ', `One-minute bars update from the server stream; ${tickstreamLag(source?.lastSourceTime)}; candles stay in memory.`],
+    error: ['STREAM ERROR', source?.message || 'Tickstream connection needs attention.'],
   };
   const [label, note] = labels[status] || ['UNAVAILABLE', 'Tickstream readiness is not confirmed.'];
   $('#velaTickstreamReadiness').textContent = label;
   $('#velaTickstreamReadinessMeta').textContent = note;
   $('#velaTickstreamReadiness').dataset.state = status;
-  $('#velaTickstreamProbe').disabled = status !== 'quote_only' || !tickstreamTicker($('#velaSymbol').value);
-  if (status !== 'quote_only') $('#velaTickstreamStatus').textContent = note;
+  $('#velaTickstreamProbe').disabled = status === 'not_connected' || !tickstreamTicker($('#velaSymbol').value);
+  $('#velaTickstreamStatus').textContent = source?.message || note;
+}
+
+function tickstreamLag(sourceTime) {
+  const parsed = Date.parse(sourceTime || '');
+  if (!Number.isFinite(parsed)) return 'waiting for source time';
+  const minutes = Math.max(0, Math.round((Date.now() - parsed) / 60000));
+  return `observed source lag about ${minutes}m`;
 }
 
 async function refreshFeedState(market, timeframe) {
@@ -245,7 +253,7 @@ async function refreshFeedState(market, timeframe) {
     const tickstream = (sources.sources || []).find(item => item.id === 'tickstream');
     $('#velaFeedState').textContent = `${status.provider || 'Historical source'} · ${status.mode || 'UNKNOWN'}`;
     $('#velaFeedMeta').textContent = `${status.message || 'Source status available.'} Tickstream: ${tickstream?.status || 'unknown'}.`;
-    renderTickstreamReadiness(tickstream);
+    renderTickstreamReadiness(await getJson('/api/tickstream/status'));
   } catch (error) {
     $('#velaFeedState').textContent = 'Source status unavailable';
     $('#velaFeedMeta').textContent = error.message;
@@ -254,7 +262,7 @@ async function refreshFeedState(market, timeframe) {
 }
 
 async function probeTickstream() {
-  const ticker = tickstreamTicker($('#velaSymbol').value);
+  const ticker = 'NQ';
   const status = $('#velaTickstreamStatus');
   const button = $('#velaTickstreamProbe');
   if (!ticker) {
@@ -262,14 +270,87 @@ async function probeTickstream() {
     return;
   }
   button.disabled = true;
-  status.textContent = `Requesting recent ${ticker} ticks…`;
   try {
-    const tick = await getJson(`/api/feed/quote?symbol=${encodeURIComponent(ticker)}`);
-    const sourceTime = tick.sourceTimestamp ? ` · source ${new Date(tick.sourceTimestamp).toLocaleString()}` : ' · source timestamp unavailable';
-    const delay = tick.delayMinutes == null ? '' : ` · delayed ${tick.delayMinutes}m`;
-    status.textContent = `${tick.provider} · ${tick.symbol} last tick ${tick.price}${sourceTime}${delay} · received ${new Date(tick.retrievedAt).toLocaleTimeString()}`;
+    const state = await getJson('/api/tickstream/status');
+    renderTickstreamReadiness(state);
+    $('#velaSymbol').value = 'TICKSTREAM:NQ';
+    $('#velaTimeframe').value = '1M';
+    await loadTickstreamChart();
   } catch (error) {
     status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function tickstreamDataFeed() {
+  const getBars = async () => (await getJson('/api/tickstream/bars?symbol=NQ')).bars || [];
+  return {
+    async load() {
+      const bars = await getBars();
+      if (!bars.length) throw new Error('Tickstream is connected but no NQ chart ticks have arrived yet.');
+      return bars.map(bar => ({...bar, time:Number(bar.time) * 1000}));
+    },
+    subscribe(_market, onBar) {
+      let stopped = false;
+      let signature = '';
+      const poll = async () => {
+        if (stopped) return;
+        try {
+          const bar = (await getBars()).at(-1);
+          if (!bar) return;
+          const next = `${bar.time}:${bar.open}:${bar.high}:${bar.low}:${bar.close}:${bar.volume}`;
+          if (next !== signature) {
+            signature = next;
+            onBar({...bar, time:Number(bar.time) * 1000});
+          }
+        } catch { /* Tickstream reconnect is managed by the server-side SDK. */ }
+      };
+      void poll();
+      const timer = setInterval(poll, 1200);
+      return () => { stopped = true; clearInterval(timer); };
+    },
+  };
+}
+
+async function loadTickstreamChart() {
+  const button = $('#velaTickstreamProbe');
+  button.disabled = true;
+  try {
+    const state = await getJson('/api/tickstream/status');
+    renderTickstreamReadiness(state);
+    if (state.state === 'error') throw new Error(state.message);
+    if (velaChart) { try { velaChart.destroy?.(); } catch {} velaChart = null; }
+    $('#velaChart').replaceChildren();
+    $('#cleoBriefing').hidden = true;
+    const feed = tickstreamDataFeed();
+    velaChart = new window.Vela.Vela('#velaChart', {
+      symbol:'NQ', timeframe:'1', bars:1440, live:true,
+      theme:'dark', drawings:true, volume:false, currentPriceLine:true,
+    }, {dataFeed:feed});
+    window.countDeskVelaChart = velaChart;
+    await velaChart.ready();
+    await applyStoredIndicators();
+    $('#velaPaperTab').disabled = true;
+    $('#velaPaperMarket').textContent = 'NQ · 1M · Tickstream';
+    $('#velaPaperSource').textContent = 'Paper simulation is disabled for the streamed NQ instrument.';
+    window.countDeskVelaContext = {tab:'Tickstream', symbol:'NQ', timeframe:'1M', cutoff:state.lastSourceTime ? Math.floor(Date.parse(state.lastSourceTime) / 1000) : null};
+    window.dispatchEvent(new Event('countdesk:chart-context'));
+    const updateState = async () => {
+      if ($('#velaSymbol').value !== 'TICKSTREAM:NQ') return;
+      try {
+        const latest = await getJson('/api/tickstream/status');
+        renderTickstreamReadiness(latest);
+        $('#velaProvenance').textContent = `Tickstream NQ · account feed · 1-minute bars · ${latest.receivedTicks || 0} ticks received · ${tickstreamLag(latest.lastSourceTime)} · source timestamp ${latest.lastSourceTime || 'waiting'}.`;
+      } catch {}
+    };
+    clearInterval(window.countDeskTickstreamStatusTimer);
+    window.countDeskTickstreamStatusTimer = setInterval(updateState, 4000);
+    $('#velaProvenance').textContent = `Tickstream NQ · account feed · 1-minute bars · ${state.receivedTicks || 0} ticks received · ${tickstreamLag(state.lastSourceTime)} · source timestamp ${state.lastSourceTime || 'waiting'}.`;
+    setStatus(`Tickstream NQ chart connected · ${state.state} · memory-only candles.`);
+  } catch (error) {
+    $('#velaTickstreamStatus').textContent = error.message;
+    setStatus(error.message, true);
   } finally {
     button.disabled = false;
   }
@@ -352,6 +433,10 @@ function setWorkspace(view) {
 async function loadPreview() {
   const market = selectedMarket();
   const timeframe = $('#velaTimeframe').value;
+  if (market?.symbol === 'TICKSTREAM:NQ') return loadTickstreamChart();
+  $('#velaPaperTab').disabled = false;
+  clearInterval(window.countDeskTickstreamStatusTimer);
+  $('#cleoBriefing').hidden = false;
   if (!market) return setStatus('No Count Desk market is available.', true);
   if (!window.Vela?.Vela) return setStatus('Vela browser bundle did not load.', true);
   const button = $('#velaLoad');
@@ -415,7 +500,12 @@ async function init() {
   try {
     const payload = await getJson('/api/symbols');
     catalog = payload.symbols || [];
+    catalog.push({symbol:'TICKSTREAM:NQ', label:'NQ · Tickstream Free Feed'});
     fillSymbols();
+    if (new URLSearchParams(location.search).get('feed') === 'tickstream') {
+      $('#velaSymbol').value = 'TICKSTREAM:NQ';
+      $('#velaTimeframe').value = '1M';
+    }
     await loadPreview();
     applyWorkspaceHash();
   } catch (error) {
@@ -428,6 +518,16 @@ function applyWorkspaceHash() {
 }
 
 $('#velaLoad').addEventListener('click', () => void loadPreview());
+$('#velaSymbol').addEventListener('change', () => {
+  if ($('#velaSymbol').value === 'TICKSTREAM:NQ') $('#velaTimeframe').value = '1M';
+  else if ($('#velaTimeframe').value === '1M') $('#velaTimeframe').value = '1H';
+  void loadPreview();
+});
+$('#velaTimeframe').addEventListener('change', () => void loadPreview());
+$('#velaSymbol').addEventListener('change', () => {
+  if ($('#velaSymbol').value === 'TICKSTREAM:NQ') $('#velaTimeframe').value = '1M';
+  void loadPreview();
+});
 $('#velaReplayLatest').addEventListener('click', () => {
   const input = $('#velaReplayCutoff');
   if (replayBounds) input.value = localDateInput(replayBounds.last);

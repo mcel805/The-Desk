@@ -1,1 +1,2 @@
 eth-account==0.13.7
+tickstream[stream]==1.1.0

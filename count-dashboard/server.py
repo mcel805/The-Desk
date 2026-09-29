@@ -42,8 +42,8 @@ from wallet_auth import (
 )
 from tickstream_adapter import (
     API_KEY_ENV as TICKSTREAM_API_KEY_ENV,
-    RIGHTS_ENV as TICKSTREAM_RIGHTS_ENV,
     config_status as tickstream_config_status,
+    feed as tickstream_feed,
     fetch_quote as fetch_tickstream_quote,
 )
 
@@ -1916,10 +1916,10 @@ FEED_PROVIDERS = {
         "use_note": "Requires CQG WebAPI client approval, API credentials, permitted data use, a dated CQG MYM symbol, and the local read-only worker.",
     },
     "tickstream": {
-        "name": "Tickstream Futures · recent-tick pilot",
+        "name": "Tickstream Futures · NQ stream",
         "markets": ["CME futures, subject to the Tickstream symbol catalog"],
-        "capability": "Read-only snapshot of up to five recent ticks; does not build chart candles",
-        "use_note": f"Set {TICKSTREAM_API_KEY_ENV} and confirm the provider terms before displaying or retaining tick data.",
+        "capability": "Read-only NQ WebSocket feed, one-hour warm-up, in-memory one-minute candles",
+        "use_note": f"Set {TICKSTREAM_API_KEY_ENV} in count-dashboard/.env. The key stays server-side; bars are memory-only.",
     },
 }
 
@@ -1933,7 +1933,7 @@ def sync_adapter_config(provider: str = "licensed") -> tuple[str, str]:
         # The Massive source is called directly by this server; no sidecar URL.
         return "direct://massive", ""
     elif provider == "tickstream":
-        raise ValueError("Tickstream is a read-only tick snapshot in this pilot slice; use /api/feed/quote.")
+        raise ValueError("Tickstream streams through its local WebSocket integration; use /api/tickstream/status.")
     elif provider in FEED_PROVIDERS:
         spec = FEED_PROVIDERS[provider]
         url = os.environ.get(spec["url_env"], "").strip().rstrip("/")
@@ -1951,8 +1951,7 @@ def sync_adapter_config(provider: str = "licensed") -> tuple[str, str]:
 def provider_source_state(provider: str, symbol: str = "") -> str:
     spec = FEED_PROVIDERS[provider]
     if provider == "tickstream":
-        status = tickstream_config_status()
-        return "quote_only" if status == "quote_configured" else status
+        return tickstream_config_status()
     if provider == "amp_cqg":
         if os.environ.get("BATTY_CQG_WEBAPI_ACCESS_APPROVED", "").strip().lower() not in {"1", "true", "yes"}:
             return "access_required"
@@ -1997,7 +1996,7 @@ def sync_from_adapter(db: sqlite3.Connection, payload: dict) -> dict:
     if provider == "massive":
         return sync_from_massive(db, symbol, timeframe)
     if provider == "tickstream":
-        raise RuntimeError("Tickstream is a read-only tick snapshot in this pilot slice; chart bar aggregation is not connected.")
+        raise RuntimeError("Tickstream runs as a local memory-only WebSocket feed; historical database sync is disabled.")
     url, token = sync_adapter_config(provider)
     if not url:
         if provider in FEED_PROVIDERS:
@@ -2519,12 +2518,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/feed/quote":
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Quote probes are available on this local device only."}, 403)
-            if tickstream_config_status() != "quote_configured":
+            if tickstream_config_status() != "stream_configured":
                 return self.send_json({
-                    "error": (
-                        f"Tickstream tick probe is locked. Configure {TICKSTREAM_API_KEY_ENV} "
-                        f"and set {TICKSTREAM_RIGHTS_ENV}=1 after confirming the provider terms."
-                    )
+                    "error": f"Configure {TICKSTREAM_API_KEY_ENV} in count-dashboard/.env and restart Count Desk."
                 }, 503)
             symbol = parse_qs(parsed.query).get("symbol", [""])[0]
             if not symbol:
@@ -2535,6 +2531,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": str(exc)}, 400)
             except Exception as exc:
                 return self.send_json({"error": str(exc)}, 503)
+        if parsed.path == "/api/tickstream/status":
+            if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                return self.send_json({"error": "Tickstream status is available on this local device only."}, 403)
+            tickstream_feed.start()
+            return self.send_json(tickstream_feed.status())
+        if parsed.path == "/api/tickstream/bars":
+            if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                return self.send_json({"error": "Tickstream charts are available on this local device only."}, 403)
+            query = parse_qs(parsed.query)
+            try:
+                return self.send_json(tickstream_feed.bars(query.get("symbol", [""])[0]))
+            except ValueError as exc:
+                return self.send_json({"error": str(exc)}, 400)
         if parsed.path == "/api/wallet/session":
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Wallet sign-in is available on this local device only."}, 403)
@@ -3158,6 +3167,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     load_local_env()
+    tickstream_feed.start()
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8770)

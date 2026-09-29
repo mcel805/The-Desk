@@ -29,65 +29,24 @@ class DashboardTest(unittest.TestCase):
         self.db.close()
         self.tmp.cleanup()
 
-    def test_tickstream_recent_ticks_probe_normalizes_latest_tick(self):
+    def test_tickstream_aggregates_microsecond_ticks_into_one_minute_memory_bars(self):
         tickstream = sys.modules["tickstream_adapter"]
+        feed = tickstream.TickstreamFeed()
+        feed._push({"type":"tick", "symbol":"NQ", "price":"20001.25", "size":2, "tsu":1_800_000_010_000_000}, "NQ")
+        feed._push({"type":"tick", "symbol":"NQ", "price":"20003.50", "size":3, "tsu":1_800_000_050_000_000}, "NQ")
+        bars = feed.bars("NQ")["bars"]
+        self.assertEqual(1, len(bars))
+        self.assertEqual(20001.25, bars[0]["open"])
+        self.assertEqual(20003.50, bars[0]["close"])
+        self.assertEqual(20003.50, bars[0]["high"])
+        self.assertEqual(5, bars[0]["volume"])
 
-        class Response:
-            status = 200
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                return False
-
-            def read(self):
-                return json.dumps({"ticks": [
-                    {"symbol": "MYM", "price": "42122.5", "tsu": 1_799_999_000_000_000},
-                    {"symbol": "MYM", "price": "42123.5", "tsu": 1_800_000_000_000_000},
-                ]}).encode()
-
-        with patch.dict(os.environ, {
-            tickstream.API_KEY_ENV: "test-key",
-            tickstream.RIGHTS_ENV: "1",
-        }, clear=False), patch.object(tickstream, "urlopen", return_value=Response()) as request:
-            result = server.fetch_tickstream_quote("MYM", opener=request)
-
-        self.assertEqual("Tickstream", result["provider"])
-        self.assertTrue(result["mode"].startswith("TICK SNAPSHOT"))
-        self.assertIsNone(result["delayMinutes"])
-        self.assertEqual(42123.5, result["price"])
-        self.assertTrue(result["sourceTimestamp"].endswith("+00:00"))
-        request.assert_called_once()
-        sent_request = request.call_args.args[0]
-        self.assertIn("/ticks?symbol=MYM&limit=5", sent_request.full_url)
-        self.assertEqual("Bearer test-key", sent_request.headers["Authorization"])
-
-    def test_tickstream_source_is_quote_only_until_bar_adapter_exists(self):
-        tickstream = sys.modules["tickstream_adapter"]
-        with patch.dict(os.environ, {
-            tickstream.API_KEY_ENV: "test-key",
-            tickstream.RIGHTS_ENV: "1",
-        }, clear=False):
-            self.assertEqual("quote_only", server.provider_source_state("tickstream", "CBOT_MINI:MYM1!"))
-
-    def test_tickstream_quote_requires_explicit_configuration(self):
+    def test_tickstream_configuration_does_not_require_a_second_confirmation_switch(self):
         tickstream = sys.modules["tickstream_adapter"]
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual("not_connected", tickstream.config_status())
-
-    def test_tickstream_quote_waits_for_rights_confirmation(self):
-        tickstream = sys.modules["tickstream_adapter"]
         with patch.dict(os.environ, {tickstream.API_KEY_ENV: "test-key"}, clear=True):
-            self.assertEqual("rights_confirmation_required", tickstream.config_status())
-
-    def test_tickstream_quote_becomes_configured_only_after_rights_confirmation(self):
-        tickstream = sys.modules["tickstream_adapter"]
-        with patch.dict(os.environ, {
-            tickstream.API_KEY_ENV: "test-key",
-            tickstream.RIGHTS_ENV: "true",
-        }, clear=True):
-            self.assertEqual("quote_configured", tickstream.config_status())
+            self.assertEqual("stream_configured", tickstream.config_status())
 
     def test_luxalgo_status_is_read_only_and_credentials_free(self):
         catalog = MagicMock(returncode=0, stdout=json.dumps({"brokers": [{"id": "topstep"}]}), stderr="")

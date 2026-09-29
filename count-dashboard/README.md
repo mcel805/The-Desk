@@ -411,39 +411,33 @@ Massive account and update it after expiry. Massive serves the selected interval
 directly, including 1m, 2m, 3m, 5m, 15m, and 30m; a 1m sync can also create the
 larger intraday intervals. Automatic cadence is five minutes.
 
-### Tickstream recent-tick pilot
+### Tickstream NQ chart feed
 
-Count Desk calls Tickstream's `GET /v1/ticks?symbol=…&limit=5` through the
-local Python server, then displays the newest returned tick and its source
-timestamp. The Tickstream SDK documentation lists `/v1/ticks` among included
-endpoints and notes that requests without a start time return the recent
-one-hour window. Check the entitlement and delay for your account in Tickstream
-before enabling display. This probe does not aggregate ticks into candles or
-write them to the chart or paper ledger. The API key stays server-side; no
-execution endpoint is enabled.
+Count Desk connects to the Tickstream `NQ` account stream through the official
+`tickstream[stream]` Python SDK. It warms up from the API's recent one-hour tick
+window, aggregates ticks into one-minute OHLCV candles, and sends stream updates
+to Vela through its custom feed interface. The browser never receives the API
+key. Candles are held in a bounded in-memory buffer and are not written to the
+Count Desk database or paper ledger; execution endpoints are not used.
 
-Add the key to the ignored `count-dashboard/.env` file or to the shell that
-starts Count Desk. The rights flag is deliberately explicit: set it only after
-you have confirmed Tickstream's terms cover the intended display and retention
-this read-only display test.
+The account's `/v1/symbols` catalog lists NQ as subscribed and streamable, and
+the NQ WebSocket handshake plus tick frames were verified. The app displays
+source timestamps for freshness; it does not infer an exact delay when the
+provider's tick payload omits one. To connect another local installation, add
+the credential to the ignored `count-dashboard/.env` file:
 
 ```sh
-BATTY_TICKSTREAM_API_KEY='your-tickstream-api-key' \
-BATTY_TICKSTREAM_STORAGE_AND_DISPLAY_RIGHTS_CONFIRMED=1 \
-python3 count-dashboard/server.py
+BATTY_TICKSTREAM_API_KEY='your-tickstream-api-key'
 ```
 
-Open Count Desk, choose a futures market, and press **Probe recent Tickstream
-ticks** in Connections. The server endpoint `GET /api/feed/quote?symbol=MYM`
-returns the newest print from Tickstream's five-row response, with provider,
-symbol, price, source timestamp, and retrieval time. A delay is reported only
-when the provider includes it. Use Tickstream's `/v1/symbols` catalog to
-confirm exact symbols before wiring a continuous stream or candle adapter.
+Launch or restart Count Desk, open the Vela chart's **Connections** drawer, and
+choose **NQ · Tickstream Free Feed** in the instrument menu. The NQ 1-minute
+chart then loads the warm-up window and receives stream updates. `/api/tickstream/status`
+reports connection and latest source time; `/api/tickstream/bars?symbol=NQ`
+serves the in-memory chart bars on loopback only.
 
-The Vela workspace mirrors this gate as **SETUP NEEDED**, **RIGHTS CHECK**, or
-**READY · TICK PROBE** and disables the probe until the server reports a
-configured read-only entitlement. A successful response keeps both the source
-timestamp and retrieval timestamp visible. The tick snapshot is not a live
+Tickstream's account API decides the subscribed symbols. NQ is enabled for
+this account; MNQ is a separate symbol and is not part of this connection.
 chart feed, market-data entitlement determination, or executable price.
 
 The collapsed **Indicators · native Vela studies** registry now mounts the
