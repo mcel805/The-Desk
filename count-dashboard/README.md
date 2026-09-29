@@ -417,6 +417,12 @@ quote-only configuration. A successful quote keeps both the source timestamp
 and retrieval timestamp visible so delayed data cannot be mistaken for a live
 chart or executable price.
 
+The collapsed **Indicators · native Vela studies** registry now mounts the
+fork's Volume, SMA, EMA, RSI, ATR, and visible-volume-profile studies over the
+selected stored bars. The selection persists in this browser and is re-applied
+when the chart reloads; these are renderer studies only and do not create
+signals, alerts, or orders.
+
 For other providers, configure the corresponding loopback worker and optional
 token in the Count Desk server environment:
 

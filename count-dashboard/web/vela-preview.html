@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Vela Preview</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=tickstream-readiness-20260930">
+  <link rel="stylesheet" href="./vela-preview.css?v=vela-indicators-20260930">
 </head>
 <body class="trading-prototype vela-preview-page">
   <header>
@@ -56,6 +56,11 @@
         <div class="vela-tickstream-readiness"><small>TICKSTREAM PILOT</small><strong id="velaTickstreamReadiness">Checking readiness…</strong><span id="velaTickstreamReadinessMeta">Read-only delayed quote probe · no candles or orders.</span></div>
         <div class="vela-feed-actions"><button id="velaTickstreamProbe" type="button">Probe delayed Tickstream quote</button><span id="velaTickstreamStatus" role="status" aria-live="polite">Quote-only pilot · not connected.</span></div>
       </section>
+      <details class="vela-indicator-panel">
+        <summary><span>INDICATORS · NATIVE VELA STUDIES</span><strong id="velaIndicatorSummary">Loading registry…</strong></summary>
+        <div id="velaIndicatorList" class="vela-indicator-list">Preparing the native indicator registry…</div>
+        <p>These studies are computed by the forked Vela renderer over the selected stored bars. They are research overlays; they do not create signals, live alerts, or orders.</p>
+      </details>
       <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
       <div class="vela-preview-foot"><span id="velaProvenance">Source pending.</span><span>Vela™ attribution retained · no live feed · no broker connection</span></div>
     </section>
@@ -76,6 +81,6 @@
     </section>
   </main>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=tickstream-readiness-20260930"></script>
+  <script type="module" src="./vela-preview.js?v=vela-indicators-20260930"></script>
 </body>
 </html>
