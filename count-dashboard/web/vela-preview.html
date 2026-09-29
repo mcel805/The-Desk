@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Chart Workspace</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=three-pane-1">
+  <link rel="stylesheet" href="./vela-preview.css?v=connections-text-1">
 </head>
 <body class="trading-prototype vela-preview-page">
   <aside class="desk-sidebar" aria-label="Workspace navigation">
@@ -17,6 +17,11 @@
     <nav class="vela-workspace-tabs" aria-label="Vela workspace views" role="tablist">
       <button id="velaChartTab" class="vela-workspace-tab active" type="button" role="tab" aria-selected="true">Chart + Cleo</button>
       <button id="velaPaperTab" class="vela-workspace-tab" type="button" role="tab" aria-selected="false">Paper Trading <span>SIM ONLY</span></button>
+    <div class="desk-text-sizes" role="group" aria-label="Text size">
+        <button type="button" data-text-size="small" title="Small text" aria-label="Small text" aria-pressed="false">T</button>
+        <button type="button" data-text-size="default" title="Default text" aria-label="Default text" aria-pressed="true">T</button>
+        <button type="button" data-text-size="large" title="Large text" aria-label="Large text" aria-pressed="false">T</button>
+      </div>
     </nav>
     <section id="velaChartWorkspace" class="vela-preview-card">
       <div class="desk-chart-toolbar">
@@ -73,9 +78,9 @@
   </main>
   <div id="deskChatMount"></div>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=three-pane-1"></script>
-  <script type="module" src="./batty-agent.js?v=three-pane-1"></script>
-  <script type="module" src="./desk-shell.js?v=three-pane-1"></script>
+  <script type="module" src="./vela-preview.js?v=connections-text-1"></script>
+  <script type="module" src="./batty-agent.js?v=connections-text-1"></script>
+  <script type="module" src="./desk-shell.js?v=connections-text-1"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>

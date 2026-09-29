@@ -1,4 +1,19 @@
 const body = document.body;
+const textSizes = {small:0.88, default:1, large:1.2};
+function setTextSize(size) {
+  if (!(size in textSizes)) size = 'default';
+  body.style.setProperty('--desk-text-scale', textSizes[size]);
+  document.querySelectorAll('[data-text-size]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.textSize === size)));
+  try { localStorage.setItem('countdesk-text-size', size); } catch {}
+}
+let savedSize = 'default';
+try { savedSize = localStorage.getItem('countdesk-text-size') || 'default'; } catch {}
+setTextSize(savedSize);
+document.querySelectorAll('[data-text-size]').forEach(button => button.addEventListener('click', () => setTextSize(button.dataset.textSize)));
+const chartToolbar = document.querySelector('.desk-chart-toolbar');
+new ResizeObserver(() => {
+  body.style.setProperty('--desk-toolbar-height', `${chartToolbar.offsetHeight + 4}px`);
+}).observe(chartToolbar);
 const collapse = document.querySelector('#deskCollapse');
 try { body.classList.toggle('desk-nav-collapsed', localStorage.getItem('countdesk-nav-collapsed') === '1'); } catch {}
 function updateNav() {

@@ -584,6 +584,10 @@ Indicators, replay, connection status, and provisional chart context open
 exclusive drawers; Escape closes them. Native Vela drawing tools remain in
 the chart. Paper Trading stays a separate tab. Navigation collapse persists
 locally; Log out clears wallet identity and returns to the landing page.
+Three colored cursive T buttons in the workspace header select small,
+default, or large interface text and preserve that preference locally.
+Connection details wrap in a bounded, scrollable popup above native drawing
+tools, including in compact windows.
 
 Chat sends the loaded instrument, timeframe, numeric historical cutoff,
 and active study labels through the existing `/api/chat` request. Batty
