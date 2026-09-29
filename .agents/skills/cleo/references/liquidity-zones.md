@@ -2,9 +2,11 @@
 
 ## Mark’s current stated approach
 
-This is Mark’s playbook hypothesis, not a proven edge. He usually prefers an identified 30-minute or 1-hour liquidity level. His chart color key when confirmed: yellow=15m, purple=30m, orange=1h. Intended sequence: map higher-timeframe context → wait for price to interact with a selected 30m/1h level → inspect 1m price action → wait for a directional reversal confirmation → only then evaluate an entry. The exact 1m confirmation rule is not yet specified and must not be invented.
+This is Mark’s playbook hypothesis, not a proven edge. He prefers an identified 30-minute or 1-hour liquidity level. His chart color key when confirmed: yellow=15m, purple=30m, orange=1h. On 2026-09-29 he specified: mark the selected HTF interaction as Step 1, then require a 1M trend change and a fresh confirmed 1M long liquidity level. That new level supplies the hypothetical limit-entry reference. Follow `htf-to-1m-reversal.md` for the staged workflow, proposed confirmation test, actual zone-availability timing, and latest structure-first 40-tick ceiling (preferred 30, usual 25–35). Do not substitute a market entry or make reclaiming the original HTF line a universal requirement.
 
 If no 30m/1h level is available, trades based on higher-timeframe direction plus 1m levels are a separate fallback. Tag and measure them separately; do not say they follow or validate the preferred playbook.
+
+Mark added Strategy B on 2026-09-29: a preplanned first-touch entry at a selected HTF level, without Strategy A's 1M confirmation. This is a separate primary strategy, not the direction-only fallback. Read `two-strategy-forward-study.md` for its definition, fixed dollar-risk sizing and prospective comparison. Keep first touch of the entry line distinct from a prior visit inside the zone.
 
 ## Map and read levels
 

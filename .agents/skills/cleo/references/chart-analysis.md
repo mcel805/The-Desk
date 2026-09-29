@@ -9,7 +9,7 @@ Translate supplied charts/data into a source-bounded structure read and a decisi
 1. Record instrument, exact contract/continuous series, exchange/data source, timeframe, timezone, capture/cutoff, last complete bar and freshness. Note roll/adjustment and session if known.
 2. Read higher timeframe before execution timeframe. Mark the selected 30m/1h level, whether price has reached it, and the lower-timeframe structure. Distinguish swing context from one-minute noise.
 3. Record observations first; then interpretation; then the conditional scenario. State evidence against the preferred case.
-4. For entry discussion, require the stated confirmation rule. Mark’s 1m confirmation has not been specified as a repeatable rule; ask him to define it or label it unknown. A wick/touch is not an automatic reversal.
+4. For Mark's preferred HTF reversal, use `htf-to-1m-reversal.md`: a newly printed, confirmed 1M long liquidity level is required and supplies the hypothetical limit-entry reference. Keep the proposed trend-change test and unresolved zone class/boundary explicit. A wick/touch is not an automatic reversal.
 5. Identify structural invalidation from the chart. Compare its distance to the user’s verified risk constraint. Show when there is insufficient room to the next opposing reference. Do not optimize a stop to preserve an attractive reward/risk ratio.
 6. Offer the strongest alternate scenario and the price condition that distinguishes it. If neither has a clean condition, recommend waiting.
 7. Save the source and output separately. Label all screenshot measurements approximate; retain capture provenance and chart contents byte-for-byte.
