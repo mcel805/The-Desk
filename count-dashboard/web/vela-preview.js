@@ -2,6 +2,10 @@ const $ = selector => document.querySelector(selector);
 import {buildChartContract} from './chart-contract.js';
 let catalog = [];
 let velaChart = null;
+let currentContract = null;
+let paperOrders = [];
+let paperPositions = [];
+let paperBusy = false;
 
 async function getJson(url) {
   const response = await fetch(url);
@@ -28,6 +32,10 @@ function selectedMarket() {
 
 function formatPrice(value) {
   return Number.isFinite(Number(value)) ? Number(value).toLocaleString('en-US', {maximumFractionDigits: 2}) : '—';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
 
 function renderCleoBriefing(contract) {
@@ -83,6 +91,80 @@ async function probeTickstream() {
   }
 }
 
+function setPaperStatus(message, error = false) {
+  const node = $('#velaPaperStatus');
+  node.textContent = message;
+  node.classList.toggle('error', error);
+}
+
+function currentPaperBarTime() {
+  const last = currentContract?.bars?.at(-1);
+  return last ? Math.floor(last.time / 1000) : null;
+}
+
+function renderPaperPositions() {
+  const activeOrders = paperOrders.filter(item => item.status === 'queued');
+  const activePositions = paperPositions.filter(item => item.status !== 'closed');
+  const recentClosed = paperPositions.filter(item => item.status === 'closed').slice(0, 2);
+  $('#velaPaperPositionCount').textContent = `${activeOrders.length} queued · ${activePositions.length} open`;
+  const orderCards = activeOrders.map(order => `<article class="vela-paper-position"><div class="vela-paper-position-top"><b>${escapeHtml(order.side.toUpperCase())} ${order.quantity}</b><span>QUEUED</span></div><small>${escapeHtml(order.timeframe)} · after ${new Date(Number(order.placed_after_bar_time) * 1000).toLocaleString()}</small><div class="vela-paper-actions"><button type="button" data-vela-paper-advance="${escapeHtml(order.order_id)}">Check next bar</button><button type="button" data-vela-paper-cancel="${escapeHtml(order.order_id)}">Cancel</button></div></article>`).join('');
+  const positionCards = [...activePositions, ...recentClosed].map(position => {
+    const mark = currentContract && position.status !== 'closed' && position.symbol === currentContract.market.symbol && position.timeframe === currentContract.market.timeframe
+      ? (Number(currentContract.analysis.lastClose) - position.entry_price) * (position.side === 'long' ? 1 : -1) * position.quantity * position.multiplier : null;
+    const result = position.status === 'closed' ? `Gross ${position.gross_pnl >= 0 ? '+' : ''}$${Number(position.gross_pnl).toFixed(2)}`
+      : mark == null ? 'No displayed mark' : `Displayed gross ${mark >= 0 ? '+' : ''}$${mark.toFixed(2)}`;
+    const matching = currentContract && position.symbol === currentContract.market.symbol && position.timeframe === currentContract.market.timeframe;
+    const actions = position.status === 'open' && matching && currentPaperBarTime() >= position.entry_bar_time
+      ? `<button type="button" data-vela-paper-close="${escapeHtml(position.position_id)}">Queue exit</button>${position.stop_price != null || position.target_price != null ? `<button type="button" data-vela-paper-bracket="${escapeHtml(position.position_id)}">Check bracket</button>` : ''}`
+      : position.status === 'closing' ? `<button type="button" data-vela-paper-exit="${escapeHtml(position.position_id)}">Check exit</button>` : '';
+    return `<article class="vela-paper-position"><div class="vela-paper-position-top"><b>${escapeHtml(position.side.toUpperCase())} ${position.quantity} · ${formatPrice(position.entry_price)}</b><span>${escapeHtml(position.status.toUpperCase())}</span></div><small>${escapeHtml(position.timeframe)} · entry ${new Date(Number(position.entry_bar_time) * 1000).toLocaleString()}</small><small>${escapeHtml(position.entry_source)}</small>${position.stop_price != null || position.target_price != null ? `<small>Bracket · stop ${position.stop_price == null ? '—' : formatPrice(position.stop_price)} · target ${position.target_price == null ? '—' : formatPrice(position.target_price)}</small>` : ''}<strong>${result}</strong><div class="vela-paper-actions">${actions}</div></article>`;
+  }).join('');
+  $('#velaPaperPositions').innerHTML = orderCards + positionCards || '<p class="vela-paper-empty">No paper positions on this market.</p>';
+}
+
+async function refreshPaperPositions() {
+  const market = selectedMarket();
+  if (!market) return;
+  const payload = await getJson(`/api/chart-sim/positions?symbol=${encodeURIComponent(market.symbol)}`);
+  paperOrders = payload.orders || [];
+  paperPositions = payload.positions || [];
+  renderPaperPositions();
+}
+
+async function paperAction(path, body, successMessage) {
+  if (paperBusy) return;
+  paperBusy = true;
+  try {
+    const result = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const payload = await result.json();
+    if (!result.ok) throw new Error(payload.error || `Request failed (${result.status})`);
+    setPaperStatus(payload.message || successMessage);
+    await refreshPaperPositions();
+  } catch (error) {
+    setPaperStatus(error.message, true);
+  } finally {
+    paperBusy = false;
+  }
+}
+
+function setWorkspace(view) {
+  const paper = view === 'paper';
+  $('#velaChartWorkspace').hidden = paper;
+  $('#velaPaperWorkspace').hidden = !paper;
+  $('#velaChartTab').classList.toggle('active', !paper);
+  $('#velaPaperTab').classList.toggle('active', paper);
+  $('#velaChartTab').setAttribute('aria-selected', String(!paper));
+  $('#velaPaperTab').setAttribute('aria-selected', String(paper));
+  if (paper) {
+    if (currentContract) {
+      const market = currentContract.market;
+      $('#velaPaperMarket').textContent = `${market.symbol} · ${market.timeframe} · last close ${formatPrice(currentContract.analysis.lastClose)}`;
+      $('#velaPaperSource').textContent = `${currentContract.analysis.source} · confirmed stored bar context`;
+    }
+    void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
+  }
+}
+
 async function loadPreview() {
   const market = selectedMarket();
   const timeframe = $('#velaTimeframe').value;
@@ -95,6 +177,7 @@ async function loadPreview() {
     const query = `symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}&cutoff=2147483647`;
     const payload = await getJson(`/api/counts?${query}`);
     const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
+    currentContract = contract;
     const data = contract.bars;
     renderCleoBriefing(contract);
     void refreshFeedState(market, timeframe);
@@ -117,6 +200,9 @@ async function loadPreview() {
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · source ${contract.analysis.source}`;
+    $('#velaPaperMarket').textContent = `${market.symbol} · ${timeframe} · last close ${formatPrice(contract.analysis.lastClose)}`;
+    $('#velaPaperSource').textContent = `${contract.analysis.source} · confirmed stored bar context`;
+    if ($('#velaPaperWorkspace').hidden === false) await refreshPaperPositions();
     setStatus(`Vela preview ready · ${market.symbol} ${timeframe} · offline historical dataset`);
   } catch (error) {
     setStatus(error.message, true);
@@ -131,6 +217,7 @@ async function init() {
     catalog = payload.symbols || [];
     fillSymbols();
     await loadPreview();
+    if (window.location.hash === '#paper') setWorkspace('paper');
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -138,4 +225,35 @@ async function init() {
 
 $('#velaLoad').addEventListener('click', () => void loadPreview());
 $('#velaTickstreamProbe').addEventListener('click', () => void probeTickstream());
+$('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
+$('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));
+$('#velaBackToChart').addEventListener('click', () => setWorkspace('chart'));
+$('#velaPaperPractice').addEventListener('click', () => {
+  if (!currentContract) return setPaperStatus('Load a Vela chart first.', true);
+  setPaperStatus('Paper context refreshed from the selected Vela chart.');
+  void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
+});
+$('#velaPaperTicket').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!currentContract) return setPaperStatus('Load a Vela chart first.', true);
+  const barTime = currentPaperBarTime();
+  if (!barTime) return setPaperStatus('The selected chart has no confirmed stored bar.', true);
+  const optional = selector => $(selector).value.trim() ? Number($(selector).value) : null;
+  void paperAction('/api/chart-sim/open', {
+    symbol:currentContract.market.symbol, timeframe:currentContract.market.timeframe, bar_time:barTime,
+    side:$('#velaPaperSide').value, quantity:$('#velaPaperQuantity').value,
+    stop_price:optional('#velaPaperStop'), target_price:optional('#velaPaperTarget'),
+  }, 'Paper order queued for the next completed source bar.');
+});
+$('#velaPaperPositions').addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button || !currentContract) return;
+  if (button.dataset.velaPaperAdvance) return void paperAction('/api/chart-sim/advance', {order_id:button.dataset.velaPaperAdvance}, 'Paper fill checked.');
+  if (button.dataset.velaPaperCancel) return void paperAction('/api/chart-sim/cancel', {order_id:button.dataset.velaPaperCancel}, 'Queued paper order cancelled.');
+  if (button.dataset.velaPaperClose) return void paperAction('/api/chart-sim/close', {position_id:button.dataset.velaPaperClose, bar_time:currentPaperBarTime()}, 'Paper exit queued for the next completed source bar.');
+  if (button.dataset.velaPaperExit) return void paperAction('/api/chart-sim/advance', {position_id:button.dataset.velaPaperExit}, 'Paper exit checked.');
+  if (button.dataset.velaPaperBracket) return void paperAction('/api/chart-sim/bracket', {position_id:button.dataset.velaPaperBracket}, 'Paper bracket checked on one completed bar.');
+});
+// Keep the chart workspace visible while Vela measures its container, then honor a paper deep link.
+setWorkspace('chart');
 void init();

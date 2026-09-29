@@ -1,5 +1,10 @@
 .vela-preview-main{min-height:calc(100vh - 108px);padding:18px 16px 28px;background:radial-gradient(circle at 74% 0,#1c3241 0,#0a1017 50%,#070b11 100%)}
+.vela-workspace-tabs{display:flex;gap:6px;width:min(1440px,100%);margin:0 auto 10px}
+.vela-workspace-tab{padding:9px 13px;border:1px solid #294653;border-radius:6px;background:#0d1821;color:#8eaab2;font-size:.64rem;font-weight:700;cursor:pointer}
+.vela-workspace-tab.active{border-color:#59bfb4;background:linear-gradient(180deg,#1c5557,#12343d);color:#eafff8;box-shadow:inset 0 -2px #7ae5d0}
+.vela-workspace-tab span{margin-left:5px;color:#e6ca72;font:700 .46rem ui-monospace,monospace}
 .vela-preview-card{width:min(1440px,100%);margin:0 auto;overflow:hidden;border:1px solid #29404e;border-radius:14px;background:#0d151e;box-shadow:0 22px 60px #0006}
+.vela-preview-card[hidden],.vela-paper-card[hidden]{display:none}
 .vela-preview-head{display:flex;justify-content:space-between;gap:22px;padding:22px 24px 18px;border-bottom:1px solid #233846;background:linear-gradient(125deg,#122432,#0d171f)}
 .vela-preview-head small{display:block;color:#c8a8ff;font:700 .58rem ui-monospace,monospace;letter-spacing:.13em}
 .vela-preview-head h1{margin:7px 0 6px;color:#f2f7f4;font-size:1.5rem;letter-spacing:-.025em}
@@ -30,4 +35,30 @@
 .vela-feed-actions span{max-width:235px;color:#92aeb4;font:600 .54rem ui-monospace,monospace;line-height:1.35}
 .vela-chart{height:min(680px,68vh);min-height:430px;background:#0b1118}
 .vela-preview-foot{display:flex;justify-content:space-between;gap:16px;padding:10px 16px;color:#8099a3;font-size:.57rem;border-top:1px solid #233846;background:#0b141b}
-@media(max-width:760px){.vela-preview-main{padding:8px 6px 18px}.vela-preview-head{display:block;padding:16px}.vela-preview-head h1{font-size:1.2rem}.vela-preview-head p{font-size:.7rem}.vela-preview-controls{margin-top:14px;min-width:0}.vela-preview-controls label{flex:1}.vela-preview-controls select{width:100%;min-width:0}.vela-preview-controls button{width:100%}.cleo-briefing{margin:8px}.cleo-briefing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vela-feed-panel{display:block;margin:0 8px 8px}.vela-feed-actions{display:block;margin-top:9px}.vela-feed-actions button{width:100%}.vela-feed-actions span{max-width:none;margin-top:6px}.vela-chart{height:62vh;min-height:390px}.vela-preview-foot{display:block;line-height:1.5}.vela-preview-foot span{display:block}}
+.vela-paper-card{width:min(1080px,100%);margin:0 auto;overflow:hidden;border:1px solid #345c4e;border-radius:14px;background:#0e1a1b;box-shadow:0 22px 60px #0006}
+.vela-paper-head{display:flex;justify-content:space-between;gap:20px;padding:22px 24px 18px;border-bottom:1px solid #29433b;background:linear-gradient(125deg,#12251f,#0d191b)}
+.vela-paper-head small{display:block;color:#71d4a7;font:700 .58rem ui-monospace,monospace;letter-spacing:.12em}
+.vela-paper-head h1{margin:7px 0 5px;color:#f1faf4;font-size:1.45rem}
+.vela-paper-head p{max-width:690px;margin:0;color:#a9beb2;font-size:.77rem;line-height:1.5}
+.vela-paper-head button{align-self:flex-start;padding:8px 11px;border:1px solid #4b7d60;border-radius:5px;background:#153328;color:#c8edd3;font-size:.61rem;font-weight:700;cursor:pointer}
+.vela-paper-context{display:flex;justify-content:space-between;gap:16px;padding:11px 16px;border-bottom:1px solid #274236;color:#b3cdbb;font:600 .58rem ui-monospace,monospace}
+.vela-paper-context span:last-child{color:#8eaf9b;text-align:right}
+.vela-paper-ticket{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:10px;align-items:end;padding:16px}
+.vela-paper-ticket label{display:grid;gap:4px;color:#9fb9aa;font-size:.58rem}
+.vela-paper-ticket select,.vela-paper-ticket input{height:33px;width:100%;min-width:0;padding:0 8px;border:1px solid #385c4b;border-radius:5px;background:#101f1a;color:#f0fbf3;font-size:.66rem}
+.vela-paper-ticket button{height:33px;padding:0 12px;border:1px solid #55b27b;border-radius:5px;background:#1b6843;color:#edfff0;font-size:.61rem;font-weight:700;cursor:pointer}
+.vela-paper-practice{margin:0 16px 10px;padding:7px 10px;border:1px solid #557880;border-radius:4px;background:#183038;color:#b6eaf3;font-size:.58rem;font-weight:700;cursor:pointer}
+.vela-paper-status{margin:0;padding:10px 16px;border-top:1px solid #274236;border-bottom:1px solid #274236;color:#a8d9b9;font:600 .57rem ui-monospace,monospace}
+.vela-paper-status.error{color:#ff9da2}
+.vela-paper-positions-head{display:flex;justify-content:space-between;padding:12px 16px 8px;color:#d8eee0;font-size:.67rem}
+.vela-paper-positions-head span{color:#8eb6a0;font-size:.57rem}
+.vela-paper-positions{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;padding:0 16px 16px}
+.vela-paper-empty{margin:3px 0;color:#849d8d;font-size:.6rem}
+.vela-paper-position{display:grid;gap:4px;padding:9px;border:1px solid #2d4a3c;border-radius:6px;background:#10211b;color:#dff2e4}
+.vela-paper-position-top{display:flex;justify-content:space-between;gap:8px;font-size:.64rem}
+.vela-paper-position-top span{color:#92cdae;font:700 .49rem ui-monospace,monospace}
+.vela-paper-position small{color:#8ea99b;font-size:.54rem}
+.vela-paper-position strong{color:#c8e3d1;font-size:.59rem}
+.vela-paper-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.vela-paper-actions button{padding:4px 6px;border:1px solid #4b735b;border-radius:3px;background:#173126;color:#bfeccb;font-size:.53rem;cursor:pointer}
+@media(max-width:760px){.vela-preview-main{padding:8px 6px 18px}.vela-preview-head{display:block;padding:16px}.vela-preview-head h1{font-size:1.2rem}.vela-preview-head p{font-size:.7rem}.vela-preview-controls{margin-top:14px;min-width:0}.vela-preview-controls label{flex:1}.vela-preview-controls select{width:100%;min-width:0}.vela-preview-controls button{width:100%}.cleo-briefing{margin:8px}.cleo-briefing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vela-feed-panel{display:block;margin:0 8px 8px}.vela-feed-actions{display:block;margin-top:9px}.vela-feed-actions button{width:100%}.vela-feed-actions span{max-width:none;margin-top:6px}.vela-chart{height:62vh;min-height:390px}.vela-preview-foot{display:block;line-height:1.5}.vela-preview-foot span{display:block}.vela-paper-head{display:block;padding:16px}.vela-paper-head h1{font-size:1.2rem}.vela-paper-head p{font-size:.7rem}.vela-paper-head button{margin-top:13px}.vela-paper-context{display:block;line-height:1.5}.vela-paper-context span{display:block}.vela-paper-context span:last-child{text-align:left}.vela-paper-ticket{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:11px}.vela-paper-ticket button{grid-column:1/-1;width:100%}.vela-paper-practice{margin-inline:11px}.vela-paper-positions{grid-template-columns:1fr;padding-inline:10px}}
