@@ -6,13 +6,16 @@ let currentContract = null;
 let paperOrders = [];
 let paperPositions = [];
 let paperBusy = false;
+let indicatorTypeMemory = ['volume'];
+let indicatorInputMemory = {};
 const indicatorStorageKey = 'count-desk-vela-indicators-v1';
+const indicatorInputStorageKey = 'count-desk-vela-indicator-inputs-v1';
 const indicatorDefinitions = [
   {type:'volume', label:'Volume', note:'native pane', inputs:{}},
-  {type:'sma', label:'SMA 20', note:'price overlay', inputs:{length:20, source:'Close'}},
-  {type:'ema', label:'EMA 20', note:'price overlay', inputs:{length:20, source:'Close'}},
-  {type:'rsi', label:'RSI 14', note:'study pane', inputs:{length:14, source:'Close'}},
-  {type:'atr', label:'ATR 14', note:'study pane', inputs:{length:14}},
+  {type:'sma', label:'SMA', note:'price overlay', inputs:{length:20, source:'Close'}},
+  {type:'ema', label:'EMA', note:'price overlay', inputs:{length:20, source:'Close'}},
+  {type:'rsi', label:'RSI', note:'study pane', inputs:{length:14, source:'Close'}},
+  {type:'atr', label:'ATR', note:'study pane', inputs:{length:14}},
   {type:'vpvr', label:'Visible volume profile', note:'price profile', inputs:{}},
 ];
 
@@ -49,7 +52,8 @@ function escapeHtml(value) {
 
 function storedIndicatorTypes() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(indicatorStorageKey) || '["volume"]');
+    const raw = typeof localStorage === 'undefined' ? JSON.stringify(indicatorTypeMemory) : localStorage.getItem(indicatorStorageKey) || '["volume"]';
+    const parsed = JSON.parse(raw);
     return new Set(Array.isArray(parsed) ? parsed.filter(item => indicatorDefinitions.some(def => def.type === item)) : ['volume']);
   } catch {
     return new Set(['volume']);
@@ -57,7 +61,34 @@ function storedIndicatorTypes() {
 }
 
 function saveIndicatorTypes(types) {
-  localStorage.setItem(indicatorStorageKey, JSON.stringify([...types]));
+  indicatorTypeMemory = [...types];
+  try { localStorage.setItem(indicatorStorageKey, JSON.stringify(indicatorTypeMemory)); } catch { /* local preview storage can be unavailable */ }
+}
+
+function storedIndicatorInputs() {
+  try {
+    const raw = typeof localStorage === 'undefined' ? JSON.stringify(indicatorInputMemory) : localStorage.getItem(indicatorInputStorageKey) || '{}';
+    const parsed = JSON.parse(raw);
+    return Object.fromEntries(Object.entries(parsed).filter(([type, value]) => indicatorDefinitions.some(def => def.type === type) && Number.isInteger(Number(value?.length)) && Number(value.length) >= 2 && Number(value.length) <= 5000).map(([type, value]) => [type, {length:Number(value.length)}]));
+  } catch {
+    return {};
+  }
+}
+
+function indicatorInputs(def) {
+  return {...def.inputs, ...(storedIndicatorInputs()[def.type] || {})};
+}
+
+function indicatorDisplayLabel(def) {
+  const length = indicatorInputs(def).length;
+  return length ? `${def.label} ${length}` : def.label;
+}
+
+function saveIndicatorInput(type, length) {
+  const values = storedIndicatorInputs();
+  values[type] = {length};
+  indicatorInputMemory = values;
+  try { localStorage.setItem(indicatorInputStorageKey, JSON.stringify(values)); } catch { /* local preview storage can be unavailable */ }
 }
 
 function presentNativeTypes() {
@@ -67,7 +98,7 @@ function presentNativeTypes() {
 function activeIndicatorLabels() {
   const present = presentNativeTypes();
   const selected = present.size ? present : storedIndicatorTypes();
-  const labels = indicatorDefinitions.filter(def => selected.has(def.type)).map(def => def.label);
+  const labels = indicatorDefinitions.filter(def => selected.has(def.type)).map(indicatorDisplayLabel);
   return labels.length ? labels.join(', ') : 'None selected';
 }
 
@@ -95,22 +126,46 @@ async function renderIndicatorRegistry() {
     const supported = item?.supported !== false;
     const active = present.has(def.type);
     const state = !supported ? 'UNAVAILABLE' : active ? 'ON' : 'OFF';
-    return `<button type="button" class="vela-indicator-row ${active ? 'active' : ''}" data-vela-indicator="${def.type}" ${supported ? '' : 'disabled'} aria-pressed="${active}"><span><b>${def.label}</b><small>${def.note}</small></span><strong>${state}</strong></button>`;
+    return `<button type="button" class="vela-indicator-row ${active ? 'active' : ''}" data-vela-indicator="${def.type}" ${supported ? '' : 'disabled'} aria-pressed="${active}"><span><b>${indicatorDisplayLabel(def)}</b><small>${def.note}</small></span><strong>${state}</strong></button>`;
   }).join('');
   $('#velaIndicatorSummary').textContent = `${[...present].filter(type => indicatorDefinitions.some(def => def.type === type)).length} active · native registry`;
+  renderIndicatorSettings();
   renderIndicatorContext();
+}
+
+function renderIndicatorSettings() {
+  const select = $('#velaIndicatorSettingType');
+  const input = $('#velaIndicatorSettingLength');
+  const status = $('#velaIndicatorSettingStatus');
+  if (!select || !input || !status) return;
+  const periodDefs = indicatorDefinitions.filter(def => Object.hasOwn(def.inputs, 'length'));
+  const previous = select.value;
+  select.innerHTML = periodDefs.map(def => `<option value="${def.type}">${indicatorDisplayLabel(def).replace(/ \d+$/, '')}</option>`).join('');
+  select.value = periodDefs.some(def => def.type === previous) ? previous : (periodDefs[0]?.type || '');
+  const selected = indicatorDefinitions.find(def => def.type === select.value);
+  const hasPeriod = Boolean(selected);
+  input.disabled = !hasPeriod;
+  $('#velaIndicatorSettingApply').disabled = !hasPeriod;
+  input.value = hasPeriod ? indicatorInputs(selected).length : '';
+  status.textContent = hasPeriod ? `Stored period for ${selected.label}. Apply to refresh the chart.` : 'No period input is available for this study.';
 }
 
 async function applyStoredIndicators() {
   if (!velaChart || typeof velaChart.addNativeIndicator !== 'function') return;
   const desired = storedIndicatorTypes();
   const present = presentNativeTypes();
-  for (const handle of (velaChart.indicators?.() || [])) {
+  const handles = velaChart.indicators?.() || [];
+  for (const handle of handles) {
     if (handle.nativeType && !desired.has(handle.nativeType)) handle.remove();
   }
   for (const def of indicatorDefinitions) {
-    if (!desired.has(def.type) || present.has(def.type)) continue;
-    const handle = velaChart.addNativeIndicator(def.type, {inputs:def.inputs});
+    if (!desired.has(def.type)) continue;
+    const existing = handles.find(handle => handle.nativeType === def.type);
+    if (existing) {
+      existing.setInputs?.(indicatorInputs(def));
+      continue;
+    }
+    const handle = velaChart.addNativeIndicator(def.type, {inputs:indicatorInputs(def)});
     handle?.on?.('error', event => setStatus(`${def.label} unavailable: ${event.error?.message || 'indicator error'}`, true));
   }
   await renderIndicatorRegistry();
@@ -339,6 +394,22 @@ $('#velaIndicatorList').addEventListener('click', event => {
   const button = event.target.closest('[data-vela-indicator]');
   if (!button || button.disabled) return;
   void toggleIndicator(button.dataset.velaIndicator).catch(error => setStatus(error.message, true));
+});
+$('#velaIndicatorSettingType').addEventListener('change', renderIndicatorSettings);
+async function applyIndicatorSetting() {
+  const type = $('#velaIndicatorSettingType').value;
+  const length = Number($('#velaIndicatorSettingLength').value);
+  const status = $('#velaIndicatorSettingStatus');
+  if (!type || !Number.isInteger(length) || length < 2 || length > 5000) {
+    status.textContent = 'Enter a whole-number period from 2 to 5000.';
+    return;
+  }
+  saveIndicatorInput(type, length);
+  status.textContent = `Saved ${length}. Refreshing ${type.toUpperCase()}…`;
+  try { await applyStoredIndicators(); } catch (error) { status.textContent = error.message; }
+}
+document.addEventListener('click', event => {
+  if (event.target.closest('#velaIndicatorSettingApply')) void applyIndicatorSetting();
 });
 $('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));

@@ -143,7 +143,7 @@ Open <http://127.0.0.1:8770>.
 
 ### Trading Desk landing page and Base wallet sign-in
 
-Open <http://127.0.0.1:8770/trading-landing.html> for the product landing page and links to Count Desk, Trading Journal, Liquidity Lab, and Resources. The Count Desk header also links back to this overview.
+Open <http://127.0.0.1:8770/trading-landing.html> for the product landing page and links to Count Desk, Trading Journal, Liquidity Lab, and Resources. Workspace headers link back to this overview and expose a local logout control that clears the wallet session before returning home.
 
 The landing page supports EIP-4361 Sign-In with Ethereum scoped to Base Mainnet (chain ID 8453). Wallet sign-in requests one short-lived nonce and verifies the wallet's message signature locally; it creates an eight-hour, HttpOnly local session cookie. Signing is off-chain: it sends no transaction, costs no gas, and never asks for a seed phrase or private key. Only externally owned accounts are supported by this preview; smart-contract wallet verification is not implemented.
 
@@ -423,7 +423,9 @@ selected stored bars. The selection persists in this browser and is re-applied
 when the chart reloads; these are renderer studies only and do not create
 signals, alerts, or orders.
 
-The active study list is also carried into the Cleo handoff and the Vela paper
+The native-study panel also lets the researcher edit the period for SMA, EMA,
+RSI, and ATR (whole numbers from 2 to 5000). Periods are stored locally,
+shown in the study labels, and carried into the Cleo handoff and Vela paper
 ticket context, so the chart read and hypothetical setup retain the same
 renderer state.
 

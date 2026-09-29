@@ -61,6 +61,7 @@
       <details class="vela-indicator-panel">
         <summary><span>INDICATORS · NATIVE VELA STUDIES</span><strong id="velaIndicatorSummary">Loading registry…</strong></summary>
         <div id="velaIndicatorList" class="vela-indicator-list">Preparing the native indicator registry…</div>
+        <div class="vela-indicator-settings" aria-label="Native indicator settings"><label>Study<select id="velaIndicatorSettingType"></select></label><label>Length<input id="velaIndicatorSettingLength" type="number" min="2" max="5000" step="1"></label><button id="velaIndicatorSettingApply" type="button">Apply period</button><span id="velaIndicatorSettingStatus" role="status" aria-live="polite">Select a study with a period input.</span></div>
         <p>These studies are computed by the forked Vela renderer over the selected stored bars. They are research overlays; they do not create signals, live alerts, or orders.</p>
       </details>
       <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
@@ -83,7 +84,7 @@
     </section>
   </main>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=cleo-indicator-context-2-20260930"></script>
+  <script type="module" src="./vela-preview.js?v=vela-inputs-2-20260930"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>
