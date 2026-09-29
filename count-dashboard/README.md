@@ -341,23 +341,32 @@ instrument and session rules as well: for example, MYM continuous-contract roll
 handling and the exchange session used to build Daily bars. The data provider
 name returned by the adapter is recorded with each import.
 
-## LuxAlgo integration gates
+## Open-source integration gates
 
-The local LuxAlgo workspace at `integrations/luxalgo/` contains the MIT broker
-SDK and MCP sidecar. Count Desk starts the sidecar only for a local Cleo chat
-turn when `BATTY_LUXALGO_MCP_ENABLED=1` is set; its allowlist includes library,
+The four open-source starting points are vendored under
+`integrations/open-source/`: Trade Journal, Edge Stats, the MCP server, and the
+broker SDK. Their pinned source commits and license/data notices are recorded
+in `integrations/open-source/UPSTREAMS.md`. Count Desk owns the adapter contract
+and can rename, test, and modify these components without requiring a LuxAlgo
+account. Preserve each upstream license, Edge Stats data license, and trademark
+notice when redistributing a fork.
+
+The small runtime workspace at `integrations/luxalgo/` is the tested local
+sidecar while the source snapshots are adapted component by component. Count
+Desk starts the sidecar only for a local Cleo chat turn when
+`BATTY_LUXALGO_MCP_ENABLED=1` is set; its allowlist includes library,
 journal-read, broker-read, Edge Stats, tracker, and prop-firm research tools.
 Journal writes, broker account changes, the experimental orders module, and
 Trade Relay are disabled. Credentials never enter browser code or chat
 prompts.
 
 `GET /api/integrations/luxalgo` exposes a credential-free capability report,
-including the installed broker catalog, MCP enablement, Count Desk journal
-boundary, Edge Stats requirements, and optional-module gates. The Resources
-page renders that report so a disabled or rights-gated source is visible rather
-than implied to be connected. Edge Stats remains limited to authorized bars or
-paper/shadow fills and must retain its time window, sample size, confidence,
-uncertainty, and freshness.
+including the vendored source presence, installed broker catalog, MCP
+enablement, Count Desk journal boundary, Edge Stats requirements, and
+optional-module gates. The Resources page renders that report so a disabled or
+rights-gated source is visible rather than implied to be connected. Edge Stats
+remains limited to authorized bars or paper/shadow fills and must retain its
+time window, sample size, confidence, uncertainty, and freshness.
 
 ## MCP data sync controls
 

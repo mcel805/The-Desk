@@ -20,12 +20,12 @@ async function loadLuxalgoStatus() {
     const journal = status.tradeJournal || {};
     const edge = status.edgeStats || {};
     const optional = status.optionalModules || {};
-    luxalgoSummary.textContent = `Local MCP ${mcp.installed ? 'installed' : 'missing'} · ${mcp.enabledForCleo ? 'enabled for Cleo' : 'disabled by default'} · ${sdk.brokers?.length || 0} broker adapters cataloged. Credentials remain server-side and no execution route is enabled.`;
+    luxalgoSummary.textContent = `Open-source MCP ${mcp.installed ? 'installed' : 'missing'} · ${mcp.enabledForCleo ? 'enabled for Cleo' : 'disabled by default'} · ${sdk.brokers?.length || 0} broker adapters cataloged. No authorization service or execution route is enabled.`;
     luxalgoList.innerHTML = [
-      luxalgoRow('Local MCP', mcp.enabledForCleo ? 'enabled' : 'disabled', `${mcp.allowedTools?.length || 0} allowlisted read tools · writes ${mcp.writeToolsEnabled ? 'enabled' : 'disabled'}`),
+      luxalgoRow('Open-source MCP', mcp.enabledForCleo ? 'enabled' : 'disabled', `${mcp.allowedTools?.length || 0} allowlisted read tools · writes ${mcp.writeToolsEnabled ? 'enabled' : 'disabled'}`),
       luxalgoRow('Broker SDK', sdk.catalogAvailable ? 'catalog_ready' : 'not_configured', `${sdk.brokers?.map(item => item.name || item.id).slice(0, 4).join(', ') || 'No catalog'} · account writes disabled`),
-      luxalgoRow('Trade Journal', journal.status, `${journal.brokerImport || 'Local journal boundary'} · LuxAlgo write-through ${journal.luxAlgoWriteThrough ? 'enabled' : 'disabled'}`),
-      luxalgoRow('Edge Stats', edge.status, 'Authorized bars/paper fills only · sample, CI, freshness, and uncertainty required'),
+      luxalgoRow('Trade Journal', journal.status, `${journal.brokerImport || 'Local journal boundary'} · local mode needs no LuxAlgo authorization`),
+      luxalgoRow('Edge Stats', edge.status, 'Vendored local engine · paper bars/fills only · sample, CI, freshness, and uncertainty required'),
       luxalgoRow('Optional tools', 'paper_only', `Prop Firm Sim ${optional.propFirmSim?.status || 'gated'} · trackers ${optional.marketTrackers?.status || 'gated'} · Trade Relay ${optional.tradeRelay?.status || 'disabled'}`),
     ].join('');
   } catch (error) {

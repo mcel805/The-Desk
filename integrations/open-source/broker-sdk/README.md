@@ -1,0 +1,248 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/LuxAlgo/broker-sdk/main/docs/assets/hero.svg" alt="Broker SDK. Every broker. One schema. Your keys never leave your machine." width="100%"/>
+</p>
+
+<h1 align="center">Broker SDK</h1>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@luxalgo/broker-sdk"><img src="https://img.shields.io/npm/v/@luxalgo/broker-sdk?color=000000&labelColor=000000" alt="npm version"/></a>
+  <a href="https://github.com/LuxAlgo/broker-sdk/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/LuxAlgo/broker-sdk/ci.yml?label=ci&labelColor=000000" alt="CI"/></a>
+  <a href="https://github.com/LuxAlgo/broker-sdk/actions/workflows/canary.yml"><img src="https://img.shields.io/github/actions/workflow/status/LuxAlgo/broker-sdk/canary.yml?label=canary&labelColor=000000" alt="Canary"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?labelColor=000000&color=555555" alt="MIT license"/></a>
+</p>
+
+<p align="center">
+  <a href="https://www.luxalgo.com/broker-sdk/"><b>Homepage</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/recipes.md"><b>Recipes</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/SCHEMA.md"><b>Schema</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/byo-oauth.md"><b>OAuth setup</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://www.npmjs.com/package/@luxalgo/broker-sdk"><b>npm</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/LuxAlgo/luxalgo-mcp-server"><b>MCP server</b></a>
+</p>
+
+<p align="center"><sub>Broker SDK is a <a href="https://www.luxalgo.com">LuxAlgo</a> open-source project.</sub></p>
+
+**Connect code, apps, and AI agents to real brokerage and exchange accounts.** Point it at Charles Schwab, Alpaca, Robinhood Crypto, Binance, Kraken, Interactive Brokers and more. Get back the same clean picture from every one of them: accounts, balances, positions, trade history, and computed performance stats.
+
+It runs where your code runs: no hosted service, no telemetry, and your keys never touch anyone else's servers.
+
+```bash
+npm install @luxalgo/broker-sdk
+```
+
+## Your portfolio in five lines
+
+```ts
+import { connect } from "@luxalgo/broker-sdk";
+
+const kraken = connect({ broker: "kraken", credentials: { apiKey, apiSecret } });
+const snapshot = await kraken.fetchSnapshot();
+console.log(snapshot.accounts); // normalized: equity, positions, trades
+```
+
+Every broker returns the same shape. Learn it once:
+
+```ts
+type Account = {
+  id: string;          // broker-side stable id, safe as an upsert key
+  name: string;
+  currency: string;    // ISO 4217
+  equity: number;      // total account value
+  cash?: number;       // when the broker reports it separately
+  environment?: "live" | "paper";
+  positions: { symbol: string; quantity: number; marketValue?: number }[];
+  trades: { symbol: string; side: "buy" | "sell"; quantity: number; price: number; fee?: number; executedAt?: string }[];
+};
+```
+
+### IBKR Flex statement timezone
+
+For Flex XML timestamps without an offset, pass the timezone used by the report:
+
+```ts
+const ibkr = connect({
+  broker: "ibkr-flex",
+  credentials: { flexToken, flexQueryId },
+  statementTimeZone: "America/New_York",
+});
+```
+
+The same option is accepted by `parseFlexStatement(xml, { statementTimeZone })`
+from `/adapters`. Omitting it preserves the UTC default. The selected zone's
+daylight-saving rules are applied; explicit `Z` and numeric offsets take
+precedence. Invalid dates, unsupported timezone suffixes, and ambiguous or
+nonexistent local times leave `executedAt` absent. Consumers should report and
+skip these untimed fills. Date-only reports retain their midnight fallback.
+Other brokers ignore this option. Use the report's actual timezone; it is not
+inferred from its symbols or exchanges.
+
+Changing this option does not repair previously stored trades. Consumers that
+deduplicate on timestamps should recover into a separate account or perform an
+explicit reconciliation before using corrected timestamps with existing history.
+
+## Your whole portfolio, every broker at once
+
+```ts
+import { createPortfolio } from "@luxalgo/broker-sdk";
+import { computeStats } from "@luxalgo/broker-sdk/stats";
+
+const portfolio = createPortfolio();
+portfolio.add({ broker: "alpaca", credentials: { apiKey, apiSecret } });
+portfolio.add({ broker: "binance", credentials: { apiKey, apiSecret } });
+portfolio.add({ broker: "hyperliquid", credentials: { walletAddress } });
+
+const { snapshots, failures } = await portfolio.fetchAll();
+const stats = computeStats(
+  snapshots.flatMap((s) => s.accounts.map((a) => ({ ...a, broker: s.broker }))),
+);
+console.log(stats.totalEquity, stats.trades?.winRate, stats.topPositions);
+```
+
+One broker failing never takes down the sweep: failures come back alongside the snapshots that succeeded. The stats engine does FIFO round-trip matching, win rate, average win and loss, and per-symbol activity. A sell with no recorded buy is ignored, never guessed at.
+
+## Bars
+
+Brokers that publish their own market-data endpoints can serve historical OHLCV bars with the same read-only credentials, normalized to one shape (`time` is the bar open in epoch ms, oldest-first):
+
+```ts
+const alpaca = connect({ broker: "alpaca", credentials: { apiKey, apiSecret } });
+const from = Date.now() - 24 * 60 * 60 * 1000;
+const bars = await alpaca.fetchBars("AAPL", { timeframe: "1m", from, to: Date.now() });
+// [{ time, open, high, low, close, volume }, ...]
+await alpaca.fetchBars("BTC/USD", { timeframe: "1h", limit: 500 }); // crypto pairs carry a slash
+```
+
+Supported: **Alpaca** (stocks on the IEX feed, crypto pairs; `1m`, `5m`, `15m`, `1h`, `1d`) and **Tradier** (`1m`, `5m`, `15m` via timesales, `1d` via history). Other brokers have no market-data endpoint, so `fetchBars` rejects with `UnsupportedCapabilityError`; check ahead with `supportsBars(brokerId)` or the `supportsBars` flag on `listBrokers()`.
+
+## Import any broker statement
+
+No API? Any account at any institution is importable from a trade-history CSV. The parser is tolerant on headers (brokers disagree on column names) and strict on rows (anything unreadable is skipped and counted, never guessed):
+
+```ts
+import { parseStatementCsv, positionsFromTrades } from "@luxalgo/broker-sdk/csv";
+
+const { trades, skippedRows, contentHash } = parseStatementCsv(csvText);
+const positions = positionsFromTrades(trades);
+```
+
+## Supported brokers
+
+| Broker | Credentials | Trades history | Bars |
+| --- | --- | :---: | :---: |
+| Alpaca (live + paper) | API key + secret | ✅ | ✅ |
+| Binance | API key + secret (read-only) | ➖ | ➖ |
+| Bybit | API key + secret (read-only) | ➖ | ➖ |
+| Charles Schwab | your own OAuth2 app | ✅ | ➖ |
+| Coinbase | your own OAuth2 app (read scope) | ➖ | ➖ |
+| Crypto.com Exchange | API key + secret (read-only) | ➖ | ➖ |
+| E\*TRADE | your own OAuth 1.0a app | ✅ | ➖ |
+| Gemini | API key + secret (auditor role) | ➖ | ➖ |
+| Hyperliquid | wallet address only | ✅ | ➖ |
+| Interactive Brokers (Flex) | Flex token + query ID | ✅ | ➖ |
+| Kraken | API key + secret ("Query Funds") | ➖ | ➖ |
+| KuCoin | API key + secret + passphrase (read) | ✅ | ➖ |
+| OKX | API key + secret + passphrase (read) | ➖ | ➖ |
+| Public.com | API secret key | ✅ | ➖ |
+| Questrade | API refresh token | ✅ | ➖ |
+| Robinhood Crypto | API key + Ed25519 private key | ✅ | ➖ |
+| tastytrade | login (rotating remember token) | ✅ | ➖ |
+| Topstep (ProjectX) | username + API key | ✅ | ➖ |
+| TradeStation | your own OAuth2 app | ➖ | ➖ |
+| Tradier | access token | ✅ | ✅ |
+| Trading212 | API key | ➖ | ➖ |
+| Webull (OpenAPI) | App key + secret | ➖ | ➖ |
+| Any broker via CSV import | a statement file | ✅ | ➖ |
+
+`listBrokers()` returns every adapter with its exact credential fields and a one-line guide to creating the key with **read-only scope**, which is all this SDK ever needs.
+
+**Sanctioned APIs only.** If a broker does not officially support programmatic access for its users, it is not in this repo: no scraping, no reverse-engineered private APIs, ever. Brokers reachable only through credentialed aggregators (Plaid-style: Fidelity, Chase, Vanguard) can't ship in an open-source library and are out of scope. The moment a broker opens an official retail API it becomes eligible, which is exactly how Charles Schwab and Robinhood Crypto earned their rows above. OAuth brokers where you register your own free developer app (Charles Schwab, TradeStation, E\*TRADE, Coinbase) are supported bring-your-own-app style; the flow helpers and setup guide live in [docs/byo-oauth.md](docs/byo-oauth.md).
+
+## Read-only, local-only, by design
+
+- **Your keys stay yours.** The SDK runs where your code runs. There is no LuxAlgo server in the path, no telemetry, no phoning home. We don't want your keys.
+- **Read-only by default.** The root export reads accounts, balances, positions, and history. Nothing in it can place an order.
+- **Credential rotation is first-class.** Brokers with single-use tokens (Questrade) hand the rotated credentials back through `onCredentialsRotated` so you can persist them before the old ones die.
+- **Fail-soft, never fabricate.** A position the broker can't price has no `marketValue` rather than a made-up one. A history row that can't be read is skipped and counted, not guessed.
+
+## Give your AI agent portfolio access
+
+Run the [LuxAlgo MCP server](https://github.com/LuxAlgo/luxalgo-mcp-server) locally and its `broker_*` tools give Claude, Cursor, or any MCP client read-only access to your real accounts through this SDK. Keys go in your own MCP client config as env vars; the agent can ask "how is my portfolio doing?" but can never trade.
+
+## Drop-in connect UI
+
+One React component renders the full "connect your broker" flow: a filterable broker picker, guided credential entry with the right fields per broker, and secret masking.
+
+```tsx
+import { BrokerConnect } from "@luxalgo/broker-sdk/connect";
+
+<BrokerConnect
+  onComplete={(brokerId, credentials) => myVault.store(brokerId, credentials)}
+/>;
+```
+
+The security contract in one sentence: credentials go only to your `onComplete` callback, never to LuxAlgo, and the kit never stores, transmits, or logs them itself. Not using React? The headless state machine behind the component is at `@luxalgo/broker-sdk/connect/core`. React is an optional peer dependency, so installs without React stay warning-free and the rest of the SDK never touches it.
+
+## Sync daemon and webhooks
+
+Run `npx broker-sync` with your keys in `BROKERS_*` env vars (e.g. `BROKERS_ALPACA_API_KEY`, `BROKERS_ALPACA_API_SECRET`, the same convention as the MCP server) and it polls your brokers on an interval, diffs each snapshot against the last, and emits only what changed.
+
+```bash
+npx broker-sync --interval 300 --webhook-url https://example.com/hooks/portfolio --webhook-secret change-me
+```
+
+Events are `trade_executed`, `balance_changed`, `position_opened`, `position_closed`, `position_changed`, `broker_error`, and `sync_completed`, delivered per sweep as one JSON batch. When a secret is configured, every webhook request carries `X-BrokerSync-Signature`, the lowercase hex HMAC-SHA256 of the raw body. State persists to a local JSON file before delivery, so a crash can drop a batch but never replay one. Programmatic use lives at `@luxalgo/broker-sdk/sync`.
+
+## Place orders (experimental)
+
+The write layer lives in a deliberately separate module. Importing the SDK never gives code trading capability by accident:
+
+```ts
+import { connectTrading } from "@luxalgo/broker-sdk/orders";
+
+const trading = connectTrading({ broker: "alpaca", credentials: { apiKey, apiSecret } }); // paper keys only
+const order = await trading.placeOrder({ symbol: "AAPL", side: "buy", type: "limit", quantity: 5, limitPrice: 180.5 });
+await trading.cancelOrder(order.id);
+```
+
+Supported: **Alpaca** (paper by default; a live account additionally requires `acknowledgeLiveTrading` set to the exact `LIVE_TRADING_ACKNOWLEDGEMENT` sentence, never a boolean, never a default), **Tradier** (sandbox only, pinned to the sandbox host so live orders are impossible by construction), and **Binance Spot Testnet** (pinned to testnet.binance.vision, live orders impossible by construction). Roadmap and full safety posture: [docs/orders-rfc.md](docs/orders-rfc.md).
+
+## The conformance kit
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/LuxAlgo/broker-sdk/main/docs/assets/conformance.svg" alt="Adapter architecture: fetchRaw does IO only, normalize is pure, golden vectors gate every adapter" width="100%"/>
+</p>
+
+The schema plus golden test vectors live in [`conformance/vectors/`](conformance/vectors): one per adapter, pairing a raw provider payload with the exact normalized output. Every adapter splits into an IO-only `fetchRaw` and a pure `normalize`, so the mapping of every broker is tested without a network or credentials, and every community adapter must pass the gate before merge.
+
+Two workflows keep the adapters honest in production:
+
+- **Canary**: a scheduled run against real read-only accounts, per broker, so a silent API change surfaces as a red badge instead of a user bug report.
+- **API watch**: hash-diffs each broker's public API docs and changelogs and files an issue the day something moves.
+
+## Runtime
+
+Node ≥ 18.17 (built-in `fetch`; `node:crypto` for request signing). Zero runtime dependencies. ESM and CJS. TypeScript strict, `exactOptionalPropertyTypes` on. Bring your own persistence: snapshots are plain JSON.
+
+## The suite
+
+| Package | What it is |
+| --- | --- |
+| [`@luxalgo/broker-sdk`](https://github.com/LuxAlgo/broker-sdk) (this repo) | The TypeScript SDK and reference implementation |
+| [`@luxalgo/mcp`](https://github.com/LuxAlgo/luxalgo-mcp-server) | The LuxAlgo MCP server; its local `broker_*` tools give AI agents read-only portfolio access through this SDK |
+
+## Contributing
+
+Copy-paste starting points live in [docs/recipes.md](docs/recipes.md); the bring-your-own-app OAuth guide (Charles Schwab, TradeStation, E\*TRADE, Coinbase) in [docs/byo-oauth.md](docs/byo-oauth.md). Adapter #23 is yours to add, and [CONTRIBUTING.md](CONTRIBUTING.md) walks you through it. The short version: sanctioned user-key APIs only, split fetch/normalize, ship a conformance vector, pass the gate.
+
+## Disclaimer
+
+This software reports what your broker reports. It is not investment advice, and nothing in it recommends any trade. Use at your own risk; verify important numbers against your broker's own statements.
+
+## License
+
+[MIT](LICENSE) © LuxAlgo Global, LLC. The "Broker SDK" and "LuxAlgo" names and the LuxAlgo logo are trademarks of LuxAlgo Global, LLC; see [TRADEMARKS.md](TRADEMARKS.md). Security reports: [SECURITY.md](SECURITY.md).

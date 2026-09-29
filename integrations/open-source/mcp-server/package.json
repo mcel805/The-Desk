@@ -1,0 +1,82 @@
+{
+  "name": "@luxalgo/mcp",
+  "version": "1.5.0",
+  "description": "LuxAlgo MCP server: the LuxAlgo ecosystem for AI agents. The Library encyclopedia of trading & technical analysis; prop-firm analysis (firms, challenges, live offers) and the open-source Monte Carlo challenge simulator; Market Trackers, the public record of US markets (congressional trades, insider filings, lobbying, contracts, patents and more, from CC0 dumps); Edge Stats session statistics; your LuxAlgo Trade Journal; and local read-only broker portfolio access through @luxalgo/broker-sdk. Public tools are free and keyless; the Trade Journal and account tools need a LuxAlgo sign-in (OAuth 2.1).",
+  "mcpName": "io.github.LuxAlgo/luxalgo-mcp-server",
+  "homepage": "https://www.luxalgo.com/mcp",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LuxAlgo/luxalgo-mcp-server.git"
+  },
+  "type": "module",
+  "bin": {
+    "luxalgo-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "mcp",
+    "agents",
+    "technical analysis",
+    "technical indicators",
+    "charting",
+    "finance",
+    "trading",
+    "prop firms",
+    "prop trading",
+    "funded accounts",
+    "trading challenges",
+    "monte-carlo",
+    "simulation",
+    "research",
+    "knowledge-base",
+    "open-data",
+    "claude",
+    "ai",
+    "broker",
+    "brokerage",
+    "portfolio",
+    "congress trades",
+    "insider trading",
+    "sec edgar",
+    "lobbying",
+    "government contracts",
+    "public records"
+  ],
+  "author": "LuxAlgo",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js",
+    "start:http": "node dist/entries/node-http.js",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.api.json",
+    "test": "node test/smoke.mjs",
+    "test:http": "node test/smoke.mjs --http http://localhost:3333/mcp",
+    "test:parity": "node test/parity.mjs",
+    "test:trackers": "node test/trackers-check.mjs"
+  },
+  "dependencies": {
+    "@luxalgo/broker-sdk": "^0.5.0",
+    "@luxalgo/prop-firm-sim-core": "1.2.1",
+    "@luxalgo/prop-firm-sim-mcp": "1.3.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@posthog/mcp": "^0.13.0",
+    "jose": "^6.2.12",
+    "mcp-handler": "^2.1.1",
+    "posthog-node": "^5.51.4",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,11 +1,18 @@
 {
-  "name": "count-desk-luxalgo-integration",
+  "name": "count-desk-open-source-integration",
   "version": 1,
-  "purpose": "Credential-free capability contract for Count Desk's LuxAlgo adapters.",
+  "purpose": "Credential-free capability contract for Count Desk's open-source trading stack.",
+  "sourceManifest": "integrations/open-source/UPSTREAMS.md",
+  "sourceSnapshots": [
+    "integrations/open-source/trade-journal",
+    "integrations/open-source/edge-stats",
+    "integrations/open-source/mcp-server",
+    "integrations/open-source/broker-sdk"
+  ],
   "runtime": {
-    "mcpPackage": "@luxalgo/mcp",
+    "mcpPackage": "@luxalgo/mcp (fork source vendored locally)",
     "mcpVersion": "1.5.0",
-    "brokerSdkPackage": "@luxalgo/broker-sdk",
+    "brokerSdkPackage": "@luxalgo/broker-sdk (fork source vendored locally)",
     "brokerSdkVersion": "0.5.1",
     "mcpProbe": "npm run mcp:probe"
   },
@@ -20,6 +27,7 @@
   "surfaces": {
     "mcp": {
       "enabledBy": "BATTY_LUXALGO_MCP_ENABLED=1",
+      "authorizationRequired": false,
       "allowlistOwnedBy": "count-dashboard/server.py:LUXALGO_MCP_TOOLS",
       "writes": "disabled"
     },
@@ -29,12 +37,14 @@
       "orderRouting": "disabled"
     },
     "tradeJournal": {
-      "canonicalLocalSurface": "Count Desk journal routes",
+      "canonicalLocalSurface": "Count Desk journal routes and vendored Trade Journal source",
+      "authorizationRequired": false,
       "luxAlgoWriteThrough": "disabled",
       "brokerImport": "read_only_after_source_rights_and_credentials"
     },
     "edgeStats": {
       "mode": "read_only_paper_gate",
+      "sourceSnapshot": "integrations/open-source/edge-stats",
       "requiredProvenance": ["source", "window", "sampleSize", "confidenceInterval", "freshness", "uncertainty"],
       "liveClaims": "disabled"
     },

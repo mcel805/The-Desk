@@ -61,6 +61,8 @@ FEED_SYNC_INTERVAL_SECONDS = 5 * 60
 LIQUIDITY_LAB_URL = "http://127.0.0.1:8041/"
 _LIQUIDITY_LAB_START_LOCK = Lock()
 LUXALGO_ROOT = WORKSPACE / "integrations" / "luxalgo"
+OPEN_SOURCE_ROOT = WORKSPACE / "integrations" / "open-source"
+OPEN_SOURCE_COMPONENTS = ("trade-journal", "edge-stats", "mcp-server", "broker-sdk")
 LUXALGO_MCP_TOOLS = (
     "library_search", "library_list_families", "library_get_family", "library_list_concepts",
     "library_get_concept", "library_list_indicators", "library_get_indicator", "library_get_source_code", "library_list_tags",
@@ -98,6 +100,15 @@ def luxalgo_integration_status() -> dict:
     return {
         "readOnly": True,
         "generatedAt": utc_now(),
+        "source": {
+            "mode": "vendored_open_source",
+            "authorizationRequired": False,
+            "manifest": "integrations/open-source/UPSTREAMS.md",
+            "components": [
+                {"name": name, "present": (OPEN_SOURCE_ROOT / name).is_dir()}
+                for name in OPEN_SOURCE_COMPONENTS
+            ],
+        },
         "mcp": {
             "installed": mcp_installed,
             "enabledForCleo": enabled,
@@ -105,6 +116,7 @@ def luxalgo_integration_status() -> dict:
             "allowedTools": list(LUXALGO_MCP_TOOLS),
             "writeToolsEnabled": False,
             "executionRelayEnabled": False,
+            "authorizationRequired": False,
         },
         "brokerSdk": {
             "installed": sdk_installed,
@@ -120,9 +132,11 @@ def luxalgo_integration_status() -> dict:
             "countDeskRoutes": ["/api/trade-journal", "/api/trade-journal/import", "/api/trade-journal/paper-trades"],
             "brokerImport": "read-only summaries or CSV execution import",
             "luxAlgoWriteThrough": False,
+            "authorizationRequired": False,
         },
         "edgeStats": {
             "status": "read_only_paper_gate",
+            "sourceSnapshot": (OPEN_SOURCE_ROOT / "edge-stats").is_dir(),
             "mcpTools": ["edge_symbols", "edge_presets", "edge_report"],
             "requiredInputs": ["authorized source", "time window", "sample size", "uncertainty", "freshness"],
             "liveClaimsEnabled": False,

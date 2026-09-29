@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.LuxAlgo/luxalgo-mcp-server",
+  "title": "LuxAlgo MCP",
+  "description": "LuxAlgo for AI agents: the Library, prop firms, Market Trackers, Edge Stats, and your Trade Journal",
+  "repository": {
+    "url": "https://github.com/LuxAlgo/luxalgo-mcp-server",
+    "source": "github"
+  },
+  "websiteUrl": "https://www.luxalgo.com/mcp",
+  "version": "1.5.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@luxalgo/mcp",
+      "version": "1.5.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.luxalgo.com/mcp"
+    }
+  ]
+}
