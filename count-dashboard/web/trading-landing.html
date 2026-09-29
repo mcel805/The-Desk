@@ -35,6 +35,10 @@
     .workspace-card h2 { margin:10px 0 8px; font-size:1.05rem; }
     .workspace-card p { margin:0; color:#9eafbd; font-size:.78rem; line-height:1.5; }
     .workspace-card .arrow { margin-top:auto; padding-top:22px; color:var(--cyan); font-size:.78rem; }
+    .tool-belt-card { position:relative; overflow:hidden; border-color:#42606b; background:radial-gradient(circle at 85% 35%,#1b3a44 0,#0e1822 55%); }
+    .tool-belt-card img { position:absolute; right:-15px; bottom:-30px; width:180px; height:180px; object-fit:contain; filter:drop-shadow(0 18px 16px #0009); pointer-events:none; }
+    .tool-belt-card h2,.tool-belt-card p,.tool-belt-card small,.tool-belt-card .arrow { position:relative; z-index:1; max-width:52%; }
+    .tool-belt-card .arrow { color:#91eff4; }
     .wallet-panel { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-top:26px; padding:16px 18px; border:1px solid var(--line); border-radius:8px; background:#0c131b; }
     .wallet-copy strong { display:block; font-size:.78rem; }
     .wallet-copy p { margin:5px 0 0; color:#8194a5; font-size:.7rem; line-height:1.45; }
@@ -59,6 +63,7 @@
       <section class="workspace-grid" aria-label="Count Desk workspaces">
         <a class="workspace-card" href="/vela-preview.html"><small>PRIMARY WORKSPACE</small><h2>Count Desk</h2><p>Open the three-pane workspace with a full-height Vela chart, collapsible navigation, and Cleo chat.</p><span class="arrow">Open chart desk →</span></a>
         <a class="workspace-card" href="/vela-preview.html"><small>VELA FORK · NATIVE STUDIES</small><h2>Chart Workspace</h2><p>Use native drawing tools, editable studies, replay controls, and source connections directly inside the chart.</p><span class="arrow">Open Vela workspace →</span></a>
+        <a class="workspace-card tool-belt-card" href="/tool-belt.html"><small>BUILT IN INDICATORS</small><h2>Tool Belt</h2><p>Browse the desk’s chart studies and their evidence status.</p><img src="/tool-belt-assets/tool-belt-mono.png" alt="" aria-hidden="true"><span class="arrow">Open Tool Belt →</span></a>
         <a class="workspace-card" href="/vela-preview.html#paper"><small>SIMULATION LAB</small><h2>Paper Trading</h2><p>Queue and manage local paper positions from the selected chart. No orders leave this browser.</p><span class="arrow">Open paper tab →</span></a>
         <a class="workspace-card" href="/trade-journal.html"><small>REVIEW LOOP</small><h2>Trading Journal</h2><p>Review paper trade context and preserve the evidence trail around each research decision.</p><span class="arrow">Open journal →</span></a>
         <a class="workspace-card" href="http://127.0.0.1:8041/"><small>LIQUIDITY LAB</small><h2>Liquidity Lab</h2><p>Inspect the separate liquidity research surface when its local service is available.</p><span class="arrow">Open liquidity lab →</span></a>

@@ -47,6 +47,7 @@ from tickstream_adapter import (
     feed as tickstream_feed,
     fetch_quote as fetch_tickstream_quote,
 )
+from volume_profile_lab import ProfileSettings, build_volume_profile, replay_profile_quality
 import indicator_agent_store
 
 
@@ -55,7 +56,7 @@ WORKSPACE = ROOT.parent
 WEB = ROOT / "web"
 DEFAULT_DB = ROOT / "data" / "batty-counts.sqlite3"
 INDICATOR_AGENT_DB = ROOT / "data" / "indicator-agent.sqlite3"
-ALGORITHM_VERSION = "structure-prototype-v0.6-liquidity-level-history"
+ALGORITHM_VERSION = "structure-prototype-v0.7-volume-profile-evidence"
 HISTORY_LIMITS = {"1M": 5000, "2M": 5000, "3M": 5000, "5M": 5000, "15M": 5000, "30M": 5000, "1H": 5000, "4H": 3000, "1D": 5000}
 TIMEFRAME_SECONDS = {"1M": 60, "2M": 2 * 60, "3M": 3 * 60, "5M": 5 * 60, "15M": 15 * 60, "30M": 30 * 60, "1H": 60 * 60, "4H": 4 * 60 * 60, "1D": 24 * 60 * 60}
 TIMEFRAME_ORDER = ("1M", "2M", "3M", "5M", "15M", "30M", "1H", "4H", "1D")
@@ -1358,7 +1359,7 @@ def aggregate(db: sqlite3.Connection, dataset_id: str, symbol: str, source_tf: s
         derived.append((
             dataset_id, symbol, target_tf, ts, group[0]["open"],
             max(x["high"] for x in group), min(x["low"] for x in group),
-            group[-1]["close"], sum((x["volume"] or 0) for x in group), 1,
+            group[-1]["close"], (sum(x["volume"] for x in group) if all(x["volume"] is not None for x in group) else None), 1,
         ))
     db.executemany(
         "INSERT INTO bars VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -1476,48 +1477,47 @@ def label_pivots(pivots: list[dict], notation: str, color: str, degree: str) -> 
 
 
 def snapshot_hash(bars: list[Bar]) -> str:
-    payload = "|".join(f"{b.time}:{b.open}:{b.high}:{b.low}:{b.close}" for b in bars)
+    payload = "|".join(f"{b.time}:{b.open}:{b.high}:{b.low}:{b.close}:{b.volume}" for b in bars)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def volume_profile(bars: list[Bar], bins: int = 32, lookback: int = 160) -> dict:
-    sample = bars[-lookback:]
-    floor = min(bar.low for bar in sample)
-    ceiling = max(bar.high for bar in sample)
-    step = max((ceiling - floor) / bins, 1e-9)
-    volumes = [0.0] * bins
-    for bar in sample:
-        lo = max(0, min(bins - 1, int((bar.low - floor) / step)))
-        hi = max(0, min(bins - 1, int((bar.high - floor) / step)))
-        weight = (bar.volume or 1.0) / (hi - lo + 1)
-        for index in range(lo, hi + 1):
-            volumes[index] += weight
-    total = sum(volumes)
-    poc_index = max(range(bins), key=lambda index: volumes[index])
-    ranked = sorted(range(bins), key=lambda index: volumes[index], reverse=True)
-    selected: list[int] = []
-    captured = 0.0
-    for index in ranked:
-        selected.append(index)
-        captured += volumes[index]
-        if captured >= total * .70:
-            break
-    profile_bins = [
-        {
-            "price": floor + (index + .5) * step,
-            "low": floor + index * step,
-            "high": floor + (index + 1) * step,
-            "volume": volume,
-            "relative": volume / max(volumes) if max(volumes) else 0,
-        }
-        for index, volume in enumerate(volumes)
-    ]
-    return {
-        "lookbackBars": len(sample), "bins": profile_bins,
-        "poc": profile_bins[poc_index]["price"],
-        "vah": profile_bins[max(selected)]["high"],
-        "val": profile_bins[min(selected)]["low"],
+    # A later stored bar proves the final included bar has closed. The newest
+    # bar itself may still be forming, so exclude it from this chart overlay.
+    return build_volume_profile(bars[:-1], ProfileSettings(bins=bins, lookback=lookback))
+
+
+def volume_profile_report(db: sqlite3.Connection, symbol: str, timeframe: str,
+                          cutoff: int, settings: ProfileSettings,
+                          include_replay: bool = False) -> dict:
+    stored = get_bars(db, symbol, timeframe, cutoff, max(settings.lookback + 121, 401))
+    if len(stored) < 2:
+        raise ValueError("At least two stored bars are required to confirm a closed bar.")
+    confirmed = stored[:-1]
+    profile = build_volume_profile(confirmed, settings)
+    first_time = confirmed[max(0, len(confirmed) - settings.lookback)].time
+    last_time = confirmed[-1].time
+    rows = db.execute(
+        "SELECT DISTINCT d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256, "
+        "MIN(b.time) first_time,MAX(b.time) last_time,MAX(b.derived) derived "
+        "FROM bars b JOIN datasets d ON d.dataset_id=b.dataset_id "
+        "WHERE b.symbol=? AND b.timeframe=? AND b.time>=? AND b.time<=? "
+        "GROUP BY d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256 ORDER BY first_time",
+        (symbol, timeframe, first_time, last_time),
+    ).fetchall()
+    sources = [dict(row) for row in rows]
+    result = {
+        "indicatorId": "volume-profile", "symbol": symbol, "timeframe": timeframe,
+        "requestedCutoff": cutoff, "confirmedCutoff": last_time,
+        "excludedLatestStoredBar": stored[-1].time,
+        "barCompletion": "confirmed by a later stored bar",
+        "sourceRights": "not recorded in Count Desk",
+        "measurementState": "descriptive and operational only; directional outcome undefined",
+        "profile": profile, "sources": sources,
     }
+    if include_replay:
+        result["replay"] = replay_profile_quality(confirmed[-min(len(confirmed), settings.lookback + 120):], settings)
+    return result
 
 
 def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> dict:
@@ -1535,7 +1535,7 @@ def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> d
         for ratio in (0, .236, .382, .5, .618, .786, 1):
             fib["levels"].append({"ratio": ratio, "price": end["price"] - span * ratio})
         tolerance = max(abs(span) * .012, average_range * .35)
-        volume_levels = [("POC", profile["poc"]), ("VAH", profile["vah"]), ("VAL", profile["val"])]
+        volume_levels = [("POC", profile["poc"]), ("VAH", profile["vah"]), ("VAL", profile["val"])] if profile["status"] != "unavailable" else []
         for level in fib["levels"]:
             matches = [name for name, price in volume_levels if abs(price - level["price"]) <= tolerance]
             if matches:
@@ -2605,6 +2605,23 @@ class Handler(SimpleHTTPRequestHandler):
                 with connect(self.server.db_path) as db:  # type: ignore[attr-defined]
                     if parsed.path == "/api/health":
                         return self.send_json({"ok": True, "algorithmVersion": ALGORITHM_VERSION})
+                    if parsed.path == "/api/tool-belt/volume-profile":
+                        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                            return self.send_json({"error": "Indicator research is local to this device."}, 403)
+                        query = parse_qs(parsed.query)
+                        symbol = query.get("symbol", [""])[0].strip()
+                        if not symbol:
+                            raise ValueError("symbol is required")
+                        timeframe = normalize_tf(query.get("timeframe", ["1H"])[0])
+                        cutoff = int(query.get("cutoff", [str(2**31 - 1)])[0])
+                        settings = ProfileSettings(
+                            bins=int(query.get("bins", ["32"])[0]),
+                            lookback=int(query.get("lookback", ["160"])[0]),
+                        )
+                        return self.send_json(volume_profile_report(
+                            db, symbol, timeframe, cutoff, settings,
+                            query.get("replay", ["0"])[0] == "1",
+                        ))
                     if parsed.path == "/api/chat/overview":
                         if self.client_address[0] not in {"127.0.0.1", "::1"}:
                             return self.send_json({"error": "Dashboard chat context is available on this local device only."}, 403)
