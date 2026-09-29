@@ -5,6 +5,7 @@ const resourcesPage = document.body.classList.contains('resources-page');
 const liquidityLabPage = document.body.classList.contains('liquidity-lab-page');
 const pageLabel = journalPage ? 'Trading Journal' : resourcesPage ? 'Resources' : liquidityLabPage ? 'Liquidity Lab' : 'Count Desk';
 const chatApiBase = document.body.dataset.chatApi || '';
+const cleoHandoffPrompt = new URLSearchParams(window.location.search).get('cleoPrompt')?.trim() || '';
 const content = document.createElement('div');
 content.className = 'batty-page-content';
 while (main.firstChild) content.append(main.firstChild);
@@ -515,6 +516,10 @@ function renderRecentChats() {
 }
 
 renderConversation();
+if (cleoHandoffPrompt) {
+  input.value = cleoHandoffPrompt;
+  input.setSelectionRange(input.value.length, input.value.length);
+}
 renderRecentChats();
 
 recentButton.addEventListener('click', () => {

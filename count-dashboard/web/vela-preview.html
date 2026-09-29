@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Vela Preview</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=vela-workspace-20260930">
+  <link rel="stylesheet" href="./vela-preview.css?v=vela-handoff-20260930">
 </head>
 <body class="trading-prototype vela-preview-page">
   <header>
@@ -42,7 +42,7 @@
       </div>
       <div id="velaStatus" class="vela-status" role="status" aria-live="polite">Loading Count Desk catalog…</div>
       <section id="cleoBriefing" class="cleo-briefing" aria-label="Cleo structural briefing">
-        <div class="cleo-briefing-head"><div><small>CLEO · STRUCTURAL READ</small><strong>Renderer-neutral context</strong></div><span id="cleoReadStatus">PROVISIONAL</span></div>
+        <div class="cleo-briefing-head"><div><small>CLEO · STRUCTURAL READ</small><strong>Renderer-neutral context</strong></div><div class="cleo-briefing-actions"><span id="cleoReadStatus">PROVISIONAL</span><a id="velaAskCleo" href="./?cleoPrompt=Read%20this%20Vela%20chart%20with%20a%20provisional%20structural%20read.">Ask Cleo in Count Desk</a></div></div>
         <div class="cleo-briefing-grid">
           <div><small>PREFERRED PATH</small><strong id="cleoPreferred">—</strong></div>
           <div><small>ALTERNATE PATH</small><strong id="cleoAlternate">—</strong></div>
@@ -75,6 +75,6 @@
     </section>
   </main>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=vela-workspace-20260930"></script>
+  <script type="module" src="./vela-preview.js?v=vela-handoff-20260930"></script>
 </body>
 </html>

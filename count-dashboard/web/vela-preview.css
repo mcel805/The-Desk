@@ -21,6 +21,7 @@
 .cleo-briefing-head small,.cleo-briefing-grid small{display:block;color:#bca7f5;font:700 .5rem ui-monospace,monospace;letter-spacing:.11em}
 .cleo-briefing-head strong{display:block;margin-top:3px;color:#eee9ff;font-size:.78rem}
 .cleo-briefing-head>span{padding:3px 5px;border:1px solid #7a69a7;border-radius:3px;color:#d8caff;font:700 .48rem ui-monospace,monospace}
+.cleo-briefing-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.cleo-briefing-actions a{padding:5px 7px;border:1px solid #4d8b86;border-radius:4px;background:#122e32;color:#b9f3e5;font-size:.52rem;font-weight:700;text-decoration:none;white-space:nowrap}.cleo-briefing-actions a:hover{border-color:#72d9c4;background:#173d3f}
 .cleo-briefing-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:11px 12px 6px}
 .cleo-briefing-grid strong{display:block;margin-top:4px;color:#eff8f5;font-size:.72rem}
 .cleo-briefing p{margin:0;padding:4px 12px 11px;color:#a99fc0;font-size:.61rem;line-height:1.4}

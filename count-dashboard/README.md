@@ -69,6 +69,11 @@ overlay uses only bars available by the chart cutoff; swings must be confirmed
 by the selected right-side swing window before the active range is drawn. Its
 settings and visibility choice are saved in this browser.
 
+The Cleo briefing includes an **Ask Cleo in Count Desk** handoff. It carries the
+selected Vela symbol and timeframe into the existing Batty chat context and
+prefills a provisional structural-read request; it does not submit a trade or
+claim live market access.
+
 The chart controls sit in a collapsible **Tool bar**, closed by default to give
 the chart more room. Its animated right-edge tab opens and closes the controls;
 the tab defaults to yellow and its color is customizable. Configure which rows

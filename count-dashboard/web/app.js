@@ -415,13 +415,21 @@ function updateLiquidityControls(){
 async function loadCatalog() {
   const data = await json('/api/symbols');
   const previousSymbol = $('#symbol').value;
+  const requested = new URLSearchParams(window.location.search);
+  const requestedSymbol = requested.get('symbol') || '';
+  const requestedTimeframe = requested.get('timeframe') || '';
   state.catalog = data.symbols;
   $('#symbol').innerHTML = state.catalog.map(x => `<option value="${esc(x.symbol)}">${esc(x.label || x.symbol)}</option>`).join('');
-  const preferred = state.catalog.find(x => x.symbol === previousSymbol)
+  const preferred = state.catalog.find(x => x.symbol === requestedSymbol)
+    || state.catalog.find(x => x.symbol === previousSymbol)
     || state.catalog.find(x => x.symbol === 'CBOT_MINI:MYM1!')
     || state.catalog.find(x => x.timeframes.some(tf => tf.available !== false));
   if (preferred) $('#symbol').value = preferred.symbol;
   fillTimeframes();
+  if (requestedTimeframe && [...$('#timeframe').options].some(option => option.value === requestedTimeframe)) {
+    $('#timeframe').value = requestedTimeframe;
+    syncTimeframeButtons();
+  }
   $('#apiState').textContent = 'Historical store connected';
   $('#apiState').className = 'api-state ok';
 }

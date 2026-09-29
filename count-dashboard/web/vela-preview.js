@@ -48,6 +48,8 @@ function renderCleoBriefing(contract) {
   $('#cleoLastClose').textContent = formatPrice(contract.analysis.lastClose);
   $('#cleoCountNodes').textContent = String(contract.analysis.countNodes);
   $('#cleoWarning').textContent = `${contract.analysis.warning} Source: ${contract.analysis.source}. Snapshot ${contract.analysis.snapshot.slice(0, 12)}…`;
+  const prompt = 'Read this Vela chart with Cleo. Keep the structural read provisional and give me the preferred path, alternate path, invalidation, and the confirmation that would make a paper setup eligible.';
+  $('#velaAskCleo').href = `./?symbol=${encodeURIComponent(contract.market.symbol)}&timeframe=${encodeURIComponent(contract.market.timeframe)}&cleoPrompt=${encodeURIComponent(prompt)}`;
 }
 
 function tickstreamTicker(symbol) {
