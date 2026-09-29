@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Count Desk · Vela Preview</title>
+  <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
+  <link rel="stylesheet" href="./vela-preview.css?v=vela-preview-20260928">
+</head>
+<body class="trading-prototype vela-preview-page">
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./cleo/index.html">CLEO</a>
+      <a class="app-tab" href="./">Count Desk</a>
+      <a class="app-tab" href="./#paperWorkspace">Paper Trading <span class="app-tab-note">SIM</span></a>
+      <a class="app-tab active" href="./vela-preview.html">Vela Preview</a>
+      <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
+      <a class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
+      <a class="app-tab" href="./resources.html">Resources</a>
+    </nav>
+    <div class="api-state">RESEARCH PREVIEW</div>
+  </header>
+  <section class="intellect-ribbon" aria-label="Intellect trading team">
+    <div class="intellect-ribbon-label"><span class="intellect-sigil" aria-hidden="true">I</span><div><strong>INTELLECT</strong><small>ELLIOTT WAVE LOOP</small></div></div>
+    <div class="cleo-ribbon-seat" aria-label="Cleo chart specialist"><span class="cleo-ribbon-orb" aria-hidden="true">✦</span><div><strong>CLEO</strong><small>CHART SPECIALIST · READY</small></div></div>
+    <div class="intellect-loop-state"><i aria-hidden="true"></i><span>STANDBY</span><small>Vela renderer isolated</small></div>
+  </section>
+  <main class="vela-preview-main">
+    <section class="vela-preview-card">
+      <div class="vela-preview-head">
+        <div><small>VELA™ CHART ENGINE · ISOLATED PREVIEW</small><h1>Native renderer checkpoint</h1><p>Historical Count Desk bars are passed into the forked Vela renderer as an offline dataset. Data source, cutoff, and paper-only boundaries remain owned by Count Desk.</p></div>
+        <div class="vela-preview-controls" role="group" aria-label="Vela preview controls">
+          <label>Asset<select id="velaSymbol" aria-label="Vela asset"></select></label>
+          <label>Timeframe<select id="velaTimeframe" aria-label="Vela timeframe"><option value="1H">1H</option><option value="4H">4H</option><option value="1D">1D</option></select></label>
+          <button id="velaLoad" type="button">Load preview</button>
+        </div>
+      </div>
+      <div id="velaStatus" class="vela-status" role="status" aria-live="polite">Loading Count Desk catalog…</div>
+      <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
+      <div class="vela-preview-foot"><span id="velaProvenance">Source pending.</span><span>Vela™ attribution retained · no live feed · no broker connection</span></div>
+    </section>
+  </main>
+  <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
+  <script type="module" src="./vela-preview.js?v=vela-preview-20260928"></script>
+</body>
+</html>

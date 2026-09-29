@@ -23,24 +23,43 @@ plus an eraser tool for deleting a drawing directly from the chart.
 
 ### Chart paper terminal prototype
 
-Count Desk is chart-first, with a paper ticket over the chart and Batty chat on
-the right. Use **Paper terminal** to hide or show the ticket. It is a local
-single-user simulator for the five listed micro futures. It uses the current
+Count Desk keeps the chart and Cleo workspace clear. Open the **Paper Trading ·
+SIM** tab to use the paper ticket; **Back to chart** returns to the primary
+workspace. It is a local single-user simulator for the five listed micro
+futures. It uses the current
 stored chart bar, symbol, timeframe, and data source; the existing Count Desk
 count, liquidity, Premium / Discount, Fibonacci, and drawing tools remain on
 the chart.
 
 To simulate, choose Long or Short and 1–100 micro contracts, optionally enter
-stop and target reference prices, then queue the order. A paper entry fills at
+paper stop and target prices, then queue the order. **Practice from 30 bars back**
+moves the historical cutoff to create a replay window. A paper entry fills at
 the **next stored bar's open only after a following bar confirms that bar is
 complete**. The same rule applies to a queued exit. "Check next bar" and
 "Check exit" re-evaluate stored data; newly ingested bars also advance queued
 orders. The position records the fill bar, dataset, source, and gross P&L.
-The stop and target are visual reference lines, **not automated exit orders**.
+For an open position with a paper stop or target, **Check bracket** evaluates
+one confirmed stored bar at a time. A stop and target touched in the same bar
+resolve at the stop; a gap through either level fills at that bar's open. The
+exit reason and source are recorded. Bracket checks are manual during historical
+practice; they are **not live broker orders or an unattended execution service**.
 Displayed P&L is gross and excludes fees and slippage. Historical or delayed
 bars do not imply live prices or executable fills. Simulation records live in
 the local SQLite store, separate from broker imports and the Trading Journal.
-No broker connection or live order route is present.
+The Market data panel shows the configured Massive historical adapter and an
+explicit AMP/CQG API-access-required state. No CQG session, account connection,
+or live order route is present.
+
+### Vela renderer preview
+
+The **Vela Preview** tab is the first isolated integration checkpoint for the
+forked `@luxalgo/vela` renderer. It loads the selected Count Desk bars from the
+local store, converts Count Desk epoch-second timestamps to Vela epoch
+milliseconds, and passes them as an offline dataset. The preview keeps Vela's
+required attribution visible and labels the source, interval, bar count, and
+range. It does not replace the production Count Desk renderer yet; the existing
+Lightweight Charts surface remains the rollback path while Cleo overlays and
+Count Desk drawings are ported.
 
 The chart also offers a separate, optional MTF Premium / Discount layer. Toggle
 it beside Liquidity zones on the chart toolbar, choose a stored timeframe and swing length, and
@@ -359,6 +378,33 @@ Massive account and update it after expiry. Massive serves the selected interval
 directly, including 1m, 2m, 3m, 5m, 15m, and 30m; a 1m sync can also create the
 larger intraday intervals. Automatic cadence is five minutes.
 
+### Tickstream free delayed-quote pilot
+
+Tickstream is wired first as a read-only quote probe so the platform can be
+tested against the free delayed tier before we add bar aggregation and the
+Vela provider. That tier is labeled **DELAYED 15M** in Count Desk. The quote
+adapter calls Tickstream only from the local Python server; the API key never
+reaches browser JavaScript, and no execution endpoint is enabled.
+
+Add the key to the ignored `count-dashboard/.env` file or to the shell that
+starts Count Desk. The rights flag is deliberately explicit: set it only after
+you have confirmed Tickstream's terms cover the intended display and retention
+for this test.
+
+```sh
+BATTY_TICKSTREAM_API_KEY='your-tickstream-api-key' \
+BATTY_TICKSTREAM_STORAGE_AND_DISPLAY_RIGHTS_CONFIRMED=1 \
+python3 count-dashboard/server.py
+```
+
+Open Count Desk, choose a futures market, and press **Probe delayed quote** in
+the market-data strip. The server endpoint is
+`GET /api/feed/quote?symbol=MYM`; it returns the provider, symbol, price,
+source timestamp, retrieval time, and the explicit delayed mode. The first
+slice is quote-only, so it does not populate chart candles or the paper ledger.
+Use Tickstream's `/v1/symbols` catalog to confirm the exact symbols before we
+map them into Vela and add a licensed bar/backfill adapter.
+
 For other providers, configure the corresponding loopback worker and optional
 token in the Count Desk server environment:
 
@@ -367,6 +413,59 @@ BATTY_OPENSTOCK_FEED_ADAPTER_URL=http://127.0.0.1:<other-port> \
 BATTY_OPENSTOCK_FEED_ADAPTER_TOKEN='another-local-worker-token' \
 python3 count-dashboard/server.py
 ```
+
+### AMP / CQG WebAPI data connector
+
+The read-only CQG connector is prepared, but AMP/CQG has not yet enabled this
+Count Desk app for WebAPI or assigned its production client ID. An existing
+AMP/CQG username and password may be reusable after app approval: AMP documents
+that Sierra Chart's CQG WebAPI connection uses the customer's live credentials.
+CQG/AMP must confirm whether that applies to Count Desk. A normal login alone
+does not establish custom-app access. CQG's demo WebSocket is reachable from this
+machine; this is a transport check, not an authenticated data connection.
+The application request is in `docs/CQG-WEBAPI-ACCESS-REQUEST.md`.
+
+Install the optional protocol bindings and run the transport check:
+
+```sh
+python3 -m pip install -r count-dashboard/requirements-cqg.txt
+python3 count-dashboard/setup_cqg_protocol.py
+python3 count-dashboard/cqg_webapi.py probe-network
+```
+
+The setup script installs generated protobuf modules from a pinned CQG sample
+revision into ignored `count-dashboard/.cqg-protocol/`. No broker password is
+needed for the transport check. Once CQG supplies approved **WebAPI** test
+credentials, configure them in the ignored `count-dashboard/.env` or local
+environment and run `probe-login`; it does not request prices or accounts.
+The WebAPI logon sets `drop_concurrent_session=false`, so it never intentionally
+evicts the existing platform session; a CQG concurrent-session rejection is
+reported instead.
+
+After written production API and data-use permission, configure an approved
+production `wss://` endpoint and exact CQG dated MYM symbol. Set a unique local
+worker token; the same token belongs in the Count Desk environment:
+
+```sh
+BATTY_CQG_WEBSOCKET_URL='wss://the-CQG-approved-production-endpoint' \
+BATTY_CQG_CLIENT_APP_ID='CQG-assigned-app-id' \
+BATTY_CQG_PRIVATE_LABEL='CQG-assigned-private-label' \
+BATTY_CQG_USERNAME='CQG-WebAPI-user' \
+BATTY_CQG_PASSWORD='CQG-WebAPI-password' \
+BATTY_CQG_MYM_SYMBOL='exact-dated-CQG-MYM-symbol' \
+BATTY_CQG_WEBAPI_ACCESS_APPROVED=1 \
+BATTY_CQG_STORAGE_AND_COUNT_RIGHTS_CONFIRMED=1 \
+BATTY_CQG_FEED_ADAPTER_TOKEN='unique-local-token-at-least-20-characters' \
+python3 count-dashboard/cqg_webapi.py serve
+```
+
+Count Desk needs `BATTY_CQG_FEED_ADAPTER_URL=http://127.0.0.1:8784`, the
+matching `BATTY_CQG_FEED_ADAPTER_TOKEN`, and the same access, rights, symbol,
+WebAPI endpoint, and credential settings to display the source as configured.
+Keep these values out of Git and do not paste passwords into chat. The worker
+returns completed historical time bars with dated-contract provenance. It does
+not stream quotes, route orders, control accounts, or make demo data appear as
+production market data.
 
 The user confirmed their Massive plan permits bar retention and count
 computation; the ignored local `.env` records that acknowledgement. For other

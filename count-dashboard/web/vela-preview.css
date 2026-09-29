@@ -1,0 +1,16 @@
+.vela-preview-main{min-height:calc(100vh - 108px);padding:18px 16px 28px;background:radial-gradient(circle at 74% 0,#1c3241 0,#0a1017 50%,#070b11 100%)}
+.vela-preview-card{width:min(1440px,100%);margin:0 auto;overflow:hidden;border:1px solid #29404e;border-radius:14px;background:#0d151e;box-shadow:0 22px 60px #0006}
+.vela-preview-head{display:flex;justify-content:space-between;gap:22px;padding:22px 24px 18px;border-bottom:1px solid #233846;background:linear-gradient(125deg,#122432,#0d171f)}
+.vela-preview-head small{display:block;color:#c8a8ff;font:700 .58rem ui-monospace,monospace;letter-spacing:.13em}
+.vela-preview-head h1{margin:7px 0 6px;color:#f2f7f4;font-size:1.5rem;letter-spacing:-.025em}
+.vela-preview-head p{max-width:700px;margin:0;color:#a9bcc2;font-size:.78rem;line-height:1.5}
+.vela-preview-controls{display:flex;align-items:end;gap:8px;flex-wrap:wrap;min-width:285px}
+.vela-preview-controls label{display:grid;gap:4px;color:#9eb4bd;font-size:.58rem}
+.vela-preview-controls select{height:34px;min-width:108px;padding:0 8px;border:1px solid #315061;border-radius:5px;background:#101e28;color:#eff8f4;font-size:.68rem}
+.vela-preview-controls button{height:34px;padding:0 12px;border:1px solid #5abbb7;border-radius:5px;background:linear-gradient(180deg,#1e6363,#143a42);color:#e7fffa;font-size:.66rem;font-weight:700;cursor:pointer}
+.vela-preview-controls button:disabled{opacity:.55;cursor:default}
+.vela-status{min-height:30px;padding:9px 24px;color:#9fb9c1;font:600 .59rem ui-monospace,monospace;border-bottom:1px solid #213642;background:#0b141c}
+.vela-status.error{color:#ffafb4}
+.vela-chart{height:min(680px,68vh);min-height:430px;background:#0b1118}
+.vela-preview-foot{display:flex;justify-content:space-between;gap:16px;padding:10px 16px;color:#8099a3;font-size:.57rem;border-top:1px solid #233846;background:#0b141b}
+@media(max-width:760px){.vela-preview-main{padding:8px 6px 18px}.vela-preview-head{display:block;padding:16px}.vela-preview-head h1{font-size:1.2rem}.vela-preview-head p{font-size:.7rem}.vela-preview-controls{margin-top:14px;min-width:0}.vela-preview-controls label{flex:1}.vela-preview-controls select{width:100%;min-width:0}.vela-preview-controls button{width:100%}.vela-chart{height:62vh;min-height:390px}.vela-preview-foot{display:block;line-height:1.5}.vela-preview-foot span{display:block}}

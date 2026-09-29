@@ -28,13 +28,15 @@ outside this prototype scope and would need its own data-rights review.
   the selected stored symbol, timeframe, and bar. A request fills at the next
   stored bar's open only after a following bar confirms that fill bar completed.
   The ledger retains source and dataset identity, bar time, and gross P&L.
-- Optional stop and target are **reference levels**, not executing brackets.
-  Fees and slippage are not modeled. This is historical/delayed-bar simulation,
-  with no broker account or live route.
+- Optional stop and target now have manual **Check bracket** evaluation, one
+  confirmed stored bar at a time. Same-bar stop/target ambiguity resolves at
+  the stop, and gaps fill at the bar open. Practice can start 30 bars before
+  the current cutoff. Fees and slippage are not modeled. This remains
+  historical/delayed-bar simulation, with no broker account or live route.
 
 The current slice does **not** yet meet full TradingView parity. The next
-prototype work should add chart replay controls, native indicator settings and
-panes, alerts, a proper order ladder/bracket simulator, fill cost assumptions,
+prototype work should add richer chart replay controls, native indicator settings and
+panes, alerts, an order ladder, adjustable brackets, fill cost assumptions,
 and a transparent completeness/freshness check for the data source. General
 Pine import and any live brokerage integration are later gates.
 
@@ -86,6 +88,37 @@ before production API access. Reusing the user's AMP/CQG login in Count Desk
 must wait for written permission, an exact incremental quote, and technical
 credentials for that use. Never copy a browser/platform session or assume an
 existing CQG market-data subscription confers WebAPI access.
+
+The AMP-site follow-up found a narrower answer to the connection-fee question:
+[AMP says switching among its supported platforms on the same CQG feed has no
+extra fee](https://faq.ampfutures.com/hc/en-us/articles/30243668201879-Are-there-any-fees-for-changing-trading-platforms),
+and the standard CQG feed has no separate monthly connection fee. AMP's
+[exchange fee schedule](https://www.ampfutures.com/trading-info/exchange-data-fees)
+also lists $10/month for an additional CQG user/login, with exchange data
+charged per username, and $0.10 per side/contract for the CQG trade route.
+[AMP describes CQG data and trading APIs for external apps](https://www.ampfutures.com/trading-platform/cqg-qtrader),
+but its supported-platform and fee pages do **not** say that a new Count Desk
+app receives API access under the ordinary CQG login at no charge. CQG's own
+WebAPI price sheet still says "contact us for pricing." A switch to another
+feed can create duplicate exchange-data charges for the same month; that is
+separate from the CQG WebAPI question.
+
+AMP's [simultaneous-platform FAQ](https://faq.ampfutures.com/hc/en-us/articles/10798505554199-How-to-activate-a-2nd-CQG-user-to-connect-to-Multiple-Platforms-at-the-same-time)
+says a **second CQG user** is needed to use two CQG-compatible platforms at
+once, at $10/month plus exchange data for that username. This supports the
+user's expectation that their present single login is one platform session at
+a time. [CQG's WebAPI logon documentation](https://help.cqg.com/apihelp/Documents/messagelogon.htm)
+shows that a second session may either fail with a concurrent-session result
+or drop the existing session, depending on client behavior. A safe account
+specific test is: when flat with no working orders, record platform A's
+connection state, log into platform B using the same AMP/CQG username, record
+which session remains active, then log out of B and restore A. No orders are
+needed. If platform A is TradingView, inspect its AMP broker connection in the
+Trading Panel; a chart can still display TradingView-sourced bars after the
+broker connection is lost. A demo-account result would establish only the demo
+configuration.
+Count Desk has no CQG login or WebAPI connector, so a test between two existing
+AMP-supported platforms cannot establish that Count Desk itself has API access.
 
 The user estimates their current bill at **about $16/month for TradingView's
 entry paid plan plus roughly $7/month for AMP/CQG MYM data**; they will verify

@@ -1,0 +1,19 @@
+{
+  "name": "luxalgo",
+  "version": "1.0.0",
+  "description": "",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run broker:catalog",
+    "broker:catalog": "node broker-catalog.mjs",
+    "mcp:stdio": "luxalgo-mcp"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@luxalgo/broker-sdk": "^0.5.1",
+    "@luxalgo/mcp": "^1.5.0"
+  }
+}

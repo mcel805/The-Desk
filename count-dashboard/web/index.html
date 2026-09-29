@@ -3,15 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Batty Count Desk</title>
-  <link rel="stylesheet" href="./style.css?v=batty-chat-sessions-20260927">
+  <title>Count Desk · Batty + Cleo</title>
+  <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
 </head>
 <body class="trading-prototype">
   <header>
     <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
     <nav class="app-tabs" aria-label="Batty workspaces">
       <a class="app-tab" href="./cleo/index.html">CLEO</a>
-      <button id="countDeskTab" class="app-tab active" type="button">Count Desk</button>
+      <a id="countDeskTab" class="app-tab active" href="./">Count Desk</a>
+      <a id="paperTradingTab" class="app-tab" href="#paperWorkspace" aria-selected="false">Paper Trading <span class="app-tab-note">SIM</span></a>
+      <a class="app-tab" href="./vela-preview.html">Vela Preview</a>
       <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
       <a id="liquidityLabLink" class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
       <a class="app-tab" href="./resources.html">Resources</a>
@@ -20,10 +22,34 @@
   </header>
   <section class="intellect-ribbon" aria-label="Intellect trading team">
     <div class="intellect-ribbon-label"><span class="intellect-sigil" aria-hidden="true">I</span><div><strong>INTELLECT</strong><small>ELLIOTT WAVE LOOP</small></div></div>
+    <div class="cleo-ribbon-seat" aria-label="Cleo chart specialist">
+      <span class="cleo-ribbon-orb" aria-hidden="true">✦</span>
+      <div><strong>CLEO</strong><small>CHART SPECIALIST · READY</small></div>
+    </div>
     <div id="agentRoster" class="agent-roster" role="group" aria-label="Firstmate workflow seats"></div>
     <div class="intellect-loop-state"><i aria-hidden="true"></i><span>STANDBY</span><small>No active task</small></div>
   </section>
   <main>
+    <section id="paperWorkspace" class="paper-workspace" aria-label="Paper trading workspace">
+      <div class="paper-workspace-head">
+        <div><small>PAPER LABORATORY · SIMULATION ONLY</small><h1>Paper trading</h1><p>Practice accepted chart scenarios with confirmed historical bars. No broker connection, account control, or live order routing.</p></div>
+        <a id="backToCountDesk" class="chrome-button" href="./">Back to chart</a>
+      </div>
+      <section id="paperTerminal" class="paper-terminal" aria-label="Chart paper trading simulator">
+        <div class="paper-terminal-head"><div><small>COUNT DESK SIMULATOR</small><strong>Paper ticket</strong></div><span class="paper-terminal-badge">SIM ONLY</span></div>
+        <p id="paperSource" class="paper-source">Waiting for a stored source bar.</p>
+        <form id="paperTicket" class="paper-ticket">
+          <div class="paper-ticket-row"><label>Direction<select id="paperSide"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select></label><label>Micro contracts<input id="paperQuantity" type="number" min="1" max="100" step="1" value="1" required></label></div>
+          <div class="paper-ticket-row"><label>Paper stop<input id="paperStop" type="number" min="0" step="any" placeholder="Optional"></label><label>Paper target<input id="paperTarget" type="number" min="0" step="any" placeholder="Optional"></label></div>
+          <button id="paperOpen" class="paper-open" type="submit">Queue paper order</button>
+        </form>
+        <button id="paperPractice" class="paper-practice" type="button">Practice from 30 bars back</button>
+        <p class="paper-fill-note">Entry and manual exit use the next confirmed bar's open. Stop and target are paper brackets: Check bracket evaluates one completed bar at a time. If both touch in one bar, stop wins. Gaps fill at the bar open. Gross P&amp;L excludes fees and slippage.</p>
+        <div class="paper-positions-head"><strong>Positions</strong><span id="paperPositionCount">0 open</span></div>
+        <div id="paperPositions" class="paper-positions">No paper positions on this market.</div>
+        <p id="paperTerminalStatus" class="paper-terminal-status" role="status" aria-live="polite">Local simulation · no broker connection</p>
+      </section>
+    </section>
     <section id="chartWorkspace" class="workspace">
       <div class="chart-card">
         <div class="chart-head">
@@ -36,7 +62,6 @@
           <div class="chart-head-actions">
             <button id="resetChart" class="chrome-button" type="button" title="Reset the chart to its default recent-bars view (right-click chart)">↺ Reset view</button>
             <button id="toggleChartInfo" class="chrome-button" type="button" aria-pressed="false" title="Show chart symbol, date range, and degree legend">ⓘ Chart info</button>
-            <button id="togglePaperTerminal" class="chrome-button paper-terminal-button" type="button" aria-pressed="true" aria-controls="paperTerminal" title="Show or hide the chart paper trading ticket">Paper terminal</button>
             <button id="toggleInspector" class="chrome-button inspector-collapsed" type="button" aria-pressed="false" title="Show or hide the analysis panel"><span>Insights</span><span id="inspectorCollapsedTag" class="inspector-collapsed-tag">COLLAPSED</span></button>
             <button id="toggleChat" class="chrome-button" type="button" aria-pressed="true" title="Show or hide Batty chat">Batty</button>
             <button id="expandChart" class="chrome-button" type="button" aria-pressed="false" title="Use the full browser workspace">Expand</button>
@@ -59,10 +84,13 @@
               <span class="feed-summary-chevron" aria-hidden="true">⌄</span>
             </summary>
             <section class="feed-strip" aria-label="Market data feed controls">
-              <div class="feed-copy"><strong id="feedState">Historical only</strong><span id="feedMeta">No licensed market-data adapter is connected.</span><span id="syncSchedule">Last sync: never · Next sync: after first connection · 5 min cadence</span><span id="providerConnections">Sources: Massive, OpenStock/Finnhub, Yahoo Finance</span></div>
+              <div class="feed-copy"><strong id="feedState">Historical only</strong><span id="feedMeta">No licensed market-data adapter is connected.</span><span id="syncSchedule">Last sync: never · Next sync: after first connection · 5 min cadence</span><span id="providerConnections">Checking data and broker connections…</span></div>
               <label class="follow-control"><input id="followLive" type="checkbox"> Follow incoming bars</label>
               <label class="sync-provider">Sync source<select id="syncProvider"><option value="massive">Massive Futures Basic</option><option value="openstock">OpenStock / Finnhub</option><option value="licensed">Licensed market-data adapter</option><option value="yahoo" disabled>Yahoo Finance (unavailable)</option></select></label>
               <button id="refreshFeed" type="button">Sync now</button>
+              <button id="tickstreamQuoteProbe" type="button">Probe delayed quote</button>
+              <span id="tickstreamQuoteStatus" class="feed-quote-status" role="status" aria-live="polite">Tickstream quote not tested.</span>
+              <details class="cqg-access"><summary>AMP/CQG connection steps</summary><p>Your AMP/CQG username and password may work after CQG approves Count Desk as a WebAPI app. The missing pieces are app approval, a client ID, a production endpoint, and permitted MYM data use. Do not paste your password into chat. <a href="https://help.cqg.com/apihelp/Documents/cqgwebapi.htm" target="_blank" rel="noopener">CQG WebAPI access guide</a></p></details>
             </section>
           </details>
           <div id="chartContext" class="chart-context" hidden>
@@ -174,19 +202,6 @@
             <button id="emptySync" type="button">Sync this interval</button>
           </div>
           <svg id="drawingLayer" aria-label="Manual chart drawings and Batty wave paths"></svg>
-          <section id="paperTerminal" class="paper-terminal" aria-label="Chart paper trading simulator">
-            <div class="paper-terminal-head"><div><small>COUNT DESK SIMULATOR</small><strong>Paper trading</strong></div><span class="paper-terminal-badge">SIM ONLY</span></div>
-            <p id="paperSource" class="paper-source">Waiting for a stored source bar.</p>
-            <form id="paperTicket" class="paper-ticket">
-              <div class="paper-ticket-row"><label>Direction<select id="paperSide"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select></label><label>Micro contracts<input id="paperQuantity" type="number" min="1" max="100" step="1" value="1" required></label></div>
-              <div class="paper-ticket-row"><label>Stop reference<input id="paperStop" type="number" min="0" step="any" placeholder="Optional"></label><label>Target reference<input id="paperTarget" type="number" min="0" step="any" placeholder="Optional"></label></div>
-              <button id="paperOpen" class="paper-open" type="submit">Queue paper order</button>
-            </form>
-            <p class="paper-fill-note">Entry and exit fill at the next bar open after that bar is confirmed complete. Stop and target are reference levels only. No fees or slippage are modeled.</p>
-            <div class="paper-positions-head"><strong>Positions</strong><span id="paperPositionCount">0 open</span></div>
-            <div id="paperPositions" class="paper-positions">No paper positions on this market.</div>
-            <p id="paperTerminalStatus" class="paper-terminal-status" role="status" aria-live="polite">Local simulation · no broker connection</p>
-          </section>
           <div class="tv-attribution"><a href="https://www.tradingview.com/" target="_blank" rel="noopener">Charts by TradingView</a></div>
         </div>
         <p id="chartMessage" class="chart-message">Choose a stored market and build a count.</p>
@@ -279,8 +294,26 @@
     <div id="agentSkillContent" class="agent-skill-content"></div>
   </dialog>
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script type="module" src="./app.js?v=chart-tech-handoff-20260927"></script>
-  <script type="module" src="./trading-terminal.js?v=paper-prototype-20260928"></script>
+  <script type="module" src="./app.js?v=live-feed-status-20260928"></script>
+  <script type="module" src="./trading-terminal.js?v=paper-workspace-2-20260928"></script>
   <script type="module" src="./batty-agent.js?v=batty-chat-sessions-20260927"></script>
+  <script>
+    (() => {
+      const activateWorkspace = view => {
+        const paper = view === 'paper';
+        document.getElementById('chartWorkspace').hidden = paper;
+        document.getElementById('paperWorkspace').hidden = !paper;
+        document.getElementById('countDeskTab').classList.toggle('active', !paper);
+        document.getElementById('paperTradingTab').classList.toggle('active', paper);
+        document.getElementById('countDeskTab').setAttribute('aria-selected', String(!paper));
+        document.getElementById('paperTradingTab').setAttribute('aria-selected', String(paper));
+      };
+      window.countDeskSetWorkspace = activateWorkspace;
+      document.getElementById('countDeskTab').addEventListener('click', () => activateWorkspace('chart'));
+      document.getElementById('paperTradingTab').addEventListener('click', () => activateWorkspace('paper'));
+      document.getElementById('backToCountDesk').addEventListener('click', () => activateWorkspace('chart'));
+      activateWorkspace(window.location.hash === '#paperWorkspace' ? 'paper' : 'chart');
+    })();
+  </script>
 </body>
 </html>

@@ -4,3 +4,4 @@ data/*.sqlite3-wal
 __pycache__/
 .venv/
 .env
+.cqg-protocol/

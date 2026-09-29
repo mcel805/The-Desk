@@ -29,6 +29,56 @@ class DashboardTest(unittest.TestCase):
         self.db.close()
         self.tmp.cleanup()
 
+    def test_tickstream_free_quote_probe_normalizes_delayed_quote(self):
+        tickstream = sys.modules["tickstream_adapter"]
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "symbol": "MYM",
+                    "price": "42123.5",
+                    "bid": 42123.25,
+                    "ask": 42123.75,
+                    "tsu": 1_800_000_000_000_000,
+                }).encode()
+
+        with patch.dict(os.environ, {
+            tickstream.API_KEY_ENV: "test-key",
+            tickstream.RIGHTS_ENV: "1",
+        }, clear=False), patch.object(tickstream, "urlopen", return_value=Response()) as request:
+            result = server.fetch_tickstream_quote("MYM", opener=request)
+
+        self.assertEqual("Tickstream", result["provider"])
+        self.assertEqual("DELAYED", result["mode"])
+        self.assertEqual(15, result["delayMinutes"])
+        self.assertEqual(42123.5, result["price"])
+        self.assertTrue(result["sourceTimestamp"].endswith("+00:00"))
+        request.assert_called_once()
+        sent_request = request.call_args.args[0]
+        self.assertIn("symbol=MYM", sent_request.full_url)
+        self.assertEqual("Bearer test-key", sent_request.headers["Authorization"])
+
+    def test_tickstream_source_is_quote_only_until_bar_adapter_exists(self):
+        tickstream = sys.modules["tickstream_adapter"]
+        with patch.dict(os.environ, {
+            tickstream.API_KEY_ENV: "test-key",
+            tickstream.RIGHTS_ENV: "1",
+        }, clear=False):
+            self.assertEqual("quote_only", server.provider_source_state("tickstream", "CBOT_MINI:MYM1!"))
+
+    def test_tickstream_quote_requires_explicit_configuration(self):
+        tickstream = sys.modules["tickstream_adapter"]
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual("not_connected", tickstream.config_status())
+
     def test_seeded_catalog_and_derived_timeframes(self):
         items = {x["symbol"]: x for x in server.catalog(self.db)}
         self.assertIn("COINBASE:BTCUSD", items)
@@ -93,6 +143,84 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual("closed", closed["status"])
         self.assertEqual(103, closed["exit_price"])
         self.assertEqual(1.0, closed["gross_pnl"])
+
+    def test_chart_sim_bracket_uses_stop_first_when_both_touch(self):
+        symbol, base = "CBOT_MINI:MYM1!", 1_800_100_000
+
+        def ingest(offset, opening, high, low, close):
+            server.ingest_bars(self.db, {
+                "provider": "Permitted paper test feed", "symbol": symbol, "timeframe": "1M",
+                "mode": "DELAYED", "bars": [{"time": base + offset * 60, "open": opening,
+                    "high": high, "low": low, "close": close, "volume": 10}],
+            })
+
+        ingest(0, 100, 101, 99, 100)
+        order = server.open_chart_sim_position(self.db, {
+            "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
+            "bar_time": base, "stop_price": 98, "target_price": 105,
+        })
+        ingest(1, 101, 106, 97, 103)
+        self.assertEqual("queued", server.chart_sim_order_rows(self.db, symbol)[0]["status"])
+        ingest(2, 103, 104, 102, 103)
+        result = server.advance_chart_sim_bracket(self.db, order["order_id"])
+        self.assertEqual("closed", result["status"])
+        self.assertEqual("stop_first_ambiguous", result["position"]["exit_reason"])
+        self.assertEqual(98, result["position"]["exit_price"])
+        self.assertEqual(base + 120, result["confirmationBarTime"])
+        self.assertEqual(-1.5, result["position"]["gross_pnl"])
+
+    def test_chart_sim_bracket_waits_for_confirmation_and_fills_gap_at_open(self):
+        symbol, base = "CBOT_MINI:MYM1!", 1_800_200_000
+
+        def ingest(offset, opening, high, low, close):
+            server.ingest_bars(self.db, {
+                "provider": "Permitted paper test feed", "symbol": symbol, "timeframe": "1M",
+                "mode": "DELAYED", "bars": [{"time": base + offset * 60, "open": opening,
+                    "high": high, "low": low, "close": close, "volume": 10}],
+            })
+
+        ingest(0, 100, 101, 99, 100)
+        order = server.open_chart_sim_position(self.db, {
+            "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
+            "bar_time": base, "stop_price": 98, "target_price": 105,
+        })
+        ingest(1, 101, 103, 100, 102)
+        ingest(2, 102, 103, 101, 102)
+        first = server.advance_chart_sim_bracket(self.db, order["order_id"])
+        self.assertEqual("open", first["status"])
+        self.assertEqual(base + 60, first["position"]["bracket_checked_through_time"])
+        self.assertEqual("open", server.advance_chart_sim_bracket(self.db, order["order_id"])["status"])
+        ingest(3, 97, 99, 96, 98)
+        self.assertEqual("open", server.advance_chart_sim_bracket(self.db, order["order_id"])["status"])
+        self.assertEqual("open", server.advance_chart_sim_bracket(self.db, order["order_id"])["status"])
+        ingest(4, 98, 99, 97, 98)
+        closed = server.advance_chart_sim_bracket(self.db, order["order_id"])
+        self.assertEqual("stop_gap", closed["position"]["exit_reason"])
+        self.assertEqual(97, closed["position"]["exit_price"])
+
+    def test_chart_sim_manual_exit_cannot_skip_prior_paper_stop(self):
+        symbol, base = "CBOT_MINI:MYM1!", 1_800_300_000
+
+        def ingest(offset, opening, high, low, close):
+            server.ingest_bars(self.db, {
+                "provider": "Permitted paper test feed", "symbol": symbol, "timeframe": "1M",
+                "mode": "DELAYED", "bars": [{"time": base + offset * 60, "open": opening,
+                    "high": high, "low": low, "close": close, "volume": 10}],
+            })
+
+        ingest(0, 100, 101, 99, 100)
+        order = server.open_chart_sim_position(self.db, {
+            "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
+            "bar_time": base, "stop_price": 98, "target_price": 105,
+        })
+        ingest(1, 101, 102, 97, 101)
+        ingest(2, 102, 103, 101, 102)
+        result = server.close_chart_sim_position(self.db, {
+            "position_id": order["order_id"], "bar_time": base + 120,
+        })
+        self.assertEqual("closed", result["status"])
+        self.assertEqual("stop", result["position"]["exit_reason"])
+        self.assertEqual(base + 60, result["position"]["exit_bar_time"])
 
     def test_cutoff_excludes_future_bars_and_run_is_cached(self):
         last = self.db.execute("SELECT MAX(time) FROM bars WHERE symbol='COINBASE:BTCUSD' AND timeframe='1D'").fetchone()[0]

@@ -42,9 +42,14 @@ function renderSource() {
   const selected = currentSelection();
   const supported = selected && MICRO_SYMBOLS.has(selected.symbol);
   $('#paperOpen').disabled = !supported || busy;
+  $('#paperPractice').disabled = !supported || busy || (context?.result?.bars?.length || 0) < 32;
   $('#paperSource').textContent = !selected ? 'No stored bar is selected.' : !supported
     ? 'This paper ticket currently supports the five listed micro futures.'
-    : `${selected.symbol} · ${selected.timeframe} · displayed ${formatDate(selected.bar.time)} close ${formatPrice(selected.bar.close)}. Fill source is recorded by the server.`;
+    : `${selected.symbol} · ${selected.timeframe} · displayed ${formatDate(selected.bar.time)} close ${formatPrice(selected.bar.close)} · latest bar source: ${resultSource()}. Paper fills record their own source.`;
+}
+
+function resultSource() {
+  return context?.result?.summary?.lastBarSource || 'source unavailable';
 }
 
 function clearPriceLines() {
@@ -64,8 +69,8 @@ function renderPriceLines() {
       item.symbol === selected.symbol && item.timeframe === selected.timeframe).slice(0, 3)) {
     const levels = [
       [position.entry_price, position.side === 'long' ? '#69d8ad' : '#f0ac76', 'PAPER ENTRY'],
-      [position.stop_price, '#f27982', 'STOP REF'],
-      [position.target_price, '#6ca9f3', 'TARGET REF'],
+      [position.stop_price, '#f27982', 'PAPER STOP'],
+      [position.target_price, '#6ca9f3', 'PAPER TARGET'],
     ];
     for (const [price, color, title] of levels) {
       if (price == null) continue;
@@ -96,14 +101,19 @@ function renderPositions() {
       ? (selected.bar.close - position.entry_price) * (position.side === 'long' ? 1 : -1) * position.quantity * position.multiplier : null;
     const result = position.status === 'closed' ? `Gross ${position.gross_pnl >= 0 ? '+' : ''}$${Number(position.gross_pnl).toFixed(2)}`
       : mark == null ? 'No displayed mark' : `Displayed gross ${mark >= 0 ? '+' : ''}$${mark.toFixed(2)}`;
+    const bracketAction = position.status === 'open' && matchingChart &&
+      (position.stop_price != null || position.target_price != null)
+      ? `<button type="button" data-paper-bracket="${escapeHtml(position.position_id)}">Check bracket</button>` : '';
     const action = position.status === 'open' && matchingChart && selected.bar.time >= position.entry_bar_time
-      ? `<button type="button" data-paper-close="${escapeHtml(position.position_id)}">Queue exit</button>`
+      ? `<button type="button" data-paper-close="${escapeHtml(position.position_id)}">Queue exit</button>${bracketAction}`
       : position.status === 'closing'
         ? `<button type="button" data-paper-check-exit="${escapeHtml(position.position_id)}">Check exit</button>` : '';
     return `<article class="paper-position">
       <div class="paper-position-top"><b>${escapeHtml(position.side.toUpperCase())} ${position.quantity} · ${formatPrice(position.entry_price)}</b><span>${escapeHtml(position.status.toUpperCase())}</span></div>
       <small>${escapeHtml(position.timeframe)} · entry bar ${formatDate(position.entry_bar_time)}</small>
       <small>${escapeHtml(position.entry_source)}</small>
+      ${position.stop_price != null || position.target_price != null ? `<small>Paper bracket · stop ${position.stop_price == null ? '—' : formatPrice(position.stop_price)} · target ${position.target_price == null ? '—' : formatPrice(position.target_price)}</small>` : ''}
+      ${position.exit_reason ? `<small>Exit: ${escapeHtml(position.exit_reason.replaceAll('_', ' '))} · ${formatDate(position.exit_bar_time)}</small>` : ''}
       <strong class="paper-pnl">${result}</strong>
       <div class="paper-position-actions">${action}</div>
     </article>`;
@@ -125,6 +135,13 @@ function revealConfirmedBar(result) {
   const seconds = result?.confirmationBarTime;
   if (!seconds) return;
   const date = new Date(seconds * 1000);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  $('#cutoff').value = date.toISOString().slice(0, 16);
+  $('#build').click();
+}
+
+function setCutoffToBar(seconds) {
+  const date = new Date(Number(seconds) * 1000);
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
   $('#cutoff').value = date.toISOString().slice(0, 16);
   $('#build').click();
@@ -159,6 +176,13 @@ $('#paperTicket').addEventListener('submit', event => {
   }, 'Paper order queued for the next completed source bar.');
 });
 
+$('#paperPractice').addEventListener('click', () => {
+  const bars = context?.result?.bars || [];
+  if (bars.length < 32) return setStatus('Load at least 32 stored bars first.', true);
+  setCutoffToBar(bars.at(-31).time);
+  setStatus('Practice cutoff moved 30 stored bars back. Build the chart, then queue a paper order.');
+});
+
 $('#paperPositions').addEventListener('click', event => {
   const button = event.target.closest('button');
   if (!button) return;
@@ -178,16 +202,25 @@ $('#paperPositions').addEventListener('click', event => {
   if (button.dataset.paperCheckExit) void act('/api/chart-sim/advance', {
     position_id:button.dataset.paperCheckExit
   }, 'Paper exit checked.');
+  if (button.dataset.paperBracket) void act('/api/chart-sim/bracket', {
+    position_id:button.dataset.paperBracket
+  }, 'Paper bracket checked on one completed bar.');
 });
 
-const savedVisible = localStorage.getItem('batty-paper-terminal-visible') !== 'false';
-function setVisible(visible) {
-  $('#paperTerminal').hidden = !visible;
-  $('#togglePaperTerminal').setAttribute('aria-pressed', String(visible));
-  localStorage.setItem('batty-paper-terminal-visible', String(visible));
+function setWorkspace(view) {
+  const paper = view === 'paper';
+  $('#chartWorkspace').hidden = paper;
+  $('#paperWorkspace').hidden = !paper;
+  $('#countDeskTab').classList.toggle('active', !paper);
+  $('#paperTradingTab').classList.toggle('active', paper);
+  $('#countDeskTab').setAttribute('aria-selected', String(!paper));
+  $('#paperTradingTab').setAttribute('aria-selected', String(paper));
+  if (paper) void refreshPositions().catch(error => setStatus(error.message, true));
 }
-$('#togglePaperTerminal').addEventListener('click', () => setVisible($('#paperTerminal').hidden));
-setVisible(savedVisible);
+$('#countDeskTab').addEventListener('click', () => setWorkspace('chart'));
+$('#paperTradingTab').addEventListener('click', () => setWorkspace('paper'));
+$('#backToCountDesk').addEventListener('click', () => setWorkspace('chart'));
+setWorkspace(window.location.hash === '#paperWorkspace' ? 'paper' : 'chart');
 window.addEventListener('countdesk:chart', event => {
   clearPriceLines();
   context = event.detail;

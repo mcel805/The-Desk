@@ -438,17 +438,19 @@ async function refreshFeedStatus() {
   const providerSelect = $('#syncProvider');
   const selectedBeforeRefresh = providerSelect.value || localStorage.getItem('batty-feed-provider') || 'massive';
   providerSelect.innerHTML = sources.sources.map(source => {
-    const stateLabel = source.status === 'adapter_configured' ? 'connected' :
+    const stateLabel = source.status === 'adapter_configured' ? 'configured' :
+      source.status === 'quote_only' ? 'quote probe only' :
       source.status === 'unavailable' ? 'unavailable' :
+      source.status === 'access_required' ? 'API access required' :
       source.status === 'rights_confirmation_required' ? 'rights confirmation required' : 'not connected';
-    const disabled = ['unavailable', 'rights_confirmation_required'].includes(source.status) ? 'disabled' : '';
+    const disabled = ['unavailable', 'access_required', 'rights_confirmation_required', 'quote_only'].includes(source.status) ? 'disabled' : '';
     return `<option value="${esc(source.id)}" ${disabled}>${esc(source.name)} · ${stateLabel}</option>`;
   }).join('');
-  providerSelect.value = sources.sources.some(source => source.id === selectedBeforeRefresh && !['unavailable', 'rights_confirmation_required'].includes(source.status))
+  providerSelect.value = sources.sources.some(source => source.id === selectedBeforeRefresh && !['unavailable', 'access_required', 'rights_confirmation_required', 'quote_only'].includes(source.status))
     ? selectedBeforeRefresh : (sources.sources.find(source => source.id === 'massive')?.id || 'licensed');
   const active = feed.status === 'receiving';
   const statusDot = $('.status-dot');
-  statusDot.classList.toggle('live', active);
+  statusDot.classList.toggle('live', active && feed.mode === 'REALTIME');
   statusDot.classList.toggle('stale', feed.status === 'stale');
   $('#feedState').textContent = active ? `${feed.mode === 'REALTIME' ? 'Real-time' : 'Delayed'} · ${feed.provider}` : 'Historical only';
   $('#feedState').className = active ? `feed-value ${feed.mode === 'REALTIME' ? 'realtime' : 'delayed'}` : 'feed-value';
@@ -461,19 +463,20 @@ async function refreshFeedStatus() {
   $('#syncSchedule').textContent = `Last sync: ${lastSyncText} · Next sync: ${dueText} · ${Math.round((feed.syncIntervalSeconds || sources.syncIntervalSeconds || 300) / 60)} min cadence`;
   const sourceState = id => {
     const source = sources.sources.find(item => item.id === id);
-    return source?.status === 'adapter_configured' ? 'connected' :
+    return source?.status === 'adapter_configured' ? 'configured' :
       source?.status === 'unavailable' ? 'unavailable' :
+      source?.status === 'access_required' ? 'API access required' :
       source?.status === 'rights_confirmation_required' ? 'rights confirmation required' : 'not connected';
   };
-  $('#providerConnections').textContent = `Massive: ${sourceState('massive')} · OpenStock/Finnhub: ${sourceState('openstock')} · Yahoo: ${sourceState('yahoo')}`;
+  $('#providerConnections').textContent = `Live MYM: ${active && feed.mode === 'REALTIME' ? 'receiving' : 'not connected'} · Massive historical: ${sourceState('massive')} · AMP/CQG: ${sourceState('amp_cqg')} · Broker orders: disabled`;
   if($('#liquidityDataStatus')) $('#liquidityDataStatus').textContent=active?`${feed.mode==='REALTIME'?'Real-time':'Delayed'} bars · automatic outcomes enabled`:'Historical bars only · add a licensed feed for automatic outcomes';
   const selectedProvider = providerSelect.value;
   const selectedSource = sources.sources.find(item => item.id === selectedProvider);
   const adapterConfigured = selectedSource?.status === 'adapter_configured';
   const flag = $('#feedConnectionFlag');
   const shortProviderName = (selectedSource?.name || 'Data feed').replace(' Futures Basic', '');
-  const flagState = adapterConfigured ? 'connected' : selectedSource?.status === 'rights_confirmation_required' ? 'attention' : 'disconnected';
-  const flagText = adapterConfigured ? `${shortProviderName} connected`
+  const flagState = adapterConfigured ? (active && feed.mode === 'REALTIME' ? 'connected' : 'attention') : selectedSource?.status === 'rights_confirmation_required' ? 'attention' : 'disconnected';
+  const flagText = adapterConfigured ? `${shortProviderName} configured${active ? ` · ${feed.mode === 'REALTIME' ? 'real-time' : 'historical, not live'} bars` : ' · no fresh bars'}`
     : selectedSource?.status === 'rights_confirmation_required' ? 'Rights check required'
     : selectedSource?.status === 'unavailable' ? 'Feed unavailable' : `${shortProviderName} not connected`;
   flag.className = `feed-flag ${flagState}`;
@@ -527,6 +530,29 @@ async function syncFeed(silent = false) {
     const selectedSource = state.feedSources?.sources.find(item => item.id === $('#syncProvider').value);
     button.disabled = selectedSource?.status !== 'adapter_configured';
     updateTimeframeAvailability();
+  }
+}
+
+function tickstreamTicker() {
+  const label = selectedMarket()?.label || '';
+  const match = label.match(/\b(MES|MNQ|MCL|MGC|MYM)\b/);
+  return match ? match[1] : '';
+}
+
+async function probeTickstreamQuote() {
+  const ticker = tickstreamTicker();
+  const status = $('#tickstreamQuoteStatus');
+  if (!ticker) {
+    status.textContent = 'Select a supported micro-futures market first.';
+    return;
+  }
+  status.textContent = `Requesting delayed ${ticker} quote…`;
+  try {
+    const quote = await json(`/api/feed/quote?symbol=${encodeURIComponent(ticker)}`);
+    const spread = quote.bid != null && quote.ask != null ? ` · bid/ask ${quote.bid} / ${quote.ask}` : '';
+    status.textContent = `${quote.provider} · ${quote.symbol} ${quote.price}${spread} · delayed ${quote.delayMinutes}m · received ${dateTimeIso(quote.retrievedAt)}`;
+  } catch (error) {
+    status.textContent = error.message;
   }
 }
 
@@ -1549,6 +1575,7 @@ $('#chartShell').addEventListener('contextmenu', event => {
 });
 $('#refreshFeed').addEventListener('click', () => syncFeed(false));
 $('#emptySync').addEventListener('click', () => syncFeed(false));
+$('#tickstreamQuoteProbe').addEventListener('click', () => probeTickstreamQuote());
 $('#syncProvider').addEventListener('change', () => refreshFeedStatus().catch(showError));
 $('#toggleInspector').addEventListener('click',toggleInspector);
 $('#toggleChat').addEventListener('click',toggleChat);

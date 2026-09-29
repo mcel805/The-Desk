@@ -47,13 +47,13 @@
 
       .mark {
         display: block;
-        width: 94px;
-        height: 94px;
+        width: 104px;
+        height: 104px;
         flex: 0 0 auto;
-        background-image: url("cat-rotations.png");
-        background-size: 200% 200%;
+        background-image: url("cleo-3d-avatar.png");
+        background-size: contain;
         background-repeat: no-repeat;
-        background-position: 0 0;
+        background-position: center;
       }
 
       .brand-tagline {
@@ -111,16 +111,16 @@
       .desk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; }
       .desk-actions .start { margin-right: 4px; }
       .tool-link { color: #263b35; font-size: clamp(17px, 1.25vw, 22px); font-weight: 680; text-decoration: underline; text-decoration-color: var(--mint); text-decoration-thickness: 5px; text-underline-offset: 7px; }
-      .wallet-signin { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 7px 20px; width: min(100%, 680px); margin-top: 34px; padding: 17px 19px; border: 1px solid #d3d0ca; border-radius: 8px; background: #f9f7f3; }
-      .wallet-signin-copy strong { display: block; font-size: 15px; }
-      .wallet-signin-copy p,.wallet-status { margin: 5px 0 0; color: #60635f; font-size: 12px; line-height: 1.5; }
-      .wallet-button { min-height: 38px; padding: 0 13px; border: 1px solid #2d5e51; border-radius: 5px; background: #234b40; color: white; font: 650 12px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor: pointer; }
-      .wallet-button:hover { background: #1a3f35; }
+      .wallet-signin { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 26px; }
+      .wallet-button { display: grid; justify-items: center; gap: 2px; width: 150px; padding: 0; border: 0; background: transparent; color: #202120; font: 700 14px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor: pointer; }
+      .wallet-button svg { display: block; width: 118px; height: 112px; transition: transform .18s ease; }
+      .wallet-button:hover svg { transform: rotate(-5deg) scale(1.04); }
+      .wallet-button:focus-visible { outline: 3px solid var(--mint); outline-offset: 5px; border-radius: 8px; }
       .wallet-button:disabled { opacity: .55; cursor: wait; }
-      .wallet-address { grid-column: 1/-1; color: #234b40; font: 600 12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
-      .wallet-status { grid-column: 1; }
-      .signout-button { justify-self: end; padding: 5px 8px; border: 1px solid #c8c5bf; border-radius: 4px; background: transparent; color: #454944; font-size: 11px; cursor: pointer; }
-      .wallet-boundary { grid-column: 1/-1; padding-top: 9px; border-top: 1px solid #e5e2dc; color: #797d78; font-size: 11px; line-height: 1.5; }
+      .wallet-status { max-width: 420px; margin: 4px 0 0; color: #60635f; font-size: 12px; line-height: 1.5; }
+      .wallet-address { color: #234b40; font: 600 12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap: anywhere; }
+      .signout-button { padding: 5px 8px; border: 1px solid #c8c5bf; border-radius: 4px; background: transparent; color: #454944; font-size: 11px; cursor: pointer; }
+      [hidden] { display: none !important; }
 
       .start::after {
         position: absolute;
@@ -151,13 +151,13 @@
 
       @media (min-width: 1500px) {
         .page { padding: 29px 28px 20px; }
-        .mark { width: 94px; height: 94px; }
+        .mark { width: 104px; height: 104px; }
         main { margin-top: 80px; }
       }
 
       @media (max-width: 680px) {
         .page { padding: 20px 20px 18px; }
-        .mark { width: 68px; height: 68px; }
+        .mark { width: 76px; height: 76px; }
         .brand-lockup { gap: 5px; }
         .brand-tagline { margin-bottom: 4px; margin-left: -3px; font-size: 12px; }
         header { align-items: flex-start; flex-wrap: wrap; }
@@ -167,10 +167,6 @@
         .copy { font-size: 21px; line-height: 1.35; }
         .copy + .copy { margin-top: 16px; }
         .start { margin-top: 56px; font-size: 21px; }
-        .wallet-signin { grid-template-columns: 1fr; }
-        .wallet-button { width: fit-content; }
-        .wallet-status,.wallet-address,.wallet-boundary { grid-column: 1; }
-        .signout-button { justify-self: start; }
         footer {
           grid-template-columns: 1fr 1fr;
           gap: 15px 20px;
@@ -187,7 +183,7 @@
     <div class="page">
       <header aria-label="CLEO by Batty Inc.">
         <a class="brand-lockup" href="/cleo/index.html" aria-label="CLEO by Batty Inc., a block-chain company">
-          <span class="mark" role="img" aria-label="CLEO, grey-and-black tabby, front-facing portrait"></span>
+          <span class="mark" role="img" aria-label="3D portrait of CLEO, a grey-and-black tabby"></span>
           <span id="brandTagline" class="brand-tagline">a block-chain company</span>
         </a>
         <nav aria-label="Trading Desk navigation">
@@ -200,22 +196,27 @@
 
       <main>
         <p class="copy"><strong>Cleo is a personal assistant that understands what you’re working on and what matters to you.</strong></p>
-        <p class="copy">A specialized day-trading agent, Cleo connects with the apps and devices you already use.</p>
+        <p class="copy">A Trader at heart, Cleo connects with the apps and devices you already use.</p>
         <p class="copy">CLEO is the product for everything trading.</p>
         <div class="desk-actions">
           <a class="start" href="signup.html">Text Cleo to start trading</a>
           <a class="tool-link" href="/">Open Count Desk <span aria-hidden="true">→</span></a>
         </div>
         <section class="wallet-signin" aria-label="Base wallet sign-in">
-          <div class="wallet-signin-copy">
-            <strong>Sign in with a Base wallet</strong>
-            <p>Verify your address with a one-time message. No transaction, gas, or seed phrase.</p>
-          </div>
-          <button id="walletButton" class="wallet-button" type="button">Sign in with wallet</button>
-          <p id="walletStatus" class="wallet-status" role="status" aria-live="polite">No wallet session. Count Desk is available without signing in.</p>
+          <button id="walletButton" class="wallet-button" type="button">
+            <svg viewBox="0 0 120 114" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="26" cy="43" rx="10" ry="15" transform="rotate(-22 26 43)" stroke-width="3.3" />
+              <ellipse cx="48" cy="27" rx="10" ry="16" transform="rotate(-8 48 27)" stroke-width="3.5" />
+              <ellipse cx="75" cy="28" rx="10" ry="16" transform="rotate(10 75 28)" stroke-width="3.2" />
+              <ellipse cx="98" cy="45" rx="10" ry="15" transform="rotate(23 98 45)" stroke-width="3.5" />
+              <path d="M30 88c-1-10 8-17 15-25 4-5 8-10 15-10s12 6 17 12c7 8 14 13 14 23 0 9-7 15-16 15-6 0-10-4-15-4s-10 4-17 4c-8 0-13-6-13-15Z" stroke-width="4" />
+              <path d="M34 88c1-6 5-10 9-14m39 21c3-2 5-5 6-8M43 30l2-8m56 25 3 8" stroke-width="1.5" opacity=".6" />
+            </svg>
+            <span>Sign in with wallet</span>
+          </button>
+          <p id="walletStatus" class="wallet-status" role="status" aria-live="polite" hidden></p>
           <div id="walletAddress" class="wallet-address" hidden></div>
-          <button id="walletSignOut" class="signout-button" type="button" hidden>Sign out</button>
-          <small class="wallet-boundary">Wallet sign-in confirms a local identity only. It does not gate desk data, connect a broker, or authorize trades.</small>
+      <button id="walletSignOut" class="signout-button" type="button" hidden>Log out</button>
         </section>
       </main>
 

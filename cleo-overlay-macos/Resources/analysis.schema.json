@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "material": { "type": "boolean" },
+    "message": { "type": "string" }
+  },
+  "required": ["material", "message"],
+  "additionalProperties": false
+}

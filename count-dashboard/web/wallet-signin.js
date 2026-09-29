@@ -4,15 +4,18 @@ const walletStatus = document.querySelector("#walletStatus");
 const walletAddress = document.querySelector("#walletAddress");
 const walletSignOut = document.querySelector("#walletSignOut");
 
+function setStatus(message, visible = true) {
+  walletStatus.textContent = message;
+  walletStatus.hidden = !visible;
+}
+
 function displaySession(session) {
   const authenticated = Boolean(session?.authenticated);
   walletAddress.hidden = !authenticated;
   walletSignOut.hidden = !authenticated;
   walletAddress.textContent = authenticated ? session.address : "";
   walletButton.hidden = authenticated;
-  walletStatus.textContent = authenticated
-    ? "Wallet identity verified locally on Base Mainnet."
-    : "No wallet session. The desk remains available without signing in.";
+  setStatus("Wallet identity verified locally on Base Mainnet.", authenticated);
 }
 
 async function requestJson(path, body) {
@@ -35,7 +38,7 @@ async function loadSession() {
     displaySession(session);
     window.dispatchEvent(new CustomEvent("cleo:wallet-session-ready", { detail: session }));
   } catch (error) {
-    walletStatus.textContent = error.message;
+    setStatus(error.message);
   }
 }
 
@@ -55,18 +58,18 @@ async function switchToBase(provider) {
 walletButton.addEventListener("click", async () => {
   const provider = window.ethereum;
   if (!provider?.request) {
-    walletStatus.textContent = "No browser wallet was found. Open this page in a browser with an injected EVM wallet.";
+    setStatus("No browser wallet was found. Open this page in a browser with an injected EVM wallet.");
     return;
   }
   walletButton.disabled = true;
-  walletStatus.textContent = "Connect your wallet, switch to Base Mainnet, then review the sign-in message.";
+  setStatus("Connect your wallet, switch to Base Mainnet, then review the sign-in message.");
   try {
     const accounts = await provider.request({ method: "eth_requestAccounts" });
     if (!Array.isArray(accounts) || !accounts[0]) throw new Error("No wallet account was selected.");
     const address = accounts[0];
     await switchToBase(provider);
     const challenge = await requestJson("/api/wallet/challenge", { address });
-    walletStatus.textContent = "Review and sign the one-time message in your wallet. No transaction will be sent.";
+    setStatus("Review and sign the one-time message in your wallet. No transaction will be sent.");
     const signature = await provider.request({
       method: "personal_sign",
       params: [challenge.message, address],
@@ -80,9 +83,9 @@ walletButton.addEventListener("click", async () => {
     displaySession(session);
     window.dispatchEvent(new CustomEvent("cleo:wallet-login-success", { detail: session }));
   } catch (error) {
-    walletStatus.textContent = error?.code === 4001
+    setStatus(error?.code === 4001
       ? "Wallet request was declined. The Count Desk remains available without signing in."
-      : (error.message || "Wallet sign-in failed.");
+      : (error.message || "Wallet sign-in failed."));
   } finally {
     walletButton.disabled = false;
   }
@@ -92,8 +95,9 @@ walletSignOut.addEventListener("click", async () => {
   try {
     await requestJson("/api/wallet/logout", {});
     displaySession({ authenticated: false });
+    window.location.assign("/");
   } catch (error) {
-    walletStatus.textContent = error.message;
+    setStatus(error.message);
   }
 });
 
@@ -105,7 +109,7 @@ window.ethereum?.on?.("chainChanged", (chainId) => {
   if (String(chainId).toLowerCase() !== BASE_CHAIN_ID) {
     void requestJson("/api/wallet/logout", {}).catch(() => {});
     displaySession({ authenticated: false });
-    walletStatus.textContent = "Wallet changed networks. Sign in again on Base Mainnet if needed.";
+    setStatus("Wallet changed networks. Sign in again on Base Mainnet if needed.");
   }
 });
 

@@ -18,6 +18,9 @@ dock.innerHTML = `
       <span class="batty-chat-icon" id="battyChatIcon" aria-hidden="true">B</span>
       <div><strong>Batty</strong><small>FIRSTMATE · TRADING DESK</small></div>
     </div>
+    <div id="battyCleoChip" class="batty-cleo-chip" title="Cleo is the chart specialist for structural reads">
+      <span class="batty-cleo-mark" aria-hidden="true">✦</span><span><strong>Cleo</strong><small>chart specialist</small></span><i aria-hidden="true"></i>
+    </div>
     <nav class="batty-chat-actions" aria-label="Conversation controls">
       <button id="battyRecentButton" class="batty-chat-action" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="battyRecentPanel"><span aria-hidden="true">◷</span>Recent</button>
       <button id="battyNewChatButton" class="batty-chat-action is-primary" type="button" aria-label="Start a new chat"><span aria-hidden="true">＋</span><span>New</span></button>
@@ -307,7 +310,10 @@ function renderSourceLinks(paragraph, source) {
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-function participantsFor() { return ['batty']; }
+function participantsFor(prompt = '') {
+  const chartIntent = /chart|wave|count|market|setup|level|price|bias|trend|fibonacci|liquidity|structure|trade idea/i.test(prompt);
+  return chartIntent ? ['batty', 'cleo'] : ['batty'];
+}
 
 function renderAgentActivity({participants=['batty'],working=false,prompt='',response='',startedAt=null}={}){
   agentActivity={participants,working,prompt,response,startedAt};
@@ -330,6 +336,13 @@ function renderAgentActivity({participants=['batty'],working=false,prompt='',res
     card.append(head,task);agentActivityCards.append(card);
   }
   $('#agentActivity').classList.toggle('is-working',working);
+  const cleoChip = $('#battyCleoChip');
+  if (cleoChip) {
+    cleoChip.classList.toggle('is-working', working && participants.includes('cleo'));
+    cleoChip.classList.toggle('is-complete', !working && startedAt && participants.includes('cleo'));
+    cleoChip.querySelector('small').textContent = working && participants.includes('cleo')
+      ? 'working on chart' : (!working && startedAt && participants.includes('cleo') ? 'analysis returned' : 'chart specialist');
+  }
 }
 
 async function reply(prompt) {
@@ -433,7 +446,10 @@ function makeQuickPrompts() {
   const quick = document.createElement('div');
   quick.className = 'batty-quick-prompts';
   quick.setAttribute('aria-label', 'Suggested prompts');
-  ['What stands out here?', 'Teach me something', 'Any news affecting this market?'].forEach(prompt => {
+  const prompts = pageLabel === 'Count Desk'
+    ? ['Ask Cleo for a chart read', 'Map invalidation levels', 'Review the paper setup']
+    : ['What stands out here?', 'Teach me something', 'Any news affecting this market?'];
+  prompts.forEach(prompt => {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = prompt;
@@ -612,13 +628,21 @@ mobileButton.className = 'batty-mobile-toggle';
 mobileButton.textContent = 'Open dashboard';
 mobileButton.addEventListener('click', () => {
   const showDashboard = document.body.classList.toggle('batty-dashboard-focus');
+  try { localStorage.setItem('batty-mobile-focus', showDashboard ? 'chart' : 'chat'); } catch {}
   mobileButton.textContent = showDashboard ? 'Back to Batty' : 'Open dashboard';
 });
 const apiState = $('#apiState,#journalApiState');
 apiState?.before(mobileButton);
 
 function updateMobileMode() {
-  document.body.classList.toggle('batty-mobile', matchMedia('(max-width: 760px)').matches);
+  const mobile = matchMedia('(max-width: 760px)').matches;
+  document.body.classList.toggle('batty-mobile', mobile);
+  if (mobile) {
+    let preference = '';
+    try { preference = localStorage.getItem('batty-mobile-focus') || ''; } catch {}
+    if (!preference) document.body.classList.add('batty-dashboard-focus');
+    mobileButton.textContent = document.body.classList.contains('batty-dashboard-focus') ? 'Back to Batty' : 'Open dashboard';
+  }
 }
 updateMobileMode();
 addEventListener('resize', updateMobileMode);
