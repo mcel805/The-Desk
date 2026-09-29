@@ -10,6 +10,7 @@
   <header>
     <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
     <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./trading-landing.html">Home</a>
       <a class="app-tab" href="./cleo/index.html">CLEO</a>
       <a id="countDeskTab" class="app-tab active" href="./">Count Desk</a>
       <a id="paperTradingTab" class="app-tab" href="#paperWorkspace" aria-selected="false">Paper Trading <span class="app-tab-note">SIM</span></a>
@@ -18,7 +19,7 @@
       <a id="liquidityLabLink" class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
       <a class="app-tab" href="./resources.html">Resources</a>
     </nav>
-    <div id="apiState" class="api-state">Connecting…</div>
+    <div id="apiState" class="api-state">Connecting… <button id="appLogout" class="app-logout" type="button">Log out</button></div>
   </header>
   <section class="intellect-ribbon" aria-label="Intellect trading team">
     <div class="intellect-ribbon-label"><span class="intellect-sigil" aria-hidden="true">I</span><div><strong>INTELLECT</strong><small>ELLIOTT WAVE LOOP</small></div></div>
@@ -297,6 +298,7 @@
   <script type="module" src="./app.js?v=cleo-handoff-20260930"></script>
   <script type="module" src="./trading-terminal.js?v=paper-workspace-2-20260928"></script>
   <script type="module" src="./batty-agent.js?v=cleo-handoff-20260930"></script>
+  <script src="./session-shell.js?v=landing-20260930"></script>
   <script>
     (() => {
       const activateWorkspace = view => {

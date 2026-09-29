@@ -95,7 +95,7 @@ walletSignOut.addEventListener("click", async () => {
   try {
     await requestJson("/api/wallet/logout", {});
     displaySession({ authenticated: false });
-    window.location.assign("/");
+    window.location.assign("/trading-landing.html");
   } catch (error) {
     setStatus(error.message);
   }
