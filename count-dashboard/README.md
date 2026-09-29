@@ -429,6 +429,12 @@ shown in the study labels, and carried into the Cleo handoff and Vela paper
 ticket context, so the chart read and hypothetical setup retain the same
 renderer state.
 
+Vela also supports an offline replay cutoff. Choose a timestamp within the
+stored range and reload the preview to rebuild the chart, Cleo context, and
+paper mark from bars available at that cutoff. The provenance footer records
+the resulting last bar; **Latest stored** returns to the newest available
+bar. This is bar replay over the local historical store, not a live stream.
+
 For other providers, configure the corresponding loopback worker and optional
 token in the Count Desk server environment:
 

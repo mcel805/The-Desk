@@ -6,6 +6,8 @@ let currentContract = null;
 let paperOrders = [];
 let paperPositions = [];
 let paperBusy = false;
+let replayBounds = null;
+let replayKey = '';
 let indicatorTypeMemory = ['volume'];
 let indicatorInputMemory = {};
 const indicatorStorageKey = 'count-desk-vela-indicators-v1';
@@ -40,6 +42,23 @@ function fillSymbols() {
 
 function selectedMarket() {
   return catalog.find(item => item.symbol === $('#velaSymbol').value);
+}
+
+function localDateInput(seconds) {
+  const date = new Date(Number(seconds) * 1000);
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function updateReplayBounds(bars) {
+  const input = $('#velaReplayCutoff');
+  if (!input || !bars?.length) return;
+  const first = Number(bars[0].time);
+  const last = Number(bars.at(-1).time);
+  if (!replayBounds) replayBounds = {first, last};
+  input.min = localDateInput(replayBounds.first);
+  input.max = localDateInput(replayBounds.last);
+  if (!input.value) input.value = localDateInput(replayBounds.last);
 }
 
 function formatPrice(value) {
@@ -331,10 +350,20 @@ async function loadPreview() {
   if (!window.Vela?.Vela) return setStatus('Vela browser bundle did not load.', true);
   const button = $('#velaLoad');
   button.disabled = true;
+  const nextReplayKey = `${market.symbol}|${timeframe}`;
+  if (nextReplayKey !== replayKey) {
+    replayKey = nextReplayKey;
+    replayBounds = null;
+    $('#velaReplayCutoff').value = '';
+  }
   setStatus(`Loading ${market.symbol} · ${timeframe} from the local historical store…`);
   try {
-    const query = `symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}&cutoff=2147483647`;
+    const cutoffInput = $('#velaReplayCutoff').value;
+    const cutoff = cutoffInput ? Math.floor(new Date(cutoffInput).getTime() / 1000) : 2147483647;
+    if (!Number.isFinite(cutoff)) throw new Error('Choose a valid replay cutoff.');
+    const query = `symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}&cutoff=${cutoff}`;
     const payload = await getJson(`/api/counts?${query}`);
+    updateReplayBounds(payload.bars);
     const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
     currentContract = contract;
     const data = contract.bars;
@@ -359,7 +388,7 @@ async function loadPreview() {
     await applyStoredIndicators();
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
-    $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · source ${contract.analysis.source}`;
+    $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · cutoff ${last} · source ${contract.analysis.source}`;
     $('#velaPaperMarket').textContent = `${market.symbol} · ${timeframe} · last close ${formatPrice(contract.analysis.lastClose)}`;
     $('#velaPaperSource').textContent = `${contract.analysis.source} · confirmed stored bar context`;
     renderIndicatorContext(contract);
@@ -389,6 +418,11 @@ function applyWorkspaceHash() {
 }
 
 $('#velaLoad').addEventListener('click', () => void loadPreview());
+$('#velaReplayLatest').addEventListener('click', () => {
+  const input = $('#velaReplayCutoff');
+  if (replayBounds) input.value = localDateInput(replayBounds.last);
+  void loadPreview();
+});
 $('#velaTickstreamProbe').addEventListener('click', () => void probeTickstream());
 $('#velaIndicatorList').addEventListener('click', event => {
   const button = event.target.closest('[data-vela-indicator]');
