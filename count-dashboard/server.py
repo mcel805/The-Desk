@@ -62,14 +62,16 @@ LIQUIDITY_LAB_URL = "http://127.0.0.1:8041/"
 _LIQUIDITY_LAB_START_LOCK = Lock()
 LUXALGO_ROOT = WORKSPACE / "integrations" / "luxalgo"
 LUXALGO_MCP_TOOLS = (
-    "library_search", "library_get_concept", "library_get_indicator", "library_get_source_code",
+    "library_search", "library_list_families", "library_get_family", "library_list_concepts",
+    "library_get_concept", "library_list_indicators", "library_get_indicator", "library_get_source_code", "library_list_tags",
     "journal_list_accounts", "journal_overview", "journal_calendar", "journal_breakdown",
     "journal_list_trades", "journal_get_trade", "journal_get_day", "journal_list_tags",
     "journal_search_notes", "broker_setup", "broker_accounts", "broker_positions",
     "broker_trades", "broker_stats", "broker_refresh", "edge_symbols", "edge_presets",
     "edge_report", "trackers_datasets", "trackers_query", "trackers_latest", "trackers_ticker",
     "propfirms_search", "propfirms_search_challenges", "propfirms_search_offers", "propfirms_get",
-    "propfirms_pass_rates", "propfirms_validate_strategy",
+    "propfirms_list_simulatable", "propfirms_challenge_rules", "propfirms_simulate", "propfirms_optimal_risk",
+    "propfirms_compare", "propfirms_simulate_trades", "propfirms_pass_rates", "propfirms_validate_strategy",
 )
 
 
@@ -126,7 +128,7 @@ def luxalgo_integration_status() -> dict:
             "liveClaimsEnabled": False,
         },
         "optionalModules": {
-            "propFirmSim": {"status": "paper_only", "mcpTools": ["propfirms_pass_rates", "propfirms_validate_strategy"]},
+            "propFirmSim": {"status": "paper_only", "mcpTools": ["propfirms_simulate", "propfirms_simulate_trades", "propfirms_pass_rates", "propfirms_validate_strategy"]},
             "marketTrackers": {"status": "public_record_read_only", "mcpTools": ["trackers_datasets", "trackers_query", "trackers_latest", "trackers_ticker"]},
             "whaleOptions": {"status": "blocked_until_authorized_feed"},
             "tradeRelay": {"status": "disabled", "reason": "execution-capable module"},

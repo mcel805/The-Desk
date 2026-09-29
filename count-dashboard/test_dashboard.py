@@ -105,6 +105,9 @@ class DashboardTest(unittest.TestCase):
         self.assertFalse(status["brokerSdk"]["credentialsConfigured"])
         self.assertFalse(status["brokerSdk"]["orderRoutingEnabled"])
         self.assertEqual("read_only_paper_gate", status["edgeStats"]["status"])
+        self.assertIn("library_list_concepts", status["mcp"]["allowedTools"])
+        self.assertIn("propfirms_simulate", status["mcp"]["allowedTools"])
+        self.assertNotIn("journal_add_trade", status["mcp"]["allowedTools"])
         self.assertEqual("disabled", status["optionalModules"]["tradeRelay"]["status"])
         run.assert_called_once()
 
