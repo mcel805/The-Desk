@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Vela Preview</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=vela-preview-20260928">
+  <link rel="stylesheet" href="./vela-preview.css?v=vela-feed-status-20260928">
 </head>
 <body class="trading-prototype vela-preview-page">
   <header>
@@ -47,11 +47,15 @@
         </div>
         <p id="cleoWarning">Waiting for a Count Desk structural result.</p>
       </section>
+      <section class="vela-feed-panel" aria-label="Vela data status">
+        <div><small>DATA CONTRACT</small><strong id="velaFeedState">Checking source state…</strong><span id="velaFeedMeta">Historical provenance pending.</span></div>
+        <div class="vela-feed-actions"><button id="velaTickstreamProbe" type="button">Probe delayed Tickstream quote</button><span id="velaTickstreamStatus" role="status" aria-live="polite">Quote-only pilot · not connected.</span></div>
+      </section>
       <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
       <div class="vela-preview-foot"><span id="velaProvenance">Source pending.</span><span>Vela™ attribution retained · no live feed · no broker connection</span></div>
     </section>
   </main>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=vela-preview-20260928"></script>
+  <script type="module" src="./vela-preview.js?v=vela-feed-status-20260928"></script>
 </body>
 </html>

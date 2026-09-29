@@ -42,6 +42,47 @@ function renderCleoBriefing(contract) {
   $('#cleoWarning').textContent = `${contract.analysis.warning} Source: ${contract.analysis.source}. Snapshot ${contract.analysis.snapshot.slice(0, 12)}…`;
 }
 
+function tickstreamTicker(symbol) {
+  const match = String(symbol || '').match(/(?:^|:)(MES|MNQ|MCL|MGC|MYM)(?:1!|$)/i);
+  return match ? match[1].toUpperCase() : '';
+}
+
+async function refreshFeedState(market, timeframe) {
+  try {
+    const [status, sources] = await Promise.all([
+      getJson(`/api/feed/status?symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}`),
+      getJson(`/api/feed/sources?symbol=${encodeURIComponent(market.symbol)}`),
+    ]);
+    const tickstream = (sources.sources || []).find(item => item.id === 'tickstream');
+    $('#velaFeedState').textContent = `${status.provider || 'Historical source'} · ${status.mode || 'UNKNOWN'}`;
+    $('#velaFeedMeta').textContent = `${status.message || 'Source status available.'} Tickstream: ${tickstream?.status || 'unknown'}.`;
+  } catch (error) {
+    $('#velaFeedState').textContent = 'Source status unavailable';
+    $('#velaFeedMeta').textContent = error.message;
+  }
+}
+
+async function probeTickstream() {
+  const ticker = tickstreamTicker($('#velaSymbol').value);
+  const status = $('#velaTickstreamStatus');
+  const button = $('#velaTickstreamProbe');
+  if (!ticker) {
+    status.textContent = 'This asset has no Tickstream pilot mapping.';
+    return;
+  }
+  button.disabled = true;
+  status.textContent = `Requesting delayed ${ticker} quote…`;
+  try {
+    const quote = await getJson(`/api/feed/quote?symbol=${encodeURIComponent(ticker)}`);
+    const spread = quote.bid != null && quote.ask != null ? ` · bid/ask ${quote.bid} / ${quote.ask}` : '';
+    status.textContent = `${quote.provider} · ${quote.symbol} ${quote.price}${spread} · delayed ${quote.delayMinutes}m · received ${new Date(quote.retrievedAt).toLocaleTimeString()}`;
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadPreview() {
   const market = selectedMarket();
   const timeframe = $('#velaTimeframe').value;
@@ -56,6 +97,7 @@ async function loadPreview() {
     const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
     const data = contract.bars;
     renderCleoBriefing(contract);
+    void refreshFeedState(market, timeframe);
     if (velaChart) {
       try { velaChart.destroy?.(); } catch { /* preview reset */ }
       velaChart = null;
@@ -95,4 +137,5 @@ async function init() {
 }
 
 $('#velaLoad').addEventListener('click', () => void loadPreview());
+$('#velaTickstreamProbe').addEventListener('click', () => void probeTickstream());
 void init();

@@ -19,6 +19,15 @@
 .cleo-briefing-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:11px 12px 6px}
 .cleo-briefing-grid strong{display:block;margin-top:4px;color:#eff8f5;font-size:.72rem}
 .cleo-briefing p{margin:0;padding:4px 12px 11px;color:#a99fc0;font-size:.61rem;line-height:1.4}
+.vela-feed-panel{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 18px 12px;padding:10px 12px;border:1px solid #294653;border-radius:8px;background:#0c1921}
+.vela-feed-panel small{display:block;color:#73d7c9;font:700 .48rem ui-monospace,monospace;letter-spacing:.11em}
+.vela-feed-panel strong,.vela-feed-panel span{display:block}
+.vela-feed-panel strong{margin-top:3px;color:#e9f5f0;font-size:.7rem}
+.vela-feed-panel>div:first-child span{margin-top:3px;color:#90aab3;font-size:.57rem}
+.vela-feed-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
+.vela-feed-actions button{padding:7px 9px;border:1px solid #467c79;border-radius:4px;background:#12343a;color:#c8f6ea;font-size:.57rem;font-weight:700;cursor:pointer}
+.vela-feed-actions button:disabled{opacity:.55;cursor:default}
+.vela-feed-actions span{max-width:235px;color:#92aeb4;font:600 .54rem ui-monospace,monospace;line-height:1.35}
 .vela-chart{height:min(680px,68vh);min-height:430px;background:#0b1118}
 .vela-preview-foot{display:flex;justify-content:space-between;gap:16px;padding:10px 16px;color:#8099a3;font-size:.57rem;border-top:1px solid #233846;background:#0b141b}
-@media(max-width:760px){.vela-preview-main{padding:8px 6px 18px}.vela-preview-head{display:block;padding:16px}.vela-preview-head h1{font-size:1.2rem}.vela-preview-head p{font-size:.7rem}.vela-preview-controls{margin-top:14px;min-width:0}.vela-preview-controls label{flex:1}.vela-preview-controls select{width:100%;min-width:0}.vela-preview-controls button{width:100%}.cleo-briefing{margin:8px}.cleo-briefing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vela-chart{height:62vh;min-height:390px}.vela-preview-foot{display:block;line-height:1.5}.vela-preview-foot span{display:block}}
+@media(max-width:760px){.vela-preview-main{padding:8px 6px 18px}.vela-preview-head{display:block;padding:16px}.vela-preview-head h1{font-size:1.2rem}.vela-preview-head p{font-size:.7rem}.vela-preview-controls{margin-top:14px;min-width:0}.vela-preview-controls label{flex:1}.vela-preview-controls select{width:100%;min-width:0}.vela-preview-controls button{width:100%}.cleo-briefing{margin:8px}.cleo-briefing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.vela-feed-panel{display:block;margin:0 8px 8px}.vela-feed-actions{display:block;margin-top:9px}.vela-feed-actions button{width:100%}.vela-feed-actions span{max-width:none;margin-top:6px}.vela-chart{height:62vh;min-height:390px}.vela-preview-foot{display:block;line-height:1.5}.vela-preview-foot span{display:block}}
