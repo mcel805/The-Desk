@@ -58,8 +58,9 @@ local store, converts Count Desk epoch-second timestamps to Vela epoch
 milliseconds, and passes them as an offline dataset. The preview keeps Vela's
 required attribution visible and labels the source, interval, bar count, and
 range. It does not replace the production Count Desk renderer yet; the existing
-Lightweight Charts surface remains the rollback path while Cleo overlays and
-Count Desk drawings are ported.
+Lightweight Charts surface remains the rollback path while the Vela indicator
+registry and settings surface are built. Count overlays and drawings remain
+optional follow-on work.
 
 The chart also offers a separate, optional MTF Premium / Discount layer. Toggle
 it beside Liquidity zones on the chart toolbar, choose a stored timeframe and swing length, and

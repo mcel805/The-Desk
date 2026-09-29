@@ -35,14 +35,16 @@ The Vela fork is cloned under `integrations/vela/`, builds successfully, and
 passes its upstream test suite. Count Desk now exposes a **Vela Preview** tab
 that feeds its stored bars into Vela offline with timestamp conversion and
 visible attribution. This is an isolated renderer checkpoint; the existing
-Lightweight Charts renderer remains active until Count Desk overlays, Cleo
-context, drawings, and paper-state interactions have a renderer-neutral
-mapping.
+Lightweight Charts renderer remains active while the product moves to an
+indicator-first workflow. Count Desk overlays and drawings are optional later
+work, not a gate for the first Vela release.
 
-1. **Chart boundary:** run the forked Vela demo independently, then port the
-   Count Desk `DataProvider` contract and the existing delayed Tickstream quote
-   provenance into a Vela adapter. Keep the current chart available as a
-   rollback path until the Vela screen passes visual and data checks.
+1. **Chart and indicator boundary:** run the forked Vela demo independently,
+   then port the Count Desk `DataProvider` contract and the existing delayed
+   Tickstream quote provenance into a Vela adapter. Establish Vela's native
+   indicator registry and settings surface before considering Count Desk
+   overlay parity. Keep the current chart available as a rollback path until
+   the Vela screen passes visual, indicator, and data checks.
 2. **Local MCP boundary:** run the forked MCP server through stdio. Add a
    narrow Cleo tool allowlist for library lookups, journal reads, Edge Stats
    reads, and public tracker reads. Do not enable broker writes or execution
