@@ -65,6 +65,10 @@ function formatPrice(value) {
   return Number.isFinite(Number(value)) ? Number(value).toLocaleString('en-US', {maximumFractionDigits: 2}) : '—';
 }
 
+function formatCutoff(contract) {
+  return contract?.market?.cutoff ? new Date(Number(contract.market.cutoff) * 1000).toLocaleString() : 'unknown cutoff';
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 }
@@ -126,8 +130,9 @@ function renderIndicatorContext(contract = currentContract) {
   $('#cleoIndicators').textContent = labels;
   $('#velaPaperIndicators').textContent = `Studies · ${labels}`;
   if (!contract) return;
-  const prompt = `Read this Vela chart with Cleo. The active native studies are ${labels}. Keep the structural read provisional and give me the preferred path, alternate path, invalidation, and the confirmation that would make a paper setup eligible.`;
-  $('#velaAskCleo').href = `./?symbol=${encodeURIComponent(contract.market.symbol)}&timeframe=${encodeURIComponent(contract.market.timeframe)}&cleoPrompt=${encodeURIComponent(prompt)}`;
+  const cutoff = formatCutoff(contract);
+  const prompt = `Read this Vela chart with Cleo. The active native studies are ${labels}. The stored-bar cutoff is ${cutoff}. Keep the structural read provisional and give me the preferred path, alternate path, invalidation, and the confirmation that would make a paper setup eligible.`;
+  $('#velaAskCleo').href = `./?symbol=${encodeURIComponent(contract.market.symbol)}&timeframe=${encodeURIComponent(contract.market.timeframe)}&cutoff=${encodeURIComponent(contract.market.cutoff || '')}&cleoPrompt=${encodeURIComponent(prompt)}`;
 }
 
 async function renderIndicatorRegistry() {
@@ -337,7 +342,7 @@ function setWorkspace(view) {
     if (currentContract) {
       const market = currentContract.market;
       $('#velaPaperMarket').textContent = `${market.symbol} · ${market.timeframe} · last close ${formatPrice(currentContract.analysis.lastClose)}`;
-      $('#velaPaperSource').textContent = `${currentContract.analysis.source} · confirmed stored bar context`;
+      $('#velaPaperSource').textContent = `${currentContract.analysis.source} · cutoff ${formatCutoff(currentContract)} · confirmed stored bar context`;
     }
     void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
   }
@@ -364,7 +369,9 @@ async function loadPreview() {
     const query = `symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}&cutoff=${cutoff}`;
     const payload = await getJson(`/api/counts?${query}`);
     updateReplayBounds(payload.bars);
+    const effectiveCutoff = Math.min(cutoff, Number(payload.bars.at(-1)?.time || cutoff));
     const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
+    contract.market.cutoff = effectiveCutoff;
     currentContract = contract;
     const data = contract.bars;
     renderCleoBriefing(contract);
@@ -390,7 +397,7 @@ async function loadPreview() {
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · cutoff ${last} · source ${contract.analysis.source}`;
     $('#velaPaperMarket').textContent = `${market.symbol} · ${timeframe} · last close ${formatPrice(contract.analysis.lastClose)}`;
-    $('#velaPaperSource').textContent = `${contract.analysis.source} · confirmed stored bar context`;
+    $('#velaPaperSource').textContent = `${contract.analysis.source} · cutoff ${formatCutoff(contract)} · confirmed stored bar context`;
     renderIndicatorContext(contract);
     if ($('#velaPaperWorkspace').hidden === false) await refreshPaperPositions();
     setStatus(`Vela preview ready · ${market.symbol} ${timeframe} · offline historical dataset`);
