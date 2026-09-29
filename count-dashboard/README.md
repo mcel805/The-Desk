@@ -411,6 +411,12 @@ slice is quote-only, so it does not populate chart candles or the paper ledger.
 Use Tickstream's `/v1/symbols` catalog to confirm the exact symbols before we
 map them into Vela and add a licensed bar/backfill adapter.
 
+The Vela workspace mirrors this gate as **SETUP NEEDED**, **RIGHTS CHECK**, or
+**READY · DELAYED 15M** and disables the probe until the server reports a
+quote-only configuration. A successful quote keeps both the source timestamp
+and retrieval timestamp visible so delayed data cannot be mistaken for a live
+chart or executable price.
+
 For other providers, configure the corresponding loopback worker and optional
 token in the Count Desk server environment:
 

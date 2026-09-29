@@ -79,6 +79,19 @@ class DashboardTest(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual("not_connected", tickstream.config_status())
 
+    def test_tickstream_quote_waits_for_rights_confirmation(self):
+        tickstream = sys.modules["tickstream_adapter"]
+        with patch.dict(os.environ, {tickstream.API_KEY_ENV: "test-key"}, clear=True):
+            self.assertEqual("rights_confirmation_required", tickstream.config_status())
+
+    def test_tickstream_quote_becomes_configured_only_after_rights_confirmation(self):
+        tickstream = sys.modules["tickstream_adapter"]
+        with patch.dict(os.environ, {
+            tickstream.API_KEY_ENV: "test-key",
+            tickstream.RIGHTS_ENV: "true",
+        }, clear=True):
+            self.assertEqual("quote_configured", tickstream.config_status())
+
     def test_seeded_catalog_and_derived_timeframes(self):
         items = {x["symbol"]: x for x in server.catalog(self.db)}
         self.assertIn("COINBASE:BTCUSD", items)

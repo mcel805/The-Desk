@@ -57,6 +57,21 @@ function tickstreamTicker(symbol) {
   return match ? match[1].toUpperCase() : '';
 }
 
+function renderTickstreamReadiness(source) {
+  const status = source?.status || 'unknown';
+  const labels = {
+    not_connected: ['SETUP NEEDED', 'Add the server key; the browser never receives it.'],
+    rights_confirmation_required: ['RIGHTS CHECK', 'Confirm delayed quote display terms before probing.'],
+    quote_only: ['READY · DELAYED 15M', 'Quote-only pilot; no chart candles or paper fills.'],
+  };
+  const [label, note] = labels[status] || ['UNAVAILABLE', 'Tickstream readiness is not confirmed.'];
+  $('#velaTickstreamReadiness').textContent = label;
+  $('#velaTickstreamReadinessMeta').textContent = note;
+  $('#velaTickstreamReadiness').dataset.state = status;
+  $('#velaTickstreamProbe').disabled = status !== 'quote_only' || !tickstreamTicker($('#velaSymbol').value);
+  if (status !== 'quote_only') $('#velaTickstreamStatus').textContent = note;
+}
+
 async function refreshFeedState(market, timeframe) {
   try {
     const [status, sources] = await Promise.all([
@@ -66,9 +81,11 @@ async function refreshFeedState(market, timeframe) {
     const tickstream = (sources.sources || []).find(item => item.id === 'tickstream');
     $('#velaFeedState').textContent = `${status.provider || 'Historical source'} · ${status.mode || 'UNKNOWN'}`;
     $('#velaFeedMeta').textContent = `${status.message || 'Source status available.'} Tickstream: ${tickstream?.status || 'unknown'}.`;
+    renderTickstreamReadiness(tickstream);
   } catch (error) {
     $('#velaFeedState').textContent = 'Source status unavailable';
     $('#velaFeedMeta').textContent = error.message;
+    renderTickstreamReadiness({status:'unknown'});
   }
 }
 
@@ -85,7 +102,8 @@ async function probeTickstream() {
   try {
     const quote = await getJson(`/api/feed/quote?symbol=${encodeURIComponent(ticker)}`);
     const spread = quote.bid != null && quote.ask != null ? ` · bid/ask ${quote.bid} / ${quote.ask}` : '';
-    status.textContent = `${quote.provider} · ${quote.symbol} ${quote.price}${spread} · delayed ${quote.delayMinutes}m · received ${new Date(quote.retrievedAt).toLocaleTimeString()}`;
+    const sourceTime = quote.sourceTimestamp ? ` · source ${new Date(quote.sourceTimestamp).toLocaleString()}` : '';
+    status.textContent = `${quote.provider} · ${quote.symbol} ${quote.price}${spread} · delayed ${quote.delayMinutes}m${sourceTime} · received ${new Date(quote.retrievedAt).toLocaleTimeString()}`;
   } catch (error) {
     status.textContent = error.message;
   } finally {
