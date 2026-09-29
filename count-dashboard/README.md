@@ -423,6 +423,11 @@ The browser never receives the API key. Candles are held in a bounded in-memory
 buffer and are not written to the Count Desk database or paper ledger; execution
 endpoints are not used.
 
+The chart supports 1-minute, 1-hour, 4-hour, and 1-day views from those same
+source bars. Higher intervals are aggregated in Count Desk on CME session
+boundaries at 17:00 America/Chicago; the selected interval is included in Cleo's
+chart context. This does not add a second provider or imply real-time data.
+
 The account's `/v1/symbols` catalog lists NQ as subscribed and streamable, and
 the NQ WebSocket handshake plus tick frames were verified. The app displays
 source timestamps for freshness; it does not infer an exact delay when the

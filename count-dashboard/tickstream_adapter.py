@@ -11,8 +11,9 @@ import os
 import threading
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 API_KEY_ENV = "BATTY_TICKSTREAM_API_KEY"
@@ -20,6 +21,8 @@ SYMBOLS = ("NQ",)
 MAX_BARS = 7 * 24 * 60
 HISTORY_PAGE_SIZE = 10_000
 MAX_HISTORY_PAGES = 2_048
+TIMEFRAME_MINUTES = {"1M": 1, "1H": 60, "4H": 240, "1D": 1_440}
+FUTURES_TIMEZONE = ZoneInfo("America/Chicago")
 
 
 class TickstreamError(RuntimeError):
@@ -66,6 +69,32 @@ def normalize_tick(row: dict[str, Any], symbol: str = "NQ") -> dict[str, Any] | 
     except (TypeError, ValueError):
         size = 0.0
     return {"symbol": ticker, "time": stamp, "price": price, "size": size}
+
+
+def aggregate_bars(bars: list[dict[str, Any]], timeframe: str) -> list[dict[str, Any]]:
+    """Aggregate 1m bars on CME session boundaries (17:00 America/Chicago)."""
+    interval = timeframe.upper()
+    if interval not in TIMEFRAME_MINUTES:
+        raise ValueError("Tickstream timeframe must be 1M, 1H, 4H, or 1D.")
+    duration = TIMEFRAME_MINUTES[interval]
+    if duration == 1:
+        return bars
+
+    grouped: dict[tuple[str, int], dict[str, Any]] = {}
+    for bar in bars:
+        local = datetime.fromtimestamp(int(bar["time"]), FUTURES_TIMEZONE)
+        trade_date = local.date() + timedelta(days=1) if local.hour >= 17 else local.date()
+        minutes_from_session_open = (local.hour * 60 + local.minute - 17 * 60) % 1_440
+        key = (trade_date.isoformat(), minutes_from_session_open // duration)
+        target = grouped.get(key)
+        if target is None:
+            grouped[key] = dict(bar)
+        else:
+            target["high"] = max(target["high"], bar["high"])
+            target["low"] = min(target["low"], bar["low"])
+            target["close"] = bar["close"]
+            target["volume"] += bar["volume"]
+    return sorted(grouped.values(), key=lambda bar: bar["time"])
 
 
 class TickstreamFeed:
@@ -230,17 +259,21 @@ class TickstreamFeed:
                 "historyState": self._history_state, "historyPages": self._history_pages,
             }
 
-    def bars(self, symbol: str) -> dict[str, Any]:
+    def bars(self, symbol: str, timeframe: str = "1M") -> dict[str, Any]:
         ticker = symbol.strip().upper()
         if ticker not in SYMBOLS:
             raise ValueError("Tickstream chart supports the subscribed NQ symbol.")
+        interval = timeframe.upper()
+        if interval not in TIMEFRAME_MINUTES:
+            raise ValueError("Tickstream timeframe must be 1M, 1H, 4H, or 1D.")
         self.start()
         with self._lock:
-            result = [dict(self._bars[ticker][stamp]) for stamp in sorted(self._bars[ticker])]
+            one_minute = [dict(self._bars[ticker][stamp]) for stamp in sorted(self._bars[ticker])]
             state = {**self._status}
             history_state = self._history_state
+        result = aggregate_bars(one_minute, interval)
         return {
-            "symbol": ticker, "provider": "Tickstream", "state": state["state"],
+            "symbol": ticker, "provider": "Tickstream", "timeframe": interval, "state": state["state"],
             "message": state["message"], "lastSourceTime": state["lastSourceTime"],
             "historyState": history_state, "bars": result,
         }

@@ -2541,7 +2541,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": "Tickstream charts are available on this local device only."}, 403)
             query = parse_qs(parsed.query)
             try:
-                return self.send_json(tickstream_feed.bars(query.get("symbol", [""])[0]))
+                return self.send_json(tickstream_feed.bars(
+                    query.get("symbol", [""])[0], query.get("timeframe", ["1M"])[0]
+                ))
             except ValueError as exc:
                 return self.send_json({"error": str(exc)}, 400)
         if parsed.path == "/api/wallet/session":

@@ -7,6 +7,7 @@ import tempfile
 import time
 import types
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from unittest.mock import patch
 from pathlib import Path
@@ -105,6 +106,38 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual("connected", status["state"])
         self.assertIn("feed_error", status["streamWarning"])
         self.assertEqual(1, status["receivedTicks"])
+
+    def test_tickstream_higher_timeframes_follow_cme_session_boundaries(self):
+        feed = sys.modules["tickstream_adapter"].TickstreamFeed()
+        stamps = [
+            datetime(2026, 1, 5, 23, 0, tzinfo=timezone.utc),  # 17:00 CT session open
+            datetime(2026, 1, 6, 0, 0, tzinfo=timezone.utc),
+            datetime(2026, 1, 6, 1, 0, tzinfo=timezone.utc),
+            datetime(2026, 1, 6, 3, 0, tzinfo=timezone.utc),  # 21:00 CT, next 4h block
+        ]
+        for index, stamp in enumerate(stamps):
+            epoch = int(stamp.timestamp())
+            price = 100 + index
+            feed._bars["NQ"][epoch] = {
+                "time": epoch, "open": price, "high": price + 1, "low": price - 1,
+                "close": price + 0.5, "volume": index + 1,
+            }
+
+        hourly = feed.bars("NQ", "1H")
+        four_hour = feed.bars("NQ", "4H")
+        daily = feed.bars("NQ", "1D")
+        self.assertEqual("1H", hourly["timeframe"])
+        self.assertEqual(4, len(hourly["bars"]))
+        self.assertEqual(2, len(four_hour["bars"]))
+        self.assertEqual(1, len(daily["bars"]))
+        self.assertEqual(100, four_hour["bars"][0]["open"])
+        self.assertEqual(102.5, four_hour["bars"][0]["close"])
+        self.assertEqual(6, four_hour["bars"][0]["volume"])
+        self.assertEqual(100, daily["bars"][0]["open"])
+        self.assertEqual(103.5, daily["bars"][0]["close"])
+        self.assertEqual(10, daily["bars"][0]["volume"])
+        with self.assertRaises(ValueError):
+            feed.bars("NQ", "15M")
 
     def test_luxalgo_status_is_read_only_and_credentials_free(self):
         catalog = MagicMock(returncode=0, stdout=json.dumps({"brokers": [{"id": "topstep"}]}), stderr="")
