@@ -1,0 +1,48 @@
+{
+  "name": "count-desk-luxalgo-integration",
+  "version": 1,
+  "purpose": "Credential-free capability contract for Count Desk's LuxAlgo adapters.",
+  "runtime": {
+    "mcpPackage": "@luxalgo/mcp",
+    "mcpVersion": "1.5.0",
+    "brokerSdkPackage": "@luxalgo/broker-sdk",
+    "brokerSdkVersion": "0.5.1",
+    "mcpProbe": "npm run mcp:probe"
+  },
+  "defaults": {
+    "readOnly": true,
+    "paperOnly": true,
+    "credentialsInBrowser": false,
+    "orderRouting": false,
+    "executionRelay": false,
+    "liveClaims": false
+  },
+  "surfaces": {
+    "mcp": {
+      "enabledBy": "BATTY_LUXALGO_MCP_ENABLED=1",
+      "allowlistOwnedBy": "count-dashboard/server.py:LUXALGO_MCP_TOOLS",
+      "writes": "disabled"
+    },
+    "brokerSdk": {
+      "catalog": "integrations/luxalgo/broker-catalog.mjs",
+      "accountsAndPositions": "read_only_after_provider_credentials_and_paper_scope",
+      "orderRouting": "disabled"
+    },
+    "tradeJournal": {
+      "canonicalLocalSurface": "Count Desk journal routes",
+      "luxAlgoWriteThrough": "disabled",
+      "brokerImport": "read_only_after_source_rights_and_credentials"
+    },
+    "edgeStats": {
+      "mode": "read_only_paper_gate",
+      "requiredProvenance": ["source", "window", "sampleSize", "confidenceInterval", "freshness", "uncertainty"],
+      "liveClaims": "disabled"
+    },
+    "optionalTools": {
+      "propFirmSim": "paper_only",
+      "marketTrackers": "public_record_read_only",
+      "whaleOptions": "blocked_until_authorized_feed",
+      "tradeRelay": "disabled"
+    }
+  }
+}
