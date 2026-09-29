@@ -64,6 +64,22 @@ function presentNativeTypes() {
   return new Set(typeof velaChart?.presentNativeIndicators === 'function' ? velaChart.presentNativeIndicators() : []);
 }
 
+function activeIndicatorLabels() {
+  const present = presentNativeTypes();
+  const selected = present.size ? present : storedIndicatorTypes();
+  const labels = indicatorDefinitions.filter(def => selected.has(def.type)).map(def => def.label);
+  return labels.length ? labels.join(', ') : 'None selected';
+}
+
+function renderIndicatorContext(contract = currentContract) {
+  const labels = activeIndicatorLabels();
+  $('#cleoIndicators').textContent = labels;
+  $('#velaPaperIndicators').textContent = `Studies · ${labels}`;
+  if (!contract) return;
+  const prompt = `Read this Vela chart with Cleo. The active native studies are ${labels}. Keep the structural read provisional and give me the preferred path, alternate path, invalidation, and the confirmation that would make a paper setup eligible.`;
+  $('#velaAskCleo').href = `./?symbol=${encodeURIComponent(contract.market.symbol)}&timeframe=${encodeURIComponent(contract.market.timeframe)}&cleoPrompt=${encodeURIComponent(prompt)}`;
+}
+
 async function renderIndicatorRegistry() {
   const list = $('#velaIndicatorList');
   if (!velaChart || typeof velaChart.availableNativeIndicators !== 'function') {
@@ -82,6 +98,7 @@ async function renderIndicatorRegistry() {
     return `<button type="button" class="vela-indicator-row ${active ? 'active' : ''}" data-vela-indicator="${def.type}" ${supported ? '' : 'disabled'} aria-pressed="${active}"><span><b>${def.label}</b><small>${def.note}</small></span><strong>${state}</strong></button>`;
   }).join('');
   $('#velaIndicatorSummary').textContent = `${[...present].filter(type => indicatorDefinitions.some(def => def.type === type)).length} active · native registry`;
+  renderIndicatorContext();
 }
 
 async function applyStoredIndicators() {
@@ -116,8 +133,7 @@ function renderCleoBriefing(contract) {
   $('#cleoLastClose').textContent = formatPrice(contract.analysis.lastClose);
   $('#cleoCountNodes').textContent = String(contract.analysis.countNodes);
   $('#cleoWarning').textContent = `${contract.analysis.warning} Source: ${contract.analysis.source}. Snapshot ${contract.analysis.snapshot.slice(0, 12)}…`;
-  const prompt = 'Read this Vela chart with Cleo. Keep the structural read provisional and give me the preferred path, alternate path, invalidation, and the confirmation that would make a paper setup eligible.';
-  $('#velaAskCleo').href = `./?symbol=${encodeURIComponent(contract.market.symbol)}&timeframe=${encodeURIComponent(contract.market.timeframe)}&cleoPrompt=${encodeURIComponent(prompt)}`;
+  renderIndicatorContext(contract);
 }
 
 function tickstreamTicker(symbol) {
@@ -291,6 +307,7 @@ async function loadPreview() {
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · source ${contract.analysis.source}`;
     $('#velaPaperMarket').textContent = `${market.symbol} · ${timeframe} · last close ${formatPrice(contract.analysis.lastClose)}`;
     $('#velaPaperSource').textContent = `${contract.analysis.source} · confirmed stored bar context`;
+    renderIndicatorContext(contract);
     if ($('#velaPaperWorkspace').hidden === false) await refreshPaperPositions();
     setStatus(`Vela preview ready · ${market.symbol} ${timeframe} · offline historical dataset`);
   } catch (error) {
@@ -306,10 +323,14 @@ async function init() {
     catalog = payload.symbols || [];
     fillSymbols();
     await loadPreview();
-    if (window.location.hash === '#paper') setWorkspace('paper');
+    applyWorkspaceHash();
   } catch (error) {
     setStatus(error.message, true);
   }
+}
+
+function applyWorkspaceHash() {
+  setWorkspace(window.location.hash === '#paper' ? 'paper' : 'chart');
 }
 
 $('#velaLoad').addEventListener('click', () => void loadPreview());
@@ -321,6 +342,7 @@ $('#velaIndicatorList').addEventListener('click', event => {
 });
 $('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));
+window.addEventListener('hashchange', applyWorkspaceHash);
 $('#velaBackToChart').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperPractice').addEventListener('click', () => {
   if (!currentContract) return setPaperStatus('Load a Vela chart first.', true);

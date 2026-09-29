@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Vela Preview</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=vela-indicators-20260930">
+  <link rel="stylesheet" href="./vela-preview.css?v=cleo-indicator-context-2-20260930">
 </head>
 <body class="trading-prototype vela-preview-page">
   <header>
@@ -49,6 +49,7 @@
           <div><small>LAST CLOSE</small><strong id="cleoLastClose">—</strong></div>
           <div><small>COUNT NODES</small><strong id="cleoCountNodes">—</strong></div>
         </div>
+        <div class="cleo-indicator-context"><small>ACTIVE STUDIES</small><strong id="cleoIndicators">Volume</strong></div>
         <p id="cleoWarning">Waiting for a Count Desk structural result.</p>
       </section>
       <section class="vela-feed-panel" aria-label="Vela data status">
@@ -66,7 +67,7 @@
     </section>
     <section id="velaPaperWorkspace" class="vela-paper-card" hidden aria-label="Vela paper trading workspace">
       <div class="vela-paper-head"><div><small>PAPER LABORATORY · VELA CONTEXT</small><h1>Paper Trading</h1><p>Orders use the selected Vela chart’s last confirmed stored bar. This is a local simulation with no broker connection or live order route.</p></div><button id="velaBackToChart" type="button">Back to chart</button></div>
-      <div class="vela-paper-context"><span id="velaPaperMarket">No chart selected</span><span id="velaPaperSource">Load a chart first.</span></div>
+      <div class="vela-paper-context"><span id="velaPaperMarket">No chart selected</span><span id="velaPaperSource">Load a chart first.</span><span id="velaPaperIndicators">Studies · Volume</span></div>
       <form id="velaPaperTicket" class="vela-paper-ticket">
         <label>Direction<select id="velaPaperSide"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select></label>
         <label>Micro contracts<input id="velaPaperQuantity" type="number" min="1" max="100" step="1" value="1" required></label>
@@ -81,6 +82,6 @@
     </section>
   </main>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=vela-indicators-20260930"></script>
+  <script type="module" src="./vela-preview.js?v=cleo-indicator-context-2-20260930"></script>
 </body>
 </html>
