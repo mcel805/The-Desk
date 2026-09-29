@@ -10,11 +10,13 @@
     "integrations/open-source/broker-sdk"
   ],
   "runtime": {
-    "mcpPackage": "@luxalgo/mcp (fork source vendored locally)",
-    "mcpVersion": "1.5.0",
+    "mcpPackage": "@count-desk/open-source-mcp",
+    "mcpVersion": "0.1.0",
     "brokerSdkPackage": "@luxalgo/broker-sdk (fork source vendored locally)",
     "brokerSdkVersion": "0.5.1",
-    "mcpProbe": "npm run mcp:probe"
+    "mcpBuild": "npm run mcp:build",
+    "mcpProbe": "npm run mcp:probe",
+    "mcpRuntimeArtifact": "integrations/open-source/mcp-server/dist/index.js"
   },
   "defaults": {
     "readOnly": true,

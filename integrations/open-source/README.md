@@ -15,7 +15,21 @@ credentials are still required for any broker or market-data source that a user
 chooses to connect, and Count Desk keeps those connections read-only or paper
 only.
 
-The current dashboard runtime uses the small, tested adapter under
-`integrations/luxalgo/` while these source trees are adapted behind the local
-Count Desk contract. That keeps the browser and Cleo boundary stable while the
-fork is renamed, tested, and integrated component by component.
+The Count Desk UI/API remains the local authority. The helper workspace under
+`integrations/luxalgo/` now owns the catalog, build, and probe commands, while
+the MCP process itself runs from the built Count Desk fork in this directory.
+Trade Journal and Edge Stats are the next source trees to wire behind the same
+local contract.
+
+The MCP runtime is now built from the vendored source before it is used by
+Count Desk:
+
+```sh
+cd integrations/luxalgo
+npm run mcp:build
+npm run mcp:probe
+```
+
+The Count Desk allowlist excludes the upstream journal and account modules,
+because those modules require hosted account authorization. Local journal
+operation remains in Count Desk and does not use that authorization path.

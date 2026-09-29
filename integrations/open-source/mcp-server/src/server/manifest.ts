@@ -19,8 +19,6 @@ import { libraryModule } from "../tools/library/index.js";
 import { propfirmsModule } from "../tools/propfirms/index.js";
 import { trackersModule } from "../tools/trackers/index.js";
 import { edgeModule } from "../tools/edge/index.js";
-import { accountModule } from "../tools/account/index.js";
-import { journalModule } from "../tools/journal/index.js";
 import { brokerModule } from "../tools/broker/index.js";
 
 /** Registration order is tools/list order. */
@@ -29,8 +27,6 @@ export const TOOL_MODULES: readonly ToolModule[] = [
   propfirmsModule,
   trackersModule,
   edgeModule,
-  accountModule,
-  journalModule,
   brokerModule,
 ];
 

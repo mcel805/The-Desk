@@ -1,11 +1,16 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Credential-free protocol probe. It only asks the local sidecar to initialize
 // and enumerate tools; it never signs in, opens a broker connection, or calls a
 // journal, account, or execution tool.
-const command = "./node_modules/.bin/luxalgo-mcp";
+const integrationRoot = path.dirname(fileURLToPath(import.meta.url));
+const serverRoot = process.env.COUNT_DESK_MCP_ROOT || path.resolve(integrationRoot, "../open-source/mcp-server");
+const command = process.execPath;
+const args = [path.join(serverRoot, "dist", "index.js")];
 const timeoutMs = Number(process.env.LUXALGO_MCP_PROBE_TIMEOUT_MS || 8000);
-const child = spawn(command, [], { cwd: process.cwd(), env: process.env });
+const child = spawn(command, args, { cwd: serverRoot, env: process.env });
 let buffer = "";
 let stderr = "";
 let nextId = 1;

@@ -7,7 +7,8 @@
   "scripts": {
     "test": "npm run broker:catalog",
     "broker:catalog": "node broker-catalog.mjs",
-    "mcp:stdio": "luxalgo-mcp",
+    "mcp:stdio": "node ../open-source/mcp-server/dist/index.js",
+    "mcp:build": "npm --prefix ../open-source/mcp-server ci --ignore-scripts && npm --prefix ../open-source/mcp-server run build",
     "mcp:probe": "node mcp-probe.mjs"
   },
   "keywords": [],

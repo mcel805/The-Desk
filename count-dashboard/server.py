@@ -62,13 +62,13 @@ LIQUIDITY_LAB_URL = "http://127.0.0.1:8041/"
 _LIQUIDITY_LAB_START_LOCK = Lock()
 LUXALGO_ROOT = WORKSPACE / "integrations" / "luxalgo"
 OPEN_SOURCE_ROOT = WORKSPACE / "integrations" / "open-source"
+MCP_FORK_ROOT = OPEN_SOURCE_ROOT / "mcp-server"
+MCP_FORK_BINARY = MCP_FORK_ROOT / "dist" / "index.js"
 OPEN_SOURCE_COMPONENTS = ("trade-journal", "edge-stats", "mcp-server", "broker-sdk")
 LUXALGO_MCP_TOOLS = (
     "library_search", "library_list_families", "library_get_family", "library_list_concepts",
     "library_get_concept", "library_list_indicators", "library_get_indicator", "library_get_source_code", "library_list_tags",
-    "journal_list_accounts", "journal_overview", "journal_calendar", "journal_breakdown",
-    "journal_list_trades", "journal_get_trade", "journal_get_day", "journal_list_tags",
-    "journal_search_notes", "broker_setup", "broker_accounts", "broker_positions",
+    "broker_setup", "broker_accounts", "broker_positions",
     "broker_trades", "broker_stats", "broker_refresh", "edge_symbols", "edge_presets",
     "edge_report", "trackers_datasets", "trackers_query", "trackers_latest", "trackers_ticker",
     "propfirms_search", "propfirms_search_challenges", "propfirms_search_offers", "propfirms_get",
@@ -79,7 +79,8 @@ LUXALGO_MCP_TOOLS = (
 
 def luxalgo_integration_status() -> dict:
     """Return a credential-free, read-only capability report for LuxAlgo modules."""
-    mcp_binary = LUXALGO_ROOT / "node_modules" / ".bin" / "luxalgo-mcp"
+    legacy_mcp_binary = LUXALGO_ROOT / "node_modules" / ".bin" / "luxalgo-mcp"
+    mcp_binary = MCP_FORK_BINARY if MCP_FORK_BINARY.is_file() else legacy_mcp_binary
     sdk_installed = (LUXALGO_ROOT / "node_modules" / "@luxalgo" / "broker-sdk").is_dir()
     mcp_installed = mcp_binary.is_file()
     enabled = os.environ.get("BATTY_LUXALGO_MCP_ENABLED", "").strip().lower() in {"1", "true", "yes"}
@@ -113,6 +114,7 @@ def luxalgo_integration_status() -> dict:
             "installed": mcp_installed,
             "enabledForCleo": enabled,
             "command": str(mcp_binary) if mcp_installed else None,
+            "runtime": "count_desk_fork" if MCP_FORK_BINARY.is_file() else "legacy_local_adapter",
             "allowedTools": list(LUXALGO_MCP_TOOLS),
             "writeToolsEnabled": False,
             "executionRelayEnabled": False,
@@ -2935,7 +2937,7 @@ class Handler(SimpleHTTPRequestHandler):
                         "dashboard_overview", "read_chart", "read_trading_journal", "read_liquidity_lab",
                     ],
                 }
-                luxalgo_mcp_path = ROOT.parent / "integrations" / "luxalgo" / "node_modules" / ".bin" / "luxalgo-mcp"
+                legacy_mcp_path = ROOT.parent / "integrations" / "luxalgo" / "node_modules" / ".bin" / "luxalgo-mcp"
                 luxalgo_mcp_tools = list(LUXALGO_MCP_TOOLS)
                 for key, value in mcp_config.items():
                     if isinstance(value, dict):
@@ -2951,10 +2953,11 @@ class Handler(SimpleHTTPRequestHandler):
                             f"mcp_servers.{mcp_id}.{key}={json.dumps(value, ensure_ascii=False)}",
                         ])
                 if luxalgo_mcp_enabled:
+                    fork_runtime = MCP_FORK_BINARY.is_file()
                     luxalgo_config = {
-                        "command": str(luxalgo_mcp_path),
-                        "args": [],
-                        "cwd": str(ROOT.parent / "integrations" / "luxalgo"),
+                        "command": "node" if fork_runtime else str(legacy_mcp_path),
+                        "args": [str(MCP_FORK_BINARY)] if fork_runtime else [],
+                        "cwd": str(MCP_FORK_ROOT if fork_runtime else ROOT.parent / "integrations" / "luxalgo"),
                         "env": {},
                         "required": False,
                         "default_tools_approval_mode": "auto",

@@ -112,6 +112,7 @@ class DashboardTest(unittest.TestCase):
         self.assertTrue(status["edgeStats"]["sourceSnapshot"])
         self.assertIn("library_list_concepts", status["mcp"]["allowedTools"])
         self.assertIn("propfirms_simulate", status["mcp"]["allowedTools"])
+        self.assertNotIn("journal_list_accounts", status["mcp"]["allowedTools"])
         self.assertNotIn("journal_add_trade", status["mcp"]["allowedTools"])
         self.assertEqual("disabled", status["optionalModules"]["tradeRelay"]["status"])
         run.assert_called_once()

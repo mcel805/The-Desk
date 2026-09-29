@@ -5,5 +5,5 @@
   included); `npm test` asserts it matches package.json, so a release bump
   that forgets this file fails CI instead of shipping a stale version.
 */
-export const SERVER_NAME = "luxalgo";
-export const SERVER_VERSION = "1.5.0";
+export const SERVER_NAME = "count-desk-open-source-mcp";
+export const SERVER_VERSION = "0.1.0";
