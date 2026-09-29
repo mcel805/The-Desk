@@ -454,7 +454,7 @@ async function loadPreview() {
   if (market?.symbol === 'TICKSTREAM:NQ') return loadTickstreamChart();
   $('#velaPaperTab').disabled = false;
   clearInterval(window.countDeskTickstreamStatusTimer);
-  $('#cleoBriefing').hidden = false;
+  $('#cleoBriefing').hidden = true;
   if (!market) return setStatus('No Count Desk market is available.', true);
   if (!window.Vela?.Vela) return setStatus('Vela browser bundle did not load.', true);
   const button = $('#velaLoad');

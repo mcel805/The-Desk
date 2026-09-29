@@ -93,6 +93,8 @@ const effortPicker = $('#battyEffort');
 const providerBadge = $('#battyProviderBadge');
 const providerNote = $('#battyProviderNote');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cleoReportAlarm = velaPage ? $('#cleoReportAlarm') : null;
+const cleoReportReadPrefix = 'batty-cleo-report-read-v1:';
 const agentActivityCards = $('#agentActivityCards');
 const sessionsKey = 'batty-chat-sessions-v1';
 const activeSessionKey = 'batty-active-chat-v1';
@@ -107,6 +109,46 @@ const recentPanel = $('#battyRecentPanel');
 const recentList = $('#battyRecentList');
 const newChatButton = $('#battyNewChatButton');
 let agentActivity = {participants:['batty'],startedAt:null,prompt:'',response:'',working:false};
+
+function cleoReportId(item) {
+  return `cleo-report-${String(item.timestamp || '').replace(/\D/g, '')}`;
+}
+
+function cleoReports() {
+  return chatHistory.filter(item => item.role === 'assistant' && !item.error && item.specialists?.includes('cleo'));
+}
+
+function updateCleoReportAlarm({initialize = false} = {}) {
+  if (!cleoReportAlarm) return;
+  const latest = cleoReports().at(-1);
+  const key = `${cleoReportReadPrefix}${activeSession.id}`;
+  let seenAt = null;
+  try {
+    seenAt = localStorage.getItem(key);
+    if (seenAt === null && initialize) {
+      seenAt = latest?.timestamp || '';
+      localStorage.setItem(key, seenAt);
+    }
+  } catch { seenAt = latest?.timestamp || ''; }
+  const unread = Boolean(latest?.timestamp && seenAt !== null && latest.timestamp > seenAt);
+  cleoReportAlarm.classList.toggle('has-unread', unread);
+  cleoReportAlarm.setAttribute('aria-label', unread ? 'New Cleo report ready. Open latest report.' : 'Open latest Cleo report');
+  cleoReportAlarm.title = unread ? 'New Cleo report · select to read' : 'No new Cleo report';
+}
+
+function markCleoReportsRead() {
+  const latest = cleoReports().at(-1);
+  if (!latest) return;
+  try { localStorage.setItem(`${cleoReportReadPrefix}${activeSession.id}`, latest.timestamp || ''); } catch {}
+  updateCleoReportAlarm();
+  const article = document.getElementById(cleoReportId(latest));
+  if (!article) return;
+  article.scrollIntoView({block:'center', behavior:reducedMotion ? 'auto' : 'smooth'});
+  article.tabIndex = -1;
+  article.focus({preventScroll:true});
+  article.classList.add('cleo-report-highlighted');
+  setTimeout(() => article.classList.remove('cleo-report-highlighted'), 2200);
+}
 
 function activeContext() {
   if (velaPage) return {label: `Vela · ${$('#velaSymbol')?.selectedOptions?.[0]?.textContent || ''} · ${$('#velaTimeframe')?.value || ''} · Active studies: ${$('#cleoIndicators')?.textContent || 'Pending'}`, detail:'Vela chart and active studies'};
@@ -256,6 +298,7 @@ function createChatSession() {
   recentPanel.hidden = true;
   recentButton.setAttribute('aria-expanded','false');
   renderConversation();
+  updateCleoReportAlarm({initialize:true});
   input.focus();
 }
 
@@ -407,6 +450,7 @@ async function reply(prompt) {
     status.textContent = 'Writing this up in desk language';
     progress.querySelector('p').textContent = 'Putting the answer into trader terms…';
     const message = addMessage('assistant', '');
+    if (completedParticipants.includes('cleo')) message.id = cleoReportId(assistantMessage);
     const paragraph = message.querySelector('p');
     const answer = result.text;
     const stride = reducedMotion ? answer.length : Math.max(1, Math.ceil(answer.length / 120));
@@ -421,6 +465,7 @@ async function reply(prompt) {
     const meta = document.createElement('small');
     meta.textContent = `${modelPicker.selectedOptions[0].textContent} · ${formatTimestamp(assistantTimestamp)}${completedParticipants.includes('cleo')?' · Cleo delegated':''}`;
     message.append(meta);
+    if (completedParticipants.includes('cleo')) updateCleoReportAlarm();
     progress.querySelector('p').textContent = completedParticipants.includes('cleo')
       ? '✓ Cleo returned analysis · Batty relayed it'
       : '✓ Batty replied · chart-specialist findings are attributed when returned';
@@ -486,6 +531,7 @@ function renderConversation() {
     const roleLabel = item.role === 'user' ? 'YOU' : (item.model || 'BATTY');
     const specialistLabel = item.specialists?.includes('cleo') ? ' · Cleo delegated' : '';
     const message = addMessage(item.role, item.content, `${roleLabel} · ${formatTimestamp(item.timestamp)}${specialistLabel}`);
+    if (item.role === 'assistant' && !item.error && item.specialists?.includes('cleo')) message.id = cleoReportId(item);
     if (item.role === 'assistant') renderSourceLinks(message.querySelector('p'), item.content);
     if (item.error) message.classList.add('batty-message-error');
   }
@@ -531,6 +577,8 @@ function renderRecentChats() {
 }
 
 renderConversation();
+updateCleoReportAlarm({initialize:true});
+cleoReportAlarm?.addEventListener('click', markCleoReportsRead);
 if (cleoHandoffPrompt) {
   input.value = cleoHandoffPrompt;
   input.setSelectionRange(input.value.length, input.value.length);
@@ -563,6 +611,10 @@ document.addEventListener('keydown', event => {
   }
 });
 addEventListener('storage', event => {
+  if (event.key?.startsWith(cleoReportReadPrefix)) {
+    updateCleoReportAlarm();
+    return;
+  }
   if (event.key !== sessionsKey) return;
   chatSessions = loadChatSessions();
   const refreshedActive = chatSessions.find(session => session.id === activeSession.id);
@@ -570,6 +622,7 @@ addEventListener('storage', event => {
     activeSession = refreshedActive;
     chatHistory = activeSession.messages;
     renderConversation();
+    updateCleoReportAlarm({initialize:true});
   }
   renderRecentChats();
 });

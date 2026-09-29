@@ -5,13 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Chart Workspace</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=connections-text-1">
+  <link rel="stylesheet" href="./vela-preview.css?v=sidebar-themes-20260929">
 </head>
 <body class="trading-prototype vela-preview-page">
   <aside class="desk-sidebar" aria-label="Workspace navigation">
-    <div class="desk-brand"><strong>✦ <span>COUNT DESK</span></strong><button id="deskCollapse" aria-label="Collapse navigation" aria-expanded="true">☰</button></div>
+    <div class="desk-brand"><strong>✦ <span>COUNT DESK</span></strong><div class="desk-brand-actions"><button id="deskThemeButton" class="desk-theme-trigger" type="button" aria-label="Open sidebar themes" aria-expanded="false" aria-controls="deskThemeManager" title="Paint the sidebar"><img src="./artist-brush.svg" alt=""></button><button id="deskCollapse" aria-label="Collapse navigation" aria-expanded="true">☰</button></div></div>
     <nav><a href="./trading-landing.html" title="Home">⌂ <span>Home</span></a><a class="active" href="./vela-preview.html" title="Chart workspace">▥ <span>Chart workspace</span></a><a href="./trade-journal.html" title="Trading journal">▤ <span>Trading journal</span></a><a href="http://127.0.0.1:8041/" title="Liquidity lab">◈ <span>Liquidity lab</span></a><a href="./resources.html" title="Resources">ⓘ <span>Resources</span></a></nav>
     <div class="desk-sidebar-foot"><span>PAPER RESEARCH</span><button id="appLogout" class="app-logout" type="button">Log out</button></div>
+    <section id="deskThemeManager" class="desk-theme-manager" role="dialog" aria-modal="false" aria-labelledby="deskThemeTitle" hidden>
+      <header class="desk-theme-head"><div><small>COUNT DESK · APPEARANCE</small><h2 id="deskThemeTitle">Paint the sidebar</h2><p>Choose a palette for this left rail.</p></div><button id="deskThemeClose" type="button" aria-label="Close theme picker">×</button></header>
+      <div class="desk-theme-toolbar"><span id="deskThemeStatus" role="status" aria-live="polite">Count Desk default</span><button id="deskThemeReset" type="button">Reset</button></div>
+      <div id="deskThemeGrid" class="desk-theme-grid" role="group" aria-label="Sidebar themes"></div>
+      <footer>20 Omarchy community palette inspirations · sidebar only</footer>
+    </section>
   </aside>
   <main class="vela-preview-main">
     <nav class="vela-workspace-tabs" aria-label="Vela workspace views" role="tablist">
@@ -32,11 +38,12 @@
         <button data-drawer="replay" aria-expanded="false">Replay</button>
         <button data-drawer="connections" aria-expanded="false">Connections</button>
         <button data-drawer="context" aria-expanded="false">Chart context</button>
+        <button id="cleoReportAlarm" class="cleo-report-alarm" type="button" aria-label="Open latest Cleo report" title="No new Cleo report"><img src="./cleo-report-lamp.png" alt=""><span class="cleo-report-signal" aria-hidden="true"></span></button>
       </div>
       <section class="desk-drawer" id="deskReplay" hidden aria-label="Replay controls"><label>Replay cutoff <input id="velaReplayCutoff" type="datetime-local" aria-label="Vela replay cutoff"></label><button id="velaReplayLatest" type="button">Latest stored</button><p>Select a cutoff, then press Refresh. Uses stored historical bars.</p></section>
       <div id="velaStatus" class="vela-status" role="status" aria-live="polite">Loading Count Desk catalog…</div>
-      <section id="cleoBriefing" hidden class="cleo-briefing desk-drawer" aria-label="Cleo structural briefing">
-        <div class="cleo-briefing-head"><div><small>CLEO · STRUCTURAL READ</small><strong>Renderer-neutral context</strong></div><div class="cleo-briefing-actions"><span id="cleoReadStatus">PROVISIONAL</span><a id="velaAskCleo" href="./?cleoPrompt=Read%20this%20Vela%20chart%20with%20a%20provisional%20structural%20read.">Ask Cleo in Count Desk</a></div></div>
+      <section id="cleoBriefing" hidden class="cleo-briefing desk-drawer" aria-label="Structural chart context">
+        <div class="cleo-briefing-head"><div><small>COUNT DESK · STRUCTURE</small><strong>Pivot prototype context</strong></div><div class="cleo-briefing-actions"><span id="cleoReadStatus">PROVISIONAL</span><a id="velaAskCleo" href="./?cleoPrompt=Read%20this%20Vela%20chart%20with%20a%20provisional%20structural%20read.">Ask Cleo about this chart</a></div></div>
         <div class="cleo-briefing-grid">
           <div><small>PREFERRED PATH</small><strong id="cleoPreferred">—</strong></div>
           <div><small>ALTERNATE PATH</small><strong id="cleoAlternate">—</strong></div>
@@ -81,6 +88,7 @@
   <script type="module" src="./vela-preview.js?v=connections-text-1"></script>
   <script type="module" src="./batty-agent.js?v=connections-text-1"></script>
   <script type="module" src="./desk-shell.js?v=connections-text-1"></script>
+  <script src="./sidebar-themes.js?v=sidebar-themes-20260929"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>
