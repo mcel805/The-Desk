@@ -181,7 +181,14 @@ class TickstreamFeed:
         try:
             while pending and pages < MAX_HISTORY_PAGES:
                 lower, upper = pending.pop(0)
-                payload = client.ticks("NQ", start=lower, end=upper, limit=HISTORY_PAGE_SIZE)
+                for attempt in range(4):
+                    try:
+                        payload = client.ticks("NQ", start=lower, end=upper, limit=HISTORY_PAGE_SIZE)
+                        break
+                    except Exception:
+                        if attempt == 3:
+                            raise
+                        time.sleep(min(2 ** attempt, 8))
                 rows = _ticks(payload)
                 for row in rows:
                     self._push(row, "NQ", history=True)

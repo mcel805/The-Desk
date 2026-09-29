@@ -80,6 +80,25 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual("complete", feed.status()["historyState"])
         self.assertEqual(2, len(feed.bars("NQ")["bars"]))
 
+    def test_tickstream_history_retries_transient_provider_disconnects(self):
+        tickstream = sys.modules["tickstream_adapter"]
+        feed = tickstream.TickstreamFeed()
+
+        class FlakyHistoryClient:
+            calls = 0
+
+            def ticks(self, _symbol, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise ConnectionError("temporary disconnect")
+                return {"truncated": False, "ticks": []}
+
+        client = FlakyHistoryClient()
+        with patch.object(tickstream.time, "sleep"):
+            feed._load_history(client)
+        self.assertEqual(2, client.calls)
+        self.assertEqual("complete", feed.status()["historyState"])
+
     def test_tickstream_control_warning_does_not_hide_ticks_still_flowing(self):
         tickstream = sys.modules["tickstream_adapter"]
         feed = tickstream.TickstreamFeed()
