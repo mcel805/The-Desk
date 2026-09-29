@@ -42,7 +42,6 @@ from wallet_auth import (
 )
 from tickstream_adapter import (
     API_KEY_ENV as TICKSTREAM_API_KEY_ENV,
-    DELAY_MINUTES as TICKSTREAM_DELAY_MINUTES,
     RIGHTS_ENV as TICKSTREAM_RIGHTS_ENV,
     config_status as tickstream_config_status,
     fetch_quote as fetch_tickstream_quote,
@@ -1917,10 +1916,10 @@ FEED_PROVIDERS = {
         "use_note": "Requires CQG WebAPI client approval, API credentials, permitted data use, a dated CQG MYM symbol, and the local read-only worker.",
     },
     "tickstream": {
-        "name": "Tickstream Futures · free delayed quote",
+        "name": "Tickstream Futures · recent-tick pilot",
         "markets": ["CME futures, subject to the Tickstream symbol catalog"],
-        "capability": f"Read-only delayed quote probe; free tier is {TICKSTREAM_DELAY_MINUTES}-minute delayed",
-        "use_note": f"Set {TICKSTREAM_API_KEY_ENV} and confirm the provider terms before displaying or retaining quotes.",
+        "capability": "Read-only snapshot of up to five recent ticks; does not build chart candles",
+        "use_note": f"Set {TICKSTREAM_API_KEY_ENV} and confirm the provider terms before displaying or retaining tick data.",
     },
 }
 
@@ -1934,7 +1933,7 @@ def sync_adapter_config(provider: str = "licensed") -> tuple[str, str]:
         # The Massive source is called directly by this server; no sidecar URL.
         return "direct://massive", ""
     elif provider == "tickstream":
-        raise ValueError("Tickstream is quote-only in the first pilot slice; use /api/feed/quote.")
+        raise ValueError("Tickstream is a read-only tick snapshot in this pilot slice; use /api/feed/quote.")
     elif provider in FEED_PROVIDERS:
         spec = FEED_PROVIDERS[provider]
         url = os.environ.get(spec["url_env"], "").strip().rstrip("/")
@@ -1998,7 +1997,7 @@ def sync_from_adapter(db: sqlite3.Connection, payload: dict) -> dict:
     if provider == "massive":
         return sync_from_massive(db, symbol, timeframe)
     if provider == "tickstream":
-        raise RuntimeError("Tickstream is quote-only in the first pilot slice; bar aggregation follows the quote probe.")
+        raise RuntimeError("Tickstream is a read-only tick snapshot in this pilot slice; chart bar aggregation is not connected.")
     url, token = sync_adapter_config(provider)
     if not url:
         if provider in FEED_PROVIDERS:
@@ -2523,7 +2522,7 @@ class Handler(SimpleHTTPRequestHandler):
             if tickstream_config_status() != "quote_configured":
                 return self.send_json({
                     "error": (
-                        f"Tickstream quote probe is locked. Configure {TICKSTREAM_API_KEY_ENV} "
+                        f"Tickstream tick probe is locked. Configure {TICKSTREAM_API_KEY_ENV} "
                         f"and set {TICKSTREAM_RIGHTS_ENV}=1 after confirming the provider terms."
                     )
                 }, 503)

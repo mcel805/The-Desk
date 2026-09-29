@@ -29,7 +29,7 @@ class DashboardTest(unittest.TestCase):
         self.db.close()
         self.tmp.cleanup()
 
-    def test_tickstream_free_quote_probe_normalizes_delayed_quote(self):
+    def test_tickstream_recent_ticks_probe_normalizes_latest_tick(self):
         tickstream = sys.modules["tickstream_adapter"]
 
         class Response:
@@ -42,13 +42,10 @@ class DashboardTest(unittest.TestCase):
                 return False
 
             def read(self):
-                return json.dumps({
-                    "symbol": "MYM",
-                    "price": "42123.5",
-                    "bid": 42123.25,
-                    "ask": 42123.75,
-                    "tsu": 1_800_000_000_000_000,
-                }).encode()
+                return json.dumps({"ticks": [
+                    {"symbol": "MYM", "price": "42122.5", "tsu": 1_799_999_000_000_000},
+                    {"symbol": "MYM", "price": "42123.5", "tsu": 1_800_000_000_000_000},
+                ]}).encode()
 
         with patch.dict(os.environ, {
             tickstream.API_KEY_ENV: "test-key",
@@ -57,13 +54,13 @@ class DashboardTest(unittest.TestCase):
             result = server.fetch_tickstream_quote("MYM", opener=request)
 
         self.assertEqual("Tickstream", result["provider"])
-        self.assertEqual("DELAYED", result["mode"])
-        self.assertEqual(15, result["delayMinutes"])
+        self.assertTrue(result["mode"].startswith("TICK SNAPSHOT"))
+        self.assertIsNone(result["delayMinutes"])
         self.assertEqual(42123.5, result["price"])
         self.assertTrue(result["sourceTimestamp"].endswith("+00:00"))
         request.assert_called_once()
         sent_request = request.call_args.args[0]
-        self.assertIn("symbol=MYM", sent_request.full_url)
+        self.assertIn("/ticks?symbol=MYM&limit=5", sent_request.full_url)
         self.assertEqual("Bearer test-key", sent_request.headers["Authorization"])
 
     def test_tickstream_source_is_quote_only_until_bar_adapter_exists(self):

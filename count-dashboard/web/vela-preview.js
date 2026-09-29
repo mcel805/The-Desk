@@ -225,8 +225,8 @@ function renderTickstreamReadiness(source) {
   const status = source?.status || 'unknown';
   const labels = {
     not_connected: ['SETUP NEEDED', 'Add the server key; the browser never receives it.'],
-    rights_confirmation_required: ['RIGHTS CHECK', 'Confirm delayed quote display terms before probing.'],
-    quote_only: ['READY · DELAYED 15M', 'Quote-only pilot; no chart candles or paper fills.'],
+    rights_confirmation_required: ['RIGHTS CHECK', 'Confirm the plan terms for displaying recent ticks before probing.'],
+    quote_only: ['READY · TICK PROBE', 'Read-only recent-tick check; no chart candles or paper fills.'],
   };
   const [label, note] = labels[status] || ['UNAVAILABLE', 'Tickstream readiness is not confirmed.'];
   $('#velaTickstreamReadiness').textContent = label;
@@ -262,12 +262,12 @@ async function probeTickstream() {
     return;
   }
   button.disabled = true;
-  status.textContent = `Requesting delayed ${ticker} quote…`;
+  status.textContent = `Requesting recent ${ticker} ticks…`;
   try {
-    const quote = await getJson(`/api/feed/quote?symbol=${encodeURIComponent(ticker)}`);
-    const spread = quote.bid != null && quote.ask != null ? ` · bid/ask ${quote.bid} / ${quote.ask}` : '';
-    const sourceTime = quote.sourceTimestamp ? ` · source ${new Date(quote.sourceTimestamp).toLocaleString()}` : '';
-    status.textContent = `${quote.provider} · ${quote.symbol} ${quote.price}${spread} · delayed ${quote.delayMinutes}m${sourceTime} · received ${new Date(quote.retrievedAt).toLocaleTimeString()}`;
+    const tick = await getJson(`/api/feed/quote?symbol=${encodeURIComponent(ticker)}`);
+    const sourceTime = tick.sourceTimestamp ? ` · source ${new Date(tick.sourceTimestamp).toLocaleString()}` : ' · source timestamp unavailable';
+    const delay = tick.delayMinutes == null ? '' : ` · delayed ${tick.delayMinutes}m`;
+    status.textContent = `${tick.provider} · ${tick.symbol} last tick ${tick.price}${sourceTime}${delay} · received ${new Date(tick.retrievedAt).toLocaleTimeString()}`;
   } catch (error) {
     status.textContent = error.message;
   } finally {

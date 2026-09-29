@@ -411,18 +411,21 @@ Massive account and update it after expiry. Massive serves the selected interval
 directly, including 1m, 2m, 3m, 5m, 15m, and 30m; a 1m sync can also create the
 larger intraday intervals. Automatic cadence is five minutes.
 
-### Tickstream free delayed-quote pilot
+### Tickstream recent-tick pilot
 
-Tickstream is wired first as a read-only quote probe so the platform can be
-tested against the free delayed tier before we add bar aggregation and the
-Vela provider. That tier is labeled **DELAYED 15M** in Count Desk. The quote
-adapter calls Tickstream only from the local Python server; the API key never
-reaches browser JavaScript, and no execution endpoint is enabled.
+Count Desk calls Tickstream's `GET /v1/ticks?symbol=…&limit=5` through the
+local Python server, then displays the newest returned tick and its source
+timestamp. The Tickstream SDK documentation lists `/v1/ticks` among included
+endpoints and notes that requests without a start time return the recent
+one-hour window. Check the entitlement and delay for your account in Tickstream
+before enabling display. This probe does not aggregate ticks into candles or
+write them to the chart or paper ledger. The API key stays server-side; no
+execution endpoint is enabled.
 
 Add the key to the ignored `count-dashboard/.env` file or to the shell that
 starts Count Desk. The rights flag is deliberately explicit: set it only after
 you have confirmed Tickstream's terms cover the intended display and retention
-for this test.
+this read-only display test.
 
 ```sh
 BATTY_TICKSTREAM_API_KEY='your-tickstream-api-key' \
@@ -430,19 +433,18 @@ BATTY_TICKSTREAM_STORAGE_AND_DISPLAY_RIGHTS_CONFIRMED=1 \
 python3 count-dashboard/server.py
 ```
 
-Open Count Desk, choose a futures market, and press **Probe delayed quote** in
-the market-data strip. The server endpoint is
-`GET /api/feed/quote?symbol=MYM`; it returns the provider, symbol, price,
-source timestamp, retrieval time, and the explicit delayed mode. The first
-slice is quote-only, so it does not populate chart candles or the paper ledger.
-Use Tickstream's `/v1/symbols` catalog to confirm the exact symbols before we
-map them into Vela and add a licensed bar/backfill adapter.
+Open Count Desk, choose a futures market, and press **Probe recent Tickstream
+ticks** in Connections. The server endpoint `GET /api/feed/quote?symbol=MYM`
+returns the newest print from Tickstream's five-row response, with provider,
+symbol, price, source timestamp, and retrieval time. A delay is reported only
+when the provider includes it. Use Tickstream's `/v1/symbols` catalog to
+confirm exact symbols before wiring a continuous stream or candle adapter.
 
 The Vela workspace mirrors this gate as **SETUP NEEDED**, **RIGHTS CHECK**, or
-**READY · DELAYED 15M** and disables the probe until the server reports a
-quote-only configuration. A successful quote keeps both the source timestamp
-and retrieval timestamp visible so delayed data cannot be mistaken for a live
-chart or executable price.
+**READY · TICK PROBE** and disables the probe until the server reports a
+configured read-only entitlement. A successful response keeps both the source
+timestamp and retrieval timestamp visible. The tick snapshot is not a live
+chart feed, market-data entitlement determination, or executable price.
 
 The collapsed **Indicators · native Vela studies** registry now mounts the
 fork's Volume, SMA, EMA, RSI, ATR, and visible-volume-profile studies over the
@@ -592,7 +594,7 @@ tools, including in compact windows.
 Chat sends the loaded instrument, timeframe, numeric historical cutoff,
 and active study labels through the existing `/api/chat` request. Batty
 coordinates the project Cleo specialist; the UI does not imply a separate
-live trading agent. Delayed feeds and quote-only Tickstream readiness retain
+live trading agent. Delayed feeds and read-only Tickstream readiness retain
 their provenance and paper-only boundaries. Timeframes require stored bars;
 this layout does not add TradingView's proprietary tools or new data sources.
 

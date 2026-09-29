@@ -17,7 +17,6 @@ from urllib.request import Request, urlopen
 REST_BASE = "https://api.tick-stream.xyz/v1"
 API_KEY_ENV = "BATTY_TICKSTREAM_API_KEY"
 RIGHTS_ENV = "BATTY_TICKSTREAM_STORAGE_AND_DISPLAY_RIGHTS_CONFIRMED"
-DELAY_MINUTES = 15
 
 
 class TickstreamError(RuntimeError):
@@ -75,24 +74,32 @@ def _number(value: object) -> float | None:
         return None
 
 
-def _quote_record(payload: object) -> dict:
-    if not isinstance(payload, dict):
-        raise TickstreamError("Tickstream returned an invalid quote response.")
-    record = payload
-    for key in ("quote", "data", "result"):
-        candidate = record.get(key)
-        if isinstance(candidate, dict):
-            record = candidate
-            break
-    nested_last = record.get("last")
-    if isinstance(nested_last, dict):
-        return {**record, **nested_last}
-    return record
+def _latest_tick(payload: object) -> dict:
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = None
+        for key in ("ticks", "data", "results", "result"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                rows = candidate
+                break
+            if isinstance(candidate, dict) and isinstance(candidate.get("ticks"), list):
+                rows = candidate["ticks"]
+                break
+        if rows is None:
+            rows = [payload]
+    else:
+        raise TickstreamError("Tickstream returned an invalid tick response.")
+    records = [row for row in rows if isinstance(row, dict)]
+    if not records:
+        raise TickstreamError("Tickstream returned no ticks for this symbol.")
+    return max(records, key=lambda row: _seconds(row.get("tsu", row.get("timestamp", row.get("ts", row.get("time"))))) or 0)
 
 
 def fetch_quote(symbol: str, *, api_key: str | None = None,
                 rest_base: str = REST_BASE, opener=urlopen) -> dict:
-    """Fetch and normalize one delayed quote without persisting or routing orders."""
+    """Fetch recent ticks and normalize the newest print without persistence or orders."""
     ticker = str(symbol).strip().upper()
     if not ticker or len(ticker) > 32 or any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for char in ticker):
         raise ValueError("Tickstream quote requires a valid provider symbol.")
@@ -101,7 +108,7 @@ def fetch_quote(symbol: str, *, api_key: str | None = None,
         raise TickstreamError(f"Set {API_KEY_ENV} in the server environment first.")
 
     request = Request(
-        f"{rest_base.rstrip('/')}/quote?symbol={quote(ticker)}",
+        f"{rest_base.rstrip('/')}/ticks?symbol={quote(ticker)}&limit=5",
         headers={
             "Accept": "application/json",
             "Authorization": f"Bearer {key}",
@@ -122,17 +129,17 @@ def fetch_quote(symbol: str, *, api_key: str | None = None,
     except json.JSONDecodeError as exc:
         raise TickstreamError("Tickstream returned invalid JSON.") from exc
 
-    record = _quote_record(payload)
-    price = _number(record.get("price", record.get("lastPrice", record.get("last"))))
+    record = _latest_tick(payload)
+    price = _number(record.get("price", record.get("lastPrice", record.get("last", record.get("px")))))
     if price is None:
-        raise TickstreamError("Tickstream quote did not include a last price.")
+        raise TickstreamError("Tickstream tick did not include a price.")
     timestamp = record.get("tsu", record.get("timestamp", record.get("ts", record.get("time"))))
     return {
         "provider": "Tickstream",
         "source": "tick-stream.xyz",
         "symbol": str(record.get("symbol", ticker)).upper(),
-        "mode": "DELAYED",
-        "delayMinutes": DELAY_MINUTES,
+        "mode": "DELAYED" if record.get("mode") == "DELAYED" else "TICK SNAPSHOT · FRESHNESS FROM SOURCE TIMESTAMP",
+        "delayMinutes": record.get("delayMinutes") if isinstance(record.get("delayMinutes"), (int, float)) else None,
         "price": price,
         "bid": _number(record.get("bid")),
         "ask": _number(record.get("ask")),
