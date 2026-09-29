@@ -25,7 +25,7 @@ async function loadLuxalgoStatus() {
       luxalgoRow('Open-source MCP', mcp.enabledForCleo ? 'enabled' : 'disabled', `${mcp.allowedTools?.length || 0} allowlisted read tools · writes ${mcp.writeToolsEnabled ? 'enabled' : 'disabled'}`),
       luxalgoRow('Broker SDK', sdk.catalogAvailable ? 'catalog_ready' : 'not_configured', `${sdk.brokers?.map(item => item.name || item.id).slice(0, 4).join(', ') || 'No catalog'} · account writes disabled`),
       luxalgoRow('Trade Journal', journal.status, `${journal.brokerImport || 'Local journal boundary'} · local mode needs no LuxAlgo authorization`),
-      luxalgoRow('Edge Stats', edge.status, 'Vendored local engine · paper bars/fills only · sample, CI, freshness, and uncertainty required'),
+      luxalgoRow('Edge Stats', edge.status, 'Vendored engine source available · paper bars/fills only · sample, CI, freshness, and uncertainty required'),
       luxalgoRow('Optional tools', 'paper_only', `Prop Firm Sim ${optional.propFirmSim?.status || 'gated'} · trackers ${optional.marketTrackers?.status || 'gated'} · Trade Relay ${optional.tradeRelay?.status || 'disabled'}`),
     ].join('');
   } catch (error) {
