@@ -605,3 +605,28 @@ this layout does not add TradingView's proprietary tools or new data sources.
 Replace `confirmed_pivots()` and `label_pivots()` with the v0.7 Daily candidate
 pack, hard-rule audit and Daily-to-4H linker. Keep the API and ledger
 identifiers stable while the solver improves.
+
+## Indicator Agent research workbench
+
+Open <http://127.0.0.1:8770/indicator-agent.html> from the Tool Belt. The
+workbench provides a per-indicator enhancement queue, a Scientist-defined
+measurement protocol, frozen baseline/candidate versions, append-only paired
+observations, descriptive event or numeric-error scorecards, a local Scientist
+decision record, and build/test/human-validation event history. The data is
+stored locally in `data/indicator-agent.sqlite3`, outside the Git baseline.
+The project-scoped `indicator_agent` profile is defined in
+`../.codex/agents/indicator_agent.toml` for explicit Codex delegation.
+
+The page records assertions entered locally; it does not authenticate the
+Scientist, dispatch a worker, fetch licensed market data, schedule end-of-day
+runs, verify labels or rights, change chart code, or route orders. A result is
+unscored until a frozen protocol and eligible observations exist. The first
+Volume Profile calculation study remains operational/descriptive, with no
+directional probability claim. See
+`../docs/INDICATOR-AGENT-AND-MEASUREMENT-DESIGN.md` for the role and release
+gates. The focused scorer tests run with:
+
+```sh
+cd count-dashboard
+python3 -B -m unittest -v test_indicator_lab
+```

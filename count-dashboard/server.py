@@ -21,6 +21,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import closing
 from threading import Lock
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -46,12 +47,14 @@ from tickstream_adapter import (
     feed as tickstream_feed,
     fetch_quote as fetch_tickstream_quote,
 )
+import indicator_agent_store
 
 
 ROOT = Path(__file__).resolve().parent
 WORKSPACE = ROOT.parent
 WEB = ROOT / "web"
 DEFAULT_DB = ROOT / "data" / "batty-counts.sqlite3"
+INDICATOR_AGENT_DB = ROOT / "data" / "indicator-agent.sqlite3"
 ALGORITHM_VERSION = "structure-prototype-v0.6-liquidity-level-history"
 HISTORY_LIMITS = {"1M": 5000, "2M": 5000, "3M": 5000, "5M": 5000, "15M": 5000, "30M": 5000, "1H": 5000, "4H": 3000, "1D": 5000}
 TIMEFRAME_SECONDS = {"1M": 60, "2M": 2 * 60, "3M": 3 * 60, "5M": 5 * 60, "15M": 15 * 60, "30M": 30 * 60, "1H": 60 * 60, "4H": 4 * 60 * 60, "1D": 24 * 60 * 60}
@@ -2515,6 +2518,23 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/indicator-agent/"):
+            if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                return self.send_json({"error": "Indicator research is local-only."}, 403)
+            try:
+                with closing(indicator_agent_store.connect(INDICATOR_AGENT_DB)) as lab_db:
+                    if parsed.path == "/api/indicator-agent/catalog":
+                        return self.send_json(indicator_agent_store.catalog(lab_db))
+                    if parsed.path == "/api/indicator-agent/protocols":
+                        return self.send_json(indicator_agent_store.list_protocols(lab_db))
+                    if parsed.path == "/api/indicator-agent/proposals":
+                        return self.send_json(indicator_agent_store.list_proposals(lab_db))
+                    if parsed.path == "/api/indicator-agent/report":
+                        protocol_id = parse_qs(parsed.query).get("protocol_id", [""])[0]
+                        return self.send_json(indicator_agent_store.report(lab_db, protocol_id))
+                return self.send_json({"error": "Unknown indicator research route"}, 404)
+            except ValueError as exc:
+                return self.send_json({"error": str(exc)}, 400)
         if parsed.path == "/api/feed/quote":
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Quote probes are available on this local device only."}, 403)
@@ -2750,6 +2770,32 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/indicator-agent/"):
+            if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                return self.send_json({"error": "Indicator research is local-only."}, 403)
+            origin = self.headers.get("Origin")
+            allowed = {f"http://127.0.0.1:{self.server.server_address[1]}",
+                       f"http://localhost:{self.server.server_address[1]}"}  # type: ignore[attr-defined]
+            if origin and origin not in allowed:
+                return self.send_json({"error": "Use the local Count Desk origin."}, 403)
+            if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+                return self.send_json({"error": "Content-Type must be application/json"}, 415)
+            actions = {
+                "/api/indicator-agent/protocols": indicator_agent_store.create_protocol,
+                "/api/indicator-agent/freeze": indicator_agent_store.freeze_protocol,
+                "/api/indicator-agent/observations": indicator_agent_store.ingest,
+                "/api/indicator-agent/decisions": indicator_agent_store.record_decision,
+                "/api/indicator-agent/proposals": indicator_agent_store.create_proposal,
+                "/api/indicator-agent/proposal-events": indicator_agent_store.record_proposal_event,
+            }
+            if parsed.path not in actions:
+                return self.send_json({"error": "Unknown indicator research route"}, 404)
+            try:
+                with closing(indicator_agent_store.connect(INDICATOR_AGENT_DB)) as lab_db:
+                    result = actions[parsed.path](lab_db, self.read_json())
+                return self.send_json(result, 201)
+            except (ValueError, json.JSONDecodeError) as exc:
+                return self.send_json({"error": str(exc)}, 400)
         if parsed.path in {"/api/wallet/challenge", "/api/wallet/verify", "/api/wallet/logout"}:
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Wallet sign-in is available on this local device only."}, 403)

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Indicator Agent · Count Desk</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./indicator-agent.css">
+</head>
+<body class="indicator-agent-page">
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./trading-landing.html">Home</a>
+      <a class="app-tab" href="./index.html">Count Desk</a>
+      <a class="app-tab active" href="./tool-belt.html">Tool Belt</a>
+      <a class="app-tab" href="./resources.html">Resources</a>
+    </nav>
+    <div class="header-status"><span class="api-state">LOCAL RESEARCH</span><button id="appLogout" class="app-logout" type="button">Log out</button></div>
+  </header>
+  <main class="agent-main">
+    <section class="agent-hero">
+      <div class="agent-selected-art"><img id="activeIndicatorArt" src="./tool-belt-assets/volume-profile-color.png" alt="Colored Volume Profile indicator illustration"><span id="activeIndicatorArtLabel">VOLUME PROFILE · ACTIVE</span></div>
+      <div class="agent-kicker">TOOL BELT / MEASUREMENT WORKBENCH</div>
+      <h1>Indicator Agent</h1>
+      <p>Give each indicator one purpose. Register the Scientist's baseline, let the Lab compare versions on paired observations, and keep every improvement decision linked to evidence.</p>
+      <div class="agent-hero-links"><a href="./tool-belt.html">← Tool Belt</a><a href="./agent-skills/indicator-agent.md">Read Agent charter</a><span>Paper / shadow research · local records</span></div>
+    </section>
+    <div class="agent-notice" role="note"><strong>Runtime status: STANDBY.</strong> This workbench stores protocols, observations, scorecards, and decisions. It does not dispatch a worker, fetch market data, promote chart code, or route orders. Names entered for a Scientist or reviewer are local assertions, not authenticated sign-off.</div>
+    <p id="agentMessage" class="agent-message" role="status" aria-live="polite">Loading local indicator research…</p>
+
+    <section class="agent-panel" aria-labelledby="catalogTitle">
+      <div class="agent-section-head"><div><span class="agent-kicker">01 / OWNERSHIP</span><h2 id="catalogTitle">One indicator, one job</h2></div><span id="catalogStatus" class="agent-status">Loading</span></div>
+      <label class="agent-field">Indicator <select id="indicatorSelect"></select></label>
+      <div id="indicatorSummary" class="agent-summary"></div>
+      <div class="agent-columns">
+        <div><h3>Indicator Agent owns</h3><p>Hypothesis, versioned build spec, implementation, tests, visual review, rollback, and closure.</p></div>
+        <div><h3>Chief Scientist owns</h3><p>Baseline, outcome, primary metric, sample plan, uncertainty, EOD interpretation, and scientific stop signal.</p></div>
+        <div><h3>Lab owns</h3><p>Frozen replay, provenance checks, paired scoring, immutable result record, and major-advance whitepaper.</p></div>
+      </div>
+    </section>
+
+    <div class="agent-grid">
+      <section class="agent-panel" aria-labelledby="proposalTitle">
+        <div class="agent-section-head"><div><span class="agent-kicker">02 / AGENT INITIATIVE</span><h2 id="proposalTitle">Submit an enhancement</h2></div></div>
+        <p class="agent-help">A gain estimate is a hypothesis until the Lab measures it. Enter “unknown; experiment required” when no defensible estimate exists.</p>
+        <form id="proposalForm" class="agent-form">
+          <label class="agent-field">Title <input name="title" required maxlength="160" placeholder="One primary change"></label>
+          <label class="agent-field">Hypothesis <textarea name="hypothesis" required maxlength="1500" rows="3" placeholder="Why should this improve the indicator's one job?"></textarea></label>
+          <label class="agent-field">Expected metric gain and assumptions <textarea name="expected_gain" required maxlength="1000" rows="2" placeholder="Metric, denominator, range, assumptions—or unknown"></textarea></label>
+          <label class="agent-field">Build spec and test plan <textarea name="build_spec" required maxlength="3000" rows="4" placeholder="Exact behavior, scope, fixtures, risks, and tests"></textarea></label>
+          <label class="agent-field">Rollback version <input name="rollback_version" required maxlength="100" placeholder="Last accepted code version"></label>
+          <button class="agent-button" type="submit">Submit build spec</button>
+        </form>
+        <div id="proposalList" class="agent-list"></div>
+      </section>
+
+      <section class="agent-panel" aria-labelledby="protocolTitle">
+        <div class="agent-section-head"><div><span class="agent-kicker">03 / SCIENTIST PROTOCOL</span><h2 id="protocolTitle">Register the measure</h2></div></div>
+        <p class="agent-help">The Scientist defines these fields before observations are submitted. A draft can be frozen once; changes require a new protocol.</p>
+        <form id="protocolForm" class="agent-form">
+          <label class="agent-field">Experiment title <input name="title" required maxlength="160"></label>
+          <label class="agent-field">Single indicator purpose <textarea name="purpose" required maxlength="500" rows="2"></textarea></label>
+          <label class="agent-field">Indicator output <textarea name="output_definition" required maxlength="1000" rows="2" placeholder="What exactly does it emit, in what units?"></textarea></label>
+          <div class="agent-form-row"><label class="agent-field">Measurement type <select name="metric_type"><option value="event">Event detection</option><option value="numeric">Numeric estimate</option></select></label><label class="agent-field">Primary metric <select name="primary_metric" id="metricSelect"></select></label></div>
+          <label class="agent-field">Independent outcome/reference <textarea name="outcome_definition" required maxlength="1000" rows="2"></textarea></label>
+          <div class="agent-form-row"><label class="agent-field">Accepted baseline version <input name="baseline_version" required maxlength="100"></label><label class="agent-field">Candidate version <input name="candidate_version" required maxlength="100"></label></div>
+          <div class="agent-form-row"><label class="agent-field">Source ID <input name="source_id" required maxlength="200"></label><label class="agent-field">Instrument / contract <input name="instrument" required maxlength="100"></label></div>
+          <div class="agent-form-row"><label class="agent-field">Timeframe <input name="timeframe" required maxlength="50"></label><label class="agent-field">Scientist record name <input name="scientist" required maxlength="120"></label></div>
+          <label class="agent-field">Data rights and retention <textarea name="rights_note" required maxlength="1000" rows="2"></textarea></label>
+          <label class="agent-field">Decision cutoff / no-look-ahead rule <textarea name="cutoff_rule" required maxlength="1000" rows="2"></textarea></label>
+          <label class="agent-field">Sample and partition plan <textarea name="sample_plan" required maxlength="1500" rows="2"></textarea></label>
+          <label class="agent-field">Guardrails <textarea name="guardrails" required maxlength="1500" rows="2"></textarea></label>
+          <div class="agent-form-row"><label class="agent-field">Minimum resolved rows <input name="min_rows" type="number" min="2" max="1000000" value="30" required></label><label class="agent-field">Minimum useful improvement <input name="min_effect" type="number" min="0" step="any" value="0" required></label></div>
+          <button class="agent-button" type="submit">Save draft protocol</button>
+        </form>
+      </section>
+    </div>
+
+    <section class="agent-panel" aria-labelledby="labTitle">
+      <div class="agent-section-head"><div><span class="agent-kicker">04 / LAB MEASUREMENT</span><h2 id="labTitle">Paired experiment record</h2></div><span id="protocolState" class="agent-status">No protocol selected</span></div>
+      <div class="agent-form-row"><label class="agent-field">Protocol <select id="protocolSelect"></select></label><button id="refreshReport" class="agent-button secondary" type="button">Refresh report</button></div>
+      <div id="protocolDetail" class="agent-summary">Create a protocol to start.</div>
+      <div class="agent-columns lab-tools">
+        <div><h3>Freeze</h3><p>After the Scientist checks the baseline, source, cutoff, metric, and sample plan.</p><label class="agent-field">Scientist record name <input id="freezeScientist" maxlength="120"></label><button id="freezeButton" class="agent-button secondary" type="button">Freeze protocol</button></div>
+        <div><h3>Submit observations</h3><p>Upload a JSON file of paired, source-identified rows. Existing IDs cannot be overwritten.</p><input id="observationFile" type="file" accept="application/json,.json"><button id="uploadButton" class="agent-button secondary" type="button">Validate and append</button></div>
+        <div><h3>Row format</h3><p>Every row needs observation_id, session_id, source_id, source_asof, decision_cutoff, outcome_time, input_hash, truth, incumbent, and candidate.</p><details><summary>See JSON shape</summary><pre id="jsonExample"></pre></details></div>
+      </div>
+      <div id="reportView" class="agent-report"></div>
+    </section>
+
+    <section class="agent-panel" aria-labelledby="reviewTitle">
+      <div class="agent-section-head"><div><span class="agent-kicker">05 / DISPOSITION</span><h2 id="reviewTitle">Scientist decision and validation trail</h2></div></div>
+      <div class="agent-grid">
+        <form id="decisionForm" class="agent-form">
+          <h3>End-of-day or study decision</h3>
+          <label class="agent-field">Scientist record name <input name="scientist" required maxlength="120"></label>
+          <label class="agent-field">Decision <select name="decision"><option value="retain">Retain baseline</option><option value="investigate">Investigate</option><option value="advance_candidate">Advance candidate for review</option><option value="quarantine">Quarantine evidence</option><option value="revert">Revert candidate</option></select></label>
+          <label class="agent-field">Rationale and limitations <textarea name="rationale" required maxlength="3000" rows="3"></textarea></label>
+          <button class="agent-button" type="submit">Record Scientist decision</button>
+        </form>
+        <form id="eventForm" class="agent-form">
+          <h3>Build, test, human review, or closure</h3>
+          <label class="agent-field">Enhancement <select name="proposal_id" id="eventProposal"></select></label>
+          <label class="agent-field">Stage <select name="stage"><option value="build">Build</option><option value="test">Test</option><option value="lab_review">Lab review</option><option value="human_validation">Human validation</option><option value="retest">Retest</option><option value="close">Close</option><option value="revert">Revert</option></select></label>
+          <label class="agent-field">Recorded actor <input name="actor" required maxlength="120"></label>
+          <label class="agent-field">Evidence or decision <textarea name="evidence" required maxlength="3000" rows="3" placeholder="Link/hash, result, and any limitation"></textarea></label>
+          <button class="agent-button secondary" type="submit">Append lifecycle event</button>
+        </form>
+      </div>
+    </section>
+    <p class="agent-footer">Local research ledger only. Reported gains require source and label verification, the frozen sample plan, independent review, and human validation. No live trading or account access.</p>
+  </main>
+  <script type="module" src="./indicator-agent.js"></script>
+  <script src="./session-shell.js?v=landing-20260930"></script>
+</body>
+</html>
