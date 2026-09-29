@@ -414,11 +414,14 @@ larger intraday intervals. Automatic cadence is five minutes.
 ### Tickstream NQ chart feed
 
 Count Desk connects to the Tickstream `NQ` account stream through the official
-`tickstream[stream]` Python SDK. It warms up from the API's recent one-hour tick
-window, aggregates ticks into one-minute OHLCV candles, and sends stream updates
-to Vela through its custom feed interface. The browser never receives the API
-key. Candles are held in a bounded in-memory buffer and are not written to the
-Count Desk database or paper ledger; execution endpoints are not used.
+`tickstream[stream]` Python SDK. It loads the recent one-hour window first, then
+pages the `/v1/ticks` endpoint with `start` and `end` through the free tier's
+seven-day range. It aggregates ticks into one-minute OHLCV candles and sends
+stream updates to Vela through its custom feed interface. Free-tier ticks are
+delayed by about 15 minutes; the UI reports observed lag from source timestamps.
+The browser never receives the API key. Candles are held in a bounded in-memory
+buffer and are not written to the Count Desk database or paper ledger; execution
+endpoints are not used.
 
 The account's `/v1/symbols` catalog lists NQ as subscribed and streamable, and
 the NQ WebSocket handshake plus tick frames were verified. The app displays

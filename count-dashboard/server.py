@@ -1918,7 +1918,7 @@ FEED_PROVIDERS = {
     "tickstream": {
         "name": "Tickstream Futures · NQ stream",
         "markets": ["CME futures, subject to the Tickstream symbol catalog"],
-        "capability": "Read-only NQ WebSocket feed, one-hour warm-up, in-memory one-minute candles",
+        "capability": "Read-only NQ WebSocket feed, seven-day tick-history backfill, in-memory one-minute candles",
         "use_note": f"Set {TICKSTREAM_API_KEY_ENV} in count-dashboard/.env. The key stays server-side; bars are memory-only.",
     },
 }

@@ -4,6 +4,8 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
+import types
 import unittest
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -40,6 +42,8 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(20003.50, bars[0]["close"])
         self.assertEqual(20003.50, bars[0]["high"])
         self.assertEqual(5, bars[0]["volume"])
+        status = feed.status()
+        self.assertEqual("2027-01-15T08:00:50+00:00", status["lastSourceTime"])
 
     def test_tickstream_configuration_does_not_require_a_second_confirmation_switch(self):
         tickstream = sys.modules["tickstream_adapter"]
@@ -47,6 +51,60 @@ class DashboardTest(unittest.TestCase):
             self.assertEqual("not_connected", tickstream.config_status())
         with patch.dict(os.environ, {tickstream.API_KEY_ENV: "test-key"}, clear=True):
             self.assertEqual("stream_configured", tickstream.config_status())
+
+    def test_tickstream_backfill_splits_truncated_ranges_and_deduplicates_boundaries(self):
+        feed = sys.modules["tickstream_adapter"].TickstreamFeed()
+
+        class HistoryClient:
+            calls = []
+
+            def ticks(self, symbol, *, start, end, limit):
+                self.calls.append((symbol, start, end, limit))
+                if len(self.calls) == 1:
+                    return {"truncated":True, "ticks":[
+                        {"symbol":"NQ", "price":20000, "size":1, "tsu":1_800_000_000_000_000},
+                    ]}
+                if len(self.calls) == 2:
+                    return {"truncated":False, "ticks":[
+                        {"symbol":"NQ", "price":20000, "size":1, "tsu":1_800_000_000_000_000},
+                    ]}
+                return {"truncated":False, "ticks":[
+                    {"symbol":"NQ", "price":20001, "size":2, "tsu":1_800_000_061_000_000},
+                ]}
+
+        client = HistoryClient()
+        feed._load_history(client)
+        self.assertEqual(3, len(client.calls))
+        self.assertGreater(client.calls[1][2], client.calls[1][1])
+        self.assertEqual("complete", feed.status()["historyState"])
+        self.assertEqual(2, len(feed.bars("NQ")["bars"]))
+
+    def test_tickstream_control_warning_does_not_hide_ticks_still_flowing(self):
+        tickstream = sys.modules["tickstream_adapter"]
+        feed = tickstream.TickstreamFeed()
+        now = time.time()
+
+        class FakeClient:
+            def __init__(self, **_kwargs):
+                pass
+
+            def ticks(self, _symbol, **_kwargs):
+                return {"ticks": []}
+
+            def stream(self, *_symbols, **_kwargs):
+                yield {"type": "error", "error": {"code": "feed_error"}}
+                yield {"type": "tick", "symbol": "NQ", "ts": now, "price": 20_000, "size": 1}
+
+        fake_sdk = types.ModuleType("tickstream")
+        fake_sdk.Tickstream = FakeClient
+        with patch.dict(sys.modules, {"tickstream": fake_sdk}), patch.dict(
+            os.environ, {tickstream.API_KEY_ENV: "test-key"}, clear=False
+        ):
+            feed._run()
+        status = feed.status()
+        self.assertEqual("connected", status["state"])
+        self.assertIn("feed_error", status["streamWarning"])
+        self.assertEqual(1, status["receivedTicks"])
 
     def test_luxalgo_status_is_read_only_and_credentials_free(self):
         catalog = MagicMock(returncode=0, stdout=json.dumps({"brokers": [{"id": "topstep"}]}), stderr="")
