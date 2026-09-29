@@ -129,6 +129,7 @@ function renderIndicatorContext(contract = currentContract) {
   const labels = activeIndicatorLabels();
   $('#cleoIndicators').textContent = labels;
   $('#velaPaperIndicators').textContent = `Studies · ${labels}`;
+  window.dispatchEvent(new Event('countdesk:chart-context'));
   if (!contract) return;
   const cutoff = formatCutoff(contract);
   const prompt = `Read this Vela chart with Cleo. The active native studies are ${labels}. The stored-bar cutoff is ${cutoff}. Keep the structural read provisional and give me the preferred path, alternate path, invalidation, and the confirmation that would make a paper setup eligible.`;
@@ -373,6 +374,8 @@ async function loadPreview() {
     const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
     contract.market.cutoff = effectiveCutoff;
     currentContract = contract;
+    window.countDeskVelaContext = {tab:'Count Desk', symbol:market.symbol, timeframe, cutoff:effectiveCutoff};
+    window.dispatchEvent(new Event('countdesk:chart-context'));
     const data = contract.bars;
     renderCleoBriefing(contract);
     void refreshFeedState(market, timeframe);

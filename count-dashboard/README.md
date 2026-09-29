@@ -571,6 +571,27 @@ TradingView and Robinhood MCP data are not wired as market-data sources.
 
 Every count request reads only bars at or before `cutoff`. Identical requests reuse the stored count run.
 
+## Three-pane chart workspace
+
+`/vela-preview.html` is the landing page's primary chart desk. On desktop it
+fills one viewport: persistent collapsible navigation, the native Vela chart,
+and the existing chat service mounted as the Cleo pane. The page does not
+scroll; conversations and paper records scroll within their panes. Small
+windows stack chart and chat while keeping the composer visible.
+
+Instrument and available stored-data timeframes sit in the chart toolbar.
+Indicators, replay, connection status, and provisional chart context open
+exclusive drawers; Escape closes them. Native Vela drawing tools remain in
+the chart. Paper Trading stays a separate tab. Navigation collapse persists
+locally; Log out clears wallet identity and returns to the landing page.
+
+Chat sends the loaded instrument, timeframe, numeric historical cutoff,
+and active study labels through the existing `/api/chat` request. Batty
+coordinates the project Cleo specialist; the UI does not imply a separate
+live trading agent. Delayed feeds and quote-only Tickstream readiness retain
+their provenance and paper-only boundaries. Timeframes require stored bars;
+this layout does not add TradingView's proprietary tools or new data sources.
+
 ## Next engine increment
 
 Replace `confirmed_pivots()` and `label_pivots()` with the v0.7 Daily candidate

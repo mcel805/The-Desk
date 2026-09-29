@@ -3,48 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Count Desk · Vela Preview</title>
+  <title>Count Desk · Chart Workspace</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-  <link rel="stylesheet" href="./vela-preview.css?v=cleo-indicator-context-2-20260930">
+  <link rel="stylesheet" href="./vela-preview.css?v=three-pane-1">
 </head>
 <body class="trading-prototype vela-preview-page">
-  <header>
-    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
-    <nav class="app-tabs" aria-label="Batty workspaces">
-      <a class="app-tab" href="./trading-landing.html">Home</a>
-      <a class="app-tab" href="./cleo/index.html">CLEO</a>
-      <a class="app-tab" href="./">Count Desk</a>
-      <a class="app-tab" href="./vela-preview.html#paper">Paper Trading <span class="app-tab-note">SIM</span></a>
-      <a class="app-tab active" href="./vela-preview.html">Vela Preview</a>
-      <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
-      <a class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
-      <a class="app-tab" href="./resources.html">Resources</a>
-    </nav>
-    <div class="api-state">RESEARCH PREVIEW <button id="appLogout" class="app-logout" type="button">Log out</button></div>
-  </header>
-  <section class="intellect-ribbon" aria-label="Intellect trading team">
-    <div class="intellect-ribbon-label"><span class="intellect-sigil" aria-hidden="true">I</span><div><strong>INTELLECT</strong><small>ELLIOTT WAVE LOOP</small></div></div>
-    <div class="cleo-ribbon-seat" aria-label="Cleo chart specialist"><span class="cleo-ribbon-orb" aria-hidden="true">✦</span><div><strong>CLEO</strong><small>CHART SPECIALIST · READY</small></div></div>
-    <div class="intellect-loop-state"><i aria-hidden="true"></i><span>STANDBY</span><small>Vela renderer isolated</small></div>
-  </section>
+  <aside class="desk-sidebar" aria-label="Workspace navigation">
+    <div class="desk-brand"><strong>✦ <span>COUNT DESK</span></strong><button id="deskCollapse" aria-label="Collapse navigation" aria-expanded="true">☰</button></div>
+    <nav><a href="./trading-landing.html" title="Home">⌂ <span>Home</span></a><a class="active" href="./vela-preview.html" title="Chart workspace">▥ <span>Chart workspace</span></a><a href="./trade-journal.html" title="Trading journal">▤ <span>Trading journal</span></a><a href="http://127.0.0.1:8041/" title="Liquidity lab">◈ <span>Liquidity lab</span></a><a href="./resources.html" title="Resources">ⓘ <span>Resources</span></a></nav>
+    <div class="desk-sidebar-foot"><span>PAPER RESEARCH</span><button id="appLogout" class="app-logout" type="button">Log out</button></div>
+  </aside>
   <main class="vela-preview-main">
     <nav class="vela-workspace-tabs" aria-label="Vela workspace views" role="tablist">
       <button id="velaChartTab" class="vela-workspace-tab active" type="button" role="tab" aria-selected="true">Chart + Cleo</button>
       <button id="velaPaperTab" class="vela-workspace-tab" type="button" role="tab" aria-selected="false">Paper Trading <span>SIM ONLY</span></button>
     </nav>
     <section id="velaChartWorkspace" class="vela-preview-card">
-      <div class="vela-preview-head">
-        <div><small>VELA™ CHART ENGINE · COUNT DESK WORKSPACE</small><h1>Native renderer checkpoint</h1><p>Historical Count Desk bars are passed into the forked Vela renderer as an offline dataset. Data source, cutoff, and paper-only boundaries remain owned by Count Desk.</p></div>
-        <div class="vela-preview-controls" role="group" aria-label="Vela preview controls">
-          <label>Asset<select id="velaSymbol" aria-label="Vela asset"></select></label>
-          <label>Timeframe<select id="velaTimeframe" aria-label="Vela timeframe"><option value="1H">1H</option><option value="4H">4H</option><option value="1D">1D</option></select></label>
-          <label>Replay cutoff<input id="velaReplayCutoff" type="datetime-local" aria-label="Vela replay cutoff"></label>
-          <button id="velaLoad" type="button">Load preview</button>
-          <button id="velaReplayLatest" type="button">Latest stored</button>
-        </div>
+      <div class="desk-chart-toolbar">
+        <select id="velaSymbol" aria-label="Vela asset"></select>
+        <select id="velaTimeframe" aria-label="Vela timeframe"><option value="1H">1H</option><option value="4H">4H</option><option value="1D">1D</option></select>
+        <button id="velaLoad" type="button">Refresh</button>
+        <button data-drawer="studies" aria-expanded="false">Indicators</button>
+        <button data-drawer="replay" aria-expanded="false">Replay</button>
+        <button data-drawer="connections" aria-expanded="false">Connections</button>
+        <button data-drawer="context" aria-expanded="false">Chart context</button>
       </div>
+      <section class="desk-drawer" id="deskReplay" hidden aria-label="Replay controls"><label>Replay cutoff <input id="velaReplayCutoff" type="datetime-local" aria-label="Vela replay cutoff"></label><button id="velaReplayLatest" type="button">Latest stored</button><p>Select a cutoff, then press Refresh. Uses stored historical bars.</p></section>
       <div id="velaStatus" class="vela-status" role="status" aria-live="polite">Loading Count Desk catalog…</div>
-      <section id="cleoBriefing" class="cleo-briefing" aria-label="Cleo structural briefing">
+      <section id="cleoBriefing" hidden class="cleo-briefing desk-drawer" aria-label="Cleo structural briefing">
         <div class="cleo-briefing-head"><div><small>CLEO · STRUCTURAL READ</small><strong>Renderer-neutral context</strong></div><div class="cleo-briefing-actions"><span id="cleoReadStatus">PROVISIONAL</span><a id="velaAskCleo" href="./?cleoPrompt=Read%20this%20Vela%20chart%20with%20a%20provisional%20structural%20read.">Ask Cleo in Count Desk</a></div></div>
         <div class="cleo-briefing-grid">
           <div><small>PREFERRED PATH</small><strong id="cleoPreferred">—</strong></div>
@@ -55,12 +41,12 @@
         <div class="cleo-indicator-context"><small>ACTIVE STUDIES</small><strong id="cleoIndicators">Volume</strong></div>
         <p id="cleoWarning">Waiting for a Count Desk structural result.</p>
       </section>
-      <section class="vela-feed-panel" aria-label="Vela data status">
+      <section id="deskConnections" hidden class="vela-feed-panel desk-drawer" aria-label="Vela data status">
         <div><small>DATA CONTRACT</small><strong id="velaFeedState">Checking source state…</strong><span id="velaFeedMeta">Historical provenance pending.</span></div>
         <div class="vela-tickstream-readiness"><small>TICKSTREAM PILOT</small><strong id="velaTickstreamReadiness">Checking readiness…</strong><span id="velaTickstreamReadinessMeta">Read-only delayed quote probe · no candles or orders.</span></div>
         <div class="vela-feed-actions"><button id="velaTickstreamProbe" type="button">Probe delayed Tickstream quote</button><span id="velaTickstreamStatus" role="status" aria-live="polite">Quote-only pilot · not connected.</span></div>
       </section>
-      <details class="vela-indicator-panel">
+      <details id="deskStudies" hidden class="vela-indicator-panel desk-drawer">
         <summary><span>INDICATORS · NATIVE VELA STUDIES</span><strong id="velaIndicatorSummary">Loading registry…</strong></summary>
         <div id="velaIndicatorList" class="vela-indicator-list">Preparing the native indicator registry…</div>
         <div class="vela-indicator-settings" aria-label="Native indicator settings"><label>Study<select id="velaIndicatorSettingType"></select></label><label>Length<input id="velaIndicatorSettingLength" type="number" min="2" max="5000" step="1"></label><button id="velaIndicatorSettingApply" type="button">Apply period</button><span id="velaIndicatorSettingStatus" role="status" aria-live="polite">Select a study with a period input.</span></div>
@@ -85,8 +71,11 @@
       <div id="velaPaperPositions" class="vela-paper-positions">Load a chart to see paper positions.</div>
     </section>
   </main>
+  <div id="deskChatMount"></div>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=vela-replay-20260930"></script>
+  <script type="module" src="./vela-preview.js?v=three-pane-1"></script>
+  <script type="module" src="./batty-agent.js?v=three-pane-1"></script>
+  <script type="module" src="./desk-shell.js?v=three-pane-1"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>

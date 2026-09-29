@@ -1,5 +1,6 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const main = $('main');
+const velaPage = document.body.classList.contains('vela-preview-page');
 const journalPage = document.body.classList.contains('trade-journal-page');
 const resourcesPage = document.body.classList.contains('resources-page');
 const liquidityLabPage = document.body.classList.contains('liquidity-lab-page');
@@ -8,7 +9,7 @@ const chatApiBase = document.body.dataset.chatApi || '';
 const cleoHandoffPrompt = new URLSearchParams(window.location.search).get('cleoPrompt')?.trim() || '';
 const content = document.createElement('div');
 content.className = 'batty-page-content';
-while (main.firstChild) content.append(main.firstChild);
+if (!velaPage) while (main.firstChild) content.append(main.firstChild);
 
 const dock = document.createElement('aside');
 dock.className = 'batty-dock';
@@ -65,8 +66,20 @@ dock.innerHTML = `
     <p class="batty-chat-foot"><span id="battyChatScope"><i></i>${pageLabel}</span><span>I’ll assume you mean the tab you’re on unless you say otherwise.</span></p>
   </section>`;
 
-main.classList.add('batty-main');
-main.append(content, dock);
+if (velaPage) {
+  $('#deskChatMount').append(dock);
+  dock.setAttribute('aria-label', 'Cleo chat');
+  $('.batty-chat-identity strong', dock).textContent = 'Cleo';
+  $('.batty-chat-identity small', dock).textContent = 'CHART SPECIALIST · BATTY COORDINATES';
+  $('#battyChatIcon', dock).textContent = '✦';
+  $('#battyChatInput', dock).placeholder = 'Ask Cleo about this chart…';
+  $('.batty-chat-body', dock).setAttribute('aria-label', 'Chat with Cleo');
+  $('label[for="battyChatInput"]', dock).textContent = 'Message Cleo';
+  $('.agent-activity-heading small', dock).textContent = 'CHART CHAT';
+} else {
+  main.classList.add('batty-main');
+  main.append(content, dock);
+}
 
 const stream = $('#battyChatStream');
 const status = $('#battyChatStatus');
@@ -96,6 +109,7 @@ const newChatButton = $('#battyNewChatButton');
 let agentActivity = {participants:['batty'],startedAt:null,prompt:'',response:'',working:false};
 
 function activeContext() {
+  if (velaPage) return {label: `Vela · ${$('#velaSymbol')?.selectedOptions?.[0]?.textContent || ''} · ${$('#velaTimeframe')?.value || ''} · Active studies: ${$('#cleoIndicators')?.textContent || 'Pending'}`, detail:'Vela chart and active studies'};
   if (resourcesPage) return {label: 'Resources · Batty user guide', detail: 'Batty Resources'};
   if (liquidityLabPage) return {label: 'Liquidity Lab · active workspace', detail: 'Liquidity Lab'};
   if (journalPage) {
@@ -127,6 +141,7 @@ function activeContext() {
 }
 
 function activeView() {
+  if (velaPage) return window.countDeskVelaContext || {tab:'Count Desk',symbol:$('#velaSymbol')?.value || '',timeframe:$('#velaTimeframe')?.value || '1H'};
   if (liquidityLabPage) return {tab:'Liquidity Lab', selection:$('.batty-page-content')?.innerText?.slice(0,6000) || 'Liquidity Lab'};
   if (journalPage) {
     const selected = id => $(`#${id}`)?.selectedOptions?.[0]?.textContent?.trim() || '';
@@ -608,6 +623,7 @@ input.addEventListener('keydown', event => {
   submit(input.value);
 });
 renderAgentActivity();
+addEventListener('countdesk:chart-context', updateContext);
 document.addEventListener('change', event => {
   if (event.target.matches('#symbol,#timeframe,#filterTeam,#filterMember,#filterAccount,#paperAccount,#paperAssetClass')) updateContext();
 });
@@ -640,6 +656,7 @@ const apiState = $('#apiState,#journalApiState');
 apiState?.before(mobileButton);
 
 function updateMobileMode() {
+  if (velaPage) return;
   const mobile = matchMedia('(max-width: 760px)').matches;
   document.body.classList.toggle('batty-mobile', mobile);
   if (mobile) {
