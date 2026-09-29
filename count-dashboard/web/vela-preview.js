@@ -1,4 +1,5 @@
 const $ = selector => document.querySelector(selector);
+import {buildChartContract} from './chart-contract.js';
 let catalog = [];
 let velaChart = null;
 
@@ -25,6 +26,22 @@ function selectedMarket() {
   return catalog.find(item => item.symbol === $('#velaSymbol').value);
 }
 
+function formatPrice(value) {
+  return Number.isFinite(Number(value)) ? Number(value).toLocaleString('en-US', {maximumFractionDigits: 2}) : '—';
+}
+
+function renderCleoBriefing(contract) {
+  const preferred = contract.overlays.projections.find(item => item.id === 'preferred');
+  const alternate = contract.overlays.projections.find(item => item.id === 'alternate');
+  const status = contract.analysis.status || 'PROVISIONAL';
+  $('#cleoReadStatus').textContent = status.replaceAll('_', ' ');
+  $('#cleoPreferred').textContent = preferred ? `${preferred.bias} · ${preferred.status}` : 'Unavailable';
+  $('#cleoAlternate').textContent = alternate ? `${alternate.bias} · ${alternate.status}` : 'Unavailable';
+  $('#cleoLastClose').textContent = formatPrice(contract.analysis.lastClose);
+  $('#cleoCountNodes').textContent = String(contract.analysis.countNodes);
+  $('#cleoWarning').textContent = `${contract.analysis.warning} Source: ${contract.analysis.source}. Snapshot ${contract.analysis.snapshot.slice(0, 12)}…`;
+}
+
 async function loadPreview() {
   const market = selectedMarket();
   const timeframe = $('#velaTimeframe').value;
@@ -34,11 +51,11 @@ async function loadPreview() {
   button.disabled = true;
   setStatus(`Loading ${market.symbol} · ${timeframe} from the local historical store…`);
   try {
-    const payload = await getJson(`/api/bars?symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=800`);
-    const data = payload.bars.map(bar => ({
-      time: Number(bar.time) * 1000,
-      open: Number(bar.open), high: Number(bar.high), low: Number(bar.low), close: Number(bar.close), volume: Number(bar.volume || 0),
-    }));
+    const query = `symbol=${encodeURIComponent(market.symbol)}&timeframe=${encodeURIComponent(timeframe)}&cutoff=2147483647`;
+    const payload = await getJson(`/api/counts?${query}`);
+    const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
+    const data = contract.bars;
+    renderCleoBriefing(contract);
     if (velaChart) {
       try { velaChart.destroy?.(); } catch { /* preview reset */ }
       velaChart = null;
@@ -57,7 +74,7 @@ async function loadPreview() {
     await velaChart.ready();
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
-    $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${payload.bars.length} stored bars · ${first} → ${last} · source ${payload.bars.at(-1).source || 'local store'}`;
+    $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · source ${contract.analysis.source}`;
     setStatus(`Vela preview ready · ${market.symbol} ${timeframe} · offline historical dataset`);
   } catch (error) {
     setStatus(error.message, true);
