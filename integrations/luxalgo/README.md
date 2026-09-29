@@ -29,6 +29,18 @@ when wiring Cleo's read-only tools:
 npm run mcp:stdio
 ```
 
+To verify the installed sidecar without credentials, use the protocol probe.
+It sends only `initialize` and `tools/list`, then exits after printing the
+server version, tool inventory, and any keyless-mode warnings:
+
+```sh
+npm run mcp:probe
+```
+
+The checked-in `integration-manifest.json` is the capability contract for the
+Python status endpoint and future adapters. It keeps package versions,
+provenance requirements, and disabled write/execution paths explicit.
+
 The server may report that broker tools are unavailable until local credentials
 are configured and that journal writes require LuxAlgo sign-in. Keep those
 credentials and OAuth flows outside the browser and outside Count Desk chat.
