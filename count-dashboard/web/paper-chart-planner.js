@@ -62,9 +62,12 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
   let contract = null;
   let hoverPrice = null;
   let reference = null;
+  let chartBarPrice = null;
+  let chartBarTime = null;
   let lineIds = {};
   let offCrosshair = null;
   let offDrawing = null;
+  let offBar = null;
   let syncingLines = false;
   let enabled = false;
   let hasDraft = false;
@@ -103,17 +106,20 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       }
     } finally { syncingLines = false; }
   };
-  const render = () => {
+  const render = (redrawLines = true) => {
     const plan = readPlan();
     const multiplier = CONTRACT_MULTIPLIERS[contract?.market?.symbol];
+    const scenarioPrice = hoverPrice ?? chartBarPrice ?? reference;
     const metrics = planMetrics({side:plan.side,quantity:plan.quantity,entry:plan.entry,
-      stop:plan.stop_price,target:plan.target_price,reference,multiplier});
+      stop:plan.stop_price,target:plan.target_price,reference:scenarioPrice,multiplier});
     get('paperRailRisk').textContent = hasDraft ? money(metrics.risk) : '—';
     get('paperRailReward').textContent = hasDraft ? money(metrics.reward) : '—';
     get('paperRailRatio').textContent = hasDraft && metrics.ratio != null ? `${metrics.ratio.toFixed(2)}R` : '—';
     get('paperRailScenario').textContent = hasDraft ? money(metrics.scenarioPnL) : '—';
     get('paperRailScenario').classList.toggle('is-loss', metrics.scenarioPnL < 0);
     get('paperRailReference').textContent = reference == null ? 'No stored price reference.' :
+      hoverPrice != null ? `Cursor scenario ${priceText(hoverPrice)} · stored close ${priceText(reference)}. Cursor price is not a fill or live quote.` :
+      chartBarPrice != null ? `Chart bar ${priceText(chartBarPrice)} · ${new Date(chartBarTime).toLocaleString()} · provisional until source confirmation.` :
       `Stored chart close ${priceText(reference)} · ${contract?.analysis?.source || 'stored source'} · ${new Date(contract.bars.at(-1).time).toLocaleString()}`;
     const accountReady = Boolean(get('paperRailAccount').value);
     const pendingType = plan.order_type !== 'market';
@@ -136,7 +142,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     inputs.entry.closest('label').hidden = plan.order_type === 'stop';
     inputs.trigger.closest('label').hidden = !['stop','stop_limit'].includes(plan.order_type);
     inputs.entry.closest('label').firstChild.textContent = plan.order_type === 'market' ? 'Reference entry' : 'Entry / limit';
-    syncLines();
+    if (redrawLines) syncLines();
   };
   const discard = () => {
     hasDraft = false;
@@ -171,8 +177,8 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     setChart(nextChart, nextContract) {
       const sameMarket = contract && nextContract && contract.market.symbol === nextContract.market.symbol
         && contract.market.timeframe === nextContract.market.timeframe;
-      offCrosshair?.(); offDrawing?.(); removeLines();
-      chart = nextChart; contract = nextContract; hoverPrice = null;
+      offCrosshair?.(); offDrawing?.(); offBar?.(); removeLines();
+      chart = nextChart; contract = nextContract; hoverPrice = null; chartBarPrice = null; chartBarTime = null;
       if (!sameMarket) {
         hasDraft = false;
         reviewOpen = false;
@@ -184,7 +190,15 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       get('paperRailMarket').textContent = enabled ? `${nextContract.market.symbol} · ${nextContract.market.timeframe}` : 'Paper simulation supports stored micro futures only.';
       if (enabled) {
         offCrosshair = chart.renderer.onCrosshairMove(event => {
-          hoverPrice = event.paneKind === 'price' && Number.isFinite(event.price) ? event.price : null;
+          const next = event.paneKind === 'price' && Number.isFinite(event.price) ? event.price : null;
+          if (next !== hoverPrice) { hoverPrice = next; render(false); }
+        });
+        offBar = chart.on('bar', bar => {
+          const next = Number(bar.close);
+          if (!Number.isFinite(next) || next <= 0) return;
+          chartBarPrice = next;
+          chartBarTime = Number(bar.time);
+          render(false);
         });
         offDrawing = chart.on('drawing:edited', ({id}) => {
           if (syncingLines) return;

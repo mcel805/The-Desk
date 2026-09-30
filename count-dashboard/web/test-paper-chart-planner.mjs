@@ -15,3 +15,9 @@ test('invalid bracket direction cannot produce a ready plan', () => {
   assert.equal(planMetrics({side:'long',quantity:1,entry:100,stop:101,target:110,reference:100,multiplier:.5}).valid,false);
   assert.equal(planMetrics({side:'short',quantity:1,entry:100,stop:101,target:105,reference:100,multiplier:.5}).valid,false);
 });
+
+test('hypothetical P&L changes with the chart scenario price', () => {
+  const plan = {side:'long',quantity:2,entry:100,stop:98,target:104,multiplier:5};
+  assert.equal(planMetrics({...plan,reference:101}).scenarioPnL,10);
+  assert.equal(planMetrics({...plan,reference:99}).scenarioPnL,-10);
+});
