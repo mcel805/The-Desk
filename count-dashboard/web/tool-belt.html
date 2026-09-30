@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./tool-belt.css">
   <link rel="stylesheet" href="./tool-belt-liquidity.css">
+  <link rel="stylesheet" href="./tool-belt-bias.css">
 </head>
 <body class="tool-belt-page">
   <header>
@@ -25,7 +26,7 @@
         <span class="belt-kicker">COUNT DESK / BUILT IN STUDIES</span>
         <h1>The Tool Belt</h1>
         <p>One place for indicators built into this application. Each tool gets a version, a clear purpose, and a measured evidence record as the framework grows.</p>
-        <div class="belt-hero-actions"><a href="./index.html">Open Count Desk <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>9 studies cataloged · research only</span></div>
+        <div class="belt-hero-actions"><a href="./index.html">Open Count Desk <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>10 studies cataloged · research only</span></div>
       </div>
       <img class="belt-hero-image" src="./tool-belt-assets/tool-belt-color.png" alt="Colored pencil illustration of a dimensional work tool belt filled with chart research tools">
     </section>
@@ -70,6 +71,28 @@
       <p class="liquidity-guide-link"><a href="./index.html?guide=liquidity#chartWorkspace">Open the Liquidity user guide in Count Desk ↗</a></p>
     </section>
 
+    <section id="biasWorkbench" class="belt-workbench bias-workbench" aria-labelledby="biasHeading" hidden>
+      <div class="belt-workbench-head"><div><span class="belt-kicker">PREMIUM INDICATOR / STRUCTURE ENGINE</span><h2 id="biasHeading">Bias · v1.0.0</h2><p>Confirmed swing sequence leads the directional read. Breaks of structure and prior-day/week sweep context are shown separately. No probability or trade instruction.</p></div><button id="closeBiasWorkbench" type="button" aria-label="Close Bias workbench">Close ✕</button></div>
+      <form id="biasForm" class="belt-profile-form">
+        <label>Stored symbol<select id="biasSymbol" required><option value="">Loading stored symbols…</option></select></label>
+        <label>Timeframe<select id="biasTimeframe" required><option value="">Choose a symbol</option></select></label>
+        <label>Pivot length<input id="biasPivotLength" type="number" min="1" max="50" value="5" required></label>
+        <label>Sweep buffer<input id="biasSweepBuffer" type="number" min="0" max="100" value="1" required><small>Ticks · MYM .25, MCL .01, MGC .10; unknown symbols use 0.</small></label>
+        <label>Acceptance buffer<input id="biasAcceptanceBuffer" type="number" min="0" max="100" value="1" required><small>Ticks · same tick-size rule.</small></label>
+        <button type="submit">Read confirmed structure</button>
+      </form>
+      <p id="biasRunStatus" class="belt-run-status" role="status" aria-live="polite">Choose stored bars to calculate structure. Probability is unscored.</p>
+      <div id="biasReport" hidden>
+        <div id="biasHeadline" class="bias-headline"></div>
+        <div id="biasMeta" class="belt-profile-meta"></div>
+        <div class="liquidity-chart-head"><span>CONFIRMED SWINGS / STRUCTURE BREAKS</span></div>
+        <svg id="biasChart" class="liquidity-chart" viewBox="0 0 1200 500" role="img" aria-label="Stored price bars with confirmed swing structure and break events"></svg>
+        <div class="bias-readout-grid"><article><strong>Selected timeframe</strong><span id="biasStructureRead">—</span></article><article><strong>Higher timeframe</strong><span id="biasHigherRead">—</span></article><article><strong>Prior day / week context</strong><span id="biasLiquidityRead">—</span></article><article><strong>Protected swing</strong><span id="biasProtectedRead">—</span></article></div>
+        <div id="biasEvents" class="bias-events"></div>
+      </div>
+      <p class="liquidity-guide-link"><a href="./index.html?guide=bias#chartWorkspace">Open the Bias user guide in Count Desk ↗</a></p>
+    </section>
+
     <section class="belt-framework" aria-labelledby="frameworkHeading">
       <div><span class="belt-kicker">FRAMEWORK / FOUNDATION</span><h2 id="frameworkHeading">How an indicator earns a new score</h2><p>A candidate change is measured against frozen rules and a held out sample. Results carry the source, instrument, timeframe, cutoff, sample size, and uncertainty. A score advances in five point display steps only after an independent review accepts the evidence.</p></div>
       <ol><li><strong>01 · Define</strong><span>Version the rule and outcome before testing.</span></li><li><strong>02 · Measure</strong><span>Record resolved paper or shadow outcomes with provenance.</span></li><li><strong>03 · Compare</strong><span>Test a candidate against the prior version on held out data.</span></li><li><strong>04 · Review</strong><span>Approve the evidence before promoting a score or rule.</span></li></ol>
@@ -79,6 +102,7 @@
   <script type="module" src="./tool-belt.js"></script>
   <script type="module" src="./tool-belt-profile.js"></script>
   <script type="module" src="./tool-belt-liquidity.js"></script>
+  <script type="module" src="./tool-belt-bias.js"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>

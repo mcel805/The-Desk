@@ -5,6 +5,7 @@ const metricOptions = {event:['precision','recall','f1','accuracy'],numeric:['ma
 const indicatorArt = {
   'volume-profile':['volume-profile-color.png','Volume Profile'],
   liquidity:['liquidity-color.png','Liquidity'],
+  bias:['bias-color.png','Bias'],
   fibonacci:['fibonacci-color.png','Fibonacci'],
   'liquidity-zones':['liquidity-zones-color.png','Liquidity Zones'],
   'daily-bias':['daily-bias-color.png','Daily Bias'],

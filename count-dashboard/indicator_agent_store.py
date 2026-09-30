@@ -19,6 +19,7 @@ from pathlib import Path
 CATALOG = (
     ("volume-profile", "Volume Profile", "Historical volume distribution", "descriptive"),
     ("liquidity", "Liquidity", "Confirmed external and internal liquidity levels", "unscored"),
+    ("bias", "Bias", "Confirmed swing structure with prior-period liquidity context", "unscored"),
     ("fibonacci", "Fibonacci", "Retracement levels from selected swings", "unscored"),
     ("liquidity-zones", "Liquidity Zones", "Research zones around swept levels", "unscored"),
     ("daily-bias", "Daily Bias", "Provisional context from prior sweeps", "unscored"),

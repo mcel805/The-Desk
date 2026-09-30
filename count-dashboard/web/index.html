@@ -297,6 +297,32 @@
             </ul>
             <p class="guide-note">Source: user-provided TradingView Pine v5 script and MYM1! chart image, dated 2026-09-29. This app version ports only the script’s confirmed external swing and internal pivot level logic; it omits equal highs/lows, previous day/week, MTF, spikes, bias, structure panels, premium/discount, probabilities, targets, and alerts. Stored bar provenance is shown with each workbench run; feed rights are not established by this tool.</p>
           </div>
+          <div id="biasGuide" class="guide-content bias-user-guide">
+            <div class="panel-kicker">PREMIUM INDICATOR / v1.0.0</div>
+            <h2>Bias · User guide</h2>
+            <p>Bias v1 reads confirmed market structure first. Prior-day and prior-week liquidity sweeps remain a separate context read based on the existing Batty Pine rules.</p>
+            <h3>Primary structure read</h3>
+            <ul>
+              <li>Default pivot length is 5 bars on each side. A high or low becomes usable only after its right-side confirmation bars close. The pivot is anchored at its origin time, with its later confirmation time retained in the result.</li>
+              <li><strong>Bullish sequence:</strong> the latest two confirmed swing highs and lows both rise (HH + HL). <strong>Bearish sequence:</strong> both fall (LH + LL). All other combinations read MIXED.</li>
+              <li><strong>BOS:</strong> a later bar closes across a previously confirmed swing high or low, beyond the configured acceptance buffer. <strong>CHoCH:</strong> the close-through opposes the prior confirmed structure direction or the previous active break direction.</li>
+              <li>A break against the currently confirmed swing sequence displays a transition as MIXED until the swing sequence confirms. The tool does not project an unconfirmed swing or label a wick-only breach as a structure break.</li>
+              <li>When stored data exists, the latest fully closed daily structure is shown as higher-timeframe context for intraday charts; the latest weekly structure is shown for daily charts. Alignment is reported as aligned, conflict, mixed, or unavailable. Directional conflict displays an overall MIXED tag while preserving both timeframe reads.</li>
+            </ul>
+            <h3>Prior-period context carried forward</h3>
+            <ul>
+              <li>The original script’s PDL/PWL sweep-and-reclaim and PDH/PWH sweep-and-reject rules, plus close acceptance beyond prior highs/lows, are kept as a separate daily-reset context state.</li>
+              <li>That legacy context does not override the market-structure read. If it disagrees, the workbench marks the conflict for review instead of silently flipping directional bias.</li>
+              <li>Tick buffers use MYM 0.25, MCL 0.01, and MGC 0.10. An unrecognized symbol is shown with unknown tick size and uses a zero buffer until its specification is added.</li>
+            </ul>
+            <h3>Data, timing, and limits</h3>
+            <ul>
+              <li>The latest stored chart bar is excluded; the cutoff, settings, source datasets, and snapshot hash are displayed for each run. Daily and weekly context uses only the period before the one containing the chart bar.</li>
+              <li>Confirmed pivots are non-repainting by construction, but confirmation is delayed by the right-side pivot length. A historical pivot mark is drawn at its origin only after it became knowable.</li>
+              <li>Bias is a descriptive market-structure state. The probability display remains a coin-flip placeholder and there is no measured hit rate, expectancy, automatic learning, target, or trade instruction.</li>
+            </ul>
+            <p class="guide-note">Source: existing Bias / Draw Panel logic in the user-provided TradingView Pine v5 script and the Count Desk’s confirmed swing conventions. This build omits the script’s DRAW target selection, premium/discount choices, sweep-counting, ATR line, alerts, and measured zone-probability system. A close-through definition and HH/HL structure sequence are explicit v1 rules, not a claim of validated predictive edge.</p>
+          </div>
         </section>
         <section class="inspector-panel journal-inspector-panel" id="panel-journal" role="tabpanel" aria-labelledby="tab-journal" hidden>
           <div class="journal-panel-head"><div><div class="panel-kicker">HYPOTHETICAL CHART IDEAS</div><h2>Level forward tracker</h2></div><button id="refreshJournal" type="button" class="journal-refresh">Refresh</button></div>
@@ -329,7 +355,7 @@
     <div id="agentSkillContent" class="agent-skill-content"></div>
   </dialog>
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script type="module" src="./app.js?v=cleo-handoff-20260930"></script>
+  <script type="module" src="./app.js?v=indicator-guide-20260929"></script>
   <script type="module" src="./trading-terminal.js?v=paper-workspace-2-20260928"></script>
   <script type="module" src="./batty-agent.js?v=cleo-handoff-20260930"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>

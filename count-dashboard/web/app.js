@@ -1808,7 +1808,12 @@ try {
   $('#guidePattern').innerHTML = Object.entries(GUIDE_PATTERNS).map(([key,pattern]) => `<option value="${key}">${esc(pattern.name)}</option>`).join('');
   $('#guidePattern').addEventListener('change', renderWaveGuide);
   renderWaveGuide();
-  if (new URLSearchParams(location.search).get('guide') === 'liquidity') setInspectorTab('indicatorguide');
+  const indicatorGuide = new URLSearchParams(location.search).get('guide');
+  if (['liquidity', 'bias'].includes(indicatorGuide)) {
+    setInspectorVisibility(true);
+    setInspectorTab('indicatorguide');
+    if (indicatorGuide === 'bias') requestAnimationFrame(() => $('#biasGuide')?.scrollIntoView({block:'start'}));
+  }
   await build();
 } catch (error) {
   $('#apiState').textContent = 'Historical store unavailable';

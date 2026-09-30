@@ -2,6 +2,7 @@ const studies = [
   {id:'volume-profile',name:'Volume Profile',description:'Approximate observed volume across price bins.',image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',version:'v1.0.0'},
   {id:'fibonacci',name:'Fibonacci',description:'Map retracement levels from chart swings.',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',version:'v0.1.0'},
   {id:'liquidity',name:'Liquidity',description:'Map confirmed external zones and internal swing levels.',image:'liquidity-sketch.png',colorImage:'liquidity-color.png',version:'v1.0.0',premium:true},
+  {id:'bias',name:'Bias',description:'Read confirmed market structure with prior-period context.',image:'bias-sketch.png',colorImage:'bias-color.png',version:'v1.0.0',premium:true},
   {id:'liquidity-zones',name:'Liquidity Zones',description:'Mark research zones around swept levels.',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',version:'v0.1.0'},
   {id:'daily-bias',name:'Daily Bias',description:'Show provisional context from prior sweeps.',image:'daily-bias-sketch.png',colorImage:'daily-bias-color.png',version:'v0.1.0'},
   {id:'elliott-wave',name:'Elliott Wave',description:'Inspect provisional counts and path structure.',image:'elliott-wave-sketch.png',colorImage:'elliott-wave-color.png',version:'v0.1.0'},
@@ -40,7 +41,7 @@ if (grid) {
     card.className = 'indicator-card';
     card.dataset.indicatorId = study.id;
     card.dataset.indicatorName = study.name;
-    card.innerHTML = `<div class="indicator-art"><img src="./tool-belt-assets/${study.image}" data-mono-image="${study.image}" data-color-image="${study.colorImage}" alt="Pencil sketch representing ${study.name}" loading="lazy"><span class="indicator-version" title="Tool Belt catalog version">${study.version}</span>${study.premium ? '<span class="indicator-premium">PREMIUM</span>' : ''}</div><div class="indicator-body"><span class="indicator-kind">${study.premium ? 'PREMIUM INDICATOR' : 'COUNT DESK LAYER'}</span><h3>${study.name}</h3><p>${study.description}</p><div class="indicator-probability"><span class="probability-icon" data-tier="${score.tier}" aria-hidden="true">${score.glyph}</span><span class="probability-copy"><strong>${score.label}</strong><small>${score.note}</small></span></div>${study.id === 'volume-profile' ? '<button class="indicator-inspect" type="button" data-open-profile>Inspect calculation →</button>' : ''}${study.id === 'liquidity' ? '<button class="indicator-inspect" type="button" data-open-liquidity>Build liquidity map →</button>' : ''}<a class="indicator-card-link" href="./index.html#chartWorkspace">Open Count Desk →</a><a class="indicator-card-link" href="./indicator-agent.html?indicator=${encodeURIComponent(study.id)}">Open Indicator Agent →</a></div>`;
+    card.innerHTML = `<div class="indicator-art"><img src="./tool-belt-assets/${study.image}" data-mono-image="${study.image}" data-color-image="${study.colorImage}" alt="Pencil sketch representing ${study.name}" loading="lazy"><span class="indicator-version" title="Tool Belt catalog version">${study.version}</span>${study.premium ? '<span class="indicator-premium">PREMIUM</span>' : ''}</div><div class="indicator-body"><span class="indicator-kind">${study.premium ? 'PREMIUM INDICATOR' : 'COUNT DESK LAYER'}</span><h3>${study.name}</h3><p>${study.description}</p><div class="indicator-probability"><span class="probability-icon" data-tier="${score.tier}" aria-hidden="true">${score.glyph}</span><span class="probability-copy"><strong>${score.label}</strong><small>${score.note}</small></span></div>${study.id === 'volume-profile' ? '<button class="indicator-inspect" type="button" data-open-profile>Inspect calculation →</button>' : ''}${study.id === 'liquidity' ? '<button class="indicator-inspect" type="button" data-open-liquidity>Build liquidity map →</button>' : ''}${study.id === 'bias' ? '<button class="indicator-inspect" type="button" data-open-bias>Read market structure →</button>' : ''}<a class="indicator-card-link" href="./index.html#chartWorkspace">Open Count Desk →</a><a class="indicator-card-link" href="./indicator-agent.html?indicator=${encodeURIComponent(study.id)}">Open Indicator Agent →</a></div>`;
     grid.append(card);
   }
   const requestedIndicator = new URLSearchParams(location.search).get('indicator');
@@ -48,7 +49,7 @@ if (grid) {
   grid.addEventListener('click', (event) => {
     const card = event.target.closest('.indicator-card');
     if (!card) return;
-    if (event.target.closest('[data-open-profile], [data-open-liquidity], a[href*="indicator-agent.html"]')) activateIndicator(card.dataset.indicatorId);
+    if (event.target.closest('[data-open-profile], [data-open-liquidity], [data-open-bias], a[href*="indicator-agent.html"]')) activateIndicator(card.dataset.indicatorId);
   });
   window.setActiveToolBeltIndicator = activateIndicator;
 }

@@ -49,6 +49,7 @@ from tickstream_adapter import (
 )
 from volume_profile_lab import ProfileSettings, build_volume_profile, replay_profile_quality
 from liquidity_engine import LiquiditySettings, build_liquidity_levels, input_hash as liquidity_input_hash
+from bias_engine import BiasSettings, Bar as BiasBar, build_bias, input_hash as bias_input_hash
 import indicator_agent_store
 
 
@@ -1557,6 +1558,49 @@ def liquidity_engine_report(db: sqlite3.Connection, symbol: str, timeframe: str,
     return result
 
 
+def bias_engine_report(db: sqlite3.Connection, symbol: str, timeframe: str,
+                       cutoff: int, settings: BiasSettings = BiasSettings()) -> dict:
+    """Run the confirmed structure engine and its separate PD/PW context."""
+    timeframe = normalize_tf(timeframe)
+    stored = get_bars(db, symbol, timeframe, cutoff, min(HISTORY_LIMITS.get(timeframe, 3000), 5001))
+    if len(stored) < 2:
+        raise ValueError("At least two stored bars are required to identify a confirmed bar.")
+    confirmed = stored[:-1]
+    daily = get_bars(db, symbol, "1D", cutoff, HISTORY_LIMITS["1D"])
+    weekly = get_bars(db, symbol, "1W", cutoff, 3000)
+    convert = lambda values: [BiasBar(bar.time, bar.open, bar.high, bar.low, bar.close) for bar in values]
+    bars, daily_bars, weekly_bars = convert(confirmed), convert(daily), convert(weekly)
+    result = build_bias(bars, daily_bars, weekly_bars, symbol, settings, timeframe)
+    first_time, last_time = confirmed[0].time, confirmed[-1].time
+
+    source_rows = []
+    for source_tf, first, last in ((timeframe, first_time, last_time),
+                                   ("1D", daily[0].time if daily else 0, daily[-1].time if daily else 0),
+                                   ("1W", weekly[0].time if weekly else 0, weekly[-1].time if weekly else 0)):
+        if not first and not last:
+            continue
+        source_rows.extend(db.execute(
+            "SELECT DISTINCT d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256,"
+            "MAX(b.derived) derived FROM bars b JOIN datasets d ON d.dataset_id=b.dataset_id "
+            "WHERE b.symbol=? AND b.timeframe=? AND b.time>=? AND b.time<=? "
+            "GROUP BY d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256 ORDER BY d.dataset_id",
+            (symbol, source_tf, first, last),
+        ).fetchall())
+    sources = {row["dataset_id"]: dict(row) for row in source_rows}
+    result.update({
+        "indicatorId": "bias", "symbol": symbol, "timeframe": timeframe,
+        "requestedCutoff": cutoff, "confirmedCutoff": last_time,
+        "excludedLatestStoredBar": stored[-1].time,
+        "dataSnapshotHash": bias_input_hash(bars, daily_bars, weekly_bars, symbol, settings, timeframe),
+        "settings": settings.__dict__, "sources": list(sources.values()),
+        "sourceRights": "not recorded in Count Desk",
+        "contextAvailability": {"dailyBars": len(daily), "weeklyBars": len(weekly)},
+        "measurementState": "directional context only; probability and predictive performance unscored",
+    })
+    result["bars"] = [bar.as_dict() for bar in confirmed[-600:]]
+    return result
+
+
 def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> dict:
     window = max(2, min(12, len(bars) // 55))
     swings = confirmed_pivots(bars, window)[-14:]
@@ -2673,6 +2717,21 @@ class Handler(SimpleHTTPRequestHandler):
                             internal_length=int(query.get("internal_length", ["5"])[0]),
                         )
                         return self.send_json(liquidity_engine_report(db, symbol, timeframe, cutoff, settings))
+                    if parsed.path == "/api/tool-belt/bias":
+                        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                            return self.send_json({"error": "Indicator research is local to this device."}, 403)
+                        query = parse_qs(parsed.query)
+                        symbol = query.get("symbol", [""])[0].strip()
+                        if not symbol:
+                            raise ValueError("symbol is required")
+                        timeframe = normalize_tf(query.get("timeframe", ["5M"])[0])
+                        cutoff = int(query.get("cutoff", [str(2**31 - 1)])[0])
+                        settings = BiasSettings(
+                            pivot_length=int(query.get("pivot_length", ["5"])[0]),
+                            sweep_buffer_ticks=int(query.get("sweep_buffer_ticks", ["1"])[0]),
+                            acceptance_buffer_ticks=int(query.get("acceptance_buffer_ticks", ["1"])[0]),
+                        )
+                        return self.send_json(bias_engine_report(db, symbol, timeframe, cutoff, settings))
                     if parsed.path == "/api/chat/overview":
                         if self.client_address[0] not in {"127.0.0.1", "::1"}:
                             return self.send_json({"error": "Dashboard chat context is available on this local device only."}, 403)
