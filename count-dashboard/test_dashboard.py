@@ -201,6 +201,7 @@ class DashboardTest(unittest.TestCase):
         self.assertGreaterEqual(daily["last_time"] - daily["first_time"], 700 * 86400)
 
     def test_chart_sim_waits_for_confirmed_next_bar_and_records_source(self):
+        self.paper_account = server.create_chart_sim_account(self.db, {"name": "Test simulation", "starting_balance": 100000})
         symbol = "CBOT_MINI:MYM1!"
         base = 1_800_000_000
 
@@ -217,12 +218,14 @@ class DashboardTest(unittest.TestCase):
 
         ingest(bar(0, 100, 100))
         no_levels = server.open_chart_sim_position(self.db, {
+            "account_id": self.paper_account["account_id"],
             "symbol": symbol, "timeframe": "1M", "side": "short", "quantity": "1",
             "bar_time": base, "stop_price": None, "target_price": None,
         })
         self.assertIsNone(no_levels["stop_price"])
         server.cancel_chart_sim_order(self.db, no_levels["order_id"])
         order = server.open_chart_sim_position(self.db, {
+            "account_id": self.paper_account["account_id"],
             "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
             "bar_time": base, "stop_price": 99, "target_price": 105,
         })
@@ -248,7 +251,43 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(103, closed["exit_price"])
         self.assertEqual(1.0, closed["gross_pnl"])
 
+    def test_chart_sim_conditional_orders_require_confirmed_bars_and_keep_accounts_separate(self):
+        self.paper_account = server.create_chart_sim_account(self.db, {"name": "Test simulation", "starting_balance": 100000})
+        symbol, base = "CBOT_MINI:MYM1!", 1_800_400_000
+        other = server.create_chart_sim_account(self.db, {"name": "Other simulation", "starting_balance": 50000})
+
+        def ingest(offset, opening, high, low, close):
+            return server.ingest_bars(self.db, {
+                "provider": "Permitted paper test feed", "symbol": symbol, "timeframe": "1M",
+                "mode": "DELAYED", "bars": [{"time": base + offset * 60, "open": opening,
+                    "high": high, "low": low, "close": close, "volume": 10}],
+            })
+
+        ingest(0, 100, 101, 99, 100)
+        common = {"account_id": self.paper_account["account_id"], "symbol": symbol,
+                  "timeframe": "1M", "side": "long", "quantity": 1, "bar_time": base}
+        limit = server.open_chart_sim_position(self.db, {**common, "order_type": "limit", "limit_price": 99})
+        stop = server.open_chart_sim_position(self.db, {**common, "order_type": "stop", "trigger_price": 103})
+        stop_limit = server.open_chart_sim_position(self.db, {**common, "order_type": "stop_limit",
+                                                        "trigger_price": 103, "limit_price": 100})
+        ingest(1, 101, 104, 98, 102)
+        self.assertEqual([], server.chart_sim_rows(self.db, symbol))
+        ingest(2, 100, 101, 99, 100)
+        rows = {row["position_id"]: row for row in server.chart_sim_rows(self.db, symbol)}
+        self.assertEqual(99, rows[limit["order_id"]]["entry_price"])
+        self.assertEqual(103, rows[stop["order_id"]]["entry_price"])
+        self.assertNotIn(stop_limit["order_id"], rows)
+        self.assertEqual(base + 60, next(row for row in server.chart_sim_order_rows(self.db, symbol)
+                                         if row["order_id"] == stop_limit["order_id"])["triggered_at_bar_time"])
+        ingest(3, 101, 102, 100, 101)
+        self.assertEqual(100, next(row for row in server.chart_sim_rows(self.db, symbol)
+                                   if row["position_id"] == stop_limit["order_id"])["entry_price"])
+        self.assertEqual([], server.chart_sim_rows(self.db, symbol, other["account_id"]))
+        with self.assertRaisesRegex(ValueError, "simulated account"):
+            server.open_chart_sim_position(self.db, {**common, "account_id": "missing"})
+
     def test_chart_sim_bracket_uses_stop_first_when_both_touch(self):
+        self.paper_account = server.create_chart_sim_account(self.db, {"name": "Test simulation", "starting_balance": 100000})
         symbol, base = "CBOT_MINI:MYM1!", 1_800_100_000
 
         def ingest(offset, opening, high, low, close):
@@ -260,6 +299,7 @@ class DashboardTest(unittest.TestCase):
 
         ingest(0, 100, 101, 99, 100)
         order = server.open_chart_sim_position(self.db, {
+            "account_id": self.paper_account["account_id"],
             "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
             "bar_time": base, "stop_price": 98, "target_price": 105,
         })
@@ -274,6 +314,7 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(-1.5, result["position"]["gross_pnl"])
 
     def test_chart_sim_bracket_waits_for_confirmation_and_fills_gap_at_open(self):
+        self.paper_account = server.create_chart_sim_account(self.db, {"name": "Test simulation", "starting_balance": 100000})
         symbol, base = "CBOT_MINI:MYM1!", 1_800_200_000
 
         def ingest(offset, opening, high, low, close):
@@ -285,6 +326,7 @@ class DashboardTest(unittest.TestCase):
 
         ingest(0, 100, 101, 99, 100)
         order = server.open_chart_sim_position(self.db, {
+            "account_id": self.paper_account["account_id"],
             "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
             "bar_time": base, "stop_price": 98, "target_price": 105,
         })
@@ -303,6 +345,7 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(97, closed["position"]["exit_price"])
 
     def test_chart_sim_manual_exit_cannot_skip_prior_paper_stop(self):
+        self.paper_account = server.create_chart_sim_account(self.db, {"name": "Test simulation", "starting_balance": 100000})
         symbol, base = "CBOT_MINI:MYM1!", 1_800_300_000
 
         def ingest(offset, opening, high, low, close):
@@ -314,6 +357,7 @@ class DashboardTest(unittest.TestCase):
 
         ingest(0, 100, 101, 99, 100)
         order = server.open_chart_sim_position(self.db, {
+            "account_id": self.paper_account["account_id"],
             "symbol": symbol, "timeframe": "1M", "side": "long", "quantity": 1,
             "bar_time": base, "stop_price": 98, "target_price": 105,
         })

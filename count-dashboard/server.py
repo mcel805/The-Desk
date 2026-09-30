@@ -424,6 +424,13 @@ CREATE TABLE IF NOT EXISTS chart_sim_orders (
   status_note TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS chart_sim_orders_queued ON chart_sim_orders(symbol,timeframe,status);
+CREATE TABLE IF NOT EXISTS chart_sim_accounts (
+  account_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  starting_balance REAL NOT NULL CHECK(starting_balance > 0),
+  currency TEXT NOT NULL DEFAULT 'USD',
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chart_sim_positions (
   position_id TEXT PRIMARY KEY,
   symbol TEXT NOT NULL,
@@ -508,6 +515,20 @@ def connect(path: Path) -> sqlite3.Connection:
         db.execute("ALTER TABLE chart_sim_positions ADD COLUMN bracket_checked_through_time INTEGER")
     if "exit_reason" not in sim_columns:
         db.execute("ALTER TABLE chart_sim_positions ADD COLUMN exit_reason TEXT")
+    for table in ("chart_sim_orders", "chart_sim_positions"):
+        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        if "account_id" not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN account_id TEXT REFERENCES chart_sim_accounts(account_id)")
+    order_columns = {row["name"] for row in db.execute("PRAGMA table_info(chart_sim_orders)")}
+    for column, definition in (
+        ("order_type", "TEXT NOT NULL DEFAULT 'market'"),
+        ("limit_price", "REAL"),
+        ("trigger_price", "REAL"),
+        ("triggered_at_bar_time", "INTEGER"),
+        ("checked_through_bar_time", "INTEGER"),
+    ):
+        if column not in order_columns:
+            db.execute(f"ALTER TABLE chart_sim_orders ADD COLUMN {column} {definition}")
     return db
 
 
@@ -713,20 +734,48 @@ def close_paper_trade(db: sqlite3.Connection, payload: dict) -> dict:
     return next(item for item in paper_trade_rows(db) if item["paper_trade_id"] == paper_id)
 
 
-def chart_sim_rows(db: sqlite3.Connection, symbol: str = "") -> list[dict]:
-    """Keep chart simulation separate from broker imports and journal accounts."""
+def chart_sim_accounts(db: sqlite3.Connection) -> list[dict]:
+    return [dict(row) for row in db.execute("SELECT * FROM chart_sim_accounts ORDER BY created_at,account_id")]
+
+
+def create_chart_sim_account(db: sqlite3.Connection, payload: dict) -> dict:
+    name = str(payload.get("name", "")).strip()
+    if not 1 <= len(name) <= 120:
+        raise ValueError("Enter an account name of 1 to 120 characters")
+    balance = float_field(payload, "starting_balance", "Starting virtual balance", required=True, positive=True)
+    if balance is None or balance > 1_000_000_000:
+        raise ValueError("Starting virtual balance is out of range")
+    account_id = "paper-" + secrets.token_hex(12)
+    db.execute("INSERT INTO chart_sim_accounts VALUES (?,?,?,?,?)",
+               (account_id, name, balance, "USD", utc_now()))
+    db.commit()
+    return dict(db.execute("SELECT * FROM chart_sim_accounts WHERE account_id=?", (account_id,)).fetchone())
+
+
+def chart_sim_rows(db: sqlite3.Connection, symbol: str = "", account_id: str = "") -> list[dict]:
+    """Read local simulated positions without mixing broker executions."""
+    where = " WHERE 1=1"
+    values = []
     if symbol:
-        rows = db.execute("SELECT * FROM chart_sim_positions WHERE symbol=? ORDER BY entry_recorded_at DESC", (symbol,))
-    else:
-        rows = db.execute("SELECT * FROM chart_sim_positions ORDER BY entry_recorded_at DESC")
+        where += " AND symbol=?"
+        values.append(symbol)
+    if account_id:
+        where += " AND account_id=?"
+        values.append(account_id)
+    rows = db.execute("SELECT * FROM chart_sim_positions" + where + " ORDER BY entry_recorded_at DESC", values)
     return [dict(row) for row in rows]
 
 
-def chart_sim_order_rows(db: sqlite3.Connection, symbol: str = "") -> list[dict]:
+def chart_sim_order_rows(db: sqlite3.Connection, symbol: str = "", account_id: str = "") -> list[dict]:
+    where = " WHERE 1=1"
+    values = []
     if symbol:
-        rows = db.execute("SELECT * FROM chart_sim_orders WHERE symbol=? ORDER BY placed_recorded_at DESC", (symbol,))
-    else:
-        rows = db.execute("SELECT * FROM chart_sim_orders ORDER BY placed_recorded_at DESC")
+        where += " AND symbol=?"
+        values.append(symbol)
+    if account_id:
+        where += " AND account_id=?"
+        values.append(account_id)
+    rows = db.execute("SELECT * FROM chart_sim_orders" + where + " ORDER BY placed_recorded_at DESC", values)
     return [dict(row) for row in rows]
 
 
@@ -743,6 +792,9 @@ def chart_sim_bar(db: sqlite3.Connection, symbol: str, timeframe: str, bar_time:
 
 def open_chart_sim_position(db: sqlite3.Connection, payload: dict) -> dict:
     """Queue a local paper order after a displayed source bar."""
+    account_id = str(payload.get("account_id", "")).strip()
+    if not db.execute("SELECT 1 FROM chart_sim_accounts WHERE account_id=?", (account_id,)).fetchone():
+        raise ValueError("Create or select a simulated account first")
     symbol = str(payload.get("symbol", "")).strip()
     if symbol not in MICRO_FUTURES_BY_SYMBOL:
         raise ValueError("Chart simulation currently supports the listed micro futures only")
@@ -761,6 +813,17 @@ def open_chart_sim_position(db: sqlite3.Connection, payload: dict) -> dict:
         raise ValueError("Enter 1 to 100 whole micro contracts")
     bar = chart_sim_bar(db, symbol, timeframe, bar_time)
     entry = float(bar["close"])
+    order_type = str(payload.get("order_type", "market")).strip().lower()
+    if order_type not in {"market", "limit", "stop", "stop_limit"}:
+        raise ValueError("Choose market, limit, stop, or stop-limit")
+    limit_price = (float_field(payload, "limit_price", "Limit price", positive=True)
+                   if order_type in {"limit", "stop_limit"} else None)
+    trigger_price = (float_field(payload, "trigger_price", "Trigger price", positive=True)
+                     if order_type in {"stop", "stop_limit"} else None)
+    if order_type in {"limit", "stop_limit"} and limit_price is None:
+        raise ValueError("Limit price is required")
+    if order_type in {"stop", "stop_limit"} and trigger_price is None:
+        raise ValueError("Trigger price is required")
     stop = (float_field(payload, "stop_price", "Stop price", positive=True)
             if payload.get("stop_price") is not None else None)
     target = (float_field(payload, "target_price", "Target price", positive=True)
@@ -774,9 +837,11 @@ def open_chart_sim_position(db: sqlite3.Connection, payload: dict) -> dict:
     order_id = "chart-sim-" + secrets.token_hex(12)
     db.execute(
         "INSERT INTO chart_sim_orders (order_id,symbol,timeframe,side,quantity,multiplier,"
-        "placed_after_bar_time,placed_source,placed_recorded_at,stop_price,target_price,status) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,'queued')",
-        (order_id,symbol,timeframe,side,quantity,multiplier,bar_time,bar["source"],utc_now(),stop,target),
+        "placed_after_bar_time,placed_source,placed_recorded_at,stop_price,target_price,status,"
+        "account_id,order_type,limit_price,trigger_price) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,'queued',?,?,?,?)",
+        (order_id,symbol,timeframe,side,quantity,multiplier,bar_time,bar["source"],utc_now(),stop,target,
+         account_id,order_type,limit_price,trigger_price),
     )
     db.commit()
     return next(row for row in chart_sim_order_rows(db, symbol) if row["order_id"] == order_id)
@@ -789,15 +854,54 @@ def advance_chart_sim_order(db: sqlite3.Connection, order_id: str) -> dict:
         raise ValueError("Chart simulation order not found")
     if order["status"] != "queued":
         return {"status": order["status"], "order": dict(order)}
+    start = order["checked_through_bar_time"] or order["placed_after_bar_time"]
     later = db.execute(
         "SELECT time FROM bars WHERE symbol=? AND timeframe=? AND time>? ORDER BY time LIMIT 2",
-        (order["symbol"], order["timeframe"], order["placed_after_bar_time"]),
+        (order["symbol"], order["timeframe"], start),
     ).fetchall()
     if len(later) < 2:
         return {"status": "queued", "order": dict(order),
                 "message": "Waiting for the next completed source bar."}
-    fill = chart_sim_bar(db, order["symbol"], order["timeframe"], later[0]["time"])
-    entry = float(fill["open"])
+    fill = db.execute(
+        "SELECT b.*,d.source FROM bars b JOIN datasets d USING(dataset_id) "
+        "WHERE b.symbol=? AND b.timeframe=? AND b.time=?",
+        (order["symbol"], order["timeframe"], later[0]["time"]),
+    ).fetchone()
+    opening, high, low = (float(fill[key]) for key in ("open", "high", "low"))
+    is_buy = order["side"] == "long"
+    order_type = order["order_type"]
+    triggered = order["triggered_at_bar_time"] is not None
+    if order_type in {"stop", "stop_limit"} and not triggered:
+        hit = high >= order["trigger_price"] if is_buy else low <= order["trigger_price"]
+        if not hit:
+            db.execute("UPDATE chart_sim_orders SET checked_through_bar_time=? WHERE order_id=?",
+                       (fill["time"], order_id))
+            db.commit()
+            return {"status": "queued", "order": dict(db.execute(
+                "SELECT * FROM chart_sim_orders WHERE order_id=?", (order_id,)).fetchone()),
+                "message": "Trigger was not reached on this completed bar."}
+        if order_type == "stop_limit":
+            # OHLC cannot establish whether the limit traded after the trigger in one bar.
+            db.execute("UPDATE chart_sim_orders SET triggered_at_bar_time=?,checked_through_bar_time=? WHERE order_id=?",
+                       (fill["time"], fill["time"], order_id))
+            db.commit()
+            return {"status": "queued", "order": dict(db.execute(
+                "SELECT * FROM chart_sim_orders WHERE order_id=?", (order_id,)).fetchone()),
+                "message": "Stop triggered; limit eligibility starts on the next completed bar."}
+    if order_type in {"limit", "stop_limit"}:
+        eligible = low <= order["limit_price"] if is_buy else high >= order["limit_price"]
+        if not eligible:
+            db.execute("UPDATE chart_sim_orders SET checked_through_bar_time=? WHERE order_id=?",
+                       (fill["time"], order_id))
+            db.commit()
+            return {"status": "queued", "order": dict(db.execute(
+                "SELECT * FROM chart_sim_orders WHERE order_id=?", (order_id,)).fetchone()),
+                "message": "Limit was not reached on this completed bar."}
+        entry = min(opening, order["limit_price"]) if is_buy else max(opening, order["limit_price"])
+    elif order_type == "stop":
+        entry = max(opening, order["trigger_price"]) if is_buy else min(opening, order["trigger_price"])
+    else:
+        entry = opening
     side = order["side"]
     stop, target = order["stop_price"], order["target_price"]
     if ((stop is not None and ((side == "long" and stop >= entry) or (side == "short" and stop <= entry)))
@@ -809,10 +913,10 @@ def advance_chart_sim_order(db: sqlite3.Connection, order_id: str) -> dict:
             "SELECT * FROM chart_sim_orders WHERE order_id=?", (order_id,)).fetchone()), "message": note}
     db.execute(
         "INSERT INTO chart_sim_positions (position_id,symbol,timeframe,side,quantity,multiplier,entry_price,"
-        "entry_bar_time,entry_source,entry_dataset_id,entry_recorded_at,stop_price,target_price,status) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open')",
+        "entry_bar_time,entry_source,entry_dataset_id,entry_recorded_at,stop_price,target_price,status,account_id) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)",
         (order_id,order["symbol"],order["timeframe"],side,order["quantity"],order["multiplier"],entry,
-         fill["time"],fill["source"],fill["dataset_id"],utc_now(),stop,target),
+         fill["time"],fill["source"],fill["dataset_id"],utc_now(),stop,target,order["account_id"]),
     )
     db.execute("UPDATE chart_sim_orders SET status='filled' WHERE order_id=?", (order_id,))
     db.commit()
@@ -2281,7 +2385,16 @@ def ingest_bars(db: sqlite3.Connection, payload: dict) -> dict:
             (symbol, sim_timeframe),
         ).fetchall()
         for queued_order in queued:
-            paper_fills += int(advance_chart_sim_order(db, queued_order["order_id"])["status"] == "filled")
+            checked = None
+            while True:
+                result = advance_chart_sim_order(db, queued_order["order_id"])
+                if result["status"] == "filled":
+                    paper_fills += 1
+                    break
+                next_checked = result["order"].get("checked_through_bar_time")
+                if result["status"] != "queued" or next_checked is None or next_checked == checked:
+                    break
+                checked = next_checked
         closing = db.execute(
             "SELECT position_id FROM chart_sim_positions WHERE symbol=? AND timeframe=? AND status='closing'",
             (symbol, sim_timeframe),
@@ -2857,9 +2970,15 @@ class Handler(SimpleHTTPRequestHandler):
                     if parsed.path == "/api/chart-sim/positions":
                         if self.client_address[0] not in {"127.0.0.1", "::1"}:
                             return self.send_json({"error": "Chart simulation is local to this device."}, 403)
-                        symbol = parse_qs(parsed.query).get("symbol", [""])[0]
-                        return self.send_json({"positions": chart_sim_rows(db, symbol),
-                                               "orders": chart_sim_order_rows(db, symbol)})
+                        query = parse_qs(parsed.query)
+                        symbol = query.get("symbol", [""])[0]
+                        account_id = query.get("account_id", [""])[0]
+                        return self.send_json({"positions": chart_sim_rows(db, symbol, account_id),
+                                               "orders": chart_sim_order_rows(db, symbol, account_id)})
+                    if parsed.path == "/api/chart-sim/accounts":
+                        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                            return self.send_json({"error": "Chart simulation is local to this device."}, 403)
+                        return self.send_json({"accounts": chart_sim_accounts(db)})
                     return self.send_json({"error": "Unknown API route"}, 404)
             except ValueError as exc:
                 return self.send_json({"error": str(exc)}, 400)
@@ -3253,14 +3372,16 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({"error": f"Journal update could not be saved: {exc}"}, 400)
             except Exception as exc:  # pragma: no cover
                 return self.send_json({"error": f"Journal request failed: {exc}"}, 500)
-        if parsed.path in {"/api/chart-sim/open", "/api/chart-sim/advance", "/api/chart-sim/cancel",
+        if parsed.path in {"/api/chart-sim/accounts", "/api/chart-sim/open", "/api/chart-sim/advance", "/api/chart-sim/cancel",
                            "/api/chart-sim/close", "/api/chart-sim/bracket"}:
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Chart simulation is local to this device."}, 403)
             try:
                 payload = self.read_json()
                 with connect(self.server.db_path) as db:  # type: ignore[attr-defined]
-                    if parsed.path.endswith("/open"):
+                    if parsed.path.endswith("/accounts"):
+                        result = create_chart_sim_account(db, payload)
+                    elif parsed.path.endswith("/open"):
                         result = open_chart_sim_position(db, payload)
                     elif parsed.path.endswith("/advance"):
                         result = (advance_chart_sim_order(db, str(payload["order_id"])) if payload.get("order_id")

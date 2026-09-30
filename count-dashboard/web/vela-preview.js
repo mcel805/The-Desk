@@ -8,6 +8,7 @@ let paperOrders = [];
 let paperPositions = [];
 let paperBusy = false;
 let replayBounds = null;
+let paperAccounts = [];
 let replayKey = '';
 let indicatorTypeMemory = ['volume'];
 let indicatorInputMemory = {};
@@ -871,7 +872,7 @@ function renderPaperPositions() {
   const activePositions = paperPositions.filter(item => item.status !== 'closed');
   const recentClosed = paperPositions.filter(item => item.status === 'closed').slice(0, 2);
   $('#velaPaperPositionCount').textContent = `${activeOrders.length} queued · ${activePositions.length} open`;
-  const orderCards = activeOrders.map(order => `<article class="vela-paper-position"><div class="vela-paper-position-top"><b>${escapeHtml(order.side.toUpperCase())} ${order.quantity}</b><span>QUEUED</span></div><small>${escapeHtml(order.timeframe)} · after ${new Date(Number(order.placed_after_bar_time) * 1000).toLocaleString()}</small><div class="vela-paper-actions"><button type="button" data-vela-paper-advance="${escapeHtml(order.order_id)}">Check next bar</button><button type="button" data-vela-paper-cancel="${escapeHtml(order.order_id)}">Cancel</button></div></article>`).join('');
+  const orderCards = activeOrders.map(order => `<article class="vela-paper-position"><div class="vela-paper-position-top"><b>${escapeHtml(order.side.toUpperCase())} ${order.quantity} · ${escapeHtml(order.order_type || 'market').replace('_','-')}</b><span>QUEUED</span></div><small>${escapeHtml(order.timeframe)} · after ${new Date(Number(order.placed_after_bar_time) * 1000).toLocaleString()}</small><small>${order.limit_price == null ? '' : `Limit ${formatPrice(order.limit_price)} · `}${order.trigger_price == null ? '' : `Trigger ${formatPrice(order.trigger_price)}`}</small><div class="vela-paper-actions"><button type="button" data-vela-paper-advance="${escapeHtml(order.order_id)}">Check next bar</button><button type="button" data-vela-paper-cancel="${escapeHtml(order.order_id)}">Cancel</button></div></article>`).join('');
   const positionCards = [...activePositions, ...recentClosed].map(position => {
     const mark = currentContract && position.status !== 'closed' && position.symbol === currentContract.market.symbol && position.timeframe === currentContract.market.timeframe
       ? (Number(currentContract.analysis.lastClose) - position.entry_price) * (position.side === 'long' ? 1 : -1) * position.quantity * position.multiplier : null;
@@ -889,10 +890,32 @@ function renderPaperPositions() {
 async function refreshPaperPositions() {
   const market = selectedMarket();
   if (!market) return;
-  const payload = await getJson(`/api/chart-sim/positions?symbol=${encodeURIComponent(market.symbol)}`);
+  const accountId = $('#velaPaperAccount').value;
+  if (!accountId) { paperOrders = []; paperPositions = []; renderPaperPositions(); return; }
+  const payload = await getJson(`/api/chart-sim/positions?symbol=${encodeURIComponent(market.symbol)}&account_id=${encodeURIComponent(accountId)}`);
   paperOrders = payload.orders || [];
   paperPositions = payload.positions || [];
   renderPaperPositions();
+}
+
+async function refreshPaperAccounts(selectedId = '') {
+  const payload = await getJson('/api/chart-sim/accounts');
+  paperAccounts = payload.accounts || [];
+  const select = $('#velaPaperAccount');
+  const previous = selectedId || select.value;
+  select.innerHTML = '<option value="">Select simulated account</option>' + paperAccounts.map(account =>
+    `<option value="${escapeHtml(account.account_id)}">${escapeHtml(account.name)} · virtual $${Number(account.starting_balance).toLocaleString()}</option>`).join('');
+  if (paperAccounts.some(account => account.account_id === previous)) select.value = previous;
+  else if (paperAccounts.length) select.value = paperAccounts[0].account_id;
+  await refreshPaperPositions();
+}
+
+function updatePaperOrderFields() {
+  const type = $('#velaPaperOrderType').value;
+  $('#velaPaperLimitField').hidden = !['limit','stop_limit'].includes(type);
+  $('#velaPaperTriggerField').hidden = !['stop','stop_limit'].includes(type);
+  $('#velaPaperLimit').required = ['limit','stop_limit'].includes(type);
+  $('#velaPaperTrigger').required = ['stop','stop_limit'].includes(type);
 }
 
 async function paperAction(path, body, successMessage) {
@@ -925,7 +948,7 @@ function setWorkspace(view) {
       $('#velaPaperMarket').textContent = `${market.symbol} · ${market.timeframe} · last close ${formatPrice(currentContract.analysis.lastClose)}`;
       $('#velaPaperSource').textContent = `${currentContract.analysis.source} · cutoff ${formatCutoff(currentContract)} · confirmed stored bar context`;
     }
-    void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
+    void refreshPaperAccounts().catch(error => setPaperStatus(error.message, true));
   }
 }
 
@@ -1112,6 +1135,23 @@ document.querySelector('[data-close-tool-belt]').addEventListener('click',() => 
 });
 $('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));
+$('#velaPaperAccount').addEventListener('change', () => void refreshPaperPositions().catch(error => setPaperStatus(error.message, true)));
+$('#velaPaperAccountForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (paperBusy) return;
+  paperBusy = true;
+  try {
+    const response = await fetch('/api/chart-sim/accounts', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:$('#velaPaperAccountName').value, starting_balance:$('#velaPaperStartingBalance').value})});
+    const account = await response.json();
+    if (!response.ok) throw new Error(account.error || 'Account creation failed');
+    $('#velaPaperAccountName').value = '';
+    await refreshPaperAccounts(account.account_id);
+    setPaperStatus(`${account.name} created with virtual funds. Journal connection is pending.`);
+  } catch (error) { setPaperStatus(error.message, true); }
+  finally { paperBusy = false; }
+});
+$('#velaPaperOrderType').addEventListener('change', updatePaperOrderFields);
+updatePaperOrderFields();
 window.addEventListener('hashchange', applyWorkspaceHash);
 $('#velaBackToChart').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperPractice').addEventListener('click', () => {
@@ -1124,13 +1164,37 @@ $('#velaPaperTicket').addEventListener('submit', event => {
   if (!currentContract) return setPaperStatus('Load a Vela chart first.', true);
   const barTime = currentPaperBarTime();
   if (!barTime) return setPaperStatus('The selected chart has no confirmed stored bar.', true);
+  if (!$('#velaPaperAccount').value) return setPaperStatus('Create or select a simulated account first.', true);
   const optional = selector => $(selector).value.trim() ? Number($(selector).value) : null;
   void paperAction('/api/chart-sim/open', {
+    account_id:$('#velaPaperAccount').value, order_type:$('#velaPaperOrderType').value,
     symbol:currentContract.market.symbol, timeframe:currentContract.market.timeframe, bar_time:barTime,
     side:$('#velaPaperSide').value, quantity:$('#velaPaperQuantity').value,
+    limit_price:optional('#velaPaperLimit'), trigger_price:optional('#velaPaperTrigger'),
     stop_price:optional('#velaPaperStop'), target_price:optional('#velaPaperTarget'),
   }, 'Paper order queued for the next completed source bar.');
 });
+const tradeMenu = $('#velaTradeContextMenu');
+$('#velaChart').addEventListener('contextmenu', event => {
+  if (!currentContract) return;
+  event.preventDefault();
+  tradeMenu.hidden = false;
+  tradeMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 204)}px`;
+  tradeMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 250)}px`;
+  tradeMenu.querySelector('button')?.focus();
+});
+tradeMenu.addEventListener('click', event => {
+  const button = event.target.closest('[data-paper-side]');
+  if (!button) return;
+  tradeMenu.hidden = true;
+  setWorkspace('paper');
+  $('#velaPaperSide').value = button.dataset.paperSide;
+  $('#velaPaperOrderType').value = button.dataset.paperType;
+  updatePaperOrderFields();
+  ($('#velaPaperLimitField').hidden ? $('#velaPaperQuantity') : $('#velaPaperLimit')).focus();
+});
+document.addEventListener('click', event => { if (!tradeMenu.contains(event.target)) tradeMenu.hidden = true; });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') tradeMenu.hidden = true; });
 $('#velaPaperPositions').addEventListener('click', event => {
   const button = event.target.closest('button');
   if (!button || !currentContract) return;

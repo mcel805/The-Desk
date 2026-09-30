@@ -95,19 +95,25 @@
     <section id="velaPaperWorkspace" class="vela-paper-card" hidden aria-label="Vela paper trading workspace">
       <div class="vela-paper-head"><div><small>PAPER LABORATORY · VELA CONTEXT</small><h1>Paper Trading</h1><p>Orders use the selected Vela chart’s last confirmed stored bar. This is a local simulation with no broker connection or live order route.</p></div><button id="velaBackToChart" type="button">Back to chart</button></div>
       <div class="vela-paper-context"><span id="velaPaperMarket">No chart selected</span><span id="velaPaperSource">Load a chart first.</span><span id="velaPaperIndicators">Studies · Volume</span></div>
+      <div class="vela-paper-account"><label>Simulated account<select id="velaPaperAccount" aria-label="Simulated account"><option value="">Create an account first</option></select></label><form id="velaPaperAccountForm"><label>Account name<input id="velaPaperAccountName" maxlength="120" placeholder="Practice futures" required></label><label>Starting virtual USD<input id="velaPaperStartingBalance" type="number" min="1" max="1000000000" step="0.01" value="100000" required></label><button type="submit">Create simulation account</button></form></div>
       <form id="velaPaperTicket" class="vela-paper-ticket">
         <label>Direction<select id="velaPaperSide"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select></label>
+        <label>Order type<select id="velaPaperOrderType"><option value="market">Market</option><option value="limit">Limit</option><option value="stop">Stop</option><option value="stop_limit">Stop-limit</option></select></label>
         <label>Micro contracts<input id="velaPaperQuantity" type="number" min="1" max="100" step="1" value="1" required></label>
+        <label id="velaPaperLimitField" hidden>Limit price<input id="velaPaperLimit" type="number" min="0" step="any"></label>
+        <label id="velaPaperTriggerField" hidden>Stop trigger<input id="velaPaperTrigger" type="number" min="0" step="any"></label>
         <label>Paper stop<input id="velaPaperStop" type="number" min="0" step="any" placeholder="Optional"></label>
         <label>Paper target<input id="velaPaperTarget" type="number" min="0" step="any" placeholder="Optional"></label>
         <button id="velaPaperOpen" type="submit">Queue paper order</button>
       </form>
+      <p class="vela-paper-limits">Confirmed stored bars drive fills. Stop-limit orders begin checking the limit on the bar after the trigger. Gross results exclude fees and slippage. New accounts and fills are not yet in the LuxAlgo journal.</p>
       <button id="velaPaperPractice" class="vela-paper-practice" type="button">Refresh selected chart context</button>
       <p id="velaPaperStatus" class="vela-paper-status" role="status" aria-live="polite">Local simulation · no broker connection.</p>
       <div class="vela-paper-positions-head"><strong>Positions</strong><span id="velaPaperPositionCount">0 queued · 0 open</span></div>
       <div id="velaPaperPositions" class="vela-paper-positions">Load a chart to see paper positions.</div>
     </section>
   </main>
+  <div id="velaTradeContextMenu" class="vela-trade-context-menu" role="menu" aria-label="Paper trade options" hidden><button type="button" role="menuitem" data-paper-side="long" data-paper-type="market">Paper buy at market</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="market">Paper sell at market</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="limit">Paper buy limit…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="limit">Paper sell limit…</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="stop">Paper buy stop…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="stop">Paper sell stop…</button></div>
   <div id="deskChatMount"></div>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
   <script type="module" src="./vela-preview.js?v=bias-renderer-20260930-1"></script>
