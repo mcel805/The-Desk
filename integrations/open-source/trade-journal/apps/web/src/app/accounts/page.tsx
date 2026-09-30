@@ -23,6 +23,7 @@ interface AccountRow {
   name: string;
   broker: string;
   kind: "sync" | "import" | "manual";
+  sourceType: string;
   currency: string;
   initialBalance: number;
   profitCalcMethod: "fifo" | "lifo" | "wavg";
@@ -85,6 +86,9 @@ function Accounts() {
                 <Badge variant="secondary" className="mt-1.5 mr-2">
                   {account.kind}
                 </Badge>
+                {account.sourceType === "paper_user" && (
+                  <Badge variant="outline" className="mt-1.5 mr-2">PAPER · SIMULATED</Badge>
+                )}
                 {account.broker && (
                   <span className="text-xs font-normal text-muted-foreground">
                     {account.broker}

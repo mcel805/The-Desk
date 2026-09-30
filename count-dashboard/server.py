@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 from contextlib import closing
-from threading import Lock
+from threading import Lock, Thread
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.cookies import SimpleCookie
@@ -33,6 +33,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from paper_journal_bridge import acknowledge as acknowledge_paper_journal_updates, dispatch_pending as dispatch_paper_journal, ensure_schema as ensure_paper_journal_schema, inbox as paper_journal_inbox, queue_account as queue_paper_journal_account, queue_execution as queue_paper_journal_execution
 
 from wallet_auth import (
     SESSION_COOKIE,
@@ -532,6 +533,7 @@ def connect(path: Path) -> sqlite3.Connection:
     ):
         if column not in order_columns:
             db.execute(f"ALTER TABLE chart_sim_orders ADD COLUMN {column} {definition}")
+    ensure_paper_journal_schema(db)
     return db
 
 
@@ -751,6 +753,7 @@ def create_chart_sim_account(db: sqlite3.Connection, payload: dict) -> dict:
     account_id = "paper-" + secrets.token_hex(12)
     db.execute("INSERT INTO chart_sim_accounts VALUES (?,?,?,?,?)",
                (account_id, name, balance, "USD", utc_now()))
+    queue_paper_journal_account(db, db.execute("SELECT * FROM chart_sim_accounts WHERE account_id=?", (account_id,)).fetchone())
     db.commit()
     return dict(db.execute("SELECT * FROM chart_sim_accounts WHERE account_id=?", (account_id,)).fetchone())
 
@@ -924,6 +927,7 @@ def advance_chart_sim_order(db: sqlite3.Connection, order_id: str) -> dict:
          fill["time"],fill["source"],fill["dataset_id"],utc_now(),stop,target,order["account_id"]),
     )
     db.execute("UPDATE chart_sim_orders SET status='filled' WHERE order_id=?", (order_id,))
+    queue_paper_journal_execution(db, db.execute("SELECT * FROM chart_sim_positions WHERE position_id=?", (order_id,)).fetchone(), "entry")
     db.commit()
     return {"status": "filled", "position": next(row for row in chart_sim_rows(db, order["symbol"])
                                                  if row["position_id"] == order_id),
@@ -997,6 +1001,7 @@ def advance_chart_sim_bracket(db: sqlite3.Connection, position_id: str,
         "WHERE position_id=?",
         (exit_price, bar["time"], source, bar["dataset_id"], utc_now(), gross, bar["time"], reason, position_id),
     )
+    queue_paper_journal_execution(db, db.execute("SELECT * FROM chart_sim_positions WHERE position_id=?", (position_id,)).fetchone(), "exit")
     db.commit()
     return {"status": "closed", "position": dict(db.execute(
         "SELECT * FROM chart_sim_positions WHERE position_id=?", (position_id,)).fetchone()),
@@ -1071,6 +1076,7 @@ def advance_chart_sim_exit(db: sqlite3.Connection, position_id: str) -> dict:
         "exit_dataset_id=?,exit_recorded_at=?,gross_pnl=?,exit_reason='manual' WHERE position_id=?",
         (exit_price,bar["time"],bar["source"],bar["dataset_id"],utc_now(),gross,position_id),
     )
+    queue_paper_journal_execution(db, db.execute("SELECT * FROM chart_sim_positions WHERE position_id=?", (position_id,)).fetchone(), "exit")
     db.commit()
     return {"status": "closed", "position": next(row for row in chart_sim_rows(db, position["symbol"])
                                                    if row["position_id"] == position_id),
@@ -3163,6 +3169,11 @@ class Handler(SimpleHTTPRequestHandler):
                         if self.client_address[0] not in {"127.0.0.1", "::1"}:
                             return self.send_json({"error": "Chart simulation is local to this device."}, 403)
                         return self.send_json({"accounts": chart_sim_accounts(db)})
+                    if parsed.path == "/api/chart-sim/journal-updates":
+                        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                            return self.send_json({"error": "Chart journal updates are local to this device."}, 403)
+                        dispatch_paper_journal(db)
+                        return self.send_json(paper_journal_inbox(db))
                     return self.send_json({"error": "Unknown API route"}, 404)
             except ValueError as exc:
                 return self.send_json({"error": str(exc)}, 400)
@@ -3557,13 +3568,15 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as exc:  # pragma: no cover
                 return self.send_json({"error": f"Journal request failed: {exc}"}, 500)
         if parsed.path in {"/api/chart-sim/accounts", "/api/chart-sim/open", "/api/chart-sim/advance", "/api/chart-sim/cancel",
-                           "/api/chart-sim/close", "/api/chart-sim/bracket"}:
+                           "/api/chart-sim/close", "/api/chart-sim/bracket", "/api/chart-sim/journal-updates/ack"}:
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Chart simulation is local to this device."}, 403)
             try:
                 payload = self.read_json()
                 with connect(self.server.db_path) as db:  # type: ignore[attr-defined]
-                    if parsed.path.endswith("/accounts"):
+                    if parsed.path.endswith("/journal-updates/ack"):
+                        result = acknowledge_paper_journal_updates(db, int(payload.get("sequence", 0)))
+                    elif parsed.path.endswith("/accounts"):
                         result = create_chart_sim_account(db, payload)
                     elif parsed.path.endswith("/open"):
                         result = open_chart_sim_position(db, payload)
@@ -3576,6 +3589,7 @@ class Handler(SimpleHTTPRequestHandler):
                         result = advance_chart_sim_bracket(db, str(payload.get("position_id", "")))
                     else:
                         result = close_chart_sim_position(db, payload)
+                    dispatch_paper_journal(db)
                 return self.send_json(result, 201)
             except (ValueError, KeyError, json.JSONDecodeError) as exc:
                 return self.send_json({"error": str(exc)}, 400)
@@ -3657,6 +3671,17 @@ def main() -> None:
         seed(db)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.db_path = args.db  # type: ignore[attr-defined]
+    def deliver_paper_journal_events() -> None:
+        while True:
+            try:
+                with connect(args.db) as delivery_db:
+                    dispatch_paper_journal(delivery_db, limit=20)
+            except Exception:
+                # A delivery outage is retained in the SQLite outbox and retried.
+                pass
+            time.sleep(1)
+
+    Thread(target=deliver_paper_journal_events, name="paper-journal-outbox", daemon=True).start()
     print(f"Batty count dashboard: http://{args.host}:{args.port}")
     print(f"SQLite store: {args.db}")
     server.serve_forever()

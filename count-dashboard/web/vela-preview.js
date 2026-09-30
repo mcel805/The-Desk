@@ -3,6 +3,27 @@ import {buildChartContract} from './chart-contract.js';
 import {liquidityConvergenceGroups} from './liquidity-convergence.js';
 import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.js';
 import {createPaperChartPlanner} from './paper-chart-planner.js';
+let latestPaperJournalSequence = 0;
+async function refreshPaperJournalBadge() {
+  const badge = $('#journalUpdateBadge');
+  if (!badge) return;
+  try {
+    const response = await fetch('/api/chart-sim/journal-updates', {cache:'no-store'});
+    if (!response.ok) throw new Error('Journal status unavailable');
+    const result = await response.json();
+    latestPaperJournalSequence = Number(result.latestSequence || 0);
+    const total = Number(result.unreadCount || 0) + Number(result.pendingCount || 0);
+    badge.hidden = total < 1;
+    badge.textContent = total > 99 ? '99+' : String(total);
+    badge.classList.toggle('has-pending', Number(result.pendingCount || 0) > 0);
+    badge.title = Number(result.pendingCount || 0)
+      ? `${result.unreadCount || 0} delivered journal updates · ${result.pendingCount} waiting for journal delivery`
+      : `${result.unreadCount || 0} new journal update${result.unreadCount === 1 ? '' : 's'} to review`;
+    badge.setAttribute('aria-label', badge.title);
+  } catch {
+    // Keep the last durable count visible during a brief local-service outage.
+  }
+}
 let catalog = [];
 let velaChart = null;
 let velaResizeFrame = 0;
@@ -935,6 +956,18 @@ const paperChartPlanner = createPaperChartPlanner({
     await refreshPaperPositions();
   },
 });
+
+$('#journalWorkspaceLink').addEventListener('click', event => {
+  if (!latestPaperJournalSequence) return;
+  event.preventDefault();
+  const destination = event.currentTarget.href;
+  void fetch('/api/chart-sim/journal-updates/ack', {
+    method:'POST', keepalive:true, headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sequence:latestPaperJournalSequence}),
+  }).finally(() => { window.location.href = destination; });
+});
+void refreshPaperJournalBadge();
+window.setInterval(refreshPaperJournalBadge, 5000);
 
 function currentPaperBarTime() {
   const last = currentContract?.bars?.at(-1);

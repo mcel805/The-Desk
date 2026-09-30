@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   name TEXT NOT NULL,
   broker TEXT NOT NULL DEFAULT '',
   kind TEXT NOT NULL,
+  source_type TEXT NOT NULL DEFAULT 'broker',
+  external_account_id TEXT,
   currency TEXT NOT NULL DEFAULT 'USD',
   initial_balance REAL NOT NULL DEFAULT 0,
   profit_calc_method TEXT NOT NULL DEFAULT 'fifo',
@@ -35,11 +37,17 @@ CREATE TABLE IF NOT EXISTS executions (
   asset_class TEXT,
   source TEXT NOT NULL,
   import_metadata_json TEXT,
+  external_event_id TEXT,
   content_hash TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS executions_account_hash ON executions (account_id, content_hash);
 CREATE INDEX IF NOT EXISTS executions_account_symbol ON executions (account_id, symbol);
+
+CREATE TABLE IF NOT EXISTS external_event_receipts (
+ source TEXT NOT NULL, event_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL, UNIQUE(source,event_id)
+);
 
 CREATE TABLE IF NOT EXISTS trades (
   key TEXT PRIMARY KEY,

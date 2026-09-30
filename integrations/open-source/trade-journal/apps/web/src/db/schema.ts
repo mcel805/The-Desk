@@ -64,6 +64,8 @@ export const accounts = sqliteTable("accounts", {
   /** SDK broker id for sync accounts; free text label otherwise. */
   broker: text("broker").notNull().default(""),
   kind: text("kind", { enum: ["sync", "import", "manual"] }).notNull(),
+  sourceType: text("source_type").notNull().default("broker"),
+  externalAccountId: text("external_account_id"),
   currency: text("currency").notNull().default("USD"),
   initialBalance: real("initial_balance").notNull().default(0),
   profitCalcMethod: text("profit_calc_method", { enum: ["fifo", "lifo", "wavg"] })
@@ -79,7 +81,7 @@ export const accounts = sqliteTable("accounts", {
   snapshotJson: text("snapshot_json"),
   archivedAt: text("archived_at"),
   createdAt: text("created_at").notNull(),
-});
+}, (table) => [uniqueIndex("accounts_external_account").on(table.externalAccountId)]);
 
 export const executions = sqliteTable(
   "executions",
@@ -95,15 +97,24 @@ export const executions = sqliteTable(
     assetClass: text("asset_class"),
     source: text("source", { enum: ["sync", "import", "manual"] }).notNull(),
     importMetadataJson: text("import_metadata_json"),
+    externalEventId: text("external_event_id"),
     /** Dedup key: identical fills are inserted once per account. */
     contentHash: text("content_hash").notNull(),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
     uniqueIndex("executions_account_hash").on(table.accountId, table.contentHash),
+    uniqueIndex("executions_external_event").on(table.externalEventId),
     index("executions_account_symbol").on(table.accountId, table.symbol),
   ],
 );
+
+export const externalEventReceipts = sqliteTable("external_event_receipts", {
+  source: text("source").notNull(),
+  eventId: text("event_id").notNull(),
+  accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  createdAt: text("created_at").notNull(),
+}, (table) => [uniqueIndex("external_event_receipts_pk").on(table.source, table.eventId)]);
 
 /**
  * Materialized round trips. Computed columns are overwritten on every rebuild;
