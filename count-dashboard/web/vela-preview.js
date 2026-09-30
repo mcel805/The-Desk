@@ -2,6 +2,7 @@ const $ = selector => document.querySelector(selector);
 import {buildChartContract} from './chart-contract.js';
 let catalog = [];
 let velaChart = null;
+let velaResizeFrame = 0;
 let currentContract = null;
 let paperOrders = [];
 let paperPositions = [];
@@ -12,11 +13,29 @@ let indicatorTypeMemory = ['volume'];
 let indicatorInputMemory = {};
 const indicatorStorageKey = 'count-desk-vela-indicators-v1';
 const indicatorInputStorageKey = 'count-desk-vela-indicator-inputs-v1';
+const beltActiveStorageKey = 'count-desk-toolbelt-active-v1';
+const beltSettingsStorageKey = 'count-desk-toolbelt-settings-v1';
+const beltTemplatesStorageKey = 'count-desk-toolbelt-templates-v1';
+let settingsTarget = null;
+let indicatorTemplates = [];
+let toolBeltDrawingIds = {liquidity:[],bias:[]};
+const toolBeltIndicators = [
+  {id:'volume-profile',name:'Volume Profile',version:'v1.0.0',image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['bins','Price bins','number',32,8,128],['lookback','Lookback bars','number',160,20,2000],['valueArea','Show value area','checkbox',true]]},
+  {id:'fibonacci',name:'Fibonacci',version:'v0.1.0',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['anchor','Swing anchor','select','Last confirmed swing',['Last confirmed swing','Visible range','Manual']],['levels','Retracement levels','text','0.382, 0.5, 0.618']]},
+  {id:'liquidity',name:'Liquidity',version:'v1.0.0',image:'liquidity-sketch.png',colorImage:'liquidity-color.png',settings:[['externalPivot','External pivot length','number',14,1,50],['internalPivot','Internal pivot length','number',5,1,50],['showSweeps','Show swept levels','checkbox',true]]},
+  {id:'bias',name:'Bias',version:'v1.0.0',image:'bias-sketch.png',colorImage:'bias-color.png',settings:[['pivotLength','Pivot length','number',5,1,50],['sweepBufferTicks','Sweep buffer (ticks)','number',1,0,100],['acceptanceBufferTicks','Acceptance buffer (ticks)','number',1,0,100],['showSwingLabels','Show swing labels','checkbox',true],['showBreaks','Show BOS / CHOCH','checkbox',true],['priorPeriod','Include higher-timeframe context','checkbox',true]]},
+  {id:'liquidity-zones',name:'Liquidity Zones',version:'v0.1.0',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',settings:[['pivotLength','Pivot length','number',4,1,50],['tolerance','Level tolerance (ATR)','number',0.12,0,2],['confirmClose','Confirm at bar close','checkbox',true]]},
+  {id:'daily-bias',name:'Daily Bias',version:'v0.1.0',image:'daily-bias-sketch.png',colorImage:'daily-bias-color.png',settings:[['lookback','Lookback sessions','number',20,1,250],['priorSweep','Use prior-session sweeps','checkbox',true]]},
+  {id:'elliott-wave',name:'Elliott Wave',version:'v0.1.0',image:'elliott-wave-sketch.png',colorImage:'elliott-wave-color.png',settings:[['pivotLength','Pivot length','number',5,1,50],['alternates','Show alternate counts','checkbox',true]]},
+  {id:'confirmed-swings',name:'Confirmed Swings',version:'v0.1.0',image:'confirmed-swings-sketch.png',colorImage:'confirmed-swings-color.png',settings:[['pivotLength','Pivot length','number',4,1,50],['showLabels','Show pivot labels','checkbox',true]]},
+  {id:'confluence',name:'Confluence',version:'v0.1.0',image:'convergence-sketch.png',colorImage:'convergence-color.png',settings:[['minimumLayers','Minimum aligned layers','number',2,1,10],['timeframe','Context timeframe','select','Chart timeframe',['Chart timeframe','1D','4H','1H','30M','15M']]]},
+  {id:'premium-discount',name:'Premium / Discount',version:'v0.1.0',image:'premium-discount-sketch.png',colorImage:'premium-discount-color.png',settings:[['anchor','Swing anchor','select','Last confirmed swing',['Last confirmed swing','Visible range']],['equilibrium','Equilibrium (%)','number',50,1,99]]},
+];
 const indicatorDefinitions = [
   {type:'volume', label:'Volume', note:'native pane', inputs:{}},
+  {type:'rsi', label:'RSI', note:'study pane', inputs:{length:14, source:'Close'}},
   {type:'sma', label:'SMA', note:'price overlay', inputs:{length:20, source:'Close'}},
   {type:'ema', label:'EMA', note:'price overlay', inputs:{length:20, source:'Close'}},
-  {type:'rsi', label:'RSI', note:'study pane', inputs:{length:14, source:'Close'}},
   {type:'atr', label:'ATR', note:'study pane', inputs:{length:14}},
   {type:'vpvr', label:'Visible volume profile', note:'price profile', inputs:{}},
 ];
@@ -34,6 +53,20 @@ function setStatus(message, error = false) {
   node.classList.toggle('error', error);
 }
 
+function scheduleVelaResize() {
+  if (!velaChart || velaResizeFrame) return;
+  velaResizeFrame = requestAnimationFrame(() => {
+    velaResizeFrame = 0;
+    velaChart?.resize();
+  });
+}
+
+window.addEventListener('resize', scheduleVelaResize);
+window.addEventListener('pageshow', scheduleVelaResize);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) scheduleVelaResize();
+});
+
 function applyScreenPaintToChart() {
   if (!velaChart?.setTheme) return;
   const styles = getComputedStyle($('.vela-preview-main'));
@@ -41,10 +74,11 @@ function applyScreenPaintToChart() {
   velaChart.setTheme({
     background:color('bg') || '#151619',
     textColor:color('text') || '#b2b5be',
-    gridColor:color('border') || '#20222c',
+    gridColor:color('bg') || '#151619',
     borderColor:color('border') || '#2a2b30',
     fontFamily:'sans-serif',
   });
+  velaChart.applyConfig?.({grid:{vertLines:{visible:false},horzLines:{visible:false}}});
 }
 
 window.addEventListener('countdesk:screen-palette-change', event => {
@@ -88,6 +122,373 @@ function formatCutoff(contract) {
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+}
+
+function readStoredObject(key) {
+  try { const value = JSON.parse(localStorage.getItem(key) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+  catch { return {}; }
+}
+
+function storedToolBeltActive() {
+  try { const ids = JSON.parse(localStorage.getItem(beltActiveStorageKey) || '[]'); return new Set(Array.isArray(ids) ? ids.filter(id => toolBeltIndicators.some(item => item.id === id)) : []); }
+  catch { return new Set(); }
+}
+
+function storeToolBeltActive(ids) {
+  try { localStorage.setItem(beltActiveStorageKey, JSON.stringify([...ids])); } catch {}
+}
+
+function storedToolBeltSettings() { return readStoredObject(beltSettingsStorageKey); }
+
+function defaultSettings(definition) {
+  return Object.fromEntries(definition.settings.map(([key,,type,value]) => [key, value]));
+}
+
+function effectiveToolBeltSettings(definition) {
+  return {...defaultSettings(definition), ...(storedToolBeltSettings()[definition.id] || {})};
+}
+
+function clearToolBeltDrawings(owner) {
+  const owners = owner ? [owner] : Object.keys(toolBeltDrawingIds);
+  for (const key of owners) {
+    for (const id of toolBeltDrawingIds[key] || []) velaChart?.drawings?.remove?.(id);
+    toolBeltDrawingIds[key] = [];
+  }
+}
+
+function addToolBeltDrawing(type, init, owner = 'liquidity') {
+  const drawing = velaChart?.drawings?.add?.(type, init);
+  if (drawing?.id) (toolBeltDrawingIds[owner] ||= []).push(drawing.id);
+  return drawing;
+}
+
+async function renderLiquidityOnChart() {
+  if (!velaChart || !currentContract) throw new Error('Load a historical chart before activating Liquidity.');
+  if (!velaChart.drawings?.supported || typeof velaChart.drawings.add !== 'function') {
+    throw new Error('This chart renderer cannot display the Liquidity overlay.');
+  }
+  const definition = toolBeltIndicators.find(item => item.id === 'liquidity');
+  const settings = effectiveToolBeltSettings(definition);
+  const {symbol, timeframe, cutoff} = currentContract.market;
+  const query = new URLSearchParams({
+    symbol, timeframe, cutoff:String(cutoff || Math.floor(Date.now() / 1000)),
+    external_length:String(settings.externalPivot), internal_length:String(settings.internalPivot),
+  });
+  const report = await getJson(`/api/tool-belt/liquidity?${query}`);
+  clearToolBeltDrawings('liquidity');
+  const bars = report.bars || [];
+  const firstTime = Number(bars[0]?.time || 0) * 1000;
+  const includeSwept = settings.showSweeps !== false;
+  const levels = (report.levels || []).filter(level =>
+    (includeSwept || !level.broken) &&
+    (level.kind !== 'EXT' || Number(level.touchCount) > 0) &&
+    (!level.broken || Number(level.brokenTime || 0) * 1000 >= firstTime)
+  );
+  const latestInternal = new Map();
+  for (const level of levels) {
+    if (level.kind === 'INT') latestInternal.set(level.side, level.id);
+  }
+  // Match the supplied Pine chart: retain active levels originating before
+  // the visible window, show up to its 180 lines / 20 historical boxes, and
+  // size boxes from its delayed, strict-overlap count.
+  const visibleLevels = levels.filter(level =>
+    level.kind !== 'INT' || latestInternal.get(level.side) === level.id
+  ).slice(-180);
+  const timeframeSeconds = ({'1M':60,'5M':300,'15M':900,'30M':1800,'1H':3600,'4H':14400,'1D':86400})[String(timeframe).toUpperCase()] || 3600;
+  const boxLevelIds = new Set(visibleLevels
+    .filter(level => level.kind === 'EXT' && Number(level.touchCount) > 0)
+    .slice(-20)
+    .map(level => level.id));
+  for (const level of visibleLevels) {
+    const start = Number(level.pivotTime) * 1000;
+    const end = Number(level.brokenTime || report.confirmedCutoff) * 1000;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const isBsl = level.side === 'BSL';
+    const color = level.kind === 'INT'
+      ? (isBsl ? '#ff9800' : '#00ffff')
+      : (isBsl ? '#f23645' : '#089981');
+    const lineColor = level.broken ? '#b4b9c0' : color;
+    const lineStyle = level.broken ? 'dashed' : 'solid';
+    const boundary = Number(isBsl ? level.top : level.bottom);
+    if (boxLevelIds.has(level.id) && Number(level.top) > Number(level.bottom)) {
+      const zoneEnd = Math.min(end, start + timeframeSeconds * 1000 * Math.max(1, Number(level.touchCount) || 1));
+      addToolBeltDrawing('box', {
+        paneId:'price',
+        anchors:[{time:start,price:Number(level.top)},{time:Math.max(start + 1, zoneEnd),price:Number(level.bottom)}],
+      style:{lineColor:`${color}00`,lineWidth:1,lineStyle:'solid',fillColor:`${color}80`},
+      });
+    }
+    if (!Number.isFinite(boundary)) continue;
+    addToolBeltDrawing('trendline', {
+      paneId:'price',
+      anchors:[{time:start,price:boundary},{time:end,price:boundary}],
+      style:{lineColor,lineWidth:1,lineStyle},
+    });
+    addToolBeltDrawing('text', {
+      paneId:'price',
+      anchors:[{time:start,price:boundary}],
+      text:{value:`${level.side} ${level.kind}`,color:lineColor,size:'tiny',hAlign:'left',vAlign:isBsl?'bottom':'top'},
+      style:{lineColor,lineWidth:1,lineStyle:'solid'},
+    });
+  }
+  const cutoffText = report.confirmedCutoff
+    ? new Date(Number(report.confirmedCutoff) * 1000).toLocaleString()
+    : 'unknown cutoff';
+  $('#indicatorTemplateStatus').textContent = visibleLevels.length
+    ? `Liquidity mapped ${visibleLevels.length} confirmed levels on ${symbol} ${timeframe} · EXT BSL red / SSL teal; INT BSL orange / SSL aqua · compact wick-to-body boxes · fresh lines solid, broken lines grey dashed · closed-bar cutoff ${cutoffText} · source rights not recorded; probability unscored.`
+    : `Liquidity active · no confirmed levels match these settings in ${symbol} ${timeframe} through ${cutoffText}.`;
+}
+
+async function renderBiasOnChart() {
+  if (!velaChart || !currentContract) throw new Error('Load a historical chart before activating Bias.');
+  if (!velaChart.drawings?.supported || typeof velaChart.drawings.add !== 'function') {
+    throw new Error('This chart renderer cannot display the Bias overlay.');
+  }
+  const definition = toolBeltIndicators.find(item => item.id === 'bias');
+  const settings = effectiveToolBeltSettings(definition);
+  const {symbol, timeframe, cutoff} = currentContract.market;
+  const query = new URLSearchParams({
+    symbol, timeframe, cutoff:String(cutoff || Math.floor(Date.now() / 1000)),
+    pivot_length:String(settings.pivotLength),
+    sweep_buffer_ticks:String(settings.sweepBufferTicks),
+    acceptance_buffer_ticks:String(settings.acceptanceBufferTicks),
+  });
+  const report = await getJson(`/api/tool-belt/bias?${query}`);
+  const points = report.points || [];
+  const current = points.at(-1);
+  if (!current || report.status !== 'ready') throw new Error(`Bias needs more confirmed ${timeframe} bars to map structure.`);
+  clearToolBeltDrawings('bias');
+  const bars = report.bars || [];
+  const firstTime = Number(bars[0]?.time || 0) * 1000;
+  const cutoffTime = Number(report.confirmedCutoff || bars.at(-1)?.time || 0) * 1000;
+  const selectedBias = settings.priorPeriod !== false ? report.overallBias : current.bias;
+  const biasColor = selectedBias === 'BULLISH' ? '#089981' : selectedBias === 'BEARISH' ? '#f23645' : '#aeb7c2';
+  const latestSwingHigh = current.lastSwingHigh;
+  const latestSwingLow = current.lastSwingLow;
+  for (const [swing, color, tag] of [[latestSwingHigh,'#f23645','LAST HIGH'],[latestSwingLow,'#089981','LAST LOW']]) {
+    if (!swing || !Number.isFinite(Number(swing.price))) continue;
+    const start = Number(swing.time) * 1000;
+    if (!Number.isFinite(start) || cutoffTime <= start) continue;
+    addToolBeltDrawing('trendline', {
+      paneId:'price',anchors:[{time:start,price:Number(swing.price)},{time:cutoffTime,price:Number(swing.price)}],
+      style:{lineColor:color,lineWidth:1,lineStyle:'dashed'},
+    },'bias');
+    if (settings.showSwingLabels !== false && start >= firstTime) {
+      addToolBeltDrawing('text', {
+        paneId:'price',anchors:[{time:start,price:Number(swing.price)}],
+        text:{value:tag,color,size:'tiny',hAlign:'left',vAlign:tag === 'LAST HIGH' ? 'bottom' : 'top'},
+        style:{lineColor:color,lineWidth:1,lineStyle:'solid'},
+      },'bias');
+    }
+  }
+  if (settings.showSwingLabels !== false) {
+    const priorBySide = {HIGH:null,LOW:null};
+    for (const swing of (report.swings || []).filter(item => Number(item.time) * 1000 >= firstTime).slice(-12)) {
+      const previous = priorBySide[swing.side];
+      const relation = previous == null ? (swing.side === 'HIGH' ? 'H' : 'L')
+        : swing.side === 'HIGH' ? (swing.price > previous ? 'HH' : swing.price < previous ? 'LH' : 'EH')
+          : (swing.price > previous ? 'HL' : swing.price < previous ? 'LL' : 'EL');
+      priorBySide[swing.side] = swing.price;
+      const color = swing.side === 'HIGH' ? '#f23645' : '#089981';
+      addToolBeltDrawing('text', {
+        paneId:'price',anchors:[{time:Number(swing.time) * 1000,price:Number(swing.price)}],
+        text:{value:relation,color,size:'tiny',hAlign:'center',vAlign:swing.side === 'HIGH' ? 'bottom' : 'top'},
+        style:{lineColor:color,lineWidth:1,lineStyle:'solid'},
+      },'bias');
+    }
+  }
+  if (settings.showBreaks !== false) {
+    for (const event of (report.events || []).filter(item => Number(item.time) * 1000 >= firstTime).slice(-6)) {
+      const color = event.direction === 'BULLISH' ? '#089981' : '#f23645';
+      const start = Number(event.levelTime) * 1000;
+      const end = Number(event.time) * 1000;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+      addToolBeltDrawing('trendline', {
+        paneId:'price',anchors:[{time:start,price:Number(event.price)},{time:end,price:Number(event.price)}],
+        style:{lineColor:color,lineWidth:2,lineStyle:'solid'},
+      },'bias');
+      addToolBeltDrawing('text', {
+        paneId:'price',anchors:[{time:end,price:Number(event.price)}],
+        text:{value:`${event.kind} ${event.direction === 'BULLISH' ? '↑' : '↓'}`,color,size:'tiny',hAlign:'left',vAlign:event.direction === 'BULLISH' ? 'bottom' : 'top'},
+        style:{lineColor:color,lineWidth:1,lineStyle:'solid'},
+      },'bias');
+    }
+  }
+  const anchorTime = Number(current.time) * 1000;
+  addToolBeltDrawing('text', {
+    paneId:'price',anchors:[{time:anchorTime,price:Number(current.close)}],
+    text:{value:`${selectedBias} BIAS · ${current.phase}${settings.priorPeriod !== false ? ` · ${report.timeframeAlignment}` : ''}`,color:biasColor,size:'small',hAlign:'left',vAlign:'top'},
+    style:{lineColor:biasColor,lineWidth:1,lineStyle:'solid'},
+  },'bias');
+  const higherText = settings.priorPeriod === false ? 'higher-period context hidden' : `${report.higherTimeframe || 'higher timeframe'} ${report.higherStructure?.bias || 'unavailable'} · ${report.timeframeAlignment}`;
+  $('#indicatorTemplateStatus').textContent = `Bias ${selectedBias} on ${symbol} ${timeframe} · ${current.phase} · ${higherText} · ${report.swings?.length || 0} confirmed swings · closed-bar cutoff ${new Date(cutoffTime).toLocaleString()} · source rights not recorded; probability unscored.`;
+}
+
+async function syncToolBeltOverlays() {
+  clearToolBeltDrawings();
+  const active = storedToolBeltActive();
+  if (active.has('liquidity')) {
+    try { await renderLiquidityOnChart(); }
+    catch (error) { $('#indicatorTemplateStatus').textContent = `Liquidity overlay unavailable: ${error.message}`; }
+  }
+  if (active.has('bias')) {
+    try { await renderBiasOnChart(); }
+    catch (error) { $('#indicatorTemplateStatus').textContent = `Bias overlay unavailable: ${error.message}`; }
+  }
+}
+
+function renderToolBeltIndicators() {
+  const grid = $('#toolBeltIndicatorGrid');
+  if (!grid) return;
+  const active = storedToolBeltActive();
+  grid.innerHTML = toolBeltIndicators.map(definition => {
+    const enabled = active.has(definition.id);
+    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}"><button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE' : definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button></article>`;
+  }).join('');
+  const nativeCount = presentNativeTypes().size;
+  $('#toolBeltIndicatorSummary').textContent = `${active.size} active indicators · ${nativeCount} support studies on`;
+}
+
+function renderIndicatorTemplates() {
+  const select = $('#indicatorTemplateSelect');
+  if (!select) return;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(beltTemplatesStorageKey) || '[]');
+    indicatorTemplates = Array.isArray(parsed) ? parsed.filter(item => item && typeof item.name === 'string' && item.state) : [];
+  } catch { indicatorTemplates = []; }
+  const previous = select.value;
+  select.replaceChildren(new Option('Choose a saved template', ''), ...indicatorTemplates.map((item, index) => new Option(item.name, String(index))));
+  if (indicatorTemplates[Number(previous)]) select.value = previous;
+  $('#loadIndicatorTemplate').disabled = !select.value;
+}
+
+function currentToolBeltTemplate() {
+  return {activeIndicators:[...storedToolBeltActive()],supportStudies:[...storedIndicatorTypes()],supportInputs:storedIndicatorInputs(),indicatorSettings:storedToolBeltSettings()};
+}
+
+function saveIndicatorTemplate() {
+  const name = $('#indicatorTemplateName').value.trim();
+  const status = $('#indicatorTemplateStatus');
+  if (!name) { status.textContent = 'Enter a name before saving this template.'; $('#indicatorTemplateName').focus(); return; }
+  const existing = indicatorTemplates.findIndex(item => item.name.toLowerCase() === name.toLowerCase());
+  const item = {name, state:currentToolBeltTemplate(), savedAt:new Date().toISOString()};
+  if (existing >= 0) indicatorTemplates[existing] = item; else indicatorTemplates.unshift(item);
+  try { localStorage.setItem(beltTemplatesStorageKey, JSON.stringify(indicatorTemplates)); }
+  catch { status.textContent = 'Could not save this template in browser storage.'; return; }
+  renderIndicatorTemplates();
+  $('#indicatorTemplateSelect').value = String(indicatorTemplates.indexOf(item));
+  $('#loadIndicatorTemplate').disabled = false;
+  status.textContent = `Saved “${name}” on this browser.`;
+}
+
+async function loadIndicatorTemplate() {
+  const item = indicatorTemplates[Number($('#indicatorTemplateSelect').value)];
+  if (!item) return;
+  try {
+    storeToolBeltActive(new Set((item.state.activeIndicators || []).filter(id => toolBeltIndicators.some(definition => definition.id === id))));
+    saveIndicatorTypes(new Set((item.state.supportStudies || ['volume']).filter(id => indicatorDefinitions.some(definition => definition.type === id))));
+    localStorage.setItem(indicatorInputStorageKey, JSON.stringify(item.state.supportInputs || {}));
+    localStorage.setItem(beltSettingsStorageKey, JSON.stringify(item.state.indicatorSettings || {}));
+    await applyStoredIndicators();
+    $('#indicatorTemplateStatus').textContent = `Loaded “${item.name}”.`;
+  } catch (error) { $('#indicatorTemplateStatus').textContent = `Template could not be loaded: ${error.message}`; }
+}
+
+async function restoreIndicatorDefaults() {
+  storeToolBeltActive(new Set());
+  localStorage.removeItem(beltSettingsStorageKey);
+  saveIndicatorTypes(new Set(['volume']));
+  localStorage.removeItem(indicatorInputStorageKey);
+  indicatorInputMemory = {};
+  await applyStoredIndicators();
+  $('#indicatorTemplateStatus').textContent = 'Default restored · all Tool Belt cards off · Volume support study on · settings reset.';
+}
+
+function openIndicatorSettings(scope, id) {
+  const dialog = $('#indicatorSettingsDialog');
+  const definition = scope === 'toolbelt'
+    ? toolBeltIndicators.find(item => item.id === id)
+    : indicatorDefinitions.find(item => item.type === id);
+  if (!definition) return;
+  settingsTarget = {scope, id, definition};
+  const rows = scope === 'toolbelt'
+    ? definition.settings
+    : Object.hasOwn(definition.inputs, 'length')
+      ? [['length','Period','number',definition.inputs.length,2,5000]]
+      : [];
+  const current = scope === 'toolbelt' ? effectiveToolBeltSettings(definition) : indicatorInputs(definition);
+  $('#indicatorSettingsKind').textContent = scope === 'toolbelt' ? 'INDICATOR SETTINGS' : 'TOOL SUPPORT SETTINGS';
+  $('#indicatorSettingsTitle').textContent = definition.name || definition.label;
+  $('#indicatorSettingsFields').innerHTML = rows.length ? rows.map(([key,label,type,defaultValue,min,max]) => {
+    const value = current[key] ?? defaultValue;
+    if (type === 'checkbox') return `<label>${label}<input type="checkbox" name="${key}" ${value ? 'checked' : ''}></label>`;
+    if (type === 'select') return `<label>${label}<select name="${key}">${min.map(option => `<option ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select></label>`;
+    const attrs = type === 'number' ? ` type="number" min="${min}" max="${max}" step="${Number.isInteger(defaultValue) ? '1' : '0.01'}"` : ' type="text"';
+    return `<label>${label}<input name="${key}"${attrs} value="${escapeHtml(value)}"></label>`;
+  }).join('') : '<p class="indicator-settings-empty">This support study has no editable inputs in the current chart renderer.</p>';
+  $('#indicatorSettingsNote').textContent = scope === 'toolbelt'
+    ? 'Settings are saved with this indicator card in this browser. This research card does not yet provide a plotted Vela overlay.'
+    : rows.length ? 'Period changes apply to the active native Vela study on the current chart.' : 'The study can be activated or removed; the renderer exposes no settings to change.';
+  if (!dialog.open) dialog.showModal();
+}
+
+async function saveOpenIndicatorSettings() {
+  if (!settingsTarget) return;
+  const {scope,id,definition} = settingsTarget;
+  const form = $('#indicatorSettingsForm');
+  const values = Object.fromEntries(new FormData(form).entries());
+  if (scope === 'toolbelt') {
+    const settings = storedToolBeltSettings();
+    for (const [key,,type,defaultValue] of definition.settings) {
+      if (type === 'checkbox') values[key] = values[key] === 'on';
+      else if (type === 'number') {
+        values[key] = Number(values[key]);
+        const [, , , , min, max] = definition.settings.find(field => field[0] === key);
+        if (!Number.isFinite(values[key]) || values[key] < min || values[key] > max) {
+          $('#indicatorSettingsNote').textContent = `${key} must be between ${min} and ${max}.`;
+          return false;
+        }
+      } else if (type === 'text' && !String(values[key] || '').trim()) {
+        $('#indicatorSettingsNote').textContent = `${key} cannot be empty.`;
+        return false;
+      }
+      if (!(key in values)) values[key] = defaultValue;
+    }
+    settings[id] = values;
+    localStorage.setItem(beltSettingsStorageKey, JSON.stringify(settings));
+    if (id === 'liquidity' && storedToolBeltActive().has(id)) await renderLiquidityOnChart();
+    else $('#indicatorTemplateStatus').textContent = `${definition.name} settings saved in this browser.`;
+    return true;
+  }
+  if (Object.hasOwn(definition.inputs, 'length')) {
+    const length = Number(values.length);
+    if (!Number.isInteger(length) || length < 2 || length > 5000) {
+      $('#indicatorSettingsNote').textContent = 'Enter a whole-number period from 2 to 5000.';
+      return false;
+    }
+    saveIndicatorInput(id, length);
+    await applyStoredIndicators();
+  }
+  return true;
+}
+
+async function resetOpenIndicatorSettings() {
+  if (!settingsTarget) return;
+  const {scope,id,definition} = settingsTarget;
+  if (scope === 'toolbelt') {
+    const settings = storedToolBeltSettings();
+    delete settings[id];
+    localStorage.setItem(beltSettingsStorageKey, JSON.stringify(settings));
+    openIndicatorSettings(scope,id);
+    $('#indicatorTemplateStatus').textContent = `${definition.name} settings restored to default.`;
+    return;
+  }
+  const values = storedIndicatorInputs();
+  delete values[id];
+  localStorage.setItem(indicatorInputStorageKey, JSON.stringify(values));
+  indicatorInputMemory = values;
+  await applyStoredIndicators();
+  openIndicatorSettings(scope,id);
 }
 
 function storedIndicatorTypes() {
@@ -135,6 +536,25 @@ function presentNativeTypes() {
   return new Set(typeof velaChart?.presentNativeIndicators === 'function' ? velaChart.presentNativeIndicators() : []);
 }
 
+function renderChartLegend(context = currentContract?.market || window.countDeskVelaContext) {
+  const legend = $('#velaChartLegend');
+  if (!legend) return;
+  if (!context?.symbol || !context?.timeframe) {
+    legend.innerHTML = '<span class="vela-chart-legend-market">Waiting for chart</span>';
+    return;
+  }
+  const colors = {volume:'#74c6a5',rsi:'#b78cff',sma:'#f2c14e',ema:'#54c9de',atr:'#ff8b72',vpvr:'#77a8ff',liquidity:'#f3b95f',bias:'#b78cff'};
+  const present = presentNativeTypes();
+  const active = indicatorDefinitions.filter(def => present.has(def.type)).map(def => ({name:indicatorDisplayLabel(def), color:colors[def.type] || '#aebdc5'}));
+  const beltActive = storedToolBeltActive();
+  if (beltActive.has('liquidity') && (toolBeltDrawingIds.liquidity || []).length) active.push({name:'Liquidity', color:colors.liquidity});
+  if (beltActive.has('bias') && (toolBeltDrawingIds.bias || []).length) active.push({name:'Bias', color:colors.bias});
+  const studies = active.length
+    ? active.map(item => `<span class="vela-chart-study"><i style="--study-color:${item.color}" aria-hidden="true"></i>${escapeHtml(item.name)}</span>`).join('')
+    : '<span class="vela-chart-no-studies">No indicators loaded</span>';
+  legend.innerHTML = `<div class="vela-chart-legend-market"><strong>${escapeHtml(context.symbol)}</strong><span>${escapeHtml(context.timeframe)}</span></div><div class="vela-chart-legend-studies" aria-label="Active chart indicators">${studies}</div>`;
+}
+
 function activeIndicatorLabels() {
   const present = presentNativeTypes();
   const selected = present.size ? present : storedIndicatorTypes();
@@ -143,6 +563,7 @@ function activeIndicatorLabels() {
 }
 
 function renderIndicatorContext(contract = currentContract) {
+  renderChartLegend(window.countDeskVelaContext || contract?.market);
   const labels = activeIndicatorLabels();
   $('#cleoIndicators').textContent = labels;
   $('#velaPaperIndicators').textContent = `Studies · ${labels}`;
@@ -157,7 +578,7 @@ async function renderIndicatorRegistry() {
   const list = $('#velaIndicatorList');
   if (!velaChart || typeof velaChart.availableNativeIndicators !== 'function') {
     list.textContent = 'Native indicator registry is unavailable in this renderer build.';
-    $('#velaIndicatorSummary').textContent = 'registry unavailable';
+    renderToolBeltIndicators();
     return;
   }
   const available = await velaChart.availableNativeIndicators();
@@ -168,28 +589,11 @@ async function renderIndicatorRegistry() {
     const supported = item?.supported !== false;
     const active = present.has(def.type);
     const state = !supported ? 'UNAVAILABLE' : active ? 'ON' : 'OFF';
-    return `<button type="button" class="vela-indicator-row ${active ? 'active' : ''}" data-vela-indicator="${def.type}" ${supported ? '' : 'disabled'} aria-pressed="${active}"><span><b>${indicatorDisplayLabel(def)}</b><small>${def.note}</small></span><strong>${state}</strong></button>`;
+    const hasSettings = Object.hasOwn(def.inputs,'length');
+    return `<div class="vela-indicator-row ${active ? 'active' : ''}"><button type="button" class="native-study-toggle" data-vela-indicator="${def.type}" ${supported ? '' : 'disabled'} aria-pressed="${active}"><span><b>${indicatorDisplayLabel(def)}</b><small>${def.note}</small></span><strong>${state}</strong></button><button type="button" class="native-study-gear" data-open-native-settings="${def.type}" aria-label="Settings for ${def.label}" title="Settings" ${supported ? '' : 'disabled'}>⚙</button></div>`;
   }).join('');
-  $('#velaIndicatorSummary').textContent = `${[...present].filter(type => indicatorDefinitions.some(def => def.type === type)).length} active · native registry`;
-  renderIndicatorSettings();
+  renderToolBeltIndicators();
   renderIndicatorContext();
-}
-
-function renderIndicatorSettings() {
-  const select = $('#velaIndicatorSettingType');
-  const input = $('#velaIndicatorSettingLength');
-  const status = $('#velaIndicatorSettingStatus');
-  if (!select || !input || !status) return;
-  const periodDefs = indicatorDefinitions.filter(def => Object.hasOwn(def.inputs, 'length'));
-  const previous = select.value;
-  select.innerHTML = periodDefs.map(def => `<option value="${def.type}">${indicatorDisplayLabel(def).replace(/ \d+$/, '')}</option>`).join('');
-  select.value = periodDefs.some(def => def.type === previous) ? previous : (periodDefs[0]?.type || '');
-  const selected = indicatorDefinitions.find(def => def.type === select.value);
-  const hasPeriod = Boolean(selected);
-  input.disabled = !hasPeriod;
-  $('#velaIndicatorSettingApply').disabled = !hasPeriod;
-  input.value = hasPeriod ? indicatorInputs(selected).length : '';
-  status.textContent = hasPeriod ? `Stored period for ${selected.label}. Apply to refresh the chart.` : 'No period input is available for this study.';
 }
 
 async function applyStoredIndicators() {
@@ -211,6 +615,8 @@ async function applyStoredIndicators() {
     handle?.on?.('error', event => setStatus(`${def.label} unavailable: ${event.error?.message || 'indicator error'}`, true));
   }
   await renderIndicatorRegistry();
+  await syncToolBeltOverlays();
+  renderChartLegend();
 }
 
 async function toggleIndicator(type) {
@@ -270,12 +676,37 @@ async function refreshFeedState(market, timeframe) {
     const tickstream = (sources.sources || []).find(item => item.id === 'tickstream');
     $('#velaFeedState').textContent = `${status.provider || 'Historical source'} · ${status.mode || 'UNKNOWN'}`;
     $('#velaFeedMeta').textContent = `${status.message || 'Source status available.'} Tickstream: ${tickstream?.status || 'unknown'}.`;
-    renderTickstreamReadiness(await getJson('/api/tickstream/status'));
+    const tickstreamState = await getJson('/api/tickstream/status');
+    renderTickstreamReadiness(tickstreamState);
+    const connected = status.status === 'receiving' || tickstreamState.state === 'connected';
+    const connecting = status.status === 'connecting' || tickstreamState.state === 'connecting';
+    setConnectionButtonState(connected ? 'connected' : connecting ? 'connecting' : 'disconnected', {
+      feed: status,
+      tickstream: tickstreamState,
+      sources: sources.sources || [],
+    });
   } catch (error) {
     $('#velaFeedState').textContent = 'Source status unavailable';
     $('#velaFeedMeta').textContent = error.message;
     renderTickstreamReadiness({status:'unknown'});
+    setConnectionButtonState('disconnected', {error: error.message});
   }
+}
+
+function setConnectionButtonState(state, details = {}) {
+  const button = $('#velaConnectionsButton');
+  if (!button) return;
+  const labels = {
+    connected: ['Connected', 'At least one active data connection is receiving data.'],
+    connecting: ['Connecting', 'A data connection is still trying to connect.'],
+    disconnected: ['Disconnected', 'No active data connection is confirmed.'],
+  };
+  const [label, summary] = labels[state] || labels.disconnected;
+  button.classList.remove('is-checking', 'is-connected', 'is-connecting', 'is-disconnected');
+  button.classList.add(`is-${state}`);
+  button.setAttribute('aria-label', `Connections status: ${label.toLowerCase()}`);
+  const evidence = details.error || details.tickstream?.message || details.feed?.message || '';
+  button.title = evidence ? `${summary} ${evidence}` : summary;
 }
 
 async function probeTickstream() {
@@ -334,18 +765,37 @@ function tickstreamDataFeed(timeframe) {
   };
 }
 
+async function waitForTickstreamBars(timeframe, timeoutMs = 35000) {
+  const deadline = Date.now() + timeoutMs;
+  let state;
+  let chartPayload;
+  while (Date.now() < deadline) {
+    [state, chartPayload] = await Promise.all([
+      getJson('/api/tickstream/status'),
+      getJson(`/api/tickstream/bars?symbol=NQ&timeframe=${encodeURIComponent(timeframe)}`),
+    ]);
+    renderTickstreamReadiness(state);
+    if (!state.configured && state.state === 'not_connected') {
+      throw new Error('Set the server-side Tickstream key in count-dashboard/.env, then restart Count Desk.');
+    }
+    if (state.state === 'error' || chartPayload.state === 'error') {
+      throw new Error(state.message || chartPayload.message || 'Tickstream connection failed.');
+    }
+    if (chartPayload.bars?.length) return {state, chartPayload};
+    setStatus(`${state.message || 'Connecting to Tickstream…'} Waiting for the first NQ chart bars.`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error(state?.message || 'Tickstream connected, but no NQ chart bars arrived within 35 seconds.');
+}
+
 async function loadTickstreamChart() {
   const button = $('#velaTickstreamProbe');
   const timeframe = $('#velaTimeframe').value;
   const velaTimeframe = ({'1M':'1', '1H':'60', '4H':'240', '1D':'D'})[timeframe] || '1';
   button.disabled = true;
   try {
-    let state = await getJson('/api/tickstream/status');
-    renderTickstreamReadiness(state);
-    if (state.state === 'error') throw new Error(state.message);
+    let {state, chartPayload} = await waitForTickstreamBars(timeframe);
     setStatus(`Tickstream NQ connected · seven-day history ${state.historyState || 'loading'} · loading recent candles…`);
-    const chartPayload = await getJson(`/api/tickstream/bars?symbol=NQ&timeframe=${encodeURIComponent(timeframe)}`);
-    if (!chartPayload.bars?.length) throw new Error('Tickstream is connected but has not delivered NQ chart ticks yet.');
     let data = chartPayload.bars.map(bar => ({...bar, time:Number(bar.time) * 1000}));
     let fullHistoryLoaded = chartPayload.historyState === 'complete';
     if (velaChart) { try { velaChart.destroy?.(); } catch {} velaChart = null; }
@@ -355,11 +805,16 @@ async function loadTickstreamChart() {
     velaChart = new window.Vela.Vela('#velaChart', {
       symbol:'NQ', timeframe:velaTimeframe, bars:10080, data, live:true,
       theme:'dark', drawings:true, volume:false, currentPriceLine:true,
+      nativeBackend:'canvas2d', animations:{intro:false},
     }, {dataFeed:feed});
     window.countDeskVelaChart = velaChart;
     await velaChart.ready();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    velaChart.resize();
     applyScreenPaintToChart();
     await applyStoredIndicators();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    velaChart.resize();
     $('#velaPaperTab').disabled = true;
     $('#velaPaperMarket').textContent = `NQ · ${timeframe} · Tickstream`;
     $('#velaPaperSource').textContent = 'Paper simulation is disabled for the streamed NQ instrument.';
@@ -386,7 +841,15 @@ async function loadTickstreamChart() {
     setStatus(`Tickstream NQ ${timeframe} chart connected · ${state.state} · memory-only candles.`);
   } catch (error) {
     $('#velaTickstreamStatus').textContent = error.message;
-    setStatus(error.message, true);
+    const fallback = catalog.find(item => item.symbol.includes('MYM')) || catalog.find(item => item.timeframes?.some(tf => tf.timeframe === '1H'));
+    if (!fallback) {
+      setStatus(error.message, true);
+      return;
+    }
+    $('#velaSymbol').value = fallback.symbol;
+    $('#velaTimeframe').value = fallback.timeframes?.some(tf => tf.timeframe === '1H') ? '1H' : (fallback.timeframes?.[0]?.timeframe || '1H');
+    await loadPreview();
+    setStatus(`Historical chart loaded · Tickstream unavailable: ${error.message}`, true);
   } finally {
     button.disabled = false;
   }
@@ -514,10 +977,17 @@ async function loadPreview() {
       drawings: true,
       volume: false,
       currentPriceLine: true,
+      nativeBackend: 'canvas2d',
+      animations: {intro: false},
     });
+    window.countDeskVelaChart = velaChart;
     await velaChart.ready();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    velaChart.resize();
     applyScreenPaintToChart();
     await applyStoredIndicators();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    velaChart.resize();
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · cutoff ${last} · source ${contract.analysis.source}`;
@@ -534,6 +1004,8 @@ async function loadPreview() {
 }
 
 async function init() {
+  renderToolBeltIndicators();
+  renderIndicatorTemplates();
   try {
     const payload = await getJson('/api/symbols');
     catalog = payload.symbols || [];
@@ -544,6 +1016,11 @@ async function init() {
       $('#velaTimeframe').value = '1M';
     }
     await loadPreview();
+    clearInterval(window.countDeskConnectionsStatusTimer);
+    window.countDeskConnectionsStatusTimer = setInterval(() => {
+      const market = selectedMarket();
+      if (market) void refreshFeedState(market, $('#velaTimeframe').value);
+    }, 5000);
     applyWorkspaceHash();
   } catch (error) {
     setStatus(error.message, true);
@@ -572,25 +1049,66 @@ $('#velaReplayLatest').addEventListener('click', () => {
 });
 $('#velaTickstreamProbe').addEventListener('click', () => void probeTickstream());
 $('#velaIndicatorList').addEventListener('click', event => {
+  const gear = event.target.closest('[data-open-native-settings]');
+  if (gear) return openIndicatorSettings('native',gear.dataset.openNativeSettings);
   const button = event.target.closest('[data-vela-indicator]');
   if (!button || button.disabled) return;
   void toggleIndicator(button.dataset.velaIndicator).catch(error => setStatus(error.message, true));
 });
-$('#velaIndicatorSettingType').addEventListener('change', renderIndicatorSettings);
-async function applyIndicatorSetting() {
-  const type = $('#velaIndicatorSettingType').value;
-  const length = Number($('#velaIndicatorSettingLength').value);
-  const status = $('#velaIndicatorSettingStatus');
-  if (!type || !Number.isInteger(length) || length < 2 || length > 5000) {
-    status.textContent = 'Enter a whole-number period from 2 to 5000.';
+$('#toolBeltIndicatorGrid').addEventListener('click', async event => {
+  const gear = event.target.closest('[data-open-tool-settings]');
+  if (gear) return openIndicatorSettings('toolbelt',gear.dataset.openToolSettings);
+  const button = event.target.closest('[data-toggle-tool-belt]');
+  if (!button) return;
+  const id = button.dataset.toggleToolBelt;
+  const definition = toolBeltIndicators.find(item => item.id === id);
+  if (!definition) return;
+  if (!['liquidity','bias'].includes(id)) {
+    $('#indicatorTemplateStatus').textContent = `${definition.name} does not have a chart renderer connected yet.`;
     return;
   }
-  saveIndicatorInput(type, length);
-  status.textContent = `Saved ${length}. Refreshing ${type.toUpperCase()}…`;
-  try { await applyStoredIndicators(); } catch (error) { status.textContent = error.message; }
-}
-document.addEventListener('click', event => {
-  if (event.target.closest('#velaIndicatorSettingApply')) void applyIndicatorSetting();
+  const active = storedToolBeltActive();
+  if (active.has(id)) {
+    active.delete(id);
+    storeToolBeltActive(active);
+    clearToolBeltDrawings(id);
+    renderToolBeltIndicators();
+    renderChartLegend();
+    $('#indicatorTemplateStatus').textContent = `${definition.name} deactivated and removed from the chart.`;
+    return;
+  }
+  $('#indicatorTemplateStatus').textContent = `Loading confirmed ${definition.name} context onto the chart…`;
+  try {
+    if (id === 'liquidity') await renderLiquidityOnChart();
+    else await renderBiasOnChart();
+    active.add(id);
+    storeToolBeltActive(active);
+    renderToolBeltIndicators();
+    renderChartLegend();
+  } catch (error) {
+    clearToolBeltDrawings(id);
+    $('#indicatorTemplateStatus').textContent = `${definition.name} could not be activated: ${error.message}`;
+  }
+});
+$('#toolSupportToggle').addEventListener('click', () => {
+  const panel = $('#toolSupportPanel');
+  const opening = panel.hidden;
+  panel.hidden = !opening;
+  $('#toolSupportToggle').setAttribute('aria-expanded',String(opening));
+});
+$('#saveIndicatorTemplate').addEventListener('click',saveIndicatorTemplate);
+$('#loadIndicatorTemplate').addEventListener('click',() => void loadIndicatorTemplate());
+$('#indicatorTemplateSelect').addEventListener('change',() => { $('#loadIndicatorTemplate').disabled = !$('#indicatorTemplateSelect').value; });
+$('#restoreIndicatorDefaults').addEventListener('click',() => void restoreIndicatorDefaults());
+$('#indicatorSettingsForm').addEventListener('submit',async event => {
+  event.preventDefault();
+  if (await saveOpenIndicatorSettings()) $('#indicatorSettingsDialog').close();
+});
+$('#resetIndicatorSettings').addEventListener('click',() => void resetOpenIndicatorSettings());
+document.querySelectorAll('[data-close-settings]').forEach(button => button.addEventListener('click',() => $('#indicatorSettingsDialog').close()));
+document.querySelector('[data-close-tool-belt]').addEventListener('click',() => {
+  $('#deskStudies').hidden = true;
+  document.querySelector('[data-drawer="studies"]').setAttribute('aria-expanded','false');
 });
 $('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));
