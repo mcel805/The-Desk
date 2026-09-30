@@ -30,6 +30,17 @@ export function planMetrics({side, quantity, entry, stop, target, reference, mul
   };
 }
 
+export function moveAttachedLevels(previousEntry, nextEntry, stop, target) {
+  const before = Number(previousEntry);
+  const after = Number(nextEntry);
+  if (!Number.isFinite(before) || before <= 0 || !Number.isFinite(after) || after <= 0)
+    return {stop, target};
+  const delta = after - before;
+  const shift = value => value == null || value === '' ? value :
+    Number.isFinite(Number(value)) ? Number((Number(value) + delta).toFixed(8)) : value;
+  return {stop:shift(stop), target:shift(target)};
+}
+
 const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:2}).format(value);
 const priceText = value => value == null ? '—' : Number(value).toLocaleString('en-US', {maximumFractionDigits:4});
 const field = (label, id, body) => `<label>${label}${body.replace('ID', id)}</label>`;
@@ -50,6 +61,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       <div class="paper-rail-pair">${field('Contracts','paperRailQuantity','<input id="ID" type="number" min="1" max="100" step="1" value="1" required>')}${field('Entry / limit','paperRailEntry','<input id="ID" type="number" min="0" step="any" inputmode="decimal">')}</div>
       ${field('Stop trigger','paperRailTrigger','<input id="ID" type="number" min="0" step="any" inputmode="decimal">')}
       <div class="paper-rail-pair">${field('Protective stop','paperRailStop','<input id="ID" type="number" min="0" step="any" inputmode="decimal" placeholder="Optional">')}${field('Profit target','paperRailTarget','<input id="ID" type="number" min="0" step="any" inputmode="decimal" placeholder="Optional">')}</div>
+      <label class="paper-rail-follow"><input id="paperRailFollowEntry" type="checkbox">Move stop and target with entry</label>
       <div class="paper-rail-metrics"><div><span>Risk at stop</span><strong id="paperRailRisk">—</strong></div><div><span>Reward at target</span><strong id="paperRailReward">—</strong></div><div><span>Reward / risk</span><strong id="paperRailRatio">—</strong></div><div><span>Scenario P&amp;L</span><strong id="paperRailScenario">—</strong></div></div>
       <p id="paperRailReference" class="paper-rail-reference">No stored price reference.</p>
       <p id="paperRailValidation" class="paper-rail-validation" role="status">Set entry, stop, and target on the chart or here.</p>
@@ -72,6 +84,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
   let enabled = false;
   let hasDraft = false;
   let reviewOpen = false;
+  let committedEntry = null;
 
   const readPlan = () => ({
     side:inputs.side.value, order_type:inputs.type.value, quantity:Number(inputs.quantity.value),
@@ -149,10 +162,25 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     reviewOpen = false;
     removeLines();
     for (const key of ['entry','trigger','stop','target']) inputs[key].value = '';
+    committedEntry = null;
     render();
   };
+  const commitEntryEdit = () => {
+    const next = readPlan().entry;
+    if (get('paperRailFollowEntry').checked && inputs.type.value !== 'market') {
+      const shifted = moveAttachedLevels(committedEntry, next, inputs.stop.value, inputs.target.value);
+      inputs.stop.value = shifted.stop == null ? '' : String(shifted.stop);
+      inputs.target.value = shifted.target == null ? '' : String(shifted.target);
+    }
+    committedEntry = Number.isFinite(next) && next > 0 ? next : null;
+  };
   rail.addEventListener('input', event => { if (event.target !== get('paperRailAccount')) hasDraft = true; reviewOpen = false; render(); });
-  rail.addEventListener('change', event => { if (event.target !== get('paperRailAccount')) hasDraft = true; reviewOpen = false; render(); });
+  rail.addEventListener('change', event => {
+    if (event.target === get('paperRailAccount')) return;
+    if (event.target === inputs.entry || event.target === inputs.trigger && inputs.type.value === 'stop') commitEntryEdit();
+    else if (event.target === inputs.type) committedEntry = readPlan().entry;
+    hasDraft = true; reviewOpen = false; render();
+  });
   get('paperRailAccount').addEventListener('change', event => { reviewOpen = false; onAccountSelect(event.target.value); });
   get('paperRailOpenAccounts').addEventListener('click', onOpenAccounts);
   get('paperRailDiscard').addEventListener('click', discard);
@@ -183,6 +211,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
         hasDraft = false;
         reviewOpen = false;
         for (const key of ['entry','trigger','stop','target']) inputs[key].value = '';
+        committedEntry = null;
       }
       reference = Number(nextContract?.analysis?.lastClose);
       if (!Number.isFinite(reference) || reference <= 0) reference = null;
@@ -210,6 +239,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
           if (kind === 'entry' && inputs.type.value === 'stop') inputs.trigger.value = String(price);
           else if (kind === 'entry') inputs.entry.value = String(price);
           else inputs[kind].value = String(price);
+          if (kind === 'entry') commitEntryEdit();
           reviewOpen = false;
           render();
         });
@@ -234,6 +264,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
         inputs.entry.value = String(picked);
         if (type === 'stop') inputs.trigger.value = String(picked);
       }
+      committedEntry = readPlan().entry;
       render();
       rail.scrollIntoView({block:'nearest'});
       inputs[type === 'market' ? 'quantity' : 'entry'].focus();
