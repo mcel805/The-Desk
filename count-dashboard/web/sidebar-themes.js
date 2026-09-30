@@ -1,12 +1,21 @@
 (() => {
   const sidebar = document.querySelector('.desk-sidebar');
+  const chart = document.querySelector('.vela-preview-main');
+  const chat = document.querySelector('#deskChatMount');
   const trigger = document.querySelector('#deskThemeButton');
   const panel = document.querySelector('#deskThemeManager');
   const grid = document.querySelector('#deskThemeGrid');
   const status = document.querySelector('#deskThemeStatus');
-  if (!sidebar || !trigger || !panel || !grid || !status) return;
+  const targets = [...document.querySelectorAll('[data-paint-target]')];
+  const selectAll = document.querySelector('#deskPaintAll');
+  if (!sidebar || !chart || !chat || !trigger || !panel || !grid || !status || !targets.length || !selectAll) return;
 
-  const storageKey = 'countdesk-sidebar-theme-v1';
+  const storageKey = 'countdesk-screen-themes-v1';
+  const legacyStorageKey = 'countdesk-sidebar-theme-v1';
+  const defaultPalette = {
+    bg:'#0d151e',surface:'#101c27',active:'#18353b',text:'#dce7ed',muted:'#91a7b5',
+    accent:'#cefff3',border:'#253442',hover:'#142833',
+  };
   const themes = [
     {id:'dracula',name:'Dracula',bg:'#282a36',surface:'#343746',active:'#44475a',text:'#f8f8f2',muted:'#bd93f9',accent:'#ff79c6',border:'#494b5c',hover:'#383b4b'},
     {id:'catppuccin-mocha',name:'Catppuccin Mocha',bg:'#1e1e2e',surface:'#29293b',active:'#45475a',text:'#cdd6f4',muted:'#a6adc8',accent:'#cba6f7',border:'#3b3b52',hover:'#303044'},
@@ -29,37 +38,82 @@
     {id:'monochrome',name:'Monochrome',bg:'#171717',surface:'#252525',active:'#363636',text:'#f2f2f2',muted:'#a0a0a0',accent:'#e0e0e0',border:'#444444',hover:'#303030'},
     {id:'neptune-blue',name:'Neptune Blue',bg:'#071a2b',surface:'#102a42',active:'#193c59',text:'#d8ecff',muted:'#8eb8db',accent:'#42b7d8',border:'#284b65',hover:'#17334d'},
   ];
+  const surfaces = {sidebar,chart,chat};
+  const labels = {sidebar:'Left',chart:'Chart',chat:'Chat'};
+  let selections = {sidebar:'default',chart:'default',chat:'default'};
 
-  const defaultPalette = {
-    bg:'#0d151e',surface:'#101c27',active:'#18353b',text:'#dce7ed',muted:'#91a7b5',
-    accent:'#cefff3',border:'#253442',hover:'#142833',
-  };
-
-  function selectedId() {
-    try { return localStorage.getItem(storageKey) || 'default'; } catch { return 'default'; }
+  function readSaved() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      if (saved && typeof saved === 'object') {
+        for (const key of Object.keys(selections)) {
+          const value = saved[key];
+          if (value === 'default' || themes.some(theme => theme.id === value)) selections[key] = value;
+        }
+        return;
+      }
+      const legacy = localStorage.getItem(legacyStorageKey);
+      if (legacy && themes.some(theme => theme.id === legacy)) selections.sidebar = legacy;
+    } catch {}
   }
 
-  function applyTheme(id, persist = true) {
-    const theme = themes.find(item => item.id === id);
-    const palette = theme || defaultPalette;
-    sidebar.style.setProperty('--sidebar-bg', palette.bg);
-    sidebar.style.setProperty('--sidebar-surface', palette.surface);
-    sidebar.style.setProperty('--sidebar-active', palette.active);
-    sidebar.style.setProperty('--sidebar-text', palette.text);
-    sidebar.style.setProperty('--sidebar-muted', palette.muted);
-    sidebar.style.setProperty('--sidebar-accent', palette.accent);
-    sidebar.style.setProperty('--sidebar-border', palette.border);
-    sidebar.style.setProperty('--sidebar-hover', palette.hover);
-    if (persist) {
-      try {
-        if (theme) localStorage.setItem(storageKey, theme.id);
-        else localStorage.removeItem(storageKey);
-      } catch {}
+  function persist() {
+    try { localStorage.setItem(storageKey, JSON.stringify(selections)); } catch {}
+  }
+
+  function selectedTargets() {
+    return targets.filter(input => input.checked).map(input => input.value);
+  }
+
+  function paletteFor(id) {
+    return themes.find(theme => theme.id === id) || defaultPalette;
+  }
+
+  function updateSurface(key) {
+    const surface = surfaces[key];
+    const palette = paletteFor(selections[key]);
+    const tokens = {
+      '--paint-bg':palette.bg,'--paint-surface':palette.surface,'--paint-active':palette.active,
+      '--paint-text':palette.text,'--paint-muted':palette.muted,'--paint-accent':palette.accent,
+      '--paint-border':palette.border,'--paint-hover':palette.hover,
+    };
+    const prefix = key === 'sidebar' ? 'sidebar' : 'screen';
+    for (const [token, color] of Object.entries(tokens)) surface.style.setProperty(token.replace('--paint-', `--${prefix}-`), color);
+    if (key === 'chart') window.dispatchEvent(new CustomEvent('countdesk:screen-palette-change', {detail:{target:'chart'}}));
+  }
+
+  function updateStatus(message) {
+    if (message) { status.textContent = message; return; }
+    const chosen = selectedTargets();
+    if (!chosen.length) { status.textContent = 'Choose one or more panels above.'; return; }
+    const ids = new Set(chosen.map(key => selections[key]));
+    if (ids.size === 1) {
+      const id = ids.values().next().value;
+      const name = themes.find(theme => theme.id === id)?.name || 'Count Desk default';
+      status.textContent = `${name} · ${chosen.map(key => labels[key]).join(' + ')}`;
+    } else {
+      status.textContent = `${chosen.map(key => `${labels[key]}: ${themes.find(theme => theme.id === selections[key])?.name || 'Default'}`).join(' · ')}`;
     }
-    status.textContent = theme ? `${theme.name} applied · left rail only` : 'Count Desk default';
+  }
+
+  function refreshChoices() {
+    const targetsNow = selectedTargets();
+    const allSame = targetsNow.length > 0 && targetsNow.every(key => selections[key] === selections[targetsNow[0]]);
+    const activeId = allSame ? selections[targetsNow[0]] : null;
     grid.querySelectorAll('[data-theme-id]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.themeId === (theme?.id || '')));
+      button.setAttribute('aria-pressed', String(button.dataset.themeId === activeId));
     });
+    selectAll.textContent = targetsNow.length === targets.length ? 'Clear selection' : 'Select all';
+    updateStatus();
+  }
+
+  function applyTheme(id) {
+    const chosen = selectedTargets();
+    if (!chosen.length) { updateStatus('Select a panel above, then choose a palette.'); return; }
+    for (const key of chosen) selections[key] = id;
+    for (const key of chosen) updateSurface(key);
+    persist();
+    refreshChoices();
   }
 
   for (const theme of themes) {
@@ -83,6 +137,13 @@
     grid.append(button);
   }
 
+  for (const target of targets) target.addEventListener('change', refreshChoices);
+  selectAll.addEventListener('click', () => {
+    const check = selectedTargets().length !== targets.length;
+    targets.forEach(target => { target.checked = check; });
+    refreshChoices();
+  });
+
   const closeButton = document.querySelector('#deskThemeClose');
   function positionPanel() {
     const edge = sidebar.getBoundingClientRect().right;
@@ -98,13 +159,15 @@
     const opening = panel.hidden;
     panel.hidden = !opening;
     trigger.setAttribute('aria-expanded', String(opening));
-    if (opening) {
-      positionPanel();
-      closeButton.focus();
-    }
+    if (opening) { positionPanel(); closeButton.focus(); }
   });
   closeButton.addEventListener('click', () => closePanel(true));
-  document.querySelector('#deskThemeReset').addEventListener('click', () => applyTheme('default'));
+  document.querySelector('#deskThemeReset').addEventListener('click', () => {
+    selections = {sidebar:'default',chart:'default',chat:'default'};
+    Object.keys(surfaces).forEach(updateSurface);
+    persist();
+    refreshChoices();
+  });
   document.addEventListener('click', event => {
     if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target)) closePanel();
   });
@@ -113,5 +176,7 @@
   });
   addEventListener('resize', () => { if (!panel.hidden) positionPanel(); });
 
-  applyTheme(selectedId(), false);
+  readSaved();
+  Object.keys(surfaces).forEach(updateSurface);
+  refreshChoices();
 })();

@@ -34,6 +34,23 @@ function setStatus(message, error = false) {
   node.classList.toggle('error', error);
 }
 
+function applyScreenPaintToChart() {
+  if (!velaChart?.setTheme) return;
+  const styles = getComputedStyle($('.vela-preview-main'));
+  const color = name => styles.getPropertyValue(`--screen-${name}`).trim();
+  velaChart.setTheme({
+    background:color('bg') || '#151619',
+    textColor:color('text') || '#b2b5be',
+    gridColor:color('border') || '#20222c',
+    borderColor:color('border') || '#2a2b30',
+    fontFamily:'sans-serif',
+  });
+}
+
+window.addEventListener('countdesk:screen-palette-change', event => {
+  if (event.detail?.target === 'chart') applyScreenPaintToChart();
+});
+
 function fillSymbols() {
   $('#velaSymbol').innerHTML = catalog.map(item => `<option value="${item.symbol}">${item.label || item.symbol}</option>`).join('');
   const preferred = catalog.find(item => item.symbol.includes('MYM')) || catalog[0];
@@ -341,6 +358,7 @@ async function loadTickstreamChart() {
     }, {dataFeed:feed});
     window.countDeskVelaChart = velaChart;
     await velaChart.ready();
+    applyScreenPaintToChart();
     await applyStoredIndicators();
     $('#velaPaperTab').disabled = true;
     $('#velaPaperMarket').textContent = `NQ · ${timeframe} · Tickstream`;
@@ -498,6 +516,7 @@ async function loadPreview() {
       currentPriceLine: true,
     });
     await velaChart.ready();
+    applyScreenPaintToChart();
     await applyStoredIndicators();
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
