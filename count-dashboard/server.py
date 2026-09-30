@@ -48,6 +48,7 @@ from tickstream_adapter import (
     fetch_quote as fetch_tickstream_quote,
 )
 from volume_profile_lab import ProfileSettings, build_volume_profile, replay_profile_quality
+from liquidity_engine import LiquiditySettings, build_liquidity_levels, input_hash as liquidity_input_hash
 import indicator_agent_store
 
 
@@ -1520,6 +1521,42 @@ def volume_profile_report(db: sqlite3.Connection, symbol: str, timeframe: str,
     return result
 
 
+def liquidity_engine_report(db: sqlite3.Connection, symbol: str, timeframe: str,
+                           cutoff: int, settings: LiquiditySettings = LiquiditySettings()) -> dict:
+    """Run the premium liquidity-only engine on causally closed stored bars."""
+    stored = get_bars(db, symbol, timeframe, cutoff, min(HISTORY_LIMITS.get(timeframe, 3000), 1201))
+    if len(stored) < 2:
+        raise ValueError("At least two stored bars are required to confirm a closed bar.")
+    confirmed = stored[:-1]
+    result = build_liquidity_levels(confirmed, symbol, timeframe, settings)
+    first_time = confirmed[0].time
+    last_time = confirmed[-1].time
+    rows = db.execute(
+        "SELECT DISTINCT d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256,"
+        "MAX(b.derived) derived FROM bars b JOIN datasets d ON d.dataset_id=b.dataset_id "
+        "WHERE b.symbol=? AND b.timeframe=? AND b.time>=? AND b.time<=? "
+        "GROUP BY d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256 ORDER BY d.dataset_id",
+        (symbol, timeframe, first_time, last_time),
+    ).fetchall()
+    result.update({
+        "indicatorId": "liquidity",
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "requestedCutoff": cutoff,
+        "confirmedCutoff": last_time,
+        "excludedLatestStoredBar": stored[-1].time,
+        "barCompletion": "confirmed by a later stored bar",
+        "inputHash": liquidity_input_hash(confirmed, symbol, timeframe, settings),
+        "settings": settings.__dict__,
+        "sources": [dict(row) for row in rows],
+        "sourceRights": "not recorded in Count Desk",
+        "measurementState": "level mapping only; directional probability and predictive performance unscored",
+    })
+    # Keep the visual workbench bounded while the ledger remains deterministic.
+    result["bars"] = [bar.as_dict() for bar in confirmed[-600:]]
+    return result
+
+
 def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> dict:
     window = max(2, min(12, len(bars) // 55))
     swings = confirmed_pivots(bars, window)[-14:]
@@ -2622,6 +2659,20 @@ class Handler(SimpleHTTPRequestHandler):
                             db, symbol, timeframe, cutoff, settings,
                             query.get("replay", ["0"])[0] == "1",
                         ))
+                    if parsed.path == "/api/tool-belt/liquidity":
+                        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                            return self.send_json({"error": "Indicator research is local to this device."}, 403)
+                        query = parse_qs(parsed.query)
+                        symbol = query.get("symbol", [""])[0].strip()
+                        if not symbol:
+                            raise ValueError("symbol is required")
+                        timeframe = normalize_tf(query.get("timeframe", ["5M"])[0])
+                        cutoff = int(query.get("cutoff", [str(2**31 - 1)])[0])
+                        settings = LiquiditySettings(
+                            external_length=int(query.get("external_length", ["14"])[0]),
+                            internal_length=int(query.get("internal_length", ["5"])[0]),
+                        )
+                        return self.send_json(liquidity_engine_report(db, symbol, timeframe, cutoff, settings))
                     if parsed.path == "/api/chat/overview":
                         if self.client_address[0] not in {"127.0.0.1", "::1"}:
                             return self.send_json({"error": "Dashboard chat context is available on this local device only."}, 403)

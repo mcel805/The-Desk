@@ -217,6 +217,7 @@
           <button id="tab-autocounts" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-autocounts" data-inspector-tab="autocounts">Auto counts</button>
           <button id="tab-alternates" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-alternates" data-inspector-tab="alternates">Alternates</button>
           <button id="tab-guide" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-guide" data-inspector-tab="guide">Wave guide</button>
+          <button id="tab-indicatorguide" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-indicatorguide" data-inspector-tab="indicatorguide">Indicator guides</button>
           <button id="tab-journal" class="inspector-tab" role="tab" aria-selected="false" aria-controls="panel-journal" data-inspector-tab="journal">Chart ideas</button>
         </div>
         <section class="inspector-panel active" id="panel-ledger" role="tabpanel" aria-labelledby="ledger">
@@ -264,6 +265,38 @@
           <h2>Interactive pattern reference</h2>
           <label class="guide-select-label">Pattern<select id="guidePattern" aria-label="Wave pattern"></select></label>
           <div id="guideContent" class="guide-content"></div>
+        </section>
+        <section class="inspector-panel" id="panel-indicatorguide" role="tabpanel" aria-labelledby="tab-indicatorguide" hidden>
+          <div class="panel-kicker">PREMIUM INDICATOR / v1.0.0</div>
+          <h2>Liquidity · User guide</h2>
+          <div class="guide-content liquidity-user-guide">
+            <svg class="guide-diagram" viewBox="0 0 300 190" role="img" aria-label="External liquidity bands and internal swing levels between them">
+              <rect x="26" y="31" width="240" height="28" fill="#ed737a" fill-opacity=".13" stroke="#ed737a" stroke-opacity=".6"/><text x="34" y="49">LQ-… BSL EXT · wick to body</text>
+              <line x1="26" y1="92" x2="266" y2="92" stroke="#70bba9" stroke-width="2" stroke-dasharray="3 5"/><text x="34" y="86">LQ-… SSL INT · swing price</text>
+              <rect x="26" y="130" width="240" height="28" fill="#49bea4" fill-opacity=".13" stroke="#49bea4" stroke-opacity=".6"/><text x="34" y="149">LQ-… SSL EXT · wick to body</text>
+            </svg>
+            <h3>What it maps</h3>
+            <ul>
+              <li><strong>External BSL:</strong> a confirmed swing high. The zone spans the wick high to the pivot candle body high.</li>
+              <li><strong>External SSL:</strong> a confirmed swing low. The zone spans the pivot candle body low to the wick low.</li>
+              <li><strong>Internal BSL / SSL:</strong> confirmed smaller swing highs/lows strictly inside the latest confirmed external high/low range. Internal levels are single prices.</li>
+              <li><strong>Lifecycle:</strong> a level begins NEW, becomes TOUCHED on overlap, and becomes BROKEN after a later bar closes through its outer edge. Broken lines stop at that close.</li>
+            </ul>
+            <h3>Defaults and confirmation</h3>
+            <ul>
+              <li>External pivot length: 14 bars to the left and right. Internal pivot length: 5 bars each side. Both can be changed in the Tool Belt map.</li>
+              <li>A pivot is not available until its right-side confirmation bars have closed. The line is drawn back to its pivot candle for context; its recorded <code>confirmedTime</code> is when it first became knowable.</li>
+              <li>The latest stored candle is excluded because the app cannot prove that bar has closed. The displayed cutoff and input hash identify the calculation snapshot.</li>
+              <li>Times in the ledger are displayed in your browser’s local timezone; source retrieval metadata retains its source timestamp.</li>
+            </ul>
+            <h3>Identifier and evidence</h3>
+            <ul>
+              <li>Each tag such as <code>LQ-EXT-BSL-A1B2C3D4</code> shows a short ID derived from a repeatable 16-character identifier tied to engine version, symbol, timeframe, pivot side/type, and pivot time. The full ID is in the workbench ledger with price range, pivot/confirmation/break times, and touch count.</li>
+              <li>Active levels use a restrained teal/red pencil line. Internal lines are dotted. Broken levels turn grey and dashed. “Replay last stored break” plays a small impact ripple on the most recent historical break; it is not a live alert.</li>
+              <li>Probability, directional bias, order-book liquidity, and trading performance are not measured here. The Tool Belt’s 50/50 coin is a display placeholder only. This version does not learn or alter its own rules.</li>
+            </ul>
+            <p class="guide-note">Source: user-provided TradingView Pine v5 script and MYM1! chart image, dated 2026-09-29. This app version ports only the script’s confirmed external swing and internal pivot level logic; it omits equal highs/lows, previous day/week, MTF, spikes, bias, structure panels, premium/discount, probabilities, targets, and alerts. Stored bar provenance is shown with each workbench run; feed rights are not established by this tool.</p>
+          </div>
         </section>
         <section class="inspector-panel journal-inspector-panel" id="panel-journal" role="tabpanel" aria-labelledby="tab-journal" hidden>
           <div class="journal-panel-head"><div><div class="panel-kicker">HYPOTHETICAL CHART IDEAS</div><h2>Level forward tracker</h2></div><button id="refreshJournal" type="button" class="journal-refresh">Refresh</button></div>

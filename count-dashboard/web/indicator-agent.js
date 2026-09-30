@@ -4,6 +4,7 @@ const state = {catalog:[], protocols:[], proposals:[], report:null};
 const metricOptions = {event:['precision','recall','f1','accuracy'],numeric:['mae','rmse']};
 const indicatorArt = {
   'volume-profile':['volume-profile-color.png','Volume Profile'],
+  liquidity:['liquidity-color.png','Liquidity'],
   fibonacci:['fibonacci-color.png','Fibonacci'],
   'liquidity-zones':['liquidity-zones-color.png','Liquidity Zones'],
   'daily-bias':['daily-bias-color.png','Daily Bias'],

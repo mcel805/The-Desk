@@ -1,0 +1,46 @@
+.indicator-art{position:relative}
+.indicator-premium{position:absolute;top:9px;left:9px;padding:5px 7px;border:1px solid #817247;border-radius:3px;background:#202018dd;color:#e8d69a;font:700 .58rem ui-monospace,monospace;letter-spacing:.08em}
+.liquidity-workbench{border-color:#776b48;background:linear-gradient(155deg,#252318,#111820)}
+.liquidity-workbench .belt-kicker{color:#d8c27d}
+.liquidity-chart-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin:18px 0 0;color:#c6bd9f;font:700 .61rem ui-monospace,monospace;letter-spacing:.09em}
+.liquidity-chart-head button{padding:8px 10px;border:1px solid #766a47;border-radius:4px;background:#211f18;color:#e5d7a5;font-size:.65rem;cursor:pointer}
+.liquidity-chart-head button:disabled{opacity:.42;cursor:not-allowed}
+.liquidity-chart{display:block;width:100%;height:auto;min-height:310px;margin-top:8px;border:1px solid #303a43;border-radius:5px;background:#11161d}
+.liquidity-grid{stroke:#87909a;stroke-opacity:.15;stroke-width:1}
+.liquidity-axis-label,.liquidity-time-label{fill:#89939e;font:11px ui-monospace,SFMono-Regular,monospace}
+.liquidity-candle line{stroke-width:1;vector-effect:non-scaling-stroke;opacity:.93}
+.liquidity-candle rect{opacity:.94}
+.liquidity-zone-band{fill-opacity:.11}
+.liquidity-zone-band.bsl{fill:#ee6d72}.liquidity-zone-band.ssl{fill:#49bea4}.liquidity-zone-band.broken{fill:#aeb6c2;fill-opacity:.04}
+.liquidity-edge{fill:none;stroke-width:1.6;vector-effect:non-scaling-stroke}
+.liquidity-level.ext.bsl .liquidity-edge{stroke:#ed737a}.liquidity-level.ext.ssl .liquidity-edge{stroke:#4ac6a7}
+.liquidity-level.int.bsl .liquidity-edge{stroke:#d48b84;stroke-dasharray:2 4}.liquidity-level.int.ssl .liquidity-edge{stroke:#70bba9;stroke-dasharray:2 4}
+.liquidity-level.active .liquidity-edge{animation:liquidity-breathe 4.5s ease-in-out infinite}
+.liquidity-level.broken .liquidity-edge{stroke:#aeb6c2;stroke-width:1.2;stroke-dasharray:6 5;opacity:.72;animation:none}
+.liquidity-leader{fill:none;stroke-width:1;stroke-opacity:.55;vector-effect:non-scaling-stroke}
+.liquidity-leader.bsl{stroke:#ed737a}.liquidity-leader.ssl{stroke:#4ac6a7}.liquidity-leader.broken{stroke:#aeb6c2}
+.liquidity-zone-tag{font:10px ui-monospace,SFMono-Regular,monospace;font-weight:700;paint-order:stroke;stroke:#11161d;stroke-width:3px;stroke-linejoin:round}
+.liquidity-zone-tag.bsl{fill:#f09095}.liquidity-zone-tag.ssl{fill:#75d4bb}.liquidity-zone-tag.broken{fill:#b4bdc9}
+.liquidity-hit-burst circle{fill:none;stroke:#efd38c;stroke-width:2;animation:liquidity-impact .72s ease-out forwards}
+.liquidity-hit-burst .hit-ray{stroke:#efd38c;stroke-width:1.6;vector-effect:non-scaling-stroke;animation:liquidity-spark .72s ease-out forwards}
+.liquidity-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 15px;margin:8px 0 17px;color:#abb5c0;font-size:.65rem}
+.liquidity-legend .ext-swatch{color:#d98286}.liquidity-legend .int-swatch{color:#89a9a4}.liquidity-legend .broken-swatch{color:#b4bdc9}
+.liquidity-ledger-head{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid #394149;color:#ddd3ad;font:.65rem ui-monospace,monospace;letter-spacing:.06em}
+.liquidity-ledger-head span{color:#9eabb5;letter-spacing:normal}
+.liquidity-level-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.liquidity-level-row{display:grid;grid-template-columns:auto auto 1fr auto;align-items:center;gap:6px 9px;padding:10px;border:1px solid #303a42;border-radius:4px;background:#121a21;color:#c5cdd3;font-size:.66rem}
+.liquidity-level-row strong{color:#e6e4da;font-size:.68rem}
+.liquidity-level-row>span:nth-child(3){justify-self:end;font: .66rem ui-monospace,monospace;color:#c9d4dc}
+.level-stamp{padding:3px 5px;border:1px solid #788493;border-radius:3px;color:#d9e1e8;font:700 .6rem ui-monospace,monospace}
+.level-stamp.bsl{border-color:#a96368;color:#f09095}.level-stamp.ssl{border-color:#427d6c;color:#75d4bb}
+.level-stamp.int{border-style:dotted}
+.level-state{color:#8ed0b2;font:700 .57rem ui-monospace,monospace}
+.liquidity-level-row.is-broken .level-state{color:#aeb6c2}
+.liquidity-level-row small{grid-column:1/-1;color:#85929d;font:.57rem ui-monospace,monospace;overflow-wrap:anywhere}
+.liquidity-empty{grid-column:1/-1;color:#9eabb5;font-size:.7rem}
+.liquidity-guide-link{margin:16px 0 0;font-size:.68rem}.liquidity-guide-link a{color:#d5c37d;text-decoration:none}.liquidity-guide-link a:hover{text-decoration:underline}
+@keyframes liquidity-breathe{0%,100%{opacity:.72}50%{opacity:1;filter:drop-shadow(0 0 2px currentColor)}}
+@keyframes liquidity-impact{0%{r:3;opacity:.95}100%{r:25;opacity:0}}
+@keyframes liquidity-spark{0%{opacity:1}100%{opacity:0;transform:translate(0,0)}}
+@media(max-width:700px){.liquidity-level-list{grid-template-columns:1fr}.liquidity-chart{min-height:230px}.liquidity-ledger-head{align-items:flex-start;flex-direction:column}}
+@media(prefers-reduced-motion:reduce){.liquidity-level.active .liquidity-edge{animation:none}.liquidity-hit-burst circle,.liquidity-hit-burst .hit-ray{animation-duration:.01ms}}

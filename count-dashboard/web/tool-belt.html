@@ -6,6 +6,7 @@
   <title>Tool Belt · Count Desk</title>
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./tool-belt.css">
+  <link rel="stylesheet" href="./tool-belt-liquidity.css">
 </head>
 <body class="tool-belt-page">
   <header>
@@ -24,13 +25,13 @@
         <span class="belt-kicker">COUNT DESK / BUILT IN STUDIES</span>
         <h1>The Tool Belt</h1>
         <p>One place for indicators built into this application. Each tool gets a version, a clear purpose, and a measured evidence record as the framework grows.</p>
-        <div class="belt-hero-actions"><a href="./index.html">Open Count Desk <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>8 studies cataloged · research only</span></div>
+        <div class="belt-hero-actions"><a href="./index.html">Open Count Desk <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>9 studies cataloged · research only</span></div>
       </div>
       <img class="belt-hero-image" src="./tool-belt-assets/tool-belt-color.png" alt="Colored pencil illustration of a dimensional work tool belt filled with chart research tools">
     </section>
 
     <section class="belt-intro" aria-labelledby="studyHeading">
-      <div><span class="belt-kicker">THE COLLECTION</span><h2 id="studyHeading">Indicators in the desk</h2><p>These are existing chart features. Their Tool Belt cards are the first step toward a versioned indicator framework.</p></div>
+      <div><span class="belt-kicker">THE COLLECTION</span><h2 id="studyHeading">Indicators in the desk</h2><p>Built-in chart tools and measured indicators, organized into a versioned Tool Belt framework.</p></div>
       <div class="belt-legend"><span class="coin-mini" aria-hidden="true">½</span><span><strong>50 / 50 starting mark</strong><small>Display placeholder. No measured edge or directional forecast.</small></span></div>
     </section>
     <section id="indicatorGrid" class="indicator-grid" aria-label="Indicator cards"></section>
@@ -49,6 +50,26 @@
       <div id="profileReport" class="belt-profile-report" hidden></div>
     </section>
 
+    <section id="liquidityWorkbench" class="belt-workbench liquidity-workbench" aria-labelledby="liquidityHeading" hidden>
+      <div class="belt-workbench-head"><div><span class="belt-kicker">PREMIUM INDICATOR / LEVEL ENGINE</span><h2 id="liquidityHeading">Liquidity · v1.0.0</h2><p>Confirmed external swing zones and internal swing levels only. Each level has a stable identifier, confirmation time, touch history, and broken state. No bias, trade setup, probability, or order-book claim.</p></div><button id="closeLiquidityWorkbench" type="button" aria-label="Close Liquidity workbench">Close ✕</button></div>
+      <form id="liquidityForm" class="belt-profile-form">
+        <label>Stored symbol<select id="liquiditySymbol" required><option value="">Loading stored symbols…</option></select></label>
+        <label>Timeframe<select id="liquidityTimeframe" required><option value="">Choose a symbol</option></select></label>
+        <label>External pivot<input id="liquidityExternalLength" type="number" min="1" max="100" value="14" required></label>
+        <label>Internal pivot<input id="liquidityInternalLength" type="number" min="1" max="100" value="5" required></label>
+        <button type="submit">Map stored levels</button>
+      </form>
+      <p id="liquidityRunStatus" class="belt-run-status" role="status" aria-live="polite">Choose stored bars to build a confirmed level map. Probability is unscored.</p>
+      <div id="liquidityReport" hidden>
+        <div id="liquidityMeta" class="belt-profile-meta"></div>
+        <div class="liquidity-chart-head"><span>PRICE / CONFIRMED LEVELS</span><button id="replayLiquidityBreak" type="button" disabled>Replay last stored break</button></div>
+        <svg id="liquidityChart" class="liquidity-chart" viewBox="0 0 1200 500" role="img" aria-label="Stored price bars with confirmed external and internal liquidity levels"></svg>
+        <p class="liquidity-legend"><span class="ext-swatch">━</span> External zone <span class="int-swatch">┄</span> Internal level <span class="broken-swatch">┄</span> Broken on close</p>
+        <div id="liquidityLevels" class="liquidity-levels"></div>
+      </div>
+      <p class="liquidity-guide-link"><a href="./index.html?guide=liquidity#chartWorkspace">Open the Liquidity user guide in Count Desk ↗</a></p>
+    </section>
+
     <section class="belt-framework" aria-labelledby="frameworkHeading">
       <div><span class="belt-kicker">FRAMEWORK / FOUNDATION</span><h2 id="frameworkHeading">How an indicator earns a new score</h2><p>A candidate change is measured against frozen rules and a held out sample. Results carry the source, instrument, timeframe, cutoff, sample size, and uncertainty. A score advances in five point display steps only after an independent review accepts the evidence.</p></div>
       <ol><li><strong>01 · Define</strong><span>Version the rule and outcome before testing.</span></li><li><strong>02 · Measure</strong><span>Record resolved paper or shadow outcomes with provenance.</span></li><li><strong>03 · Compare</strong><span>Test a candidate against the prior version on held out data.</span></li><li><strong>04 · Review</strong><span>Approve the evidence before promoting a score or rule.</span></li></ol>
@@ -57,6 +78,7 @@
   </main>
   <script type="module" src="./tool-belt.js"></script>
   <script type="module" src="./tool-belt-profile.js"></script>
+  <script type="module" src="./tool-belt-liquidity.js"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>
