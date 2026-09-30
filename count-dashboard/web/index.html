@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Batty + Cleo</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
+  <link rel="stylesheet" href="./account-selector.css?v=20260930">
 </head>
 <body class="trading-prototype">
   <header>
@@ -98,6 +99,13 @@
           <div id="chartContext" class="chart-context" hidden>
             <div><strong id="chartTitle">Historical chart</strong><span id="range">Waiting for data</span></div>
             <div class="legend"><span class="parent">((parent))</span><span class="middle">(middle)</span><span class="inner">inner</span></div>
+          </div>
+          <div class="account-switcher" role="group" aria-label="Trading account context">
+            <button id="previousAccount" class="account-cycle" type="button" aria-label="Previous trading account" disabled>‹</button>
+            <button id="openAccountSelector" class="account-current" type="button" aria-haspopup="dialog" aria-controls="accountSelectorDialog">
+              <small>TRADING ACCOUNT</small><strong id="activeAccountName">Choose an account</strong><span id="activeAccountMode">Local context only</span>
+            </button>
+            <button id="nextAccount" class="account-cycle" type="button" aria-label="Next trading account" disabled>›</button>
           </div>
         </div>
         <section id="chartToolDock" class="tool-dock" aria-label="Chart tools" data-open="false">
@@ -354,8 +362,23 @@
     <div class="agent-skill-head"><div><small id="agentSkillGroup">FIRSTMATE WORKFLOW SEAT</small><h2 id="agentSkillTitle">Agent role</h2></div><button id="closeAgentSkill" class="chrome-button" type="button" aria-label="Close agent skill">Close</button></div>
     <div id="agentSkillContent" class="agent-skill-content"></div>
   </dialog>
+  <dialog id="accountSelectorDialog" class="account-selector-dialog" aria-labelledby="accountSelectorTitle">
+    <div class="account-dialog-head"><div><small>LOCAL ACCOUNT CONTEXT</small><h2 id="accountSelectorTitle">Trading accounts &amp; agents</h2></div><button id="closeAccountSelector" class="chrome-button" type="button">Close</button></div>
+    <p class="account-dialog-note">Choose an account to label this chart workspace. These entries do not connect to a broker, dispatch an agent, or route an order.</p>
+    <div id="accountGroups" class="account-groups" aria-label="Accounts by trading mode"></div>
+    <form id="accountContextForm" class="account-context-form">
+      <h3 id="accountFormTitle">Add account context</h3>
+      <div class="account-form-grid">
+        <label>Account name<input id="newAccountName" type="text" maxlength="80" placeholder="Account name" required></label>
+        <label>Mode<select id="newAccountMode"><option value="live-manual">Live - Manual</option><option value="simulation-manual">Simulation - Manual</option><option value="simulation-agentic">Simulation - Agentic</option><option value="live-agentic">Live - Agentic</option></select></label>
+        <label>Trading agent <span id="agentNameRequirement">(optional)</span><input id="newAccountAgent" type="text" maxlength="80" placeholder="Agent name, if assigned"></label>
+      </div>
+      <div class="account-form-actions"><button id="saveAccountContext" type="submit">Add account</button><button id="cancelAccountEdit" type="button" hidden>Cancel edit</button><button id="deleteAccountContext" type="button" hidden>Remove entry</button><span id="accountSelectorStatus" role="status" aria-live="polite">Saved in this browser only.</span></div>
+    </form>
+  </dialog>
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
   <script type="module" src="./app.js?v=indicator-guide-20260929"></script>
+  <script type="module" src="./account-selector.js?v=20260930"></script>
   <script type="module" src="./trading-terminal.js?v=paper-workspace-2-20260928"></script>
   <script type="module" src="./batty-agent.js?v=cleo-handoff-20260930"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
