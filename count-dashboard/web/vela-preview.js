@@ -1,5 +1,7 @@
 const $ = selector => document.querySelector(selector);
 import {buildChartContract} from './chart-contract.js';
+import {liquidityConvergenceGroups} from './liquidity-convergence.js';
+import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.js';
 import {createPaperChartPlanner} from './paper-chart-planner.js';
 let catalog = [];
 let velaChart = null;
@@ -45,6 +47,7 @@ const indicatorDefinitions = [
 async function getJson(url) {
   const response = await fetch(url);
   const payload = await response.json();
+  {id:'structure-zones',name:'Structure Zones',version:'v1.0.0',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',settings:[['pivotLength','Pivot length','number',4,1,50],['originLookback','Origin search (bars)','number',8,1,50],['minDisplacementAtr','Min displacement (ATR)','number',0.8,0,10],['equalToleranceAtr','Equal-level tolerance (ATR)','number',0.12,0,2],['showBreaks','Show BOS / CHoCH','checkbox',true]]},
   if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
   return payload;
 }
@@ -233,18 +236,25 @@ async function renderLiquidityOnChart() {
       style:{lineColor,lineWidth:1,lineStyle:'solid'},
     });
   }
-  const cutoffText = report.confirmedCutoff
-    ? new Date(Number(report.confirmedCutoff) * 1000).toLocaleString()
-    : 'unknown cutoff';
-  $('#indicatorTemplateStatus').textContent = visibleLevels.length
-    ? `Liquidity mapped ${visibleLevels.length} confirmed levels on ${symbol} ${timeframe} · EXT BSL red / SSL teal; INT BSL orange / SSL aqua · compact wick-to-body boxes · fresh lines solid, broken lines grey dashed · closed-bar cutoff ${cutoffText} · source rights not recorded; probability unscored.`
-    : `Liquidity active · no confirmed levels match these settings in ${symbol} ${timeframe} through ${cutoffText}.`;
+  return pivots.sort((a,b)=>a.index-b.index);
 }
 
-async function renderBiasOnChart() {
-  if (!velaChart || !currentContract) throw new Error('Load a historical chart before activating Bias.');
-  if (!velaChart.drawings?.supported || typeof velaChart.drawings.add !== 'function') {
-    throw new Error('This chart renderer cannot display the Bias overlay.');
+async function premiumIndicatorReport(id, symbol, timeframe, source, bars, settings) {
+  const context = window.countDeskVelaContext || {};
+  const cutoff = Math.floor(bars.at(-1).time / 1000);
+  if (context.tab === 'Count Desk' || (context.tab === 'Tickstream' && id === 'bias')) {
+    const path = context.tab === 'Tickstream' ? '/api/tickstream/tool-belt/bias' : `/api/tool-belt/${id}`;
+    const query = new URLSearchParams({symbol,timeframe,cutoff:String(context.cutoff || cutoff)});
+    query.set('pivot_length',String(settings.pivotLength));
+    if (id === 'bias') {
+      query.set('sweep_buffer_ticks',String(settings.sweepBufferTicks));
+      query.set('acceptance_buffer_ticks',String(settings.acceptanceBufferTicks));
+    } else {
+      query.set('origin_lookback',String(settings.originLookback));
+      query.set('min_displacement_atr',String(settings.minDisplacementAtr));
+      query.set('equal_tolerance_atr',String(settings.equalToleranceAtr));
+    }
+    return getJson(`${path}?${query}`);
   }
   const definition = toolBeltIndicators.find(item => item.id === 'bias');
   const settings = effectiveToolBeltSettings(definition);
@@ -500,6 +510,53 @@ function storedIndicatorTypes() {
     return new Set(Array.isArray(parsed) ? parsed.filter(item => indicatorDefinitions.some(def => def.type === item)) : ['volume']);
   } catch {
     return new Set(['volume']);
+  } else if (id==='bias') {
+    const report=await premiumIndicatorReport(id,symbol,timeframe,source,bars,settings);
+    renderBiasOverlay(report,settings,addToolBeltDrawing,Math.floor(last.time/1000));
+    const point=report.points?.at(-1),direction=(settings.priorPeriod?report.overallBias:point?.bias)||'MIXED';
+    $('#indicatorTemplateStatus').textContent=`Bias · ${direction} · ${symbol} ${timeframe} · ${source} · closed cutoff ${new Date(report.confirmedCutoff*1000).toLocaleString()} · ${report.contextUnavailable?.length?`context unavailable: ${report.contextUnavailable.join(', ')} · `:''}SHA-256 ${report.dataSnapshotHash||report.inputHash||'unavailable'} · descriptive, unscored.`;
+  } else if (id==='structure-zones') {
+    const report=await premiumIndicatorReport(id,symbol,timeframe,source,bars,settings);
+    renderStructureZonesOverlay(report,settings,addToolBeltDrawing,Math.floor(last.time/1000));
+    $('#indicatorTemplateStatus').textContent=`Structure Zones · ${report.structure||'NEUTRAL'} · ${symbol} ${timeframe} · ${source} · closed cutoff ${new Date(report.confirmedCutoff*1000).toLocaleString()} · ${report.itemCounts?.events||0} breaks / ${report.itemCounts?.zones||0} zones / ${report.itemCounts?.pools||0} pools · SHA-256 ${report.inputHash||'unavailable'} · descriptive, unscored.`;
+  } else if (id==='fibonacci') {
+    const tail=pivots.slice(-2), lo=tail.find(point=>point.side==='LOW'), hi=tail.find(point=>point.side==='HIGH');
+    const low=Math.min(...bars.slice(-160).map(bar=>bar.low)), high=Math.max(...bars.slice(-160).map(bar=>bar.high));
+    const range=hi&&lo&&hi.index!==lo.index?Math.abs(hi.price-lo.price):high-low, top=hi&&lo?(hi.index>lo.index?hi.price:lo.price):high, bottom=hi&&lo?(hi.index>lo.index?lo.price:hi.price):low;
+    if (!(range>0)) throw new Error('Not enough price range to calculate retracements.');
+    for(const level of String(settings.levels||'0.382, 0.5, 0.618').split(',').map(Number).filter(x=>x>0&&x<1)) toolDrawLine(owner,bars,Math.min(lo?.index??0,hi?.index??bars.length-1),bottom+range*level,'#e0bd72',`${(level*100).toFixed(1)}%`,'solid');
+  } else if (id==='volume-profile') {
+    const windowBars=bars.slice(-Math.min(Number(settings.lookback||160),bars.length)), bins=Math.max(8,Math.min(80,Number(settings.bins||32)));
+    const low=Math.min(...windowBars.map(bar=>bar.low)),high=Math.max(...windowBars.map(bar=>bar.high)),step=(high-low)/bins;
+    if (!(step>0)) throw new Error('Not enough price range for a volume profile.');
+    const volumes=Array(bins).fill(0);
+    for(const bar of windowBars){const bin=Math.max(0,Math.min(bins-1,Math.floor((bar.close-low)/step)));volumes[bin]+=bar.volume||1;}
+    const peak=Math.max(...volumes),poc=volumes.indexOf(peak),start=windowBars[0].time,end=last.time;
+    volumes.forEach((volume,index)=>{if(!volume)return;const width=(end-start)*.22*(volume/peak),x=Math.max(start,end-width);const color=index===poc?'#f1c75b':'#6f9ce0';addToolBeltDrawing('box',{paneId:'price',anchors:[{time:x,price:low+(index+1)*step},{time:end,price:low+index*step}],style:{lineColor:`${color}00`,lineWidth:1,lineStyle:'solid',fillColor:`${color}65`}},owner);});
+    toolDrawLine(owner,bars,0,low+(poc+.5)*step,'#ffe082','POC','solid',2);
+  } else if (id==='liquidity-zones') {
+    const atr=averageTrueRange(bars),tolerance=atr*Number(settings.tolerance??.12),candidates=pivots.slice(-40),clusters=[];
+    for(const point of candidates){let cluster=clusters.find(item=>Math.abs(item.price-point.price)<=Math.max(tolerance,atr*.025));if(!cluster)clusters.push(cluster={price:point.price,points:[]});cluster.points.push(point);cluster.price=cluster.points.reduce((sum,item)=>sum+item.price,0)/cluster.points.length;}
+    for(const cluster of clusters.filter(item=>item.points.length>=2).slice(-12)){const start=cluster.points[0],half=Math.max(tolerance,atr*.025);addToolBeltDrawing('box',{paneId:'price',anchors:[{time:start.time,price:cluster.price+half},{time:last.time,price:cluster.price-half}],style:{lineColor:'#6ea5c8',lineWidth:1,lineStyle:'solid',fillColor:'#4b91ae30'}},owner);}
+  } else if (id==='daily-bias') {
+    const sessions=new Map();for(const bar of bars){const key=new Date(bar.time).toISOString().slice(0,10);const day=sessions.get(key)||{open:bar.open,close:bar.close,high:bar.high,low:bar.low,time:bar.time};day.close=bar.close;day.high=Math.max(day.high,bar.high);day.low=Math.min(day.low,bar.low);sessions.set(key,day);}
+    const days=[...sessions.values()].slice(-Number(settings.lookback||20)),bull=days.filter(day=>day.close>day.open).length,bear=days.filter(day=>day.close<day.open).length,bias=bull>bear?'BULLISH':bear>bull?'BEARISH':'MIXED';
+    const color=bias==='BULLISH'?'#089981':bias==='BEARISH'?'#f23645':'#aeb7c2';toolDrawLine(owner,bars,Math.max(0,bars.findIndex(bar=>bar.time>=days[0]?.time)),last.close,color,`DAILY BIAS · ${bias} · ${days.length} sessions`,'solid',2);
+  } else if (id==='elliott-wave') {
+    const turns=confirmedPivots(bars,Math.max(2,Number(settings.pivotLength||5))).slice(-8),labels=settings.alternates===false?['1','2','3','4','5','A','B','C']:['1','2','3','4','5','A','B','C'];
+    turns.forEach((point,index)=>toolDrawLabel(owner,{...point,price:point.price},labels[index%labels.length],point.side==='HIGH'?'#f4bd63':'#75c9dc'));
+  } else if (id==='confirmed-swings') {
+    const turns=confirmedPivots(bars,Math.max(2,Number(settings.pivotLength||4))).slice(-24),previous={HIGH:null,LOW:null};
+    for(const point of turns){const prior=previous[point.side];const label=prior==null?(point.side==='HIGH'?'H':'L'):point.side==='HIGH'?(point.price>prior?'HH':point.price<prior?'LH':'EH'):(point.price>prior?'HL':point.price<prior?'LL':'EL');previous[point.side]=point.price;toolDrawLabel(owner,point,label,point.side==='HIGH'?'#f23645':'#089981');}
+  } else if (id==='confluence') {
+    const windows=[5,20,50].filter(n=>bars.length>n),directions=windows.map(n=>bars.at(-1).close>=bars.at(-1-n).close?'UP':'DOWN'),up=directions.filter(item=>item==='UP').length,down=directions.length-up,bias=up===down?'MIXED':up>down?'BULLISH':'BEARISH',color=bias==='BULLISH'?'#089981':bias==='BEARISH'?'#f23645':'#aeb7c2';
+    toolDrawLine(owner,bars,Math.max(0,bars.length-20),last.close,color,`CONFLUENCE · ${bias} · ${up}/${directions.length} lookbacks aligned`,'solid',2);
+  } else if (id==='premium-discount') {
+    const windowBars=bars.slice(-160),high=Math.max(...windowBars.map(bar=>bar.high)),low=Math.min(...windowBars.map(bar=>bar.low)),eq=low+(high-low)*Number(settings.equilibrium||50)/100,start=windowBars[0].time,end=last.time;
+    if(!(high>low)||end<=start)throw new Error('Not enough confirmed range to map premium and discount.');
+    addToolBeltDrawing('box',{paneId:'price',anchors:[{time:start,price:high},{time:end,price:eq}],style:{lineColor:'#ef6c6c55',lineWidth:1,lineStyle:'solid',fillColor:'#ef6c6c20'}},owner);
+    addToolBeltDrawing('box',{paneId:'price',anchors:[{time:start,price:eq},{time:end,price:low}],style:{lineColor:'#4dbb9c55',lineWidth:1,lineStyle:'solid',fillColor:'#4dbb9c20'}},owner);
+    toolDrawLine(owner,bars,0,eq,'#e6c879',`EQUILIBRIUM · ${settings.equilibrium||50}%`,'dashed');
   }
 }
 

@@ -16,6 +16,7 @@ import json
 import mimetypes
 import math
 import os
+import re
 import secrets
 import sqlite3
 import subprocess
@@ -53,6 +54,8 @@ from bias_engine import BiasSettings, Bar as BiasBar, build_bias, input_hash as 
 import indicator_agent_store
 
 
+from structure_zones_engine import (Bar as StructureZonesBar, StructureZonesSettings,
+                                    build_structure_zones, input_hash as structure_zones_input_hash)
 ROOT = Path(__file__).resolve().parent
 WORKSPACE = ROOT.parent
 WEB = ROOT / "web"
@@ -1721,6 +1724,185 @@ def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> d
         span = end["price"] - start["price"]
         for ratio in (0, .236, .382, .5, .618, .786, 1):
             fib["levels"].append({"ratio": ratio, "price": end["price"] - span * ratio})
+def tickstream_liquidity_engine_report(symbol: str, timeframe: str, cutoff: int,
+                                       settings: LiquiditySettings) -> dict:
+    """Run the same closed-bar liquidity engine over Tickstream's memory-only bars."""
+    ticker = symbol.strip().upper()
+    interval = normalize_tf(timeframe)
+    payload = tickstream_feed.bars(ticker, interval)
+    stored_rows = [row for row in payload["bars"] if int(row["time"]) <= cutoff]
+    if len(stored_rows) < 2:
+        raise ValueError("Tickstream needs at least two bars before Liquidity can confirm levels.")
+    stored = [LiquidityBar(
+        int(row["time"]), float(row["open"]), float(row["high"]), float(row["low"]),
+        float(row["close"]), float(row.get("volume", 0)),
+    ) for row in stored_rows]
+    confirmed = stored[:-1]
+    last_time = confirmed[-1].time
+    result = build_liquidity_levels(confirmed, ticker, interval, settings)
+    result.update({
+        "indicatorId": "liquidity", "symbol": ticker, "timeframe": interval,
+        "requestedCutoff": cutoff, "confirmedCutoff": last_time,
+        "excludedLatestStoredBar": stored[-1].time,
+        "barCompletion": "latest in-memory bar excluded; prior source bars treated as closed",
+        "inputHash": liquidity_input_hash(confirmed, ticker, interval, settings),
+        "settings": settings.__dict__,
+        "sources": [{"provider": "Tickstream", "mode": "delayed, memory-only"}],
+        "sourceRights": "Tickstream account feed; bars remain in memory",
+        "measurementState": "level mapping only; directional probability and predictive performance unscored",
+        "bars": [{"time": bar.time, "open": bar.open, "high": bar.high, "low": bar.low,
+                  "close": bar.close, "volume": bar.volume} for bar in confirmed[-600:]],
+    })
+    return result
+
+
+def tickstream_bias_engine_report(symbol: str, timeframe: str, cutoff: int,
+                                  settings: BiasSettings) -> dict:
+    """Run Bias on Tickstream bars without consulting or changing stored datasets."""
+    ticker = symbol.strip().upper()
+    interval = normalize_tf(timeframe)
+    payload = tickstream_feed.bars(ticker, interval)
+    stored_rows = [row for row in payload["bars"] if int(row["time"]) <= cutoff]
+    if len(stored_rows) < 2:
+        raise ValueError("Tickstream needs at least two bars before Bias can confirm structure.")
+    minute_rows = tickstream_feed.bars(ticker, "1M")["bars"]
+    daily_rows = aggregate_tickstream_bars(minute_rows, "1D")
+    stored = [BiasBar(int(row["time"]), float(row["open"]), float(row["high"]),
+                      float(row["low"]), float(row["close"])) for row in stored_rows]
+    daily = [BiasBar(int(row["time"]), float(row["open"]), float(row["high"]),
+                     float(row["low"]), float(row["close"])) for row in daily_rows]
+    confirmed = stored[:-1]
+    daily_confirmed = daily[:-1] if len(daily) > 1 else daily
+    last_time = confirmed[-1].time
+    result = build_bias(confirmed, daily_confirmed, [], ticker, settings, interval)
+    result.update({
+        "indicatorId": "bias", "symbol": ticker, "timeframe": interval,
+        "requestedCutoff": cutoff, "confirmedCutoff": last_time,
+        "excludedLatestStoredBar": stored[-1].time,
+        "dataSnapshotHash": bias_input_hash(confirmed, daily_confirmed, [], ticker, settings, interval),
+        "settings": settings.__dict__, "sources": [{"provider": "Tickstream", "mode": "delayed, memory-only"}],
+        "sourceRights": "Tickstream account feed; bars remain in memory",
+        "contextAvailability": {"dailyBars": len(daily), "weeklyBars": 0},
+        "measurementState": "directional context only; probability and predictive performance unscored",
+        "bars": [{"time": bar.time, "open": bar.open, "high": bar.high, "low": bar.low,
+                  "close": bar.close} for bar in confirmed[-600:]],
+    })
+    return result
+
+
+def structure_zones_report(db: sqlite3.Connection, symbol: str, timeframe: str,
+                           cutoff: int, settings: StructureZonesSettings = StructureZonesSettings()) -> dict:
+    """Build original structure and zone states using closed, stored bars only."""
+    timeframe = normalize_tf(timeframe)
+    stored = get_bars(db, symbol, timeframe, cutoff, min(HISTORY_LIMITS.get(timeframe, 3000), 5001))
+    if len(stored) < 2:
+        raise ValueError("At least two stored bars are required to identify a confirmed bar.")
+    confirmed = stored[:-1]
+    bars = [StructureZonesBar(bar.time, bar.open, bar.high, bar.low, bar.close, bar.volume)
+            for bar in confirmed]
+    result = build_structure_zones(bars, symbol, timeframe, settings)
+    first_time, last_time = confirmed[0].time, confirmed[-1].time
+    rows = db.execute(
+        "SELECT DISTINCT d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256,"
+        "MAX(b.derived) derived FROM bars b JOIN datasets d ON d.dataset_id=b.dataset_id "
+        "WHERE b.symbol=? AND b.timeframe=? AND b.time>=? AND b.time<=? "
+        "GROUP BY d.dataset_id,d.source,d.native_timeframe,d.retrieved_at,d.source_sha256 ORDER BY d.dataset_id",
+        (symbol, timeframe, first_time, last_time),
+    ).fetchall()
+    result.update({
+        "indicatorId": "structure-zones", "symbol": symbol, "timeframe": timeframe,
+        "requestedCutoff": cutoff, "confirmedCutoff": last_time,
+        "excludedLatestStoredBar": stored[-1].time,
+        "barCompletion": "confirmed by a later stored bar",
+        "inputHash": structure_zones_input_hash(bars, symbol, timeframe, settings),
+        "sources": [dict(row) for row in rows],
+        "sourceRights": "not recorded in Count Desk",
+        "measurementState": "structure and zone mapping only; probability and predictive performance unscored",
+    })
+    result["bars"] = [bar.as_dict() for bar in confirmed[-600:]]
+    return result
+
+
+def chart_indicator_report(payload: dict) -> dict:
+    """Calculate a chart study from caller-supplied, already closed bars.
+
+    This is a read-only path for chart providers that are not stored in Count
+    Desk. The caller must identify the provider and bar-close cutoff; no bars
+    or report are persisted.
+    """
+    indicator = str(payload.get("indicatorId", ""))
+    if indicator not in {"bias", "structure-zones"}:
+        raise ValueError("Choose Bias or Structure Zones")
+    symbol = str(payload.get("symbol", "")).strip()
+    timeframe = str(payload.get("timeframe", "")).strip().upper()
+    source = str(payload.get("source", "")).strip()
+    if not symbol or len(symbol) > 80 or not source or len(source) > 120:
+        raise ValueError("A bounded symbol and source label are required")
+    if not re.fullmatch(r"\d+[MHDW]|1MO", timeframe):
+        raise ValueError("Unsupported chart timeframe")
+
+    def validated_bars(value: object, label: str, maximum: int = 2000) -> list[dict]:
+        if not isinstance(value, list) or len(value) > maximum:
+            raise ValueError(f"{label} must contain at most {maximum} bars")
+        rows: list[dict] = []
+        previous = -1
+        for raw in value:
+            if not isinstance(raw, dict):
+                raise ValueError(f"{label} contains an invalid bar")
+            try:
+                row = {"time": int(raw["time"]),
+                       **{key: float(raw[key]) for key in ("open", "high", "low", "close")}}
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{label} contains an invalid bar") from exc
+            if (row["time"] <= previous or row["time"] <= 0
+                    or not all(math.isfinite(row[key]) for key in ("open", "high", "low", "close"))
+                    or row["high"] < max(row["open"], row["close"], row["low"])
+                    or row["low"] > min(row["open"], row["close"])):
+                raise ValueError(f"{label} must be ordered, finite OHLC bars")
+            previous = row["time"]
+            rows.append(row)
+        return rows
+
+    bars = validated_bars(payload.get("bars"), "bars")
+    if len(bars) < 2:
+        raise ValueError("At least two closed chart bars are required")
+    settings = payload.get("settings") or {}
+    if not isinstance(settings, dict):
+        raise ValueError("settings must be an object")
+    if indicator == "bias":
+        daily = validated_bars(payload.get("dailyBars", []), "dailyBars")
+        weekly = validated_bars(payload.get("weeklyBars", []), "weeklyBars")
+        rules = BiasSettings(
+            pivot_length=int(settings.get("pivotLength", 5)),
+            sweep_buffer_ticks=int(settings.get("sweepBufferTicks", 1)),
+            acceptance_buffer_ticks=int(settings.get("acceptanceBufferTicks", 1)),
+        )
+        result = build_bias(
+            [BiasBar(**bar) for bar in bars], [BiasBar(**bar) for bar in daily],
+            [BiasBar(**bar) for bar in weekly], symbol, rules, timeframe,
+        )
+        input_hash = bias_input_hash(
+            [BiasBar(**bar) for bar in bars], [BiasBar(**bar) for bar in daily],
+            [BiasBar(**bar) for bar in weekly], symbol, rules, timeframe,
+        )
+    else:
+        rules = StructureZonesSettings(
+            pivot_length=int(settings.get("pivotLength", 4)),
+            origin_lookback=int(settings.get("originLookback", 8)),
+            min_displacement_atr=float(settings.get("minDisplacementAtr", 0.8)),
+            equal_tolerance_atr=float(settings.get("equalToleranceAtr", 0.12)),
+        )
+        engine_bars = [StructureZonesBar(**bar) for bar in bars]
+        result = build_structure_zones(engine_bars, symbol, timeframe, rules)
+        input_hash = structure_zones_input_hash(engine_bars, symbol, timeframe, rules)
+    result.update({"indicatorId": indicator, "symbol": symbol, "timeframe": timeframe,
+                   "confirmedCutoff": bars[-1]["time"], "inputHash": input_hash,
+                   "sources": [{"source": source, "mode": "active chart; supplied closed bars"}],
+                   "sourceRights": "not recorded in Count Desk",
+                   "measurementState": "descriptive chart context; probability and predictive performance unscored"})
+    return result
+
+
         tolerance = max(abs(span) * .012, average_range * .35)
         volume_levels = [("POC", profile["poc"]), ("VAH", profile["vah"]), ("VAL", profile["val"])] if profile["status"] != "unavailable" else []
         for level in fib["levels"]:

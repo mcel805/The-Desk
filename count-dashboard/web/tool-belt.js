@@ -1,8 +1,9 @@
 const studies = [
   {id:'volume-profile',name:'Volume Profile',description:'Approximate observed volume across price bins.',image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',version:'v1.0.0'},
   {id:'fibonacci',name:'Fibonacci',description:'Map retracement levels from chart swings.',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',version:'v0.1.0'},
-  {id:'liquidity',name:'Liquidity',description:'Map confirmed external zones and internal swing levels.',image:'liquidity-sketch.png',colorImage:'liquidity-color.png',version:'v1.0.0',premium:true},
+  {id:'liquidity',name:'Liquidity',description:'Map confirmed external and internal levels; v001 adds 30m / 1h anchors with subtle multi-timeframe convergence markers. Select archived v000 from the Chart Workspace indicator gear.',image:'liquidity-sketch.png',colorImage:'liquidity-color.png',version:'v001',premium:true},
   {id:'bias',name:'Bias',description:'Read confirmed market structure with prior-period context.',image:'bias-sketch.png',colorImage:'bias-color.png',version:'v1.0.0',premium:true},
+  {id:'structure-zones',name:'Structure Zones',description:'Track confirmed breaks, origin zones, and swing-pool reactions.',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',version:'v1.0.0',premium:true},
   {id:'liquidity-zones',name:'Liquidity Zones',description:'Mark research zones around swept levels.',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',version:'v0.1.0'},
   {id:'daily-bias',name:'Daily Bias',description:'Show provisional context from prior sweeps.',image:'daily-bias-sketch.png',colorImage:'daily-bias-color.png',version:'v0.1.0'},
   {id:'elliott-wave',name:'Elliott Wave',description:'Inspect provisional counts and path structure.',image:'elliott-wave-sketch.png',colorImage:'elliott-wave-color.png',version:'v0.1.0'},
@@ -33,6 +34,11 @@ if (grid) {
       const image = card.querySelector('.indicator-art img');
       image.src = `./tool-belt-assets/${active ? image.dataset.colorImage : image.dataset.monoImage}`;
       image.alt = `${active ? 'Colored' : 'Pencil sketch'} illustration representing ${card.dataset.indicatorName}`;
+      const selectButton = card.querySelector('[data-select-indicator]');
+      if (selectButton) {
+        selectButton.textContent = active ? 'Selected for review' : 'Select this indicator';
+        selectButton.setAttribute('aria-pressed', String(active));
+      }
     }
   }
   for (const study of studies) {
@@ -41,7 +47,7 @@ if (grid) {
     card.className = 'indicator-card';
     card.dataset.indicatorId = study.id;
     card.dataset.indicatorName = study.name;
-    card.innerHTML = `<div class="indicator-art"><img src="./tool-belt-assets/${study.image}" data-mono-image="${study.image}" data-color-image="${study.colorImage}" alt="Pencil sketch representing ${study.name}" loading="lazy"><span class="indicator-version" title="Tool Belt catalog version">${study.version}</span>${study.premium ? '<span class="indicator-premium">PREMIUM</span>' : ''}</div><div class="indicator-body"><span class="indicator-kind">${study.premium ? 'PREMIUM INDICATOR' : 'COUNT DESK LAYER'}</span><h3>${study.name}</h3><p>${study.description}</p><div class="indicator-probability"><span class="probability-icon" data-tier="${score.tier}" aria-hidden="true">${score.glyph}</span><span class="probability-copy"><strong>${score.label}</strong><small>${score.note}</small></span></div>${study.id === 'volume-profile' ? '<button class="indicator-inspect" type="button" data-open-profile>Inspect calculation →</button>' : ''}${study.id === 'liquidity' ? '<button class="indicator-inspect" type="button" data-open-liquidity>Build liquidity map →</button>' : ''}${study.id === 'bias' ? '<button class="indicator-inspect" type="button" data-open-bias>Read market structure →</button>' : ''}<a class="indicator-card-link" href="./index.html#chartWorkspace">Open Count Desk →</a><a class="indicator-card-link" href="./indicator-agent.html?indicator=${encodeURIComponent(study.id)}">Open Indicator Agent →</a></div>`;
+    card.innerHTML = `<div class="indicator-art"><img src="./tool-belt-assets/${study.image}" data-mono-image="${study.image}" data-color-image="${study.colorImage}" alt="Pencil sketch representing ${study.name}" loading="lazy"><span class="indicator-version" title="Tool Belt catalog version">${study.version}</span>${study.premium ? '<span class="indicator-premium">PREMIUM</span>' : ''}</div><div class="indicator-body"><span class="indicator-kind">${study.premium ? 'PREMIUM INDICATOR' : 'COUNT DESK LAYER'}</span><h3>${study.name}</h3><p>${study.description}</p><div class="indicator-probability"><span class="probability-icon" data-tier="${score.tier}" aria-hidden="true">${score.glyph}</span><span class="probability-copy"><strong>${score.label}</strong><small>${score.note}</small></span></div><button class="indicator-select" type="button" data-select-indicator aria-pressed="false">Select this indicator</button>${study.id === 'volume-profile' ? '<button class="indicator-inspect" type="button" data-open-profile>Inspect calculation →</button>' : ''}${study.id === 'liquidity' ? '<button class="indicator-inspect" type="button" data-open-liquidity>Build liquidity map →</button>' : ''}${study.id === 'bias' ? '<button class="indicator-inspect" type="button" data-open-bias>Read market structure →</button>' : ''}${study.id === 'structure-zones' ? '<button class="indicator-inspect" type="button" data-open-structure-zones>Map structure zones →</button>' : ''}<a class="indicator-card-link" ${study.premium ? `data-chart-indicator="${study.id}" href="./vela-preview.html?feed=historical&indicator=${encodeURIComponent(study.id)}"` : 'href="./vela-preview.html"'}>${study.premium ? 'View on chart →' : 'Open Chart Workspace →'}</a><a class="indicator-card-link" href="./indicator-agent.html?indicator=${encodeURIComponent(study.id)}">Open Indicator Agent →</a></div>`;
     grid.append(card);
   }
   const requestedIndicator = new URLSearchParams(location.search).get('indicator');
@@ -49,7 +55,18 @@ if (grid) {
   grid.addEventListener('click', (event) => {
     const card = event.target.closest('.indicator-card');
     if (!card) return;
-    if (event.target.closest('[data-open-profile], [data-open-liquidity], [data-open-bias], a[href*="indicator-agent.html"]')) activateIndicator(card.dataset.indicatorId);
+    const chartLink = event.target.closest('[data-chart-indicator]');
+    if (chartLink) {
+      const id = chartLink.dataset.chartIndicator;
+      const prefix = id === 'structure-zones' ? 'structureZones' : id;
+      const symbol = document.querySelector(`#${prefix}Symbol`)?.value;
+      const timeframe = document.querySelector(`#${prefix}Timeframe`)?.value;
+      const url = new URL(chartLink.href);
+      if (symbol) url.searchParams.set('symbol', symbol);
+      if (timeframe) url.searchParams.set('timeframe', timeframe);
+      chartLink.href = url.href;
+    }
+    if (event.target.closest('[data-select-indicator], [data-open-profile], [data-open-liquidity], [data-open-bias], [data-open-structure-zones], a[href*="indicator-agent.html"]')) activateIndicator(card.dataset.indicatorId);
   });
   window.setActiveToolBeltIndicator = activateIndicator;
 }

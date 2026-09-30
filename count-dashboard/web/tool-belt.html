@@ -8,13 +8,14 @@
   <link rel="stylesheet" href="./tool-belt.css">
   <link rel="stylesheet" href="./tool-belt-liquidity.css">
   <link rel="stylesheet" href="./tool-belt-bias.css">
+  <link rel="stylesheet" href="./tool-belt-structure-zones.css">
 </head>
 <body class="tool-belt-page">
   <header>
     <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
     <nav class="app-tabs" aria-label="Batty workspaces">
       <a class="app-tab" href="./trading-landing.html">Home</a>
-      <a class="app-tab" href="./index.html">Count Desk</a>
+      <a class="app-tab" href="./vela-preview.html">Chart Workspace</a>
       <a class="app-tab active" href="./tool-belt.html" aria-current="page">Tool Belt</a>
       <a class="app-tab" href="./resources.html">Resources</a>
     </nav>
@@ -26,7 +27,7 @@
         <span class="belt-kicker">COUNT DESK / BUILT IN STUDIES</span>
         <h1>The Tool Belt</h1>
         <p>One place for indicators built into this application. Each tool gets a version, a clear purpose, and a measured evidence record as the framework grows.</p>
-        <div class="belt-hero-actions"><a href="./index.html">Open Count Desk <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>10 studies cataloged · research only</span></div>
+        <div class="belt-hero-actions"><a href="./vela-preview.html">Open Chart Workspace <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>11 studies cataloged · research only</span></div>
       </div>
       <img class="belt-hero-image" src="./tool-belt-assets/tool-belt-color.png" alt="Colored pencil illustration of a dimensional work tool belt filled with chart research tools">
     </section>
@@ -93,6 +94,29 @@
       <p class="liquidity-guide-link"><a href="./index.html?guide=bias#chartWorkspace">Open the Bias user guide in Count Desk ↗</a></p>
     </section>
 
+    <section id="structureZonesWorkbench" class="belt-workbench structure-zones-workbench" aria-labelledby="structureZonesHeading" hidden>
+      <div class="belt-workbench-head"><div><span class="belt-kicker">PREMIUM INDICATOR / STRUCTURE ZONES</span><h2 id="structureZonesHeading">Structure Zones · v1.0.0</h2><p>Maps confirmed close-through structure, displacement origin zones, and clustered swing pools. Candle data shows price behavior; it does not identify who placed orders.</p></div><button id="closeStructureZonesWorkbench" type="button" aria-label="Close Structure Zones workbench">Close ✕</button></div>
+      <form id="structureZonesForm" class="belt-profile-form">
+        <label>Stored symbol<select id="structureZonesSymbol" required><option value="">Loading stored symbols…</option></select></label>
+        <label>Timeframe<select id="structureZonesTimeframe" required><option value="">Choose a symbol</option></select></label>
+        <label>Pivot length<input id="structureZonesPivotLength" type="number" min="1" max="50" value="4" required><small>Bars on each side; confirmation is delayed.</small></label>
+        <label>Origin search<input id="structureZonesOriginLookback" type="number" min="1" max="50" value="8" required><small>Prior candles checked for an opposing body.</small></label>
+        <label>Min displacement<input id="structureZonesDisplacement" type="number" min="0" max="10" step="0.1" value="0.8" required><small>Break candle true range / ATR.</small></label>
+        <label>Equal-level tolerance<input id="structureZonesPoolTolerance" type="number" min="0" max="2" step="0.01" value="0.12" required><small>ATR fraction between confirmed pivots.</small></label>
+        <button type="submit">Map structure and zones</button>
+      </form>
+      <p id="structureZonesRunStatus" class="belt-run-status" role="status" aria-live="polite">Choose stored bars to build the map. Probability is unscored.</p>
+      <div id="structureZonesReport" hidden>
+        <div id="structureZonesMeta" class="belt-profile-meta"></div>
+        <div class="structure-zones-headline"><span id="structureZonesState">NEUTRAL</span><strong>STRUCTURE STATE</strong><small>Descriptive · no probability</small></div>
+        <div class="liquidity-chart-head"><span>CONFIRMED STRUCTURE / ORIGIN ZONES / SWING POOLS</span></div>
+        <svg id="structureZonesChart" class="liquidity-chart" viewBox="0 0 1200 500" role="img" aria-label="Closed stored bars with Structure Zones and confirmed market structure events"></svg>
+        <div class="structure-zones-legend"><span><i class="demand"></i> Demand origin</span><span><i class="supply"></i> Supply origin</span><span><i class="pool"></i> Swing pool</span><span>BOS / CHoCH close-through event</span></div>
+        <div class="structure-zones-panels"><section><div id="structureZonesEventHead" class="structure-zones-list-head">STRUCTURE EVENTS</div><div id="structureZonesEvents" class="structure-zones-list"></div></section><section><div id="structureZonesZoneHead" class="structure-zones-list-head">ORIGIN ZONES</div><div id="structureZonesZones" class="structure-zones-list"></div></section><section><div id="structureZonesPoolHead" class="structure-zones-list-head">SWING POOLS</div><div id="structureZonesPools" class="structure-zones-list"></div></section></div>
+      </div>
+      <p class="liquidity-guide-link"><a href="./index.html?guide=structure-zones#chartWorkspace">Open the Structure Zones user guide in Count Desk ↗</a></p>
+    </section>
+
     <section class="belt-framework" aria-labelledby="frameworkHeading">
       <div><span class="belt-kicker">FRAMEWORK / FOUNDATION</span><h2 id="frameworkHeading">How an indicator earns a new score</h2><p>A candidate change is measured against frozen rules and a held out sample. Results carry the source, instrument, timeframe, cutoff, sample size, and uncertainty. A score advances in five point display steps only after an independent review accepts the evidence.</p></div>
       <ol><li><strong>01 · Define</strong><span>Version the rule and outcome before testing.</span></li><li><strong>02 · Measure</strong><span>Record resolved paper or shadow outcomes with provenance.</span></li><li><strong>03 · Compare</strong><span>Test a candidate against the prior version on held out data.</span></li><li><strong>04 · Review</strong><span>Approve the evidence before promoting a score or rule.</span></li></ol>
@@ -103,6 +127,7 @@
   <script type="module" src="./tool-belt-profile.js"></script>
   <script type="module" src="./tool-belt-liquidity.js"></script>
   <script type="module" src="./tool-belt-bias.js"></script>
+  <script type="module" src="./tool-belt-structure-zones.js"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
 </body>
 </html>
