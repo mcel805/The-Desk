@@ -1,5 +1,6 @@
 const $ = selector => document.querySelector(selector);
 import {buildChartContract} from './chart-contract.js';
+import {createPaperChartPlanner} from './paper-chart-planner.js';
 let catalog = [];
 let velaChart = null;
 let velaResizeFrame = 0;
@@ -790,6 +791,7 @@ async function waitForTickstreamBars(timeframe, timeoutMs = 35000) {
 }
 
 async function loadTickstreamChart() {
+  paperChartPlanner.setChart(null, null);
   const button = $('#velaTickstreamProbe');
   const timeframe = $('#velaTimeframe').value;
   const velaTimeframe = ({'1M':'1', '1H':'60', '4H':'240', '1D':'D'})[timeframe] || '1';
@@ -861,6 +863,21 @@ function setPaperStatus(message, error = false) {
   node.textContent = message;
   node.classList.toggle('error', error);
 }
+const paperChartPlanner = createPaperChartPlanner({
+  stage:$('.vela-chart-stage'),
+  onAccountSelect(accountId) {
+    $('#velaPaperAccount').value = accountId;
+    void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
+  },
+  onOpenAccounts() { setWorkspace('paper'); },
+  async onQueue(payload) {
+    const response = await fetch('/api/chart-sim/open', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Paper order could not be queued.');
+    setPaperStatus('Paper order queued from chart plan. Fill depends on later confirmed stored bars.');
+    await refreshPaperPositions();
+  },
+});
 
 function currentPaperBarTime() {
   const last = currentContract?.bars?.at(-1);
@@ -907,6 +924,7 @@ async function refreshPaperAccounts(selectedId = '') {
     `<option value="${escapeHtml(account.account_id)}">${escapeHtml(account.name)} · virtual $${Number(account.starting_balance).toLocaleString()}</option>`).join('');
   if (paperAccounts.some(account => account.account_id === previous)) select.value = previous;
   else if (paperAccounts.length) select.value = paperAccounts[0].account_id;
+  paperChartPlanner.setAccounts(paperAccounts, select.value);
   await refreshPaperPositions();
 }
 
@@ -1011,6 +1029,9 @@ async function loadPreview() {
     await applyStoredIndicators();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     velaChart.resize();
+    paperChartPlanner.setChart(velaChart, contract);
+    void refreshPaperAccounts().catch(error => setPaperStatus(error.message, true));
+    scheduleVelaResize();
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · cutoff ${last} · source ${contract.analysis.source}`;
@@ -1135,7 +1156,10 @@ document.querySelector('[data-close-tool-belt]').addEventListener('click',() => 
 });
 $('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
 $('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));
-$('#velaPaperAccount').addEventListener('change', () => void refreshPaperPositions().catch(error => setPaperStatus(error.message, true)));
+$('#velaPaperAccount').addEventListener('change', () => {
+  paperChartPlanner.setAccounts(paperAccounts, $('#velaPaperAccount').value);
+  void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
+});
 $('#velaPaperAccountForm').addEventListener('submit', async event => {
   event.preventDefault();
   if (paperBusy) return;
@@ -1187,11 +1211,11 @@ tradeMenu.addEventListener('click', event => {
   const button = event.target.closest('[data-paper-side]');
   if (!button) return;
   tradeMenu.hidden = true;
-  setWorkspace('paper');
+  setWorkspace('chart');
   $('#velaPaperSide').value = button.dataset.paperSide;
   $('#velaPaperOrderType').value = button.dataset.paperType;
   updatePaperOrderFields();
-  ($('#velaPaperLimitField').hidden ? $('#velaPaperQuantity') : $('#velaPaperLimit')).focus();
+  paperChartPlanner.planFromContext(button.dataset.paperSide, button.dataset.paperType);
 });
 document.addEventListener('click', event => { if (!tradeMenu.contains(event.target)) tradeMenu.hidden = true; });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') tradeMenu.hidden = true; });

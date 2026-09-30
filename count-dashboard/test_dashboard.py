@@ -267,7 +267,8 @@ class DashboardTest(unittest.TestCase):
         common = {"account_id": self.paper_account["account_id"], "symbol": symbol,
                   "timeframe": "1M", "side": "long", "quantity": 1, "bar_time": base}
         limit = server.open_chart_sim_position(self.db, {**common, "order_type": "limit", "limit_price": 99})
-        stop = server.open_chart_sim_position(self.db, {**common, "order_type": "stop", "trigger_price": 103})
+        stop = server.open_chart_sim_position(self.db, {**common, "order_type": "stop", "trigger_price": 103,
+                                                        "stop_price": 101})
         stop_limit = server.open_chart_sim_position(self.db, {**common, "order_type": "stop_limit",
                                                         "trigger_price": 103, "limit_price": 100})
         ingest(1, 101, 104, 98, 102)
@@ -276,6 +277,7 @@ class DashboardTest(unittest.TestCase):
         rows = {row["position_id"]: row for row in server.chart_sim_rows(self.db, symbol)}
         self.assertEqual(99, rows[limit["order_id"]]["entry_price"])
         self.assertEqual(103, rows[stop["order_id"]]["entry_price"])
+        self.assertEqual(101, rows[stop["order_id"]]["stop_price"])
         self.assertNotIn(stop_limit["order_id"], rows)
         self.assertEqual(base + 60, next(row for row in server.chart_sim_order_rows(self.db, symbol)
                                          if row["order_id"] == stop_limit["order_id"])["triggered_at_bar_time"])

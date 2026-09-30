@@ -824,13 +824,15 @@ def open_chart_sim_position(db: sqlite3.Connection, payload: dict) -> dict:
         raise ValueError("Limit price is required")
     if order_type in {"stop", "stop_limit"} and trigger_price is None:
         raise ValueError("Trigger price is required")
+    planned_entry = limit_price if order_type in {"limit", "stop_limit"} else (
+        trigger_price if order_type == "stop" else entry)
     stop = (float_field(payload, "stop_price", "Stop price", positive=True)
             if payload.get("stop_price") is not None else None)
     target = (float_field(payload, "target_price", "Target price", positive=True)
               if payload.get("target_price") is not None else None)
-    if stop is not None and ((side == "long" and stop >= entry) or (side == "short" and stop <= entry)):
+    if stop is not None and ((side == "long" and stop >= planned_entry) or (side == "short" and stop <= planned_entry)):
         raise ValueError("Stop must be beyond the entry in the risk direction")
-    if target is not None and ((side == "long" and target <= entry) or (side == "short" and target >= entry)):
+    if target is not None and ((side == "long" and target <= planned_entry) or (side == "short" and target >= planned_entry)):
         raise ValueError("Target must be beyond the entry in the reward direction")
     root = MICRO_FUTURES_BY_SYMBOL[symbol]["root"]
     multiplier = FUTURES_MULTIPLIERS[root]
