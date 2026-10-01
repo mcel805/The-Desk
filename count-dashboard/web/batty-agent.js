@@ -67,7 +67,10 @@ dock.innerHTML = `
   </section>`;
 
 if (velaPage) {
-  $('#deskChatMount').append(dock);
+  const modularAgents = window.countDeskModularWorkspace;
+  if (modularAgents?.mountAgents) modularAgents.mountAgents(dock);
+  else $('#deskChatMount').append(dock);
+  document.dispatchEvent(new CustomEvent('countdesk:agents-ready',{detail:{dock}}));
   dock.setAttribute('aria-label', 'Cleo chat');
   $('.batty-chat-identity strong', dock).textContent = 'Cleo';
   $('.batty-chat-identity small', dock).textContent = 'CHART SPECIALIST · BATTY COORDINATES';

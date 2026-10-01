@@ -4,13 +4,14 @@ const $ = selector => document.querySelector(selector);
 
 const widgetCatalog = {
   chart:{title:'Chart',icon:'⌁',size:'full'},
+  agents:{title:'Agents',icon:'✦',size:'medium'},
   ladder:{title:'Ladder',icon:'⇅',size:'medium'},
   watchlist:{title:'List',icon:'☷',size:'small'},
   indicators:{title:'Indicator cubes',icon:'▦',size:'medium'},
   notes:{title:'Desk notes',icon:'✎',size:'small'},
   context:{title:'Data context',icon:'◷',size:'small'},
 };
-const standardOrder = ['chart','watchlist','ladder','indicators','context','notes'];
+const standardOrder = ['chart','agents','watchlist','ladder','indicators','context','notes'];
 
 const studies = [
   {id:'volume',label:'Volume',glyph:'▥'},
@@ -25,6 +26,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   const workspace = $('#modularWorkspace');
   const grid = $('#modularGrid');
   const parking = $('#modularWidgetParking');
+  const agentsParking = $('#modularAgentsParking');
   const blank = $('#modularBlank');
   const dialog = $('#modularWidgetDialog');
   const nameInput = $('#modularLayoutName');
@@ -48,6 +50,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       if (saved && Array.isArray(saved.order)) {
         const order = saved.order.filter(id => Object.hasOwn(widgetCatalog,id));
         const migrateBlank = order.length === 0 && saved.layoutMode !== 'scratch';
+        const migrateStandardAgents = !migrateBlank && (saved.layoutMode === 'standard' || saved.name === 'Standard desk') && !order.includes('agents');
+        if (migrateStandardAgents) order.splice(Math.max(0,order.indexOf('chart') + 1),0,'agents');
         return {
           name:migrateBlank ? 'Standard desk' : typeof saved.name === 'string' && saved.name.trim() ? saved.name.slice(0,40) : 'Standard desk',
           order:migrateBlank ? [...standardOrder] : order,
@@ -110,6 +114,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   const chartManualSpans = {small:[6,4],medium:[8,4],wide:[10,4],full:[12,5]};
   function adaptiveSpans(kind,count,hasChart,mobile) {
     if (mobile) return kind === 'chart' ? [2,3] : [2,1];
+    if (kind === 'agents' && hasChart) return [4,5];
+    if (kind === 'agents') return count === 1 ? [12,4] : [6,3];
     if (hasChart && kind === 'chart') {
       if (count === 1) return [12,4];
       if (count <= 3) return [8,4];
@@ -193,6 +199,22 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     return article;
   }
 
+  function mountAgents(widget = null) {
+    const mount = widget?.querySelector('[data-agents-mount]') || grid.querySelector('[data-agents-mount]');
+    const dock = agentsParking?.querySelector('.batty-dock') || document.querySelector('#deskChatMount .batty-dock');
+    if (!dock) return;
+    (mount || agentsParking || parking).append(dock);
+    dock.hidden = !mount;
+  }
+
+  function mountChart(widget) {
+    const body = widget?.querySelector('.modular-widget-body');
+    if (!body) return;
+    const footer = body.querySelector('.modular-footer');
+    body.insertBefore(chartElement,footer || null);
+    chartElement.hidden = false;
+  }
+
   function buildWidgetContent(kind, body, article) {
     if (kind === 'chart') {
       const footer = document.createElement('div');
@@ -202,6 +224,12 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       chartElement.hidden = false;
       article.querySelector('[data-widget-state]').textContent = 'Vela';
       requestAnimationFrame(() => { if (window.countDeskVelaChart && window.countDeskVelaChart.resize) window.countDeskVelaChart.resize(); });
+    } else if (kind === 'agents') {
+      const mount = document.createElement('div');
+      mount.className = 'modular-agents-mount';
+      mount.dataset.agentsMount = '';
+      body.append(mount);
+      mountAgents(article);
     } else if (kind === 'ladder') {
       const ladder = document.createElement('div');
       ladder.className = 'modular-ladder';
@@ -445,9 +473,11 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     blank.hidden = true;
     persist();
     if (kind === 'watchlist') renderWatchlist();
+    if (kind === 'agents') mountAgents(widget);
     if (kind === 'ladder') renderLadder();
     if (kind === 'context') renderContext();
     if (kind === 'indicators') syncIndicators();
+    if (kind === 'chart') mountChart(widget);
     if (kind === 'chart' && load) void loadChart();
     if (kind === 'chart') requestAnimationFrame(() => { if (window.countDeskVelaChart && window.countDeskVelaChart.resize) window.countDeskVelaChart.resize(); });
     dialog.close();
@@ -459,6 +489,10 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     if (kind === 'chart') {
       chartElement.hidden = true;
       parking.append(chartElement);
+    }
+    if (kind === 'agents') {
+      const dock = widget.querySelector('.batty-dock');
+      if (dock) { agentsParking?.append(dock); dock.hidden = true; }
     }
     widget.remove();
     delete state.sizes[kind];
@@ -581,9 +615,22 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   $('#modularSaveTemplate').addEventListener('click',() => { templateStatus.textContent = ''; templateName.value = state.name === 'Untitled layout' ? '' : state.name; renderTemplates(); templateDialog.showModal(); templateName.focus(); });
   $('#modularTemplateSaveCurrent').addEventListener('click',() => saveCurrentTemplate(templateName.value));
   templateDialog.addEventListener('click',event => { if (event.target === templateDialog) templateDialog.close(); });
+  document.addEventListener('countdesk:agents-ready',event => {
+    const dock = event.detail?.dock;
+    if (dock) {
+      const mount = grid.querySelector('[data-agents-mount]');
+      (mount || agentsParking || parking).append(dock);
+      dock.hidden = !mount;
+    }
+  });
   window.addEventListener('countdesk:chart-context',() => { syncIndicators(); renderLadder(); renderContext(); persist(); });
   return {
     addWidget,renderWatchlist,renderLadder,syncIndicators,
+    mountAgents(dock) {
+      const mount = grid.querySelector('[data-agents-mount]');
+      (mount || agentsParking || parking).append(dock);
+      dock.hidden = !mount;
+    },
     hasChart:() => widgets.has('chart') && widgets.get('chart').parentElement === grid,
     loadSavedChart:() => { if (widgets.has('chart') && widgets.get('chart').parentElement === grid) return loadChart(); },
     ensureChart:() => { if (!widgets.has('chart') || widgets.get('chart').parentElement !== grid) addWidget('chart',{load:false}); },

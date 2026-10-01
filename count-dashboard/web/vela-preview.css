@@ -90,8 +90,8 @@
 @media(max-width:760px){.desk-sidebar nav .desk-art-link{grid-template-rows:26px;width:34px;height:34px;min-height:34px;padding:2px}.desk-sidebar nav .desk-art-link img{width:26px;height:26px}}
 
 /* Count Desk: one viewport, three independently sized workspace panes. */
-body.vela-preview-page{display:grid!important;grid-template-columns:120px minmax(0,1fr) 350px;grid-template-rows:minmax(0,1fr);height:100dvh;min-height:0;margin:0;overflow:hidden;background:#0b1118}
-body.vela-preview-page.desk-nav-collapsed{grid-template-columns:48px minmax(0,1fr) 350px}
+body.vela-preview-page{display:grid!important;grid-template-columns:120px minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:100dvh;min-height:0;margin:0;overflow:hidden;background:#0b1118}
+body.vela-preview-page.desk-nav-collapsed{grid-template-columns:48px minmax(0,1fr)}
 .desk-sidebar{--sidebar-bg:#0d151e;--sidebar-surface:#101c27;--sidebar-active:#18353b;--sidebar-text:#dce7ed;--sidebar-muted:#91a7b5;--sidebar-accent:#cefff3;--sidebar-border:#253442;--sidebar-hover:#142833;display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--sidebar-border);background:var(--sidebar-bg);padding:12px 4px;color:var(--sidebar-muted);transition:background-color .18s,color .18s,border-color .18s}
 .desk-brand{display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:12px;color:var(--sidebar-text);font-size:calc(12px * var(--desk-text-scale,1));white-space:nowrap}.desk-brand>strong{display:none}
 .desk-brand-actions{display:flex;align-items:center;gap:1px;flex:none}.desk-brand-actions button{display:grid;place-items:center;flex:none;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:var(--sidebar-muted);cursor:pointer;padding:3px}.desk-brand-actions button:hover,.desk-brand-actions button[aria-expanded=true]{background:var(--sidebar-hover);color:var(--sidebar-accent)}.desk-brand-actions button img{display:block;width:24px;height:24px;filter:grayscale(1);opacity:.94}
@@ -121,10 +121,12 @@ body.vela-preview-page .vela-chart{flex:1;height:auto;min-height:0;min-width:0;o
 @media(max-width:760px){.modular-workspace{min-height:0}.modular-tab-actions{gap:3px}.modular-tab-actions input{width:105px}.modular-tab-actions button{padding:0 7px}.modular-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(170px,auto);overflow:auto}.modular-widget.size-small,.modular-widget.size-medium,.modular-widget.size-wide,.modular-widget.size-full{grid-column:span 1;grid-row:span 1}.modular-widget.size-wide,.modular-widget.size-full{grid-column:1/-1;grid-row:span 2}.modular-widget[data-kind=chart] .vela-chart-stage{min-height:300px}.modular-blank{min-height:300px}.modular-widget-catalog{grid-template-columns:1fr}}
 .vela-preview-foot{flex:none;min-width:0;max-height:42px;padding:6px 10px;font-size:calc(9px * var(--desk-text-scale,1));line-height:1.4;overflow:auto}.vela-preview-foot span{min-width:0}.vela-preview-foot span:last-child{display:none}
 .desk-drawer{position:absolute!important;z-index:100;top:48px;left:8px;right:8px;max-height:calc(100% - 85px);overflow:auto;box-shadow:0 12px 35px #0009;margin:0!important;border:1px solid #385564;border-radius:6px;background:#101d27;padding:12px}.desk-drawer[hidden]{display:none!important}.desk-drawer label{font-size:calc(12px * var(--desk-text-scale,1));color:#adbec8}.desk-drawer>p{font-size:calc(11px * var(--desk-text-scale,1));color:#89a2af}.vela-feed-panel{grid-template-columns:1fr;gap:12px}.vela-feed-actions{justify-content:start}.vela-tickstream-readiness{border-left:0;padding:0}.cleo-briefing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-#deskChatMount{min-height:0;min-width:0;height:100%;overflow:hidden;border-left:1px solid #2a3947}
-body.vela-preview-page #deskChatMount .batty-dock{display:flex!important;position:relative;inset:auto;width:100%;height:100%;min-height:0;border:0;border-radius:0;box-shadow:none}
+#deskChatMount{display:none!important}
+body.vela-preview-page .modular-widget[data-kind=agents] .modular-widget-body{display:flex;min-height:0;overflow:hidden}
+body.vela-preview-page .modular-widget[data-kind=agents] .modular-agents-mount{display:flex;flex:1;min-width:0;min-height:0;overflow:hidden}
+body.vela-preview-page .modular-widget[data-kind=agents] .batty-dock{display:flex!important;position:relative;inset:auto;width:100%;height:100%;min-height:0;min-width:0;border:0;border-radius:0;box-shadow:none}
 body.vela-preview-page .batty-chat-head{height:auto;min-height:88px;flex:none;padding:12px;flex-wrap:wrap}.vela-preview-page .batty-cleo-chip{display:none}.vela-preview-page .agent-activity{flex:none;max-height:115px;overflow:auto}.vela-preview-page .batty-chat-body{min-height:0;flex:1}.vela-preview-page .batty-chat-stream{overflow:auto;min-height:0}.vela-preview-page .batty-chat-composer{flex:none}.vela-preview-page .batty-chat-foot{font-size:calc(9px * var(--desk-text-scale,1))}.vela-preview-page .vela-paper-card{flex:1;min-height:0;width:100%;margin:0;border-radius:0;overflow:auto}
-@media(max-width:1100px){body.vela-preview-page{grid-template-columns:120px minmax(0,1fr) 300px}body.vela-preview-page.desk-nav-collapsed{grid-template-columns:48px minmax(0,1fr) 300px}.desk-chart-toolbar #velaSymbol{width:150px}}
+@media(max-width:1100px){.desk-chart-toolbar #velaSymbol{width:150px}}
 @media(prefers-reduced-motion:reduce){.cleo-report-alarm.has-unread img,.cleo-report-alarm.has-unread .cleo-report-signal{animation:none}.cleo-report-alarm.has-unread img{filter:drop-shadow(0 0 8px #ff2018) saturate(1.4) brightness(1.18)}}
 
 /* Exclusive direct chart data connection manager. */
@@ -147,7 +149,7 @@ body.vela-preview-page .batty-chat-head{height:auto;min-height:88px;flex:none;pa
 .vela-connection-switch-dialog{width:min(430px,calc(100vw - 32px));padding:0;border:1px solid #42606a;border-radius:9px;background:#101b23;color:#e2eeed;box-shadow:0 22px 70px #000b}.vela-connection-switch-dialog::backdrop{background:#03080dcc;backdrop-filter:blur(2px)}.vela-connection-switch-dialog form{padding:20px}.vela-connection-switch-dialog h2{margin:5px 0 8px;font-size:18px}.vela-connection-switch-dialog p{color:#a4b8bc;font-size:12px;line-height:1.55}.vela-connection-switch-dialog form>div{display:flex;justify-content:flex-end;gap:8px;margin-top:17px}.vela-connection-switch-dialog button{height:32px;padding:0 11px;border:1px solid #38505a;border-radius:5px;background:#17252d;color:#cadae0;font:600 11px system-ui;cursor:pointer}.vela-connection-switch-dialog #velaConnectionSwitchConfirm{border-color:#408875;background:#153a34;color:#bdffe1;font-weight:700}
 @media(max-width:760px){.vela-connection-card{align-items:flex-start}.vela-connection-card>div>small{max-width:230px}.vela-connection-legacy{grid-template-columns:1fr auto}.vela-connection-legacy>small{grid-column:1}.vela-connection-legacy>button{grid-column:2;grid-row:1/3}}
 @media(max-width:760px){.desk-brand-actions{flex-direction:column}.desk-brand{justify-content:center;flex-direction:column;gap:4px;margin-bottom:12px}.desk-nav-collapsed .desk-brand-actions{flex-direction:column}}
-@media(max-width:760px){body.vela-preview-page,body.vela-preview-page.desk-nav-collapsed{grid-template-columns:44px minmax(0,1fr);grid-template-rows:minmax(260px,55dvh) minmax(0,1fr)}.desk-sidebar{grid-row:1/3;padding:8px 3px}.desk-sidebar nav span,.desk-sidebar-foot>span,.desk-brand strong{display:none}.desk-sidebar nav a,.desk-sidebar nav button{padding:6px}.desk-sidebar-foot button{font-size:calc(8px * var(--desk-text-scale,1));padding:3px}#deskChatMount{grid-column:2;grid-row:2;border-top:1px solid #2a3947}.vela-preview-main{grid-column:2;grid-row:1}.vela-preview-page .agent-activity{display:none}.vela-preview-page .batty-chat-head{min-height:56px;padding:7px}.vela-preview-page .batty-chat-foot{display:none}.vela-preview-page .batty-chat-composer textarea{min-height:48px}.vela-preview-page .batty-chat-head header{position:static}.vela-preview-page .vela-workspace-tabs{width:100%}.vela-preview-page .desk-chart-toolbar{flex-wrap:nowrap}.vela-preview-page .vela-paper-ticket{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){body.vela-preview-page,body.vela-preview-page.desk-nav-collapsed{grid-template-columns:44px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}.desk-sidebar{grid-row:1;padding:8px 3px}.desk-sidebar nav span,.desk-sidebar-foot>span,.desk-brand strong{display:none}.desk-sidebar nav a,.desk-sidebar nav button{padding:6px}.desk-sidebar-foot button{font-size:calc(8px * var(--desk-text-scale,1));padding:3px}#deskChatMount{display:none!important}.vela-preview-main{grid-column:2;grid-row:1}.vela-preview-page .agent-activity{max-height:80px;min-height:0;overflow:auto}.vela-preview-page .batty-chat-head{min-height:56px;padding:7px}.vela-preview-page .batty-chat-foot{display:none}.vela-preview-page .batty-chat-composer textarea{min-height:48px}.vela-preview-page .batty-chat-head header{position:static}.vela-preview-page .vela-workspace-tabs{width:100%}.vela-preview-page .desk-chart-toolbar{flex-wrap:nowrap}.vela-preview-page .vela-paper-ticket{grid-template-columns:1fr 1fr}}
 
 /* Screen Paint: a compact panel map makes the palette target explicit. */
 .desk-theme-manager{width:min(620px,calc(100vw - 24px))}
@@ -200,18 +202,18 @@ body.vela-preview-page main.vela-preview-main{background:var(--screen-bg);color:
 .vela-preview-main .desk-chart-toolbar select,.vela-preview-main .desk-chart-toolbar button:not(.cleo-report-alarm){background:var(--screen-surface);border-color:var(--screen-border);color:var(--screen-text)}
 .vela-preview-main .vela-status,.vela-preview-main .vela-preview-foot{background:var(--screen-bg);border-color:var(--screen-border);color:var(--screen-muted)}
 .vela-preview-main #velaChart{background:var(--screen-bg)}
-#deskChatMount{background:var(--screen-bg);border-color:var(--screen-border);color:var(--screen-text)}
-#deskChatMount .batty-dock{background:var(--screen-bg);border-color:var(--screen-border);color:var(--screen-text)}
-#deskChatMount .batty-chat-head,#deskChatMount .agent-activity{background:var(--screen-surface);border-color:var(--screen-border)}
-#deskChatMount .batty-chat-head strong,#deskChatMount .agent-activity-heading strong{color:var(--screen-text)}
-#deskChatMount .batty-chat-body,#deskChatMount .batty-chat-stream{background:var(--screen-bg)}
-#deskChatMount .batty-message p{color:var(--screen-text)}
-#deskChatMount .batty-message.user{background:var(--screen-surface);border-color:var(--screen-border)}
-#deskChatMount .batty-insight,#deskChatMount .agent-activity-card{background:var(--screen-surface);border-color:var(--screen-border)}
-#deskChatMount .batty-insight strong,#deskChatMount .batty-message p a{color:var(--screen-accent)}
-#deskChatMount .batty-chat-composer{background:var(--screen-surface);border-color:var(--screen-border)}
-#deskChatMount .batty-chat-composer textarea{color:var(--screen-text)}
-#deskChatMount .batty-chat-composer button{background:var(--screen-accent)}
+.modular-widget[data-kind=agents]{min-width:260px}
+.modular-widget[data-kind=agents] .batty-dock{background:var(--screen-bg);border-color:var(--screen-border);color:var(--screen-text)}
+.modular-widget[data-kind=agents] .batty-chat-head,.modular-widget[data-kind=agents] .agent-activity{background:var(--screen-surface);border-color:var(--screen-border)}
+.modular-widget[data-kind=agents] .batty-chat-head strong,.modular-widget[data-kind=agents] .agent-activity-heading strong{color:var(--screen-text)}
+.modular-widget[data-kind=agents] .batty-chat-body,.modular-widget[data-kind=agents] .batty-chat-stream{background:var(--screen-bg)}
+.modular-widget[data-kind=agents] .batty-message p{color:var(--screen-text)}
+.modular-widget[data-kind=agents] .batty-message.user{background:var(--screen-surface);border-color:var(--screen-border)}
+.modular-widget[data-kind=agents] .batty-insight,.modular-widget[data-kind=agents] .agent-activity-card{background:var(--screen-surface);border-color:var(--screen-border)}
+.modular-widget[data-kind=agents] .batty-insight strong,.modular-widget[data-kind=agents] .batty-message p a{color:var(--screen-accent)}
+.modular-widget[data-kind=agents] .batty-chat-composer{background:var(--screen-surface);border-color:var(--screen-border)}
+.modular-widget[data-kind=agents] .batty-chat-composer textarea{color:var(--screen-text)}
+.modular-widget[data-kind=agents] .batty-chat-composer button{background:var(--screen-accent)}
 
 .vela-preview-page .batty-message p{font-size:calc(.71rem * var(--desk-text-scale,1))}
 .vela-preview-page .batty-message small{font-size:calc(.5rem * var(--desk-text-scale,1))}

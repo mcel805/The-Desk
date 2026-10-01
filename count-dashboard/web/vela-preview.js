@@ -3,7 +3,7 @@ import {buildChartContract} from './chart-contract.js';
 import {liquidityConvergenceGroups} from './liquidity-convergence.js';
 import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.js';
 import {createPaperChartPlanner} from './paper-chart-planner.js';
-import {createModularWorkspace} from './modular-workspace.js?v=standard-scratch-1-20261001';
+import {createModularWorkspace} from './modular-workspace.js?v=agents-widget-2-20261001';
 let latestPaperJournalSequence = 0;
 async function refreshPaperJournalBadge() {
   const badge = $('#journalUpdateBadge');
@@ -1894,5 +1894,6 @@ modularWorkspace = createModularWorkspace({
     return connectChartProvider($('#velaDefaultProvider').value);
   },
 });
+window.countDeskModularWorkspace = modularWorkspace;
 setWorkspace('chart');
 void init();

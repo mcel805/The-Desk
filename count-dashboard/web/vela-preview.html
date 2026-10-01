@@ -13,7 +13,7 @@
   </script>
   <title>Count Desk · Chart Workspace</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-    <link rel="stylesheet" href="./vela-preview.css?v=adaptive-workspace-4-20261001">
+    <link rel="stylesheet" href="./vela-preview.css?v=agents-widget-1-20261001">
   <link rel="stylesheet" href="./paper-chart-planner.css?v=1">
 </head>
 <body class="trading-prototype vela-preview-page">
@@ -64,11 +64,12 @@
         <button type="button" data-open-widget-gallery>＋ &nbsp; Add your first widget</button>
       </section>
       <div id="modularGrid" class="modular-grid" aria-live="polite"></div>
-      <div id="modularWidgetParking" hidden></div>
+      <div id="modularWidgetParking" hidden><div id="modularAgentsParking"></div></div>
     </section>
     <dialog id="modularWidgetDialog" class="modular-widget-dialog" aria-labelledby="modularGalleryTitle">
       <form method="dialog" class="modular-gallery-shell"><header><div><small>COUNT DESK · WORKSPACE</small><h2 id="modularGalleryTitle">Add a widget</h2><p>Auto-fit finds a balanced place as the desk grows. Drag a panel by its header to reorder, or cycle its size with ↔.</p></div><button value="cancel" aria-label="Close widget gallery">×</button></header><div class="modular-widget-catalog">
         <button type="button" data-modular-add="chart"><span>⌁</span><strong>Chart</strong><small>Source-aware Vela chart with paper planning and indicator cubes.</small></button>
+        <button type="button" data-modular-add="agents"><span>✦</span><strong>Agents</strong><small>Chat with Cleo and coordinate chart research.</small></button>
         <button type="button" data-modular-add="ladder"><span>⇅</span><strong>Ladder</strong><small>Stored bar OHLC levels with Buy / Sell paper-plan staging.</small></button>
         <button type="button" data-modular-add="watchlist"><span>☷</span><strong>List</strong><small>Build a personal instrument list from the Count Desk catalog.</small></button>
         <button type="button" data-modular-add="indicators"><span>▦</span><strong>Indicator cubes</strong><small>Toggle native chart studies through the Vela renderer.</small></button>
@@ -163,8 +164,8 @@
   <div id="velaTradeContextMenu" class="vela-trade-context-menu" role="menu" aria-label="Paper trade options" hidden><button type="button" role="menuitem" data-paper-side="long" data-paper-type="market">Paper buy at market</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="market">Paper sell at market</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="limit">Paper buy limit…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="limit">Paper sell limit…</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="stop">Paper buy stop…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="stop">Paper sell stop…</button></div>
   <div id="deskChatMount"></div>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=standard-scratch-1-20261001"></script>
-  <script type="module" src="./batty-agent.js?v=connections-text-1"></script>
+  <script type="module" src="./vela-preview.js?v=agents-widget-2-20261001"></script>
+  <script type="module" src="./batty-agent.js?v=agents-widget-1-20261001"></script>
   <script type="module" src="./desk-shell.js?v=toolbelt-manager-20260930"></script>
   <script src="./sidebar-themes.js?v=screen-paint-3-20260929"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
