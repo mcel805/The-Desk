@@ -1162,12 +1162,14 @@ async function refreshFeedState(market, timeframe) {
     const sourceTime = ticker
       ? tickstreamState.lastSourceTimeBySymbol?.[ticker]
       : tickstreamState.lastSourceTime;
+    const feedState = $('#velaFeedState');
+    const feedMeta = $('#velaFeedMeta');
     if (ticker) {
-      $('#velaFeedState').textContent = `Tickstream ${ticker} · DELAYED`;
-      $('#velaFeedMeta').textContent = `${tickstreamState.message || tickstream?.status || 'Tickstream status available.'} · ${tickstreamLag(sourceTime)} · source ${sourceTime || 'waiting'} · memory-only bars.`;
+      if (feedState) feedState.textContent = `Tickstream ${ticker} · DELAYED`;
+      if (feedMeta) feedMeta.textContent = `${tickstreamState.message || tickstream?.status || 'Tickstream status available.'} · ${tickstreamLag(sourceTime)} · source ${sourceTime || 'waiting'} · memory-only bars.`;
     } else {
-      $('#velaFeedState').textContent = `${status.provider || 'Historical source'} · ${status.mode || 'UNKNOWN'}`;
-      $('#velaFeedMeta').textContent = `${status.message || 'Source status available.'} Tickstream: ${tickstream?.status || 'unknown'}.`;
+      if (feedState) feedState.textContent = `${status.provider || 'Historical source'} · ${status.mode || 'UNKNOWN'}`;
+      if (feedMeta) feedMeta.textContent = `${status.message || 'Source status available.'} Tickstream: ${tickstream?.status || 'unknown'}.`;
     }
     const tickstreamConnected = Boolean(ticker)
       && tickstreamState.state === 'connected'
@@ -1177,7 +1179,7 @@ async function refreshFeedState(market, timeframe) {
       ? tickstreamState.state === 'connecting'
       : status.status === 'connecting';
     if (activeChartConnection) renderConnectionManager();
-    else setConnectionButtonState('disconnected', {feed:status, tickstream:tickstreamState, sources:sources.sources || []});
+    else setConnectionButtonState(connecting ? 'connecting' : connected ? 'connected' : 'disconnected', {feed:status, tickstream:tickstreamState, sources:sources.sources || []});
   } catch (error) {
     const feedState = $('#velaFeedState');
     const feedMeta = $('#velaFeedMeta');
