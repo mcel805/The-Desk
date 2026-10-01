@@ -202,6 +202,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     finally { render(); }
   });
   return {
+    canPlanAtPrice:() => enabled,
     setChart(nextChart, nextContract) {
       const sameMarket = contract && nextContract && contract.market.symbol === nextContract.market.symbol
         && contract.market.timeframe === nextContract.market.timeframe;
@@ -268,6 +269,20 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       render();
       rail.scrollIntoView({block:'nearest'});
       inputs[type === 'market' ? 'quantity' : 'entry'].focus();
+    },
+    planAtPrice(price, side = 'long') {
+      const selected = Number(price);
+      if (!enabled || !Number.isFinite(selected) || selected <= 0) return false;
+      hasDraft = true;
+      reviewOpen = false;
+      inputs.side.value = side === 'short' ? 'short' : 'long';
+      inputs.type.value = 'limit';
+      inputs.entry.value = String(selected);
+      committedEntry = selected;
+      render();
+      rail.scrollIntoView({block:'nearest'});
+      inputs.entry.focus();
+      return true;
     },
     updateReference(nextContract) {
       if (!contract || nextContract?.market?.symbol !== contract.market.symbol) return;
