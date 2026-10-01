@@ -27,6 +27,7 @@ async function refreshPaperJournalBadge() {
   }
 }
 let catalog = [];
+const providerCatalogs = new Map();
 let modularWorkspace = null;
 let velaChart = null;
 let velaResizeFrame = 0;
@@ -301,9 +302,18 @@ window.addEventListener('countdesk:screen-palette-change', event => {
 });
 
 function fillSymbols() {
-  $('#velaSymbol').innerHTML = catalog.map(item => `<option value="${item.symbol}">${item.label || item.symbol}</option>`).join('');
-  const preferred = catalog.find(item => item.symbol.includes('MYM')) || catalog[0];
-  if (preferred) $('#velaSymbol').value = preferred.symbol;
+  const select = $('#velaSymbol');
+  const previous = select.value;
+  select.replaceChildren(...catalog.map(item => {
+    const option = new Option(item.label || item.symbol,item.symbol);
+    if (item.directProvider) option.dataset.directProvider = item.directProvider;
+    return option;
+  }));
+  if (catalog.some(item => item.symbol === previous)) select.value = previous;
+  else {
+    const preferred = catalog.find(item => item.symbol.includes('MYM')) || catalog[0];
+    if (preferred) select.value = preferred.symbol;
+  }
 }
 
 function selectedMarket() {
@@ -1213,11 +1223,35 @@ function addProviderMarketOption(spec, symbol, ticker) {
   if (!option) {
     option = document.createElement('option');
     option.value = symbol;
-    option.dataset.directProvider = spec.id;
     select.append(option);
   }
+  option.dataset.directProvider = spec.id;
   option.textContent = `${spec.label} · ${ticker}`;
   select.value = symbol;
+}
+
+async function refreshProviderCatalog(id) {
+  const spec = chartProviderSpecs[id];
+  const Provider = window.Vela?.[spec?.className];
+  if (!Provider) return;
+  const provider = new Provider();
+  const symbols = await provider.listSymbols();
+  if (!Array.isArray(symbols)) return;
+  providerCatalogs.set(id, symbols.map(item => {
+    const ticker = String(item.ticker || '').trim();
+    if (!ticker) return null;
+    const symbol = `${spec.prefix}:${ticker}`;
+    return {symbol, providerId:id, ticker, directProvider:id,
+      label:`${spec.label} · ${ticker}${item.description ? ` · ${item.description}` : ''}`};
+  }).filter(Boolean));
+  catalog = catalog.filter(item => !item.providerId).concat(...providerCatalogs.values());
+  if (activeChartConnection?.id === id && !catalog.some(item => item.symbol === activeChartConnection.symbol)) {
+    const ticker = activeChartConnection.symbol.slice(`${spec.prefix}:`.length);
+    catalog.push({symbol:activeChartConnection.symbol,providerId:id,ticker,directProvider:id,
+      label:`${spec.label} · ${ticker}`});
+  }
+  fillSymbols();
+  modularWorkspace?.renderWatchlist();
 }
 
 function createRegisteredProviderChart(spec, symbol, timeframe) {
@@ -1246,6 +1280,8 @@ function confirmConnectionSwitch(next, current) {
 
 async function connectChartProvider(id, chosenTicker = '') {
   if (pendingChartConnection) return;
+  setWorkspace('chart');
+  modularWorkspace?.ensureChart();
   const spec = chartProviderSpecs[id];
   if (!spec) return;
   const field = document.querySelector(`[data-market-for="${id}"]`);
@@ -1259,7 +1295,7 @@ async function connectChartProvider(id, chosenTicker = '') {
   setTimeframeOptions('provider');
   const timeframe = $('#velaTimeframe').value;
   const next = {id, label:spec.label, symbol, timeframe};
-  if (activeChartConnection && (activeChartConnection.id !== id || activeChartConnection.symbol !== symbol)) {
+  if (activeChartConnection && activeChartConnection.id !== id) {
     pendingChartConnection = next;
     renderConnectionManager();
     const accepted = await confirmConnectionSwitch(next, activeChartConnection);
@@ -1293,13 +1329,20 @@ async function connectChartProvider(id, chosenTicker = '') {
     activeChartConnection = {...next, connectedAt:Date.now()};
     pendingChartConnection = null;
     renderConnectionManager();
+    let catalogError = '';
+    try {
+      await refreshProviderCatalog(id);
+      modularWorkspace?.addToWatchlist(symbol);
+    } catch (error) {
+      catalogError = ` Asset list unavailable: ${error.message}`;
+    }
     await applyStoredIndicators();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     chart.resize();
     $('#velaProvenance').textContent = `${spec.label} public market data · ${symbol} · ${timeframe} · provider connection active; timestamps and history limits follow provider API.`;
     renderChartLegend(window.countDeskVelaContext);
     renderConnectionManager();
-    setStatus(`${spec.label} ${symbol} chart active · public market data · no brokerage account connected.`);
+    setStatus(`${spec.label} ${symbol} chart active · public market data · no brokerage account connected.${catalogError}`, Boolean(catalogError));
   } catch (error) {
     disposeActiveChartConnection();
     $('#velaPaperTab').disabled = false;
@@ -1845,6 +1888,17 @@ $('#velaDefaultProvider').addEventListener('change', event => {
   catch { setStatus('This browser blocked saved settings; the startup default may not persist.', true); return; }
   setStatus(`${chartProviderSpecs[provider]?.label || 'Count Desk historical'} saved as the startup default.`);
   modularWorkspace?.saveCurrentState();
+});
+$('#modularConnectData').addEventListener('click', () => {
+  setWorkspace('chart');
+  modularWorkspace?.ensureChart();
+  requestAnimationFrame(() => {
+    const manager = $('#deskConnections');
+    if (!manager) return;
+    document.querySelectorAll('.desk-drawer').forEach(drawer => { drawer.hidden = true; });
+    manager.hidden = false;
+    $('#velaConnectionsButton')?.setAttribute('aria-expanded','true');
+  });
 });
 $('#deskConnections').addEventListener('click', event => {
   const button = event.target.closest('[data-connect-provider]');
