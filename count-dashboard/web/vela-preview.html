@@ -141,7 +141,12 @@
           </div>
         </section>
         <div id="indicatorTemplateStatus" class="tool-template-status" role="status" aria-live="polite">Templates and indicator settings are saved in this browser.</div>
-        <div id="toolBeltIndicatorGrid" class="tool-belt-indicator-grid" aria-label="Ten indicator cards"></div>
+        <nav class="tool-belt-kind-tabs" aria-label="Filter Tool Belt cards">
+          <button type="button" data-tool-belt-kind="all" aria-pressed="true">All</button>
+          <button type="button" data-tool-belt-kind="indicator" aria-pressed="false">Indicators</button>
+          <button type="button" data-tool-belt-kind="tool" aria-pressed="false">Tools</button>
+        </nav>
+        <div id="toolBeltIndicatorGrid" class="tool-belt-indicator-grid" aria-label="Indicators and chart tools"></div>
         <section class="tool-support-block" aria-label="Free chart support tools">
           <button id="toolSupportToggle" class="tool-support-trigger" type="button" aria-expanded="false" aria-controls="toolSupportPanel"><svg viewBox="0 0 72 58" role="img" aria-label="Volume bars and oscillator line"><path d="M8 50V34h8v16M22 50V20h8v30M36 50V7h8v43M50 50V27h8v23"/><path d="M7 14c8 0 9 15 17 15s9-17 17-17 9 19 17 19"/></svg><span><small>SUPPORT STUDIES</small><strong>Tool Support</strong><em>Free built-in chart overlays · Volume, RSI, and more</em></span><b>Choose tools <span aria-hidden="true">⌄</span></b></button>
           <div id="toolSupportPanel" class="tool-support-panel" hidden><p>These studies are computed by the Vela renderer over the selected stored bars. They add chart panes or overlays; they do not create signals, alerts, or orders.</p><div id="velaIndicatorList" class="vela-indicator-list">Preparing native support tools…</div></div>
@@ -152,6 +157,10 @@
       </dialog>
       <div class="vela-chart-stage">
         <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
+        <section id="smartFibControls" class="smart-fib-controls" aria-label="Smart Fib swing preview controls" hidden>
+          <span id="smartFibModeReadout">Hover preview · confirmed swing</span>
+          <button id="smartFibLock" type="button">Lock swing</button>
+        </section>
         <aside id="velaQuickOrderRail" class="vela-quick-order-rail" aria-label="Paper trade shortcuts">
           <button id="velaQuickOrderToggle" class="cat-rail-toggle" type="button" aria-expanded="true" aria-controls="velaQuickOrderActions" aria-label="Collapse paper trade buttons" title="Collapse paper trade buttons"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button>
           <div id="velaQuickOrderActions" class="vela-quick-order-actions"><button type="button" data-quick-paper-side="long" aria-label="Stage paper buy limit 10 ticks below the confirmed close">Buy</button><button type="button" data-quick-paper-side="short" aria-label="Stage paper sell limit 10 ticks above the confirmed close">Sell</button></div>
@@ -213,7 +222,7 @@
   <div id="velaTradeContextMenu" class="vela-trade-context-menu" role="menu" aria-label="Paper trade options" hidden><button type="button" role="menuitem" data-paper-side="long" data-paper-type="market">Paper buy at market</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="market">Paper sell at market</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="limit">Paper buy limit…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="limit">Paper sell limit…</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="stop">Paper buy stop…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="stop">Paper sell stop…</button></div>
   <div id="deskChatMount"></div>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=provider-assets-1-20261001"></script>
+  <script type="module" src="./vela-preview.js?v=smart-fib-60min-20261001"></script>
   <script type="module" src="./batty-agent.js?v=agents-widget-1-20261001"></script>
   <script type="module" src="./desk-shell.js?v=toolbelt-manager-20260930"></script>
   <script src="./sidebar-themes.js?v=screen-paint-3-20260929"></script>

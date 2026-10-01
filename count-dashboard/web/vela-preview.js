@@ -5,6 +5,7 @@ import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.
 import {createPaperChartPlanner} from './paper-chart-planner.js?v=paper-cats-20261001';
 import {createModularWorkspace} from './modular-workspace.js?v=paper-cats-20261001';
 import {resetCandleSpacing,stepCandleSpacing,keepCandleSpacingReadable} from './candle-viewport.js?v=3';
+import {advanceSmartFibSwing,confirmedAlternatingSwings,smartFibSwingAtTime} from './smart-fib-engine.mjs?v=smart-fib-hover-2';
 let latestPaperJournalSequence = 0;
 async function refreshPaperJournalBadge() {
   const badge = $('#journalUpdateBadge');
@@ -63,6 +64,18 @@ let settingsTarget = null;
 let indicatorTemplates = [];
 let toolBeltDrawingIds = {};
 let toolBeltBarsCache = {key:'', at:0, bars:[]};
+let toolBeltKindFilter = 'all';
+let smartFibHoverUnsubscribe = null;
+let smartFibCurrentSwing = null;
+let smartFibLockedSwing = null;
+let smartFibUserLocked = false;
+let smartFibActiveBars = [];
+let smartFibActiveSwings = [];
+let smartFibContextKey = '';
+let smartFibChartTimeframe = '';
+let smartFibRefreshRunning = false;
+let smartFibRefreshQueued = false;
+let smartFibHideTimer = null;
 let activeChartConnection = null;
 let pendingChartConnection = null;
 let liquidityHoverChart = null;
@@ -82,7 +95,8 @@ const timeframeOptions = {
 };
 const toolBeltIndicators = [
   {id:'volume-profile',name:'Volume Profile',version:'v1.0.0',image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['bins','Price bins','number',32,8,128],['lookback','Lookback bars','number',160,20,2000],['valueArea','Show value area','checkbox',true]]},
-  {id:'fibonacci',name:'Fibonacci',version:'v0.1.0',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['anchor','Swing anchor','select','Last confirmed swing',['Last confirmed swing','Visible range','Manual']],['levels','Retracement levels','text','0.382, 0.5, 0.618']]},
+  {id:'fibonacci',name:'Fibonacci',version:'v0.1.0',kind:'tool',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['anchor','Swing anchor','select','Last confirmed swing',['Last confirmed swing','Visible range','Manual']],['levels','Retracement levels','text','0.382, 0.5, 0.618']]},
+  {id:'smart-fib',name:'Smart Fib',version:'v1.1.0',kind:'tool',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['swingTimeframe','Swing timeframe','select','60MIN',['15M','30M','60MIN','4H','1D','1W']]]},
   {id:'liquidity',name:'Liquidity',version:'001',latestVersion:'001',versions:[{id:'001',label:'001 · HTF convergence',state:'current',summary:'30m / 1h anchors, present internal levels, and compact convergence tags.'},{id:'000',label:'000 · Baseline',state:'archived',summary:'Original chart-timeframe pivots with wick-swept history.'}],image:'liquidity-sketch.png',colorImage:'liquidity-color.png',settings:[['externalPivot','External pivot length','number',14,1,50],['internalPivot','Internal pivot length','number',5,1,50],['showSweeps','Show broken history','checkbox',true],['convergenceAtr','Convergence range (ATR)','number',0.1,0.05,0.2],['showLocalConvergences','Show local timeframe convergences','checkbox',true]]},
   {id:'bias',name:'Bias',version:'v1.0.0',image:'bias-sketch.png',colorImage:'bias-color.png',settings:[['pivotLength','Pivot length','number',5,1,50],['sweepBufferTicks','Sweep buffer (ticks)','number',1,0,100],['acceptanceBufferTicks','Acceptance buffer (ticks)','number',1,0,100],['showSwingLabels','Show swing labels','checkbox',true],['showBreaks','Show BOS / CHOCH','checkbox',true],['priorPeriod','Include higher-timeframe context','checkbox',true]]},
   {id:'structure-zones',name:'Structure Zones',version:'v1.0.0',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',settings:[['pivotLength','Pivot length','number',4,1,50],['originLookback','Origin search (bars)','number',8,1,50],['minDisplacementAtr','Min displacement (ATR)','number',0.8,0,10],['equalToleranceAtr','Equal-level tolerance (ATR)','number',0.12,0,2],['showBreaks','Show BOS / CHoCH','checkbox',true]]},
@@ -376,7 +390,12 @@ function effectiveToolBeltSettings(definition) {
   const algorithmVersion=definition.versions?.some(version=>version.id===requestedVersion)
     ? requestedVersion
     : definition.latestVersion || '000';
-  return {...defaultSettings(definition), ...saved, algorithmVersion};
+  const settings={...defaultSettings(definition), ...saved, algorithmVersion};
+  if(definition.id==='smart-fib'){
+    if(settings.swingTimeframe==='1H')settings.swingTimeframe='60MIN';
+    if(!['15M','30M','60MIN','4H','1D','1W'].includes(settings.swingTimeframe))settings.swingTimeframe='60MIN';
+  }
+  return settings;
 }
 
 function selectedToolBeltVersion(definition) {
@@ -403,6 +422,8 @@ function addToolBeltDrawing(type, init, owner = 'liquidity') {
 function providerTimeframe(timeframe) {
   return ({'1M':'1','2M':'2','3M':'3','5M':'5','15M':'15','30M':'30','45M':'45','1H':'60','2H':'120','3H':'180','4H':'240','6H':'360','8H':'480','12H':'720','1D':'D','1W':'W','1MO':'M'})[String(timeframe).toUpperCase()] || timeframe;
 }
+
+function smartFibSourceTimeframe(timeframe) { return timeframe === '60MIN' ? '1H' : timeframe; }
 
 function setTimeframeOptions(mode) {
   const select = $('#velaTimeframe');
@@ -506,6 +527,102 @@ function toolDrawLine(owner,bars,startIndex,price,color,label='',style='solid',w
 
 function toolDrawLabel(owner,bar,value,color,size='tiny') {
   addToolBeltDrawing('text',{paneId:'price',anchors:[{time:bar.time,price:bar.price}],text:{value,color,size,hAlign:'center',vAlign:bar.side==='HIGH'?'bottom':'top'},style:{lineColor:color,lineWidth:1,lineStyle:'solid'}},owner);
+}
+
+function clearSmartFibHover() {
+  smartFibHoverUnsubscribe?.();
+  smartFibHoverUnsubscribe=null;
+  clearTimeout(smartFibHideTimer);
+  smartFibHideTimer=null;
+}
+
+function scheduleSmartFibPreviewClear(bars) {
+  clearTimeout(smartFibHideTimer);
+  smartFibHideTimer=setTimeout(()=>{
+    smartFibHideTimer=null;
+    if(!smartFibUserLocked)paintSmartFibSwing(null,bars);
+  },350);
+}
+
+function paintSmartFibSwing(swing, bars=smartFibActiveBars) {
+  clearToolBeltDrawings('smart-fib');
+  smartFibCurrentSwing=swing||null;
+  const controls=$('#smartFibControls');
+  const readout=$('#smartFibModeReadout');
+  const lock=$('#smartFibLock');
+  if(readout) readout.textContent=smartFibUserLocked?`${smartFibLockedSwing?.timeframe||'Swing'} · locked · tracking extreme`:`${swing?.timeframe||'Swing'} · hover preview`;
+  if(lock){lock.disabled=!swing&&!smartFibUserLocked;lock.textContent=smartFibUserLocked?'Unlock':'Lock swing';}
+  if(!swing||bars.length<2){if(controls)controls.hidden=true;return;}
+  const first=swing.from, last=swing.to, end=bars.at(-1);
+  const rightEdge=Math.max(Number(end?.time)||0,Number(last?.time)||0);
+  if(!first||!last||!end||rightEdge<=first.time)return;
+  const up=swing.from.side==='LOW'&&swing.to.side==='HIGH';
+  const range=Math.abs(swing.to.price-swing.from.price);
+  if(!(range>0))return;
+  const priceAt=ratio=>up?swing.to.price-range*ratio:swing.to.price+range*ratio;
+  const xStart=swing.from.time, xEnd=rightEdge;
+  const rangeTop=Math.max(swing.from.price,swing.to.price),rangeBottom=Math.min(swing.from.price,swing.to.price);
+  const span=Math.max(rangeTop-rangeBottom,Math.abs(end.close||rangeBottom)*0.00001);
+  addToolBeltDrawing('box',{paneId:'price',anchors:[{time:xStart,price:rangeTop},{time:xEnd,price:rangeBottom}],style:{lineColor:'#c9a5ff22',lineWidth:1,lineStyle:'solid',fillColor:'#a879e51c'}},'smart-fib');
+  addToolBeltDrawing('box',{paneId:'price',anchors:[{time:xStart,price:rangeTop-span*.003},{time:xEnd,price:rangeBottom+span*.003}],style:{lineColor:'#d2b6ff33',lineWidth:1,lineStyle:'solid',fillColor:'#b98aff0d'}},'smart-fib');
+  for(const point of [swing.from,swing.to]){
+    addToolBeltDrawing('text',{paneId:'price',anchors:[{time:point.time,price:point.price}],text:{value:'●',color:'#d7b9ff',size:'small',hAlign:'center',vAlign:point.side==='LOW'?'bottom':'top'},style:{lineColor:'#c79bff',lineWidth:2,lineStyle:'solid'}},'smart-fib');
+  }
+  const midTime=Math.round((xStart+xEnd)/2), midPrice=(rangeTop+rangeBottom)/2;
+  addToolBeltDrawing('text',{paneId:'price',anchors:[{time:midTime,price:midPrice}],text:{value:`${swing.timeframe||'Swing'} structure range`,color:'#d8c5f6',size:'tiny',hAlign:'center',vAlign:'middle'},style:{lineColor:'#c9a5ff',lineWidth:1,lineStyle:'solid'}},'smart-fib');
+  const zones=[[.5,.618,'#8e72b833'],[.618,.786,'#57b6a522']];
+  for(const [a,b,color] of zones){
+    const top=Math.max(priceAt(a),priceAt(b)),bottom=Math.min(priceAt(a),priceAt(b));
+    addToolBeltDrawing('box',{paneId:'price',anchors:[{time:xStart,price:top},{time:xEnd,price:bottom}],style:{lineColor:`${color.slice(0,7)}55`,lineWidth:1,lineStyle:'solid',fillColor:color}},'smart-fib');
+  }
+  for(const ratio of [.382,.5,.618,.786]){
+    const color=ratio===.382?'#5fb5ff':ratio===.5?'#be91ff':ratio===.618?'#54dea0':'#f2d35e';
+    const price=priceAt(ratio);
+    addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:xStart,price},{time:xEnd,price}],style:{lineColor:color,lineWidth:2,lineStyle:'solid'}},'smart-fib');
+    addToolBeltDrawing('text',{paneId:'price',anchors:[{time:xEnd,price}],text:{value:`${(ratio*100).toFixed(1)}% · ${formatPrice(price)}`,color,size:'tiny',hAlign:'right',vAlign:'top'},style:{lineColor:color,lineWidth:1,lineStyle:'solid'}},'smart-fib');
+  }
+  if(controls)controls.hidden=false;
+}
+
+function watchSmartFibHover(bars,timeframe) {
+  clearSmartFibHover();
+  smartFibActiveBars=bars;
+  smartFibHoverUnsubscribe=velaChart?.renderer?.onCrosshairMove?.(event=>{
+    if(!storedToolBeltActive().has('smart-fib')||event.paneKind==='study'||smartFibUserLocked)return;
+    const selected=smartFibSwingAtTime(smartFibActiveSwings,event?.time);
+    if(selected)selected.timeframe=timeframe;
+    if(!selected){scheduleSmartFibPreviewClear(bars);return;}
+    clearTimeout(smartFibHideTimer);smartFibHideTimer=null;
+    if(selected?.from.index===smartFibCurrentSwing?.from.index&&selected?.to.index===smartFibCurrentSwing?.to.index)return;
+    paintSmartFibSwing(selected,bars);
+  })||null;
+  $('#velaChart').onpointerleave=()=>scheduleSmartFibPreviewClear(bars);
+}
+
+async function refreshSmartFibAfterFinalBar() {
+  const definition=toolBeltIndicators.find(item=>item.id==='smart-fib');
+  if(!storedToolBeltActive().has('smart-fib')||!definition||smartFibUserLocked)return;
+  smartFibRefreshQueued=true;
+  if(smartFibRefreshRunning)return;
+  smartFibRefreshRunning=true;
+  try{
+    while(smartFibRefreshQueued){
+      smartFibRefreshQueued=false;
+      toolBeltBarsCache={key:'',at:0,bars:[]};
+      try{await renderToolBeltIndicator('smart-fib');}
+      catch(error){$('#indicatorTemplateStatus').textContent=`Smart Fib refresh unavailable: ${error.message}`;}
+    }
+  }finally{smartFibRefreshRunning=false;}
+}
+
+function updateSmartFibDuringBar(bar,context) {
+  const definition=toolBeltIndicators.find(item=>item.id==='smart-fib');
+  if(!storedToolBeltActive().has('smart-fib')||!definition||!smartFibUserLocked||!smartFibLockedSwing)return;
+  if(context.symbol!==smartFibContextKey.split('|')[0]||context.timeframe!==smartFibChartTimeframe)return;
+  const next=advanceSmartFibSwing(smartFibLockedSwing,bar);
+  if(!next||next===smartFibLockedSwing)return;
+  smartFibLockedSwing=next;
+  paintSmartFibSwing(smartFibLockedSwing,smartFibActiveBars);
 }
 
 function averageTrueRange(bars,period=14) {
@@ -689,11 +806,35 @@ async function renderUniversalToolBeltIndicator(id) {
   if (!velaChart?.drawings?.supported || typeof velaChart.drawings.add !== 'function') throw new Error('This renderer cannot display chart drawings.');
   const definition=toolBeltIndicators.find(item=>item.id===id);
   if (!definition) throw new Error('Unknown indicator.');
-  const {symbol,timeframe,source,bars}=await activeToolBeltBars();
-  const owner=id, settings=effectiveToolBeltSettings(definition), last=bars.at(-1), first=bars[0];
+  const chartSeries=await activeToolBeltBars();
+  const {symbol,timeframe,source}=chartSeries;
+  const owner=id, settings=effectiveToolBeltSettings(definition);
+  const swingSourceTimeframe=smartFibSourceTimeframe(settings.swingTimeframe||'60MIN');
+  const fibSeries=id==='smart-fib'?await activeToolBeltBars(swingSourceTimeframe):null;
+  const bars=fibSeries?.bars||chartSeries.bars;
+  const swingTimeframe=fibSeries?.timeframe||timeframe;
+  const last=bars.at(-1), first=bars[0];
+  if(id==='smart-fib'){
+    const nextContextKey=`${symbol}|${timeframe}|${settings.swingTimeframe||'60MIN'}`;
+    if(smartFibContextKey&&smartFibContextKey!==nextContextKey){smartFibLockedSwing=null;smartFibUserLocked=false;}
+    smartFibContextKey=nextContextKey;
+    smartFibChartTimeframe=timeframe;
+  }
   const pivots=confirmedPivots(bars,Math.max(2,Number(settings.pivotLength || settings.externalPivot || 4)));
   clearToolBeltDrawings(owner);
-  if (id==='liquidity') {
+  if (id==='smart-fib') {
+    clearSmartFibHover();
+    smartFibActiveBars=bars;
+    smartFibActiveSwings=confirmedAlternatingSwings(bars,2);
+    smartFibCurrentSwing=smartFibLockedSwing;
+    if(smartFibUserLocked&&smartFibLockedSwing) paintSmartFibSwing(smartFibLockedSwing,bars);
+    else {
+      smartFibCurrentSwing=null;
+      paintSmartFibSwing(null,bars);
+      watchSmartFibHover(bars,settings.swingTimeframe||'60MIN');
+    }
+    $('#indicatorTemplateStatus').textContent=`Smart Fib · hover to preview, lock to track · ${settings.swingTimeframe||'60MIN'} swing on ${symbol} ${timeframe} chart · confirmed pivots use 2 closed bars on each side · descriptive levels only.`;
+  } else if (id==='liquidity') {
     const algorithmVersion=selectedToolBeltVersion(definition);
     if(algorithmVersion==='000') { setLiquidityHoverGroups([],last.time); renderLiquidityVersion000(owner,timeframe,bars,settings); }
     else {
@@ -761,7 +902,7 @@ async function renderUniversalToolBeltIndicator(id) {
     toolDrawLine(owner,bars,0,eq,'#e6c879',`EQUILIBRIUM · ${settings.equilibrium||50}%`,'dashed');
   }
   const hasDrawings=(toolBeltDrawingIds[owner]||[]).length>0;
-  if(!['bias','structure-zones'].includes(id) && !(id==='liquidity'&&selectedToolBeltVersion(definition)==='001')) $('#indicatorTemplateStatus').textContent=`${definition.name} ${id==='liquidity'?`v${selectedToolBeltVersion(definition)}`:''} active on ${symbol} ${timeframe} · ${bars.length} ${source} bars · last confirmed ${new Date(last.time).toLocaleString()} · ${hasDrawings?'OHLCV-derived descriptive overlay; no predictive claim.':'no qualifying structures in this window; settings are active.'}`;
+  if(!['bias','structure-zones','smart-fib'].includes(id) && !(id==='liquidity'&&selectedToolBeltVersion(definition)==='001')) $('#indicatorTemplateStatus').textContent=`${definition.name} ${id==='liquidity'?`v${selectedToolBeltVersion(definition)}`:''} active on ${symbol} ${timeframe} · ${bars.length} ${source} bars · last confirmed ${new Date(last.time).toLocaleString()} · ${hasDrawings?'OHLCV-derived descriptive overlay; no predictive claim.':'no qualifying structures in this window; settings are active.'}`;
 }
 
 async function renderToolBeltIndicator(id) {
@@ -769,6 +910,7 @@ async function renderToolBeltIndicator(id) {
 }
 
 async function syncToolBeltOverlays() {
+  clearSmartFibHover();
   clearToolBeltDrawings();
   setLiquidityHoverGroups([],0);
   toolBeltBarsCache = {key:'',at:0,bars:[]};
@@ -783,13 +925,17 @@ function renderToolBeltIndicators() {
   const grid = $('#toolBeltIndicatorGrid');
   if (!grid) return;
   const active = storedToolBeltActive();
-  grid.innerHTML = toolBeltIndicators.map(definition => {
+  grid.innerHTML = toolBeltIndicators.filter(definition=>toolBeltKindFilter==='all'||(definition.kind||'indicator')===toolBeltKindFilter).map(definition => {
     const enabled = active.has(definition.id);
     const version=selectedToolBeltVersion(definition);
-    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}"><button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE · ' : ''}${definition.id==='liquidity'?`v${version}`:definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button></article>`;
+    const kind=definition.kind||'indicator';
+    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}" data-kind="${kind}"><span class="tool-card-kind">${kind==='tool'?'TOOL':'INDICATOR'}</span><button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE · ' : ''}${definition.id==='liquidity'?`v${version}`:definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button></article>`;
   }).join('');
+  document.querySelectorAll('[data-tool-belt-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.toolBeltKind===toolBeltKindFilter)));
   const nativeCount = presentNativeTypes().size;
-  $('#toolBeltIndicatorSummary').textContent = `${active.size} active indicators · ${nativeCount} support studies on`;
+  const activeTools=[...active].filter(id=>toolBeltIndicators.find(item=>item.id===id)?.kind==='tool').length;
+  const activeIndicators=active.size-activeTools;
+  $('#toolBeltIndicatorSummary').textContent = `${activeIndicators} indicators · ${activeTools} tools · ${nativeCount} support studies`;
 }
 
 function renderIndicatorTemplates() {
@@ -860,7 +1006,7 @@ function openIndicatorSettings(scope, id) {
       ? [['length','Period','number',definition.inputs.length,2,5000]]
       : [];
   const current = scope === 'toolbelt' ? effectiveToolBeltSettings(definition) : indicatorInputs(definition);
-  $('#indicatorSettingsKind').textContent = scope === 'toolbelt' ? 'INDICATOR SETTINGS' : 'TOOL SUPPORT SETTINGS';
+  $('#indicatorSettingsKind').textContent = scope === 'toolbelt' ? `${definition.kind==='tool'?'TOOL':'INDICATOR'} SETTINGS` : 'TOOL SUPPORT SETTINGS';
   $('#indicatorSettingsTitle').textContent = definition.name || definition.label;
   const versionManager=scope==='toolbelt'&&definition.versions?.length
     ? `<fieldset class="indicator-version-manager"><legend>VERSION HISTORY</legend><div class="indicator-version-section-label">CURRENT · NEWEST FIRST</div>${definition.versions.filter(version=>version.state==='current').map(version=>`<label class="indicator-version-row current"><input type="radio" name="algorithmVersion" value="${version.id}" ${current.algorithmVersion===version.id?'checked':''}><span><strong>v${version.id} · ${escapeHtml(version.label.split('·').slice(1).join('·').trim())}</strong><small>${escapeHtml(version.summary)}</small></span><em>CURRENT</em></label>`).join('')}<div class="indicator-version-section-label archived">ARCHIVED VERSIONS</div>${definition.versions.filter(version=>version.state==='archived').map(version=>`<label class="indicator-version-row"><input type="radio" name="algorithmVersion" value="${version.id}" ${current.algorithmVersion===version.id?'checked':''}><span><strong>v${version.id} · ${escapeHtml(version.label.split('·').slice(1).join('·').trim())}</strong><small>${escapeHtml(version.summary)}</small></span><em>ARCHIVE</em></label>`).join('')}</fieldset>`
@@ -874,7 +1020,9 @@ function openIndicatorSettings(scope, id) {
   }).join('') : '<p class="indicator-settings-empty">This support study has no editable inputs in the current chart renderer.</p>';
   $('#indicatorSettingsFields').innerHTML = `${versionManager}${settingsMarkup}`;
   $('#indicatorSettingsNote').textContent = scope === 'toolbelt'
-    ? definition.id === 'liquidity'
+    ? definition.id === 'smart-fib'
+      ? 'Choose the timeframe that defines swing pivots; 60 minutes is the default even when the chart uses a faster timeframe. A swing is confirmed after two bars on either side close. Hover its time range to preview the soft purple structure range and critical Fib levels. Lock pins that exact swing and follows new price extremes on the active chart. Research overlay only.'
+      : definition.id === 'liquidity'
       ? 'Settings are saved in this browser. Liquidity v001 needs 30m or 1h bars; its convergence marks are descriptive and unscored.'
       : 'Settings are saved in this browser. Confirmed chart overlays are descriptive and unscored.'
     : rows.length ? 'Period changes apply to the active native Vela study on the current chart.' : 'The study can be activated or removed; the renderer exposes no settings to change.';
@@ -1011,11 +1159,11 @@ function renderChartLegend(context = currentContract?.market || window.countDesk
     legend.innerHTML = '<span class="vela-chart-legend-market">Waiting for chart</span>';
     return;
   }
-  const colors = {volume:'#74c6a5',rsi:'#b78cff',sma:'#f2c14e',ema:'#54c9de',atr:'#ff8b72',vpvr:'#77a8ff',liquidity:'#f3b95f',bias:'#b78cff','volume-profile':'#77a8ff',fibonacci:'#e0bd72','liquidity-zones':'#6ea5c8','daily-bias':'#089981','elliott-wave':'#f4bd63','confirmed-swings':'#f23645',confluence:'#b78cff','premium-discount':'#4dbb9c'};
+  const colors = {volume:'#74c6a5',rsi:'#b78cff',sma:'#f2c14e',ema:'#54c9de',atr:'#ff8b72',vpvr:'#77a8ff',liquidity:'#f3b95f',bias:'#b78cff','volume-profile':'#77a8ff',fibonacci:'#e0bd72','smart-fib':'#5fe09d','liquidity-zones':'#6ea5c8','daily-bias':'#089981','elliott-wave':'#f4bd63','confirmed-swings':'#f23645',confluence:'#b78cff','premium-discount':'#4dbb9c'};
   const present = presentNativeTypes();
   const active = indicatorDefinitions.filter(def => present.has(def.type)).map(def => ({name:indicatorDisplayLabel(def), color:colors[def.type] || '#aebdc5'}));
   const beltActive = storedToolBeltActive();
-  for(const id of beltActive) if((toolBeltDrawingIds[id]||[]).length) active.push({name:toolBeltIndicators.find(item=>item.id===id)?.name||id,color:colors[id]||'#aebdc5'});
+  for(const id of beltActive) if((toolBeltDrawingIds[id]||[]).length||id==='smart-fib') active.push({name:toolBeltIndicators.find(item=>item.id===id)?.name||id,color:colors[id]||'#aebdc5'});
   const studies = active.length
     ? active.map(item => `<span class="vela-chart-study"><i style="--study-color:${item.color}" aria-hidden="true"></i>${escapeHtml(item.name)}</span>`).join('')
     : '<span class="vela-chart-no-studies">No indicators loaded</span>';
@@ -1195,6 +1343,7 @@ function renderConnectionManager() {
 
 function disposeActiveChartConnection() {
   clearInterval(window.countDeskTickstreamStatusTimer);
+  clearSmartFibHover();
   offLiveChartBar?.(); offLiveChartBar = null; liveChartBar = null;
   paperChartPlanner.setChart(null, null);
   if (velaChart) { try { velaChart.destroy?.(); } catch {} velaChart = null; }
@@ -1212,8 +1361,12 @@ function watchLiveChartBar(chart, context) {
   if (!chart?.on) return;
   offLiveChartBar = chart.on('bar', bar => {
     if (![bar?.open,bar?.high,bar?.low,bar?.close,bar?.time].every(value => Number.isFinite(Number(value)))) return;
+    const prior=liveChartBar;
+    const newBar=prior?.symbol===context.symbol&&prior?.timeframe===context.timeframe&&Number(bar.time)>Number(prior.bar.time);
     liveChartBar = {bar:{...bar},symbol:context.symbol,timeframe:context.timeframe,source:context.source,cutoff:context.cutoff || null};
     modularWorkspace?.renderLadder();
+    updateSmartFibDuringBar(bar,context);
+    if(newBar)void refreshSmartFibAfterFinalBar();
   });
 }
 
@@ -1940,6 +2093,7 @@ $('#toolBeltIndicatorGrid').addEventListener('click', async event => {
   const active = storedToolBeltActive();
   if (active.has(id)) {
     active.delete(id);
+    if(id==='smart-fib'){clearSmartFibHover();smartFibLockedSwing=null;smartFibUserLocked=false;smartFibCurrentSwing=null;smartFibActiveBars=[];smartFibActiveSwings=[];$('#smartFibControls').hidden=true;}
     storeToolBeltActive(active);
     clearToolBeltDrawings(id);
     if(id==='liquidity') setLiquidityHoverGroups([],0);
@@ -1959,6 +2113,24 @@ $('#toolBeltIndicatorGrid').addEventListener('click', async event => {
     clearToolBeltDrawings(id);
     $('#indicatorTemplateStatus').textContent = `${definition.name} could not be activated: ${error.message}`;
   }
+});
+document.querySelectorAll('[data-tool-belt-kind]').forEach(button=>button.addEventListener('click',()=>{
+  toolBeltKindFilter=button.dataset.toolBeltKind;
+  renderToolBeltIndicators();
+}));
+$('#smartFibControls').addEventListener('pointerenter',()=>{clearTimeout(smartFibHideTimer);smartFibHideTimer=null;});
+$('#smartFibLock').addEventListener('click',()=>{
+  if(smartFibUserLocked){
+    smartFibUserLocked=false;smartFibLockedSwing=null;
+    void renderToolBeltIndicator('smart-fib').catch(error=>$('#indicatorTemplateStatus').textContent=`Smart Fib could not unlock: ${error.message}`);
+    return;
+  }
+  if(!smartFibCurrentSwing)return;
+  clearSmartFibHover();
+  smartFibUserLocked=true;
+  smartFibLockedSwing={...smartFibCurrentSwing,confirmedEndTime:smartFibCurrentSwing.confirmedEndTime||smartFibCurrentSwing.to.time};
+  paintSmartFibSwing(smartFibLockedSwing,smartFibActiveBars);
+  $('#indicatorTemplateStatus').textContent='Smart Fib locked · tracking the swing extreme as the active bar develops. Unlock to return to hover preview.';
 });
 $('#velaChart').addEventListener('pointermove',event=>{liquidityPointer={x:event.clientX,y:event.clientY};});
 $('#velaChart').addEventListener('pointerleave',hideLiquidityPopup);

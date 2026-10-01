@@ -246,6 +246,9 @@ body.vela-preview-page main.vela-preview-main{background:var(--screen-bg);color:
 .tool-template-bar>button:disabled{opacity:.42;cursor:not-allowed}
 .tool-template-status{min-height:14px;padding:1px 2px 6px;color:#819398;font-size:9px}
 .tool-belt-indicator-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}
+.tool-belt-kind-tabs{display:flex;gap:6px;margin:2px 0 8px;padding-bottom:7px;border-bottom:1px solid #293b41}
+.tool-belt-kind-tabs button{height:27px!important;padding:0 11px!important;border:1px solid #3c4d52!important;border-radius:4px!important;background:#111a20!important;color:#9eadaf!important;font-size:9px!important;font-weight:700;cursor:pointer}
+.tool-belt-kind-tabs button[aria-pressed="true"]{border-color:#6bc7ad!important;background:#18342e!important;color:#d8f8e9!important}
 .tool-belt-card{position:relative;min-width:0;min-height:102px;padding:0;border:1px solid #36434a;border-radius:5px;background:linear-gradient(160deg,#182127,#10171d);transition:border-color .15s,background .15s,transform .15s}
 .tool-belt-card:hover{transform:translateY(-1px);border-color:#69777b;background:#1b272d}
 .tool-belt-card.is-active{border-color:#80d8c1;background:linear-gradient(155deg,#18382f,#162923);box-shadow:inset 0 0 0 1px #80d8c144,0 0 12px #56bf9633}
@@ -256,9 +259,16 @@ body.vela-preview-page main.vela-preview-main{background:var(--screen-bg);color:
 .tool-belt-card.is-active .tool-card-toggle>img{filter:none;opacity:1}
 .tool-card-toggle>strong{width:100%;overflow:hidden;color:inherit;font-size:10px;line-height:1.15;text-overflow:ellipsis;white-space:nowrap}
 .tool-card-toggle>small{color:#839397;font:8px ui-monospace,monospace}
+.tool-card-kind{position:absolute;top:6px;left:7px;z-index:1;padding:2px 4px;border:1px solid #566267;border-radius:3px;background:#11191ddd;color:#aebabc;font:7px ui-monospace,monospace;letter-spacing:.06em}
+.tool-belt-card[data-kind="tool"] .tool-card-kind{border-color:#8d7651;color:#e2c681}
 .tool-belt-card.is-active .tool-card-toggle>small{color:#a6d7c4}
 .tool-belt-card .tool-card-gear{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:23px;height:23px;padding:0;border:1px solid #58666b;border-radius:4px;background:#11191dde;color:#b9c5c6;font:15px system-ui;cursor:pointer}
 .tool-belt-card .tool-card-gear:hover{border-color:#bee9d7;color:#e4ffef}
+.smart-fib-controls{position:absolute;z-index:12;top:10px;right:10px;left:auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;max-width:min(360px,calc(100% - 20px));padding:6px 8px;border:1px solid #456758;border-radius:5px;background:#14251fee;box-shadow:0 4px 18px #0008;pointer-events:auto}
+.smart-fib-controls[hidden]{display:none}
+.smart-fib-controls span{overflow:hidden;color:#c8e3d5;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.smart-fib-controls button{height:27px!important;padding:0 9px!important;border:1px solid #5e9b7a!important;border-radius:4px!important;background:#1c3a2d!important;color:#dff7e9!important;font-size:9px!important;cursor:pointer}
+.smart-fib-controls button:disabled{opacity:.45;cursor:not-allowed}
 .tool-support-block{margin-top:8px;border:1px solid #384950;border-radius:5px;background:#111a20}
 .tool-support-trigger{display:flex!important;align-items:center;gap:10px;width:100%;height:auto!important;min-height:63px;padding:6px 9px!important;border:0!important;background:transparent!important;text-align:left;cursor:pointer}
 .tool-support-trigger>svg{width:55px;height:43px;flex:none;fill:none;stroke:#9aa7a7;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;filter:grayscale(1)}

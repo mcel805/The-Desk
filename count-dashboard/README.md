@@ -99,6 +99,17 @@ drawn; the 61.8% color and line width remain user-adjustable. These hover
 previews remain structural research aids rather than predictions or validated
 Elliott recommendations.
 
+The in-chart Tool Belt also has a **Smart Fib** chart tool. Hover over a swing
+to show its soft purple structure range, endpoint markers, and the 38.2%, 50%,
+61.8%, and 78.6% retracement lines. The default swing timeframe is **60MIN**;
+choose 15M, 30M, 4H, 1D, or 1W to analyze higher- or lower-timeframe swings on
+the active chart. A swing pivot is confirmed by two closed bars on each side.
+The preview clears when the pointer leaves the chart. **Lock swing** pins the
+selected pair and follows new price extremes on the active chart until unlocked.
+The measurements are descriptive chart references, not forecasts or trade
+instructions. Tool Belt cards are labeled and filterable as **Indicators** or
+**Tools**.
+
 The right-hand inspector is tabbed to keep the chart readable while exposing
 the Count Ledger, Next Subwaves, Wave Ratios, Auto Counts, Alternate Counts
 and Wave Guide panels. These Insight panels are derived from the same
