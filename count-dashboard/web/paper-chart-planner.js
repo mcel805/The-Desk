@@ -45,15 +45,16 @@ const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', {s
 const priceText = value => value == null ? '—' : Number(value).toLocaleString('en-US', {maximumFractionDigits:4});
 const field = (label, id, body) => `<label>${label}${body.replace('ID', id)}</label>`;
 
-export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpenAccounts}) {
+export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpenAccounts, onDiscard}) {
   const layout = document.createElement('div');
   layout.className = 'vela-chart-trade-layout';
   stage.before(layout);
   layout.append(stage);
   const rail = document.createElement('aside');
+  rail.id = 'paperRailPanel';
   rail.className = 'vela-chart-trade-rail';
   rail.setAttribute('aria-label','Paper trade planner');
-  rail.innerHTML = `<div class="paper-rail-head"><small>PAPER · CHART PLANNER</small><strong>Plan on chart</strong><span id="paperRailMarket">Load a stored micro-futures chart.</span></div>
+  rail.innerHTML = `<div class="paper-rail-head"><small>PAPER · TRADE MANAGER</small><strong>Paper plan</strong><span id="paperRailMarket">Load a stored micro-futures chart.</span><button id="paperRailCollapse" class="cat-rail-toggle" type="button" aria-expanded="true" aria-controls="paperRailPanel" aria-label="Collapse Trade Manager" title="Collapse Trade Manager"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button></div>
     <label class="paper-rail-account">Simulation account<select id="paperRailAccount"><option value="">Create an account first</option></select></label>
     <button id="paperRailOpenAccounts" class="paper-rail-link" type="button">Manage simulation accounts</button>
     <form id="paperRailForm" class="paper-rail-form">
@@ -69,6 +70,19 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     </form><p class="paper-rail-note">The reference is the latest stored chart close; fills wait for later completed bars. Dollar amounts are hypothetical gross figures before fees and slippage. Drag colored chart lines or edit prices here.</p>`;
   layout.append(rail);
   const get = id => rail.querySelector('#' + id);
+  const collapseKey = 'count-desk-paper-plan-collapsed-v1';
+  const collapseButton = get('paperRailCollapse');
+  const setCollapsed = (collapsed, save = true) => {
+    layout.classList.toggle('is-plan-collapsed',collapsed);
+    rail.classList.toggle('is-collapsed',collapsed);
+    collapseButton.setAttribute('aria-expanded',String(!collapsed));
+    collapseButton.setAttribute('aria-label',collapsed ? 'Expand Trade Manager' : 'Collapse Trade Manager');
+    collapseButton.title = collapsed ? 'Expand Trade Manager' : 'Collapse Trade Manager';
+    if (save) try { localStorage.setItem(collapseKey,collapsed ? 'yes' : 'no'); } catch { /* Local preferences are optional. */ }
+    requestAnimationFrame(() => window.countDeskVelaChart?.resize?.());
+  };
+  collapseButton.addEventListener('click',() => setCollapsed(!rail.classList.contains('is-collapsed')));
+  try { setCollapsed(localStorage.getItem(collapseKey) !== 'no',false); } catch { setCollapsed(true,false); }
   const inputs = {side:get('paperRailSide'),type:get('paperRailType'),quantity:get('paperRailQuantity'),entry:get('paperRailEntry'),trigger:get('paperRailTrigger'),stop:get('paperRailStop'),target:get('paperRailTarget')};
   let chart = null;
   let contract = null;
@@ -183,7 +197,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
   });
   get('paperRailAccount').addEventListener('change', event => { reviewOpen = false; onAccountSelect(event.target.value); });
   get('paperRailOpenAccounts').addEventListener('click', onOpenAccounts);
-  get('paperRailDiscard').addEventListener('click', discard);
+  get('paperRailDiscard').addEventListener('click', () => { discard(); onDiscard?.(); });
   get('paperRailForm').addEventListener('submit', async event => {
     event.preventDefault();
     render();
@@ -256,6 +270,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     },
     planFromContext(side, type) {
       if (!enabled) return;
+      setCollapsed(false);
       hasDraft = true;
       reviewOpen = false;
       inputs.side.value = side;
@@ -273,6 +288,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     planAtPrice(price, side = 'long') {
       const selected = Number(price);
       if (!enabled || !Number.isFinite(selected) || selected <= 0) return false;
+      setCollapsed(false);
       hasDraft = true;
       reviewOpen = false;
       inputs.side.value = side === 'short' ? 'short' : 'long';

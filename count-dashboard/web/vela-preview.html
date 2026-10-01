@@ -13,8 +13,9 @@
   </script>
   <title>Count Desk · Chart Workspace</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-    <link rel="stylesheet" href="./vela-preview.css?v=agents-widget-1-20261001">
-  <link rel="stylesheet" href="./paper-chart-planner.css?v=1">
+    <link rel="stylesheet" href="./vela-preview.css?v=paper-cats-candles-20261001">
+  <link rel="stylesheet" href="./paper-chart-planner.css?v=paper-cats-20261001">
+  <link rel="stylesheet" href="./lego-workspace.css?v=paper-cats-20261001">
 </head>
 <body class="trading-prototype vela-preview-page">
   <aside class="desk-sidebar" aria-label="Workspace navigation">
@@ -48,7 +49,7 @@
     <nav class="vela-workspace-tabs" aria-label="Vela workspace views" role="tablist">
       <button id="velaChartTab" class="vela-workspace-tab active" type="button" role="tab" aria-selected="true">Workspace</button>
       <button id="velaPaperTab" class="vela-workspace-tab" type="button" role="tab" aria-selected="false">Paper Trading <span>SIM ONLY</span></button>
-      <div class="modular-tab-actions"><input id="modularLayoutName" aria-label="Workspace name" value="Standard desk" maxlength="40"><small id="modularSaveStatus" aria-live="polite">Saved in this browser</small><button id="modularManageTemplates" type="button">Templates</button><button id="modularSaveTemplate" type="button" title="Save this workspace as a template">Save as</button><button id="modularNewLayout" type="button" title="Start a blank scratch workspace">＋ Scratch</button><button id="modularAddWidget" type="button">＋ Add widget</button></div>
+      <div class="modular-tab-actions"><input id="modularLayoutName" aria-label="Workspace name" value="Standard desk" maxlength="40"><small id="modularSaveStatus" aria-live="polite">Saved in this browser</small><button id="modularConnectData" type="button">Connect data</button><button id="modularToggleLeft" class="cat-rail-toggle modular-rail-cat-toggle" type="button" aria-controls="modularGrid" aria-expanded="true" aria-label="Collapse left container" title="Collapse left container"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button><button id="modularManageTemplates" type="button">Templates</button><button id="modularSaveTemplate" type="button" title="Save this workspace as a template">Save as</button><button id="modularNewLayout" type="button" title="Start a blank scratch workspace">＋ Scratch</button><button id="modularAddWidget" type="button">＋ Add widget</button><button id="modularToggleRight" class="cat-rail-toggle modular-rail-cat-toggle" type="button" aria-controls="modularGrid" aria-expanded="true" aria-label="Collapse right container" title="Collapse right container"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button></div>
     <div class="desk-text-sizes" role="group" aria-label="Text size">
         <button type="button" data-text-size="small" title="Small text" aria-label="Small text" aria-pressed="false">T</button>
         <button type="button" data-text-size="default" title="Default text" aria-label="Default text" aria-pressed="true">T</button>
@@ -85,6 +86,13 @@
         <select id="velaSymbol" aria-label="Vela asset"></select>
         <select id="velaTimeframe" aria-label="Vela timeframe"><option value="1H">1H</option><option value="1M">1M</option><option value="4H">4H</option><option value="1D">1D</option></select>
         <button id="velaLoad" type="button">Refresh</button>
+        <div class="vela-candle-zoom" role="group" aria-label="Candle zoom">
+          <button id="velaCandleZoomOut" type="button" aria-label="Show more candles" title="Show more candles">−</button>
+          <button id="velaCandleZoomReset" type="button" aria-label="Reset candle size" title="Reset candle size">Reset</button>
+          <button id="velaCandleZoomIn" type="button" aria-label="Make candles larger" title="Make candles larger">+</button>
+        </div>
+        <button id="velaCandleSkinsButton" type="button" aria-haspopup="dialog" aria-controls="velaCandleSkinsDialog"><svg class="candle-skin-icon" viewBox="0 0 28 24" aria-hidden="true"><path d="M7 2v20M20 2v20"/><rect x="4" y="6" width="6" height="8" rx="1" class="bull"/><rect x="17" y="10" width="6" height="8" rx="1" class="bear"/></svg><span>Candle Skins</span></button>
+        <button id="velaChartSettingsButton" type="button" aria-haspopup="dialog" aria-controls="velaChartSettingsDialog">Chart settings</button>
         <button data-drawer="replay" aria-expanded="false">Replay</button>
         <button id="velaConnectionsButton" class="connection-status-button is-checking" data-drawer="connections" aria-expanded="false" aria-label="Connections status: checking" title="Checking active data connections"><span>Connections</span><i class="connection-status-dot" aria-hidden="true"></i></button>
         <button data-drawer="context" aria-expanded="false">Chart context</button>
@@ -144,12 +152,43 @@
       </dialog>
       <div class="vela-chart-stage">
         <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
+        <aside id="velaQuickOrderRail" class="vela-quick-order-rail" aria-label="Paper trade shortcuts">
+          <button id="velaQuickOrderToggle" class="cat-rail-toggle" type="button" aria-expanded="true" aria-controls="velaQuickOrderActions" aria-label="Collapse paper trade buttons" title="Collapse paper trade buttons"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button>
+          <div id="velaQuickOrderActions" class="vela-quick-order-actions"><button type="button" data-quick-paper-side="long" aria-label="Stage paper buy limit 10 ticks below the confirmed close">Buy</button><button type="button" data-quick-paper-side="short" aria-label="Stage paper sell limit 10 ticks above the confirmed close">Sell</button></div>
+          <p id="velaQuickOrderStatus" class="sr-only" role="status" aria-live="polite">Uses latest confirmed chart close. Review in Paper Planner.</p>
+        </aside>
         <div id="velaChartLegend" class="vela-chart-legend" aria-live="polite" aria-label="Chart asset, timeframe, and active indicators"></div>
         <button id="liquidityConvergenceSummary" class="liquidity-convergence-summary" type="button" aria-label="Show Liquidity convergence details; C IDs are ordered by price, not strength" hidden></button>
         <div id="liquidityConvergencePopup" class="liquidity-convergence-popup" role="tooltip" hidden></div>
       </div>
       <div class="vela-preview-foot"><span id="velaProvenance">Source pending.</span><span>Vela™ attribution retained · chart data source shown in Connections · no broker connection</span></div>
     </section>
+    <dialog id="velaCandleSkinsDialog" class="vela-chart-settings-dialog" aria-labelledby="velaCandleSkinsTitle">
+      <form id="velaCandleSkinsForm" method="dialog"><header><div><small>CHART APPEARANCE</small><h2 id="velaCandleSkinsTitle">Candle Skins</h2><p>Customize candle bodies, wicks, and outlines. Skins are saved in this browser.</p></div><button type="button" data-close-chart-dialog aria-label="Close Candle Skins">×</button></header>
+        <div class="vela-chart-settings-grid">
+          <label>Skin template<select id="velaSkinSelect"><option value="">Current skin</option></select></label>
+          <label>Template name<input id="velaSkinName" maxlength="40" placeholder="My candle skin"></label>
+          <label>Bullish fill<input id="velaSkinUpFill" type="color" value="#089981"></label><label>Bearish fill<input id="velaSkinDownFill" type="color" value="#f23645"></label>
+          <label>Bullish wick<input id="velaSkinUpWick" type="color" value="#ffffff"></label><label>Bearish wick<input id="velaSkinDownWick" type="color" value="#ffffff"></label>
+          <label>Bullish outline<input id="velaSkinUpBorder" type="color" value="#ffffff"></label><label>Bearish outline<input id="velaSkinDownBorder" type="color" value="#ffffff"></label>
+          <label class="vela-setting-check"><input id="velaSkinWicksVisible" type="checkbox" checked> Show wicks</label><label class="vela-setting-check"><input id="velaSkinBordersVisible" type="checkbox" checked> Show white outlines</label><label class="vela-setting-check"><input id="velaSkinBodyVisible" type="checkbox" checked> Show candle bodies</label>
+        </div>
+        <div class="vela-chart-settings-actions"><button id="velaSkinReset" type="button">TradingView-style default</button><button id="velaOpenScreenPaint" type="button">Open Screen Paint</button><span></span><button id="velaSkinDelete" type="button" disabled>Delete</button><button id="velaSkinApply" type="button">Apply style</button><button id="velaSkinSave" type="button">Save skin</button><button value="close">Done</button></div><p id="velaSkinStatus" role="status" aria-live="polite"></p>
+      </form>
+    </dialog>
+    <dialog id="velaChartSettingsDialog" class="vela-chart-settings-dialog" aria-labelledby="velaChartSettingsTitle">
+      <form id="velaChartSettingsForm" method="dialog"><header><div><small>CHART DISPLAY</small><h2 id="velaChartSettingsTitle">Chart settings</h2><p>TradingView-style display controls for this chart, saved in this browser.</p></div><button type="button" data-close-chart-dialog aria-label="Close chart settings">×</button></header>
+        <div class="vela-chart-settings-grid">
+          <label>Chart type<select id="velaSettingChartType"><option value="candles">Candles</option><option value="bars">Bars</option><option value="line">Line</option><option value="heikinashi">Heikin-Ashi</option></select></label>
+          <label>Price scale<select id="velaSettingScale"><option value="price">Price</option><option value="percent">Percent</option><option value="indexed">Indexed to 100</option></select></label><label>Time zone<select id="velaSettingTimezone"><option value="America/Los_Angeles">Pacific</option><option value="America/Chicago">Central</option><option value="America/New_York">Eastern</option><option value="Etc/UTC">UTC</option></select></label>
+          <label>Vertical grid<input id="velaSettingVertGrid" type="color" value="#232a31"></label><label>Horizontal grid<input id="velaSettingHorzGrid" type="color" value="#232a31"></label>
+          <label>Right scale margin (bars)<input id="velaSettingRightMargin" type="number" min="0" max="30" value="10"></label><label>Chart font size<input id="velaSettingFontSize" type="number" min="8" max="24" value="11"></label>
+          <label class="vela-setting-check"><input id="velaSettingLog" type="checkbox"> Logarithmic scale</label><label class="vela-setting-check"><input id="velaSettingInvert" type="checkbox"> Invert price scale</label>
+          <label class="vela-setting-check"><input id="velaSettingVertVisible" type="checkbox"> Show vertical grid</label><label class="vela-setting-check"><input id="velaSettingHorzVisible" type="checkbox"> Show horizontal grid</label>
+          <label class="vela-setting-check"><input id="velaSettingPriceLine" type="checkbox" checked> Current price line</label><label class="vela-setting-check"><input id="velaSettingPriceLabels" type="checkbox" checked> Price scale labels</label>
+        </div><div class="vela-chart-settings-actions"><button id="velaOpenCandleStyle" type="button">Candle style &amp; skins…</button><button id="velaChartSettingsReset" type="button">Reset chart settings</button><span></span><button value="close">Done</button></div><p id="velaChartSettingsStatus" role="status" aria-live="polite"></p>
+      </form>
+    </dialog>
     <section id="velaPaperWorkspace" class="vela-paper-card" hidden aria-label="Vela paper trading workspace">
       <div class="vela-paper-head"><div><small>PAPER LABORATORY · VELA CONTEXT</small><h1>Paper Trading</h1><p>Orders use the selected Vela chart’s last confirmed stored bar. This is a local simulation with no broker connection or live order route.</p></div><button id="velaBackToChart" type="button">Back to chart</button></div>
       <div class="vela-paper-context"><span id="velaPaperMarket">No chart selected</span><span id="velaPaperSource">Load a chart first.</span><span id="velaPaperIndicators">Studies · Volume</span></div>
@@ -174,7 +213,7 @@
   <div id="velaTradeContextMenu" class="vela-trade-context-menu" role="menu" aria-label="Paper trade options" hidden><button type="button" role="menuitem" data-paper-side="long" data-paper-type="market">Paper buy at market</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="market">Paper sell at market</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="limit">Paper buy limit…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="limit">Paper sell limit…</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="stop">Paper buy stop…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="stop">Paper sell stop…</button></div>
   <div id="deskChatMount"></div>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=agents-widget-2-20261001"></script>
+  <script type="module" src="./vela-preview.js?v=paper-cats-candles-3-20261001"></script>
   <script type="module" src="./batty-agent.js?v=agents-widget-1-20261001"></script>
   <script type="module" src="./desk-shell.js?v=toolbelt-manager-20260930"></script>
   <script src="./sidebar-themes.js?v=screen-paint-3-20260929"></script>

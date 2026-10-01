@@ -2,8 +2,9 @@ const $ = selector => document.querySelector(selector);
 import {buildChartContract} from './chart-contract.js';
 import {liquidityConvergenceGroups} from './liquidity-convergence.js';
 import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.js';
-import {createPaperChartPlanner} from './paper-chart-planner.js';
-import {createModularWorkspace} from './modular-workspace.js?v=agents-widget-2-20261001';
+import {createPaperChartPlanner} from './paper-chart-planner.js?v=paper-cats-20261001';
+import {createModularWorkspace} from './modular-workspace.js?v=paper-cats-20261001';
+import {resetCandleSpacing,stepCandleSpacing,keepCandleSpacingReadable} from './candle-viewport.js?v=3';
 let latestPaperJournalSequence = 0;
 async function refreshPaperJournalBadge() {
   const badge = $('#journalUpdateBadge');
@@ -46,6 +47,17 @@ const beltActiveStorageKey = 'count-desk-toolbelt-active-v1';
 const beltSettingsStorageKey = 'count-desk-toolbelt-settings-v1';
 const beltTemplatesStorageKey = 'count-desk-toolbelt-templates-v1';
 const defaultDataProviderStorageKey = 'count-desk-vela-default-provider-v1';
+const candleSkinStorageKey = 'count-desk-vela-candle-skins-v1';
+const candleSkinActiveStorageKey = 'count-desk-vela-candle-skin-active-v1';
+const candleSkinDefaultVersionKey = 'count-desk-vela-candle-skin-default-version';
+const chartDisplayStorageKey = 'count-desk-vela-chart-display-v1';
+const previousCandleSkin = Object.freeze({upFill:'#089981',downFill:'#f23645',upWick:'#ffffff',downWick:'#ffffff',upBorder:'#ffffff',downBorder:'#ffffff',wicksVisible:true,bordersVisible:true,bodyVisible:true});
+const defaultCandleSkin = Object.freeze({upFill:'#089981',downFill:'#f23645',upWick:'#ffffff',downWick:'#ffffff',upBorder:'#ffffff',downBorder:'#ffffff',wicksVisible:true,bordersVisible:true,bodyVisible:true});
+const defaultChartDisplay = Object.freeze({chartType:'candles',scale:'price',log:false,invert:false,timezone:'America/Los_Angeles',vertGrid:'#232a31',horzGrid:'#232a31',fontSize:11,rightMargin:10,vertVisible:false,horzVisible:false,priceLine:true,priceLabels:true});
+const chartTickSizes = Object.freeze({'CBOT_MINI:MYM1!':.5,'CME_MINI:MES1!':.25,'CME_MINI:MNQ1!':.25,'NYMEX:MCL1!':.01,'COMEX:MGC1!':.1});
+let activeCandleSkin = {...defaultCandleSkin};
+let chartDisplaySettings = {...defaultChartDisplay};
+let savedCandleSkins = [];
 let settingsTarget = null;
 let indicatorTemplates = [];
 let toolBeltDrawingIds = {};
@@ -110,6 +122,12 @@ function scheduleVelaResize() {
   });
 }
 
+function velaConfigApi() {
+  if (velaChart?.renderer?.applyConfig) return velaChart.renderer;
+  if (velaChart?.applyConfig) return velaChart;
+  return null;
+}
+
 window.addEventListener('resize', scheduleVelaResize);
 window.addEventListener('pageshow', scheduleVelaResize);
 document.addEventListener('visibilitychange', () => {
@@ -127,8 +145,156 @@ function applyScreenPaintToChart() {
     borderColor:color('border') || '#2a2b30',
     fontFamily:'sans-serif',
   });
-  velaChart.applyConfig?.({grid:{vertLines:{visible:false},horzLines:{visible:false}}});
+  velaConfigApi()?.applyConfig({grid:{vertLines:{visible:false},horzLines:{visible:false}}});
+  applyCandleSkin();
+  applyChartDisplaySettings();
 }
+
+function applyCandleSkin() {
+  const status = $('#velaSkinStatus');
+  const configApi = velaConfigApi();
+  if (!configApi) {
+    if (status) status.textContent = 'Chart renderer is not ready; candle style will apply when the chart loads.';
+    return;
+  }
+  const skin = activeCandleSkin;
+  // Vela uses the root candle defaults and also allows a candle-type override.
+  // The renderer prefers the override while drawing, so keep both in sync.
+  const expected = {upColor:skin.upFill,downColor:skin.downFill,bodyVisible:skin.bodyVisible,borderVisible:skin.bordersVisible,borderUpColor:skin.upBorder,borderDownColor:skin.downBorder,wickVisible:skin.wicksVisible,wickUpColor:skin.upWick,wickDownColor:skin.downWick};
+  const candleOverride = {candleUpColor:skin.upFill,candleDownColor:skin.downFill,candleBodyVisible:skin.bodyVisible,candleBorderVisible:skin.bordersVisible,candleBorderUpColor:skin.upBorder,candleBorderDownColor:skin.downBorder,candleWickVisible:skin.wicksVisible,candleWickUpColor:skin.upWick,candleWickDownColor:skin.downWick};
+  configApi.applyConfig({candles:expected,chartTypes:{candles:candleOverride}});
+  const config = configApi.getConfig?.();
+  const applied = config?.candles;
+  const appliedOverride = config?.chartTypes?.candles;
+  const matches = applied && appliedOverride && Object.entries(expected).every(([key,value]) => applied[key] === value) && Object.entries(candleOverride).every(([key,value]) => appliedOverride[key] === value);
+  if (status) {
+    const mismatches = [...(applied ? Object.keys(expected).filter(key => applied[key] !== expected[key]) : ['root candle style']),...(appliedOverride ? Object.keys(candleOverride).filter(key => appliedOverride[key] !== candleOverride[key]) : ['candle type style'])];
+    status.textContent = matches ? 'Candle style applied to the chart.' : `Chart did not apply: ${mismatches.join(', ')}.`;
+    status.dataset.state = matches ? 'applied' : 'pending';
+  }
+}
+
+function applyChartDisplaySettings() {
+  const configApi = velaConfigApi();
+  if (!configApi) return;
+  const s = chartDisplaySettings;
+  // Vela's `series.spacing` is a pitch multiplier, not a candle width. Values
+  // above 1 spread candle centers while leaving body width unchanged, making
+  // filled candles look like thin wicks. Candle width belongs to the viewport.
+  const expected = {priceScale:{mode:s.scale,log:s.log,invert:s.invert,currentPriceLine:s.priceLine,labelsVisible:s.priceLabels},timeScale:{timezone:s.timezone},grid:{vertLines:{visible:s.vertVisible,color:s.vertGrid},horzLines:{visible:s.horzVisible,color:s.horzGrid}},fontSize:Number(s.fontSize),margins:{right:Number(s.rightMargin),top:6,bottom:6},series:{style:s.chartType,spacing:1}};
+  configApi.applyConfig(expected);
+  const applied = configApi.getConfig?.();
+  const matches = applied && applied.series?.style === s.chartType && applied.priceScale?.mode === s.scale && applied.priceScale?.log === s.log && applied.priceScale?.invert === s.invert && applied.priceScale?.currentPriceLine === s.priceLine && applied.priceScale?.labelsVisible === s.priceLabels && applied.timeScale?.timezone === s.timezone && applied.grid?.vertLines?.visible === s.vertVisible && applied.grid?.horzLines?.visible === s.horzVisible && applied.margins?.right === Number(s.rightMargin);
+  $('#velaChartSettingsStatus').textContent = matches ? 'Chart display settings applied.' : 'Chart did not confirm every display setting.';
+}
+
+function applyReadableCandleViewport(chart = velaChart) {
+  stopCandleSpacingGuard?.();
+  stopCandleSpacingGuard = null;
+  if (!resetCandleSpacing(chart,Number(chartDisplaySettings.rightMargin))) return;
+  stopCandleSpacingGuard = keepCandleSpacingReadable(chart);
+}
+
+function readChartCustomization() {
+  let savedSkin = null;
+  try { savedSkin = JSON.parse(localStorage.getItem(candleSkinActiveStorageKey)||'null'); } catch { /* Use the readable default. */ }
+  const isPreviousDefault = savedSkin && Object.entries(previousCandleSkin).every(([key,value]) => savedSkin[key] === value);
+  activeCandleSkin = {...defaultCandleSkin,...(isPreviousDefault ? {} : savedSkin || {})};
+  if (localStorage.getItem(candleSkinDefaultVersionKey) !== 'readable-candles-4') {
+    if (!savedSkin || isPreviousDefault) localStorage.setItem(candleSkinActiveStorageKey,JSON.stringify(activeCandleSkin));
+    localStorage.setItem(candleSkinDefaultVersionKey,'readable-candles-4');
+  }
+  try { chartDisplaySettings = {...defaultChartDisplay,...JSON.parse(localStorage.getItem(chartDisplayStorageKey)||'{}')}; } catch { chartDisplaySettings = {...defaultChartDisplay}; }
+  try { const parsed=JSON.parse(localStorage.getItem(candleSkinStorageKey)||'[]'); savedCandleSkins=Array.isArray(parsed)?parsed.filter(item=>item&&typeof item.name==='string'&&item.settings&&typeof item.settings==='object'):[]; } catch { savedCandleSkins=[]; }
+}
+
+function skinInputs() {
+  return {upFill:$('#velaSkinUpFill').value,downFill:$('#velaSkinDownFill').value,upWick:$('#velaSkinUpWick').value,downWick:$('#velaSkinDownWick').value,upBorder:$('#velaSkinUpBorder').value,downBorder:$('#velaSkinDownBorder').value,wicksVisible:$('#velaSkinWicksVisible').checked,bordersVisible:$('#velaSkinBordersVisible').checked,bodyVisible:$('#velaSkinBodyVisible').checked};
+}
+
+function loadSkinInputs(settings=activeCandleSkin) {
+  $('#velaSkinUpFill').value=settings.upFill; $('#velaSkinDownFill').value=settings.downFill;
+  $('#velaSkinUpWick').value=settings.upWick; $('#velaSkinDownWick').value=settings.downWick;
+  $('#velaSkinUpBorder').value=settings.upBorder; $('#velaSkinDownBorder').value=settings.downBorder;
+  $('#velaSkinWicksVisible').checked=settings.wicksVisible; $('#velaSkinBordersVisible').checked=settings.bordersVisible; $('#velaSkinBodyVisible').checked=settings.bodyVisible;
+}
+
+function renderSkinTemplates(selectedId='') {
+  const select=$('#velaSkinSelect'); select.replaceChildren(new Option('Current skin',''));
+  savedCandleSkins.forEach((skin,index)=>select.add(new Option(skin.name,String(index))));
+  select.value=selectedId; $('#velaSkinDelete').disabled=selectedId==='';
+}
+
+function readDisplayInputs() {
+  return {chartType:$('#velaSettingChartType').value,scale:$('#velaSettingScale').value,log:$('#velaSettingLog').checked,invert:$('#velaSettingInvert').checked,timezone:$('#velaSettingTimezone').value,vertGrid:$('#velaSettingVertGrid').value,horzGrid:$('#velaSettingHorzGrid').value,fontSize:Math.max(8,Math.min(24,Number($('#velaSettingFontSize').value)||11)),rightMargin:Math.max(0,Math.min(30,Number($('#velaSettingRightMargin').value)||0)),vertVisible:$('#velaSettingVertVisible').checked,horzVisible:$('#velaSettingHorzVisible').checked,priceLine:$('#velaSettingPriceLine').checked,priceLabels:$('#velaSettingPriceLabels').checked};
+}
+
+function loadDisplayInputs() {
+  const s=chartDisplaySettings; $('#velaSettingChartType').value=s.chartType; $('#velaSettingScale').value=s.scale; $('#velaSettingLog').checked=!!s.log; $('#velaSettingInvert').checked=!!s.invert; $('#velaSettingTimezone').value=s.timezone;
+  $('#velaSettingVertGrid').value=s.vertGrid; $('#velaSettingHorzGrid').value=s.horzGrid; $('#velaSettingFontSize').value=s.fontSize; $('#velaSettingRightMargin').value=s.rightMargin;
+  $('#velaSettingVertVisible').checked=s.vertVisible; $('#velaSettingHorzVisible').checked=s.horzVisible; $('#velaSettingPriceLine').checked=s.priceLine; $('#velaSettingPriceLabels').checked=s.priceLabels;
+}
+
+function bindChartCustomization() {
+  $('#velaCandleSkinsButton').addEventListener('click',()=>$('#velaCandleSkinsDialog').showModal());
+  $('#velaChartSettingsButton').addEventListener('click',()=>$('#velaChartSettingsDialog').showModal());
+  $('#velaOpenCandleStyle').addEventListener('click',()=>{ $('#velaChartSettingsDialog').close(); $('#velaCandleSkinsDialog').showModal(); });
+  document.querySelectorAll('[data-close-chart-dialog]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
+  const updateCandleSkin=()=>{activeCandleSkin=skinInputs();localStorage.setItem(candleSkinActiveStorageKey,JSON.stringify(activeCandleSkin));applyCandleSkin();};
+  $('#velaSkinApply').addEventListener('click',()=>{updateCandleSkin();});
+  for (const input of document.querySelectorAll('#velaCandleSkinsForm input')) {
+    input.addEventListener('input',updateCandleSkin);
+    // Native color wells may commit with `change` after their picker closes.
+    input.addEventListener('change',updateCandleSkin);
+  }
+  $('#velaSkinSelect').addEventListener('change',()=>{const i=Number($('#velaSkinSelect').value);if(Number.isInteger(i)&&savedCandleSkins[i]){activeCandleSkin={...savedCandleSkins[i].settings};loadSkinInputs();localStorage.setItem(candleSkinActiveStorageKey,JSON.stringify(activeCandleSkin));applyCandleSkin();$('#velaSkinName').value=savedCandleSkins[i].name;}$('#velaSkinDelete').disabled=$('#velaSkinSelect').value==='';});
+  $('#velaSkinSave').addEventListener('click',()=>{const name=$('#velaSkinName').value.trim();if(!name){$('#velaSkinStatus').textContent='Enter a name to save this candle skin.';$('#velaSkinName').focus();return;}updateCandleSkin();const prior=savedCandleSkins.findIndex(skin=>skin.name.toLowerCase()===name.toLowerCase());const item={name,settings:{...activeCandleSkin}};if(prior>=0)savedCandleSkins[prior]=item;else savedCandleSkins.push(item);localStorage.setItem(candleSkinStorageKey,JSON.stringify(savedCandleSkins));localStorage.setItem(candleSkinActiveStorageKey,JSON.stringify(activeCandleSkin));renderSkinTemplates(String(savedCandleSkins.findIndex(skin=>skin.name===name)));$('#velaSkinStatus').textContent=`“${name}” saved in this browser.`;});
+  $('#velaSkinDelete').addEventListener('click',()=>{const i=Number($('#velaSkinSelect').value);if(!Number.isInteger(i)||!savedCandleSkins[i])return;const [removed]=savedCandleSkins.splice(i,1);localStorage.setItem(candleSkinStorageKey,JSON.stringify(savedCandleSkins));renderSkinTemplates();$('#velaSkinName').value='';$('#velaSkinStatus').textContent=`“${removed.name}” deleted.`;});
+  $('#velaSkinReset').addEventListener('click',()=>{activeCandleSkin={...defaultCandleSkin};loadSkinInputs();localStorage.setItem(candleSkinActiveStorageKey,JSON.stringify(activeCandleSkin));applyCandleSkin();$('#velaSkinSelect').value='';$('#velaSkinName').value='';$('#velaSkinStatus').textContent='TradingView-style candle colors restored.';});
+  $('#velaOpenScreenPaint').addEventListener('click',()=>{
+    $('#velaCandleSkinsDialog').close();
+    $('#velaChartSettingsDialog').close();
+    // Let the dialog button's original click finish bubbling before opening
+    // Screen Paint; otherwise its outside-click listener immediately closes it.
+    requestAnimationFrame(()=>$('#deskThemeButton')?.click());
+  });
+  const displayChange=()=>{chartDisplaySettings=readDisplayInputs();localStorage.setItem(chartDisplayStorageKey,JSON.stringify(chartDisplaySettings));applyChartDisplaySettings();};
+  document.querySelectorAll('#velaChartSettingsForm input,#velaChartSettingsForm select').forEach(input=>input.addEventListener('change',displayChange));
+  $('#velaChartSettingsReset').addEventListener('click',()=>{chartDisplaySettings={...defaultChartDisplay};loadDisplayInputs();localStorage.setItem(chartDisplayStorageKey,JSON.stringify(chartDisplaySettings));applyChartDisplaySettings();resetCandleSpacing(velaChart,Number(chartDisplaySettings.rightMargin));$('#velaChartSettingsStatus').textContent='Chart display and candle size restored to defaults.';});
+  $('#velaCandleZoomOut').addEventListener('click',()=>stepCandleSpacing(velaChart,-1));
+  $('#velaCandleZoomIn').addEventListener('click',()=>stepCandleSpacing(velaChart,1));
+  $('#velaCandleZoomReset').addEventListener('click',()=>resetCandleSpacing(velaChart,Number(chartDisplaySettings.rightMargin)));
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='0'||!event.target?.closest?.('#velaChart'))return;
+    event.preventDefault();event.stopPropagation();
+    resetCandleSpacing(velaChart,Number(chartDisplaySettings.rightMargin));
+  },true);
+  const quickOrderRail=$('#velaQuickOrderRail'), quickOrderToggle=$('#velaQuickOrderToggle');
+  const quickOrderCollapseKey='count-desk-quick-paper-shortcuts-collapsed-v1';
+  if (quickOrderRail && quickOrderToggle) {
+    const setQuickOrderCollapsed=(collapsed,save=true)=>{
+      quickOrderRail.classList.toggle('is-collapsed',collapsed);
+      quickOrderToggle.setAttribute('aria-expanded',String(!collapsed));
+      quickOrderToggle.setAttribute('aria-label',collapsed?'Expand paper trade buttons':'Collapse paper trade buttons');
+      quickOrderToggle.title=collapsed?'Expand paper trade buttons':'Collapse paper trade buttons';
+      if(save)try{localStorage.setItem(quickOrderCollapseKey,collapsed?'yes':'no');}catch{/* Local preferences are optional. */}
+    };
+    quickOrderToggle.addEventListener('click',()=>setQuickOrderCollapsed(!quickOrderRail.classList.contains('is-collapsed')));
+    try{setQuickOrderCollapsed(localStorage.getItem(quickOrderCollapseKey)==='yes',false);}catch{setQuickOrderCollapsed(false,false);}
+  }
+  document.querySelectorAll('[data-quick-paper-side]').forEach(button=>button.addEventListener('click',()=>{
+    const side=button.dataset.quickPaperSide, symbol=currentContract?.market?.symbol, tick=chartTickSizes[symbol];
+    if(!paperChartPlanner.canPlanAtPrice()||!currentContract){$('#velaQuickOrderStatus').textContent='Load a supported stored micro-futures chart to stage a paper limit.';return;}
+    const reference=Number(liveChartBar?.close||currentContract.analysis?.lastClose),offset=10;
+    if(!Number.isFinite(reference)||reference<=0||!tick){$('#velaQuickOrderStatus').textContent='A confirmed chart close and supported tick size are required.';return;}
+    const price=Number((reference+(side==='long'?-1:1)*tick*offset).toFixed(8));
+    if(!paperChartPlanner.planAtPrice(price,side)){ $('#velaQuickOrderStatus').textContent='Paper planning is unavailable for this chart.';return; }
+    $('#velaQuickOrderStatus').textContent=`Paper ${side==='long'?'buy':'sell'} limit staged at ${formatPrice(price)} (${offset} ticks from confirmed close ${formatPrice(reference)}). Review it in Paper Planner; nothing was sent.`;
+  }));
+}
+
+readChartCustomization();
+loadSkinInputs(); renderSkinTemplates(); loadDisplayInputs(); bindChartCustomization();
 
 window.addEventListener('countdesk:screen-palette-change', event => {
   if (event.detail?.target === 'chart') applyScreenPaintToChart();
@@ -1323,6 +1489,7 @@ async function loadTickstreamChart() {
     await applyStoredIndicators();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     velaChart.resize();
+    applyReadableCandleViewport(velaChart);
     $('#velaPaperTab').disabled = true;
     $('#velaPaperMarket').textContent = `${ticker} · ${timeframe} · Tickstream`;
     $('#velaPaperSource').textContent = `Paper simulation is disabled for the streamed ${ticker} instrument.`;
@@ -1377,6 +1544,7 @@ const paperChartPlanner = createPaperChartPlanner({
     void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
   },
   onOpenAccounts() { setWorkspace('paper'); },
+  onDiscard() { $('#velaQuickOrderStatus').textContent = 'Paper plan discarded. Nothing was sent.'; },
   async onQueue(payload) {
     const response = await fetch('/api/chart-sim/open', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const result = await response.json();
@@ -1578,6 +1746,9 @@ async function loadPreview() {
     paperChartPlanner.setChart(velaChart, contract);
     void refreshPaperAccounts().catch(error => setPaperStatus(error.message, true));
     scheduleVelaResize();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    velaChart?.resize();
+    applyReadableCandleViewport(velaChart);
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · cutoff ${last} · source ${contract.analysis.source}`;

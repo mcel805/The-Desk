@@ -1,3 +1,5 @@
+import {DESK_GRID, packLegoGrid} from './lego-grid-core.js';
+
 const storageKey = 'count-desk-modular-workspace-v1';
 const templatesKey = 'count-desk-modular-workspace-templates-v1';
 const $ = selector => document.querySelector(selector);
@@ -39,6 +41,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   let templates = readTemplates();
   let draggedWidget = null;
   let resizeTimer = null;
+  let restoringLayout = false;
 
   parking.append(chartElement);
   chartElement.hidden = true;
@@ -49,7 +52,9 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
       if (saved && Array.isArray(saved.order)) {
         const order = saved.order.filter(id => Object.hasOwn(widgetCatalog,id));
-        const migrateBlank = order.length === 0 && saved.layoutMode !== 'scratch';
+        // Recover a corrupted default desk that was saved with Scratch mode but
+        // retained its Standard desk name. Explicit Scratch layouts stay empty.
+        const migrateBlank = order.length === 0 && (saved.layoutMode !== 'scratch' || saved.name === 'Standard desk');
         const migrateStandardAgents = !migrateBlank && (saved.layoutMode === 'standard' || saved.name === 'Standard desk') && !order.includes('agents');
         if (migrateStandardAgents) order.splice(Math.max(0,order.indexOf('chart') + 1),0,'agents');
         return {
@@ -57,13 +62,16 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
           order:migrateBlank ? [...standardOrder] : order,
           layoutMode:migrateBlank ? 'standard' : saved.layoutMode === 'scratch' && !order.length ? 'scratch' : 'custom',
           sizes:saved.sizes && typeof saved.sizes === 'object' ? saved.sizes : {},
+          spans:saved.spans && typeof saved.spans === 'object' ? saved.spans : {},
+          mobileRows:saved.mobileRows && typeof saved.mobileRows === 'object' ? saved.mobileRows : {},
+          positions:saved.positions && typeof saved.positions === 'object' ? saved.positions : {},
           notes:typeof saved.notes === 'string' ? saved.notes : '',
           listSymbols:Array.isArray(saved.listSymbols) ? [...new Set(saved.listSymbols.filter(value => typeof value === 'string'))] : [],
           platformSettings:saved.platformSettings && typeof saved.platformSettings === 'object' ? saved.platformSettings : null,
         };
       }
     } catch { /* A fresh layout is the safe fallback when local preferences cannot be read. */ }
-    return {name:'Standard desk',order:[...standardOrder],layoutMode:'standard',sizes:{},notes:'',listSymbols:[],platformSettings:null};
+    return {name:'Standard desk',order:[...standardOrder],layoutMode:'standard',sizes:{},spans:{},mobileRows:{},positions:{},notes:'',listSymbols:[],platformSettings:null};
   }
 
   function readTemplates() {
@@ -80,16 +88,18 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
 
   function snapshotLayout(name = state.name) {
     const order = [...grid.children].map(widget => widget.dataset.kind);
-    const sizes = Object.fromEntries([...grid.children].filter(widget => widget.dataset.size !== 'auto').map(widget => [widget.dataset.kind, widget.dataset.size]));
+    const sizes = Object.fromEntries([...grid.children].filter(widget => ['small','medium','wide','full'].includes(widget.dataset.size)).map(widget => [widget.dataset.kind, widget.dataset.size]));
     const notes = grid.querySelector('[data-notes]');
     const capturedSettings = capturePlatformSettings ? capturePlatformSettings() : null;
     const platformSettings = capturedSettings && capturedSettings.symbol ? capturedSettings : state.platformSettings || capturedSettings || null;
-    return {name:name.trim().slice(0,40) || 'Standard desk',order,layoutMode:state.layoutMode || 'custom',sizes,notes:notes ? notes.value : state.notes,listSymbols:state.listSymbols || [],platformSettings};
+    return {name:name.trim().slice(0,40) || 'Standard desk',order,layoutMode:state.layoutMode || 'custom',sizes,
+      spans:state.spans || {},mobileRows:state.mobileRows || {},positions:state.positions || {},notes:notes ? notes.value : state.notes,
+      listSymbols:state.listSymbols || [],platformSettings};
   }
 
   function persist() {
     state.order = [...grid.children].map(widget => widget.dataset.kind);
-    state.sizes = Object.fromEntries([...grid.children].map(widget => [widget.dataset.kind, widget.dataset.size]));
+    state.sizes = Object.fromEntries([...grid.children].filter(widget => ['small','medium','wide','full'].includes(widget.dataset.size)).map(widget => [widget.dataset.kind, widget.dataset.size]));
     state.name = nameInput.value.trim().slice(0,40) || 'Untitled layout';
     state = snapshotLayout(state.name);
     try {
@@ -110,71 +120,150 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     status.classList.toggle('error', error);
   }
 
-  const manualSpans = {small:[3,2],medium:[4,2],wide:[8,3],full:[12,4]};
-  const chartManualSpans = {small:[6,4],medium:[8,4],wide:[10,4],full:[12,5]};
-  function adaptiveSpans(kind,count,hasChart,mobile) {
-    if (mobile) return kind === 'chart' ? [2,3] : [2,1];
-    if (kind === 'agents' && hasChart) return [4,5];
-    if (kind === 'agents') return count === 1 ? [12,4] : [6,3];
-    if (hasChart && kind === 'chart') {
-      if (count === 1) return [12,4];
-      if (count <= 3) return [8,4];
-      return [6,5];
+  const snapSoundKey = 'count-desk-lego-snap-sound-v1';
+  let soundOn = false;
+  try { soundOn = localStorage.getItem(snapSoundKey) === 'on'; } catch { /* Optional preference. */ }
+  let audioContext = null;
+  function snap(widget) {
+    widget?.classList.remove('just-snapped');
+    void widget?.offsetWidth;
+    widget?.classList.add('just-snapped');
+    if (widget) setTimeout(() => widget.classList.remove('just-snapped'),430);
+    if (!soundOn) return;
+    try {
+      audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(460,audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(220,audioContext.currentTime + .09);
+      gain.gain.setValueAtTime(.0001,audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.06,audioContext.currentTime + .007);
+      gain.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime + .12);
+      oscillator.connect(gain); gain.connect(audioContext.destination);
+      oscillator.start(); oscillator.stop(audioContext.currentTime + .12);
+    } catch { /* The visible snap remains available when audio cannot play. */ }
+  }
+
+  function changeSpan(article, direction, axis = 'both') {
+    if ([...grid.children].filter(widget => !widget.hidden).length === 1) return;
+    const kind = article.dataset.kind;
+    if (window.matchMedia('(max-width:760px)').matches) {
+      const rows = Math.max(1,Math.min(8,Number(article.dataset.layoutRows) + direction));
+      if (rows === Number(article.dataset.layoutRows)) return;
+      state.mobileRows[kind] = rows;
+      applyAdaptiveLayout(); persist(); snap(article);
+      return;
     }
-    if (hasChart) {
-      if (count === 2) return [4,4];
-      if (count === 3) return [4,2];
-      return [3,2];
-    }
-    if (count === 1) return [6,3];
-    if (count === 2) return [6,3];
-    if (count === 3) return [4,3];
-    return [3,2];
+    const currentColumns = Number(article.dataset.layoutCols);
+    const currentRows = Number(article.dataset.layoutRows);
+    const columns = axis === 'vertical' ? currentColumns : Math.max(kind === 'chart' ? 4 : 2,Math.min(12,currentColumns + direction));
+    const rows = axis === 'horizontal' ? currentRows : Math.max(kind === 'chart' ? 3 : 1,Math.min(8,currentRows + direction));
+    if (columns === currentColumns && rows === currentRows) return;
+    state.spans[kind] = [columns,rows];
+    delete state.sizes[kind];
+    delete state.positions[kind];
+    applyAdaptiveLayout(); persist(); snap(article);
+  }
+
+  function startEdgeResize(article, event) {
+    if (event.button !== 0 || [...grid.children].filter(widget => !widget.hidden).length === 1) return;
+    event.preventDefault(); event.stopPropagation();
+    const kind = article.dataset.kind;
+    const mobile = window.matchMedia('(max-width:760px)').matches;
+    const origin = [Number(article.dataset.layoutCols),Number(article.dataset.layoutRows)];
+    const start = [event.clientX,event.clientY];
+    const style = getComputedStyle(grid);
+    const gapX = parseFloat(style.columnGap) || 0;
+    const gapY = parseFloat(style.rowGap) || 0;
+    const innerWidth = grid.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+    const innerHeight = grid.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0);
+    const cellX = (innerWidth - gapX * 11) / 12 + gapX;
+    const cellY = (innerHeight - gapY * 7) / 8 + gapY;
+    let changed = false;
+    const move = next => {
+      if (mobile) {
+        const rows = Math.max(1,Math.min(8,origin[1] + Math.round((next.clientY - start[1]) / 188)));
+        if (rows === Number(article.dataset.layoutRows)) return;
+        state.mobileRows[kind] = rows;
+        changed = true; applyAdaptiveLayout();
+        return;
+      }
+      const columns = Math.max(kind === 'chart' ? 4 : 2,Math.min(12,origin[0] + Math.round((next.clientX - start[0]) / cellX)));
+      const rows = Math.max(kind === 'chart' ? 3 : 1,Math.min(8,origin[1] + Math.round((next.clientY - start[1]) / cellY)));
+      if (columns === Number(article.dataset.layoutCols) && rows === Number(article.dataset.layoutRows)) return;
+      state.spans[kind] = [columns,rows];
+      delete state.sizes[kind]; delete state.positions[kind];
+      changed = true; applyAdaptiveLayout();
+    };
+    const end = () => {
+      window.removeEventListener('pointermove',move);
+      window.removeEventListener('pointerup',end);
+      window.removeEventListener('pointercancel',end);
+      article.classList.remove('is-resizing');
+      if (changed) { persist(); snap(article); }
+    };
+    article.classList.add('is-resizing');
+    window.addEventListener('pointermove',move);
+    window.addEventListener('pointerup',end,{once:true});
+    window.addEventListener('pointercancel',end,{once:true});
   }
 
   function applyAdaptiveLayout() {
-    const children = [...grid.children];
-    const count = children.length;
-    if (!count) return;
+    const children = [...grid.children].filter(widget => !widget.hidden);
+    if (!children.length) return;
     const mobile = window.matchMedia('(max-width:760px)').matches;
-    const columns = mobile ? 2 : 12;
-    const hasChart = children.some(widget => widget.dataset.kind === 'chart');
-    const visualOrder = children;
-    const occupied = [];
-    const fits = (x,y,width,height) => {
-      if (x + width - 1 > columns) return false;
-      for (let row=y; row<y+height; row++) for (let col=x; col<x+width; col++) if (occupied[row]?.[col]) return false;
-      return true;
-    };
-    const place = (width,height) => {
-      for (let y=1; y<1000; y++) for (let x=1; x<=columns; x++) if (fits(x,y,width,height)) {
-        for (let row=y; row<y+height; row++) {
-          occupied[row] ||= [];
-          for (let col=x; col<x+width; col++) occupied[row][col] = true;
-        }
-        return [x,y];
+    const placements = packLegoGrid(children.map(widget => ({id:widget.dataset.kind,kind:widget.dataset.kind,
+      size:state.sizes[widget.dataset.kind],span:state.spans[widget.dataset.kind],mobileRows:state.mobileRows[widget.dataset.kind],
+      position:state.positions[widget.dataset.kind]})),{mobile});
+    const railColumns = workspace.classList.contains('is-left-collapsed')
+      ? workspace.classList.contains('is-right-collapsed') ? '0px minmax(0,1fr) 0px' : '0px minmax(460px,2.6fr) minmax(230px,1.1fr)'
+      : workspace.classList.contains('is-right-collapsed') ? 'minmax(170px,.8fr) minmax(460px,2.6fr) 0px'
+        : 'minmax(170px,.8fr) minmax(460px,2.6fr) minmax(230px,1.1fr)';
+    if (!mobile) grid.style.gridTemplateColumns = railColumns;
+    const desktopRailRows = new Map();
+    if (!mobile) {
+      for (const region of ['left','right']) {
+        const items = placements.filter(item => item.id !== 'chart' && (region === 'left'
+          ? ['agents','watchlist'].includes(item.id)
+          : !['agents','watchlist'].includes(item.id)));
+        let cursor = 1;
+        items.forEach((item,index) => {
+          const span = Math.max(1,Math.floor(8 / items.length) + (index < 8 % items.length ? 1 : 0));
+          desktopRailRows.set(item.id,`${cursor} / span ${span}`);
+          cursor += span;
+        });
       }
-      return [1,1];
-    };
-    for (const widget of visualOrder) {
-      const kind = widget.dataset.kind;
-      const override = state.sizes[kind];
-      const manualSize = kind === 'chart' ? chartManualSpans : manualSpans;
-      const [width,height] = override && manualSpans[override]
-        ? (mobile ? [2,override === 'full' || override === 'wide' ? 3 : 1] : manualSize[override])
-        : adaptiveSpans(kind,count,hasChart,mobile);
-      const [x,y] = place(width,height);
-      widget.dataset.size = override || 'auto';
-      widget.dataset.layoutCols = String(width);
-      widget.dataset.layoutRows = String(height);
-      widget.classList.remove('size-small','size-medium','size-wide','size-full','size-auto');
-      widget.classList.add(`size-${widget.dataset.size}`);
-      widget.style.gridColumn = `${x} / span ${width}`;
-      widget.style.gridRow = `${y} / span ${height}`;
-      const button = widget.querySelector('[data-size]');
-      button.title = override ? `Manual size: ${override}. Select to change size or return to auto-fit.` : 'Auto-fit size. Select to choose a manual size.';
-      button.setAttribute('aria-label',`${override ? `Change ${override} size` : 'Choose manual size'} for ${widgetCatalog[kind].title}`);
     }
+    for (const placement of placements) {
+      const widget = widgets.get(placement.id);
+      const region = placement.id === 'chart' ? 'center'
+        : ['agents','watchlist'].includes(placement.id) ? 'left' : 'right';
+      widget.dataset.region = region;
+      widget.dataset.size = state.sizes[placement.id] || (state.spans[placement.id] ? 'custom' : 'auto');
+      widget.dataset.layoutCols = String(placement.columns);
+      widget.dataset.layoutRows = String(placement.rows);
+      widget.style.setProperty('--zone-row-span',String(Math.max(2,Math.min(4,placement.rows))));
+      widget.classList.remove('size-small','size-medium','size-wide','size-full','size-auto');
+      if (widget.dataset.size !== 'custom') widget.classList.add(`size-${widget.dataset.size}`);
+      if (!mobile) {
+        widget.style.gridColumn = placement.id === 'chart' ? '2' : region === 'left' ? '1' : '3';
+        widget.style.gridRow = placement.id === 'chart' ? '1 / span 8' : desktopRailRows.get(placement.id) || 'auto';
+      } else {
+        widget.style.gridColumn = `${placement.x} / span ${placement.columns}`;
+        widget.style.gridRow = `${placement.y} / span ${placement.rows}`;
+      }
+      const button = widget.querySelector('[data-size]');
+      button.title = mobile ? `Current height: ${placement.rows} rows. Select to cycle height.`
+        : `Current size: ${widget.dataset.layoutCols} × ${widget.dataset.layoutRows} grid units. Select to cycle presets.`;
+      button.setAttribute('aria-label',`${mobile ? 'Cycle height' : 'Cycle size'} for ${widgetCatalog[placement.id].title}`);
+      widget.querySelectorAll('[data-edge-size], [data-edge-resize]').forEach(control => {
+        control.disabled = children.length === 1;
+      });
+    }
+    const occupiedRows = Math.max(mobile ? 1 : DESK_GRID.rows,...placements.map(item => item.y + item.rows - 1));
+    grid.dispatchEvent(new CustomEvent('countdesk:workspace-layout', {bubbles:true,detail:{version:1,
+      grid:{columns:mobile ? 1 : DESK_GRID.columns,rows:occupiedRows},placements}}));
     requestAnimationFrame(() => window.countDeskVelaChart?.resize?.());
   }
 
@@ -192,7 +281,10 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     head.innerHTML = `<span class="modular-widget-drag" aria-hidden="true">⠿</span><span class="modular-widget-icon" aria-hidden="true">${definition.icon}</span><strong>${definition.title}</strong><small data-widget-state></small><div class="modular-widget-actions"><button type="button" data-move="previous" title="Move panel earlier" aria-label="Move ${definition.title} earlier">↑</button><button type="button" data-move="next" title="Move panel later" aria-label="Move ${definition.title} later">↓</button><button type="button" data-size title="Resize widget" aria-label="Resize ${definition.title}">↔</button><button type="button" data-remove title="Remove widget" aria-label="Remove ${definition.title}">×</button></div>`;
     const body = document.createElement('div');
     body.className = 'modular-widget-body';
-    article.append(head,body);
+    const edges = document.createElement('div');
+    edges.className = 'modular-widget-edges';
+    edges.innerHTML = `<div class="modular-edge-steps"><button type="button" data-edge-size="larger" aria-label="Increase ${definition.title} grid size" title="Grow block">+</button><button type="button" data-edge-size="smaller" aria-label="Decrease ${definition.title} grid size" title="Shrink block">−</button></div><button type="button" class="modular-edge-grip" data-edge-resize aria-label="Drag to resize ${definition.title}; use arrow keys to resize" title="Drag to resize · arrow keys on focus">◢</button>`;
+    article.append(head,body,edges);
     widgets.set(kind,article);
     buildWidgetContent(kind,body,article);
     wireWidget(article);
@@ -301,7 +393,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     const select = document.createElement('select');
     select.setAttribute('aria-label','Add symbol to List');
     select.append(new Option('Add instrument…',''));
-    catalog.filter(item => !state.listSymbols.includes(item.symbol)).slice(0,300).forEach(item => select.append(new Option(item.label || item.symbol,item.symbol)));
+    catalog.filter(item => !state.listSymbols.includes(item.symbol)).forEach(item => select.append(new Option(item.label || item.symbol,item.symbol)));
     select.addEventListener('change',() => {
       if (!select.value) return;
       state.listSymbols.push(select.value);
@@ -415,25 +507,50 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   }
 
   function wireWidget(article) {
+    article.querySelectorAll('[data-edge-size]').forEach(button => button.addEventListener('click',() =>
+      changeSpan(article,button.dataset.edgeSize === 'larger' ? 1 : -1)));
+    const grip = article.querySelector('[data-edge-resize]');
+    grip.addEventListener('pointerdown',event => startEdgeResize(article,event));
+    grip.addEventListener('keydown',event => {
+      if (!['ArrowRight','ArrowLeft','ArrowUp','ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      changeSpan(article,(event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) * (event.shiftKey ? 2 : 1),
+        event.key === 'ArrowRight' || event.key === 'ArrowLeft' ? 'horizontal' : 'vertical');
+    });
+    article.addEventListener('pointerdown',event => {
+      if (event.target.closest('.modular-widget-edges')) return;
+      grid.querySelectorAll('.is-selected').forEach(item => item.classList.remove('is-selected'));
+      article.classList.add('is-selected');
+    });
     article.querySelectorAll('[data-move]').forEach(button => button.addEventListener('click',() => {
       const neighbor = button.dataset.move === 'previous' ? article.previousElementSibling : article.nextElementSibling;
       if (!neighbor) return;
       if (button.dataset.move === 'previous') grid.insertBefore(article,neighbor);
       else grid.insertBefore(neighbor,article);
+      delete state.positions[article.dataset.kind];
       applyAdaptiveLayout();
       persist();
+      snap(article);
     }));
     article.querySelector('[data-size]').addEventListener('click', () => {
+      if (window.matchMedia('(max-width:760px)').matches) {
+        const rows = Number(article.dataset.layoutRows);
+        changeSpan(article,rows >= 4 ? 1 - rows : 1);
+        return;
+      }
       const order = ['auto','small','medium','wide','full'];
       const next = order[(order.indexOf(article.dataset.size) + 1) % order.length];
       if (next === 'auto') delete state.sizes[article.dataset.kind];
       else state.sizes[article.dataset.kind] = next;
+      delete state.spans[article.dataset.kind];
+      delete state.positions[article.dataset.kind];
       applyAdaptiveLayout();
       persist();
+      snap(article);
     });
     article.querySelector('[data-remove]').addEventListener('click', () => removeWidget(article.dataset.kind));
     article.addEventListener('dragstart',event => {
-      if (!event.target.closest('.modular-widget-head')) { event.preventDefault(); return; }
+      if (!event.target.closest('.modular-widget-head') || event.target.closest('button')) { event.preventDefault(); return; }
       draggedWidget = article;
       article.classList.add('is-dragging');
       event.dataTransfer.effectAllowed = 'move';
@@ -441,6 +558,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     article.addEventListener('dragend',() => {
       article.classList.remove('is-dragging');
       grid.querySelectorAll('.is-drop-target').forEach(item => item.classList.remove('is-drop-target'));
+      draggedWidget = null;
       persist();
     });
     article.addEventListener('dragover',event => {
@@ -454,8 +572,10 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       if (!draggedWidget || draggedWidget === article) return;
       const before = event.clientY < article.getBoundingClientRect().top + article.offsetHeight / 2;
       grid.insertBefore(draggedWidget,before ? article : article.nextSibling);
+      delete state.positions[draggedWidget.dataset.kind];
       applyAdaptiveLayout();
       persist();
+      snap(draggedWidget);
     });
   }
 
@@ -468,10 +588,14 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     }
     if (kind === 'chart' && load && grid.firstElementChild) grid.insertBefore(widget,grid.firstElementChild);
     else grid.append(widget);
+    const region = kind === 'chart' ? 'center' : ['agents','watchlist'].includes(kind) ? 'left' : 'right';
+    widget.dataset.region = region;
+    widget.hidden = workspace.classList.contains(`is-${region}-collapsed`);
     if (!state.sizes[kind]) widget.dataset.size = 'auto';
     applyAdaptiveLayout();
     blank.hidden = true;
-    persist();
+    if (!restoringLayout) persist();
+    if (load) snap(widget);
     if (kind === 'watchlist') renderWatchlist();
     if (kind === 'agents') mountAgents(widget);
     if (kind === 'ladder') renderLadder();
@@ -496,6 +620,9 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     }
     widget.remove();
     delete state.sizes[kind];
+    delete state.spans[kind];
+    delete state.mobileRows[kind];
+    delete state.positions[kind];
     if (!grid.children.length) state.layoutMode = 'scratch';
     applyAdaptiveLayout();
     persist();
@@ -506,8 +633,13 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     state.name = name;
     state.layoutMode = layoutMode;
     state.sizes = {};
+    state.spans = {};
+    state.mobileRows = {};
+    state.positions = {};
     nameInput.value = name;
+    restoringLayout = true;
     for (const kind of order) addWidget(kind,{load:false});
+    restoringLayout = false;
     persist();
     if (order.includes('chart')) void loadChart();
   }
@@ -559,9 +691,13 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     if (action === 'load') {
       const saved = item.layout;
       for (const kind of [...grid.children].map(widget => widget.dataset.kind)) removeWidget(kind);
-      state = {name:item.name,order:[],layoutMode:saved.layoutMode === 'scratch' && !saved.order?.length ? 'scratch' : 'custom',sizes:saved.sizes || {},notes:saved.notes || '',listSymbols:saved.listSymbols || [],platformSettings:saved.platformSettings || null};
+      state = {name:item.name,order:[],layoutMode:saved.layoutMode === 'scratch' && !saved.order?.length ? 'scratch' : 'custom',
+        sizes:saved.sizes || {},spans:saved.spans || {},mobileRows:saved.mobileRows || {},positions:saved.positions || {},notes:saved.notes || '',
+        listSymbols:saved.listSymbols || [],platformSettings:saved.platformSettings || null};
       nameInput.value = item.name;
+      restoringLayout = true;
       for (const kind of (saved.order || []).filter(kind => Object.hasOwn(widgetCatalog,kind))) addWidget(kind,{load:false});
+      restoringLayout = false;
       applyAdaptiveLayout();
       persist();
       Promise.resolve(applyPlatformSettings ? applyPlatformSettings(saved.platformSettings || null) : null).then(() => {
@@ -589,15 +725,60 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   }
 
   const restoredOrder = [...state.order];
+  const soundButton = document.createElement('button');
+  soundButton.type = 'button';
+  soundButton.id = 'modularSnapSound';
+  soundButton.setAttribute('aria-pressed',String(soundOn));
+  soundButton.textContent = soundOn ? 'Snap sound on' : 'Snap sound off';
+  soundButton.title = 'Toggle the block placement sound';
+  $('#modularAddWidget').before(soundButton);
+  soundButton.addEventListener('click',() => {
+    soundOn = !soundOn;
+    soundButton.setAttribute('aria-pressed',String(soundOn));
+    soundButton.textContent = soundOn ? 'Snap sound on' : 'Snap sound off';
+    try { localStorage.setItem(snapSoundKey,soundOn ? 'on' : 'off'); } catch { /* Optional preference. */ }
+    if (soundOn) snap(null);
+  });
+  restoringLayout = true;
   for (const kind of restoredOrder) addWidget(kind,{load:false});
+  restoringLayout = false;
   restoredOrder.forEach(kind => { const widget = widgets.get(kind); if (widget?.parentElement === grid) grid.append(widget); });
   applyAdaptiveLayout();
   persist();
+  grid.addEventListener('dragover',event => {
+    if (draggedWidget && event.target === grid) event.preventDefault();
+  });
+  grid.addEventListener('drop',event => {
+    if (!draggedWidget || event.target !== grid) return;
+    event.preventDefault();
+    if (window.matchMedia('(max-width:760px)').matches) {
+      grid.append(draggedWidget);
+      applyAdaptiveLayout(); persist(); snap(draggedWidget);
+      return;
+    }
+    const bounds = grid.getBoundingClientRect();
+    const x = Math.max(1,Math.min(12,Math.ceil((event.clientX - bounds.left) / (bounds.width / 12))));
+    const y = Math.max(1,Math.min(8,Math.ceil((event.clientY - bounds.top + grid.scrollTop) / (bounds.height / 8))));
+    state.positions[draggedWidget.dataset.kind] = {x,y};
+    applyAdaptiveLayout(); persist(); snap(draggedWidget);
+  });
   window.addEventListener('resize',() => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(applyAdaptiveLayout,90);
   });
   nameInput.addEventListener('change',persist);
+  $('#modularAddWidget').addEventListener('click',() => dialog.showModal());
+  const toggleWorkspaceRail = (side,button) => {
+    const collapsed = workspace.classList.toggle(`is-${side}-collapsed`);
+    button.setAttribute('aria-expanded',String(!collapsed));
+    button.setAttribute('aria-label',`${collapsed ? 'Expand' : 'Collapse'} ${side} container`);
+    button.title = `${collapsed ? 'Expand' : 'Collapse'} ${side} container`;
+    for (const widget of grid.children) if (widget.dataset.region === side) widget.hidden = collapsed;
+    applyAdaptiveLayout();
+    requestAnimationFrame(() => window.countDeskVelaChart?.resize?.());
+  };
+  $('#modularToggleLeft').addEventListener('click',event => toggleWorkspaceRail('left',event.currentTarget));
+  $('#modularToggleRight').addEventListener('click',event => toggleWorkspaceRail('right',event.currentTarget));
   $('#modularAddWidget').addEventListener('click',() => dialog.showModal());
   document.querySelector('[data-open-widget-gallery]').addEventListener('click',() => dialog.showModal());
   dialog.addEventListener('click',event => { if (event.target === dialog) dialog.close(); });
@@ -626,6 +807,11 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   window.addEventListener('countdesk:chart-context',() => { syncIndicators(); renderLadder(); renderContext(); persist(); });
   return {
     addWidget,renderWatchlist,renderLadder,syncIndicators,
+    addToWatchlist(symbol) {
+      if (!getSymbols().some(item => item.symbol === symbol)) return;
+      if (!state.listSymbols.includes(symbol)) state.listSymbols.push(symbol);
+      renderWatchlist(); persist();
+    },
     mountAgents(dock) {
       const mount = grid.querySelector('[data-agents-mount]');
       (mount || agentsParking || parking).append(dock);
