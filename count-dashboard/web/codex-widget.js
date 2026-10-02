@@ -151,7 +151,13 @@ export function createCodexWidget(host) {
         reconnectTimer = setTimeout(() => { void connect(); }, 5000);
         return;
       }
-      await loadThread(state.threads?.find(thread => thread.id === threadId)?.id || state.threads?.[0]?.id || '');
+      const activeId = state.threads?.find(thread => thread.id === threadId)?.id || state.threads?.[0]?.id;
+      if (activeId) await loadThread(activeId);
+      else await newThread();
+      if (!state.verified) {
+        auth.textContent = `Codex ready · ChatGPT sign-in found${planType ? ` · ${planType}` : ''}`;
+        auth.classList.add('is-connected');
+      }
     } catch (error) {
       auth.textContent = 'Codex unavailable';
       auth.classList.remove('is-connected');
@@ -167,7 +173,7 @@ export function createCodexWidget(host) {
   async function newThread() {
     const created = await request('/threads', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
     const state = await request('/account');
-    refreshList(state.threads || []);
+    refreshList([{id:created.threadId, title:'New Codex chat'}, ...(state.threads || []).filter(thread => thread.id !== created.threadId)]);
     await loadThread(created.threadId);
     textarea.focus();
   }
@@ -237,7 +243,11 @@ export function createCodexWidget(host) {
       void poll();
       const state = await request('/account');
       refreshList(state.threads || []);
-    } catch (error) { setBusy(false); setStatus(error.message, true); }
+    } catch (error) {
+      setBusy(false);
+      setStatus(error.message, true);
+      if (/\barchived\b/i.test(error.message)) void connect();
+    }
   });
   $('.codex-widget-new').addEventListener('click', () => { void newThread().catch(error => setStatus(error.message, true)); });
   selector.addEventListener('change', () => { void loadThread(selector.value).catch(error => setStatus(error.message, true)); });

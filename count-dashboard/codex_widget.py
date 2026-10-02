@@ -175,6 +175,10 @@ class CodexWidget:
                     thread_id = next((key for key, value in self._active_turns.items() if value == turn["id"]), None)
             if not thread_id:
                 continue
+            if method == "thread/archived":
+                with self._lock:
+                    self._loaded.discard(thread_id)
+                continue
             if method.startswith(("item/", "turn/", "thread/")) or method == "widget/approvalDeclined":
                 if method in {"item/started", "item/completed"}:
                     item = params.get("item") or {}
@@ -252,6 +256,32 @@ class CodexWidget:
     def _known(self, thread_id: str) -> bool:
         return any(entry.get("id") == thread_id for entry in self._load_index())
 
+    def _active_entries(self) -> list[dict]:
+        """Only offer widget chats that Codex still considers active."""
+        entries = self._load_index()
+        remaining = {entry.get("id") for entry in entries}
+        with self._lock:
+            # An empty newly started thread may not be in Codex's persisted list yet.
+            active = self._loaded & remaining
+        remaining.difference_update(active)
+        cursor: str | None = None
+        while remaining:
+            params: dict[str, Any] = {
+                "archived": False, "cwd": str(self.workspace),
+                "sourceKinds": [], "limit": 100,
+            }
+            if cursor:
+                params["cursor"] = cursor
+            result = self._request("thread/list", params)
+            found = {thread.get("id") for thread in result.get("data", [])} & remaining
+            active.update(found)
+            remaining.difference_update(found)
+            next_cursor = result.get("nextCursor")
+            if not next_cursor or next_cursor == cursor:
+                break
+            cursor = next_cursor
+        return [entry for entry in entries if entry.get("id") in active]
+
     def account(self) -> dict:
         result = self._request("account/read", {"refreshToken": False})
         account = result.get("account") or {}
@@ -268,7 +298,7 @@ class CodexWidget:
                 "authMode": account.get("type") or "signed_out",
                 "authError": auth_error, "verified": verified,
                 "planType": account.get("planType"),
-                "threads": self._load_index()}
+                "threads": self._active_entries() if account.get("type") == "chatgpt" and not auth_error else []}
 
     def _require_chatgpt(self) -> None:
         if not self.account()["authenticated"]:
