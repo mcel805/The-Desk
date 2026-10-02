@@ -53,6 +53,7 @@ from volume_profile_lab import ProfileSettings, build_volume_profile, replay_pro
 from liquidity_engine import LiquiditySettings, build_liquidity_levels, input_hash as liquidity_input_hash
 from bias_engine import BiasSettings, Bar as BiasBar, build_bias, input_hash as bias_input_hash
 import indicator_agent_store
+from codex_widget import CodexWidget, CodexWidgetError
 
 
 from structure_zones_engine import (Bar as StructureZonesBar, StructureZonesSettings,
@@ -1716,20 +1717,6 @@ def bias_engine_report(db: sqlite3.Connection, symbol: str, timeframe: str,
     return result
 
 
-def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> dict:
-    window = max(2, min(12, len(bars) // 55))
-    swings = confirmed_pivots(bars, window)[-14:]
-    profile = volume_profile(bars)
-    average_range = sum(bar.high - bar.low for bar in bars[-30:]) / min(30, len(bars))
-    fib = {"anchorStart": None, "anchorEnd": None, "levels": []}
-    confluences: list[dict] = []
-    projections: list[dict] = []
-    if len(swings) >= 2:
-        start, end = swings[-2], swings[-1]
-        fib["anchorStart"], fib["anchorEnd"] = start, end
-        span = end["price"] - start["price"]
-        for ratio in (0, .236, .382, .5, .618, .786, 1):
-            fib["levels"].append({"ratio": ratio, "price": end["price"] - span * ratio})
 def tickstream_liquidity_engine_report(symbol: str, timeframe: str, cutoff: int,
                                        settings: LiquiditySettings) -> dict:
     """Run the same closed-bar liquidity engine over Tickstream's memory-only bars."""
@@ -1909,6 +1896,20 @@ def chart_indicator_report(payload: dict) -> dict:
     return result
 
 
+def structural_analytics(bars: list[Bar], layers: list[dict] | None = None) -> dict:
+    window = max(2, min(12, len(bars) // 55))
+    swings = confirmed_pivots(bars, window)[-14:]
+    profile = volume_profile(bars)
+    average_range = sum(bar.high - bar.low for bar in bars[-30:]) / min(30, len(bars))
+    fib = {"anchorStart": None, "anchorEnd": None, "levels": []}
+    confluences: list[dict] = []
+    projections: list[dict] = []
+    if len(swings) >= 2:
+        start, end = swings[-2], swings[-1]
+        fib["anchorStart"], fib["anchorEnd"] = start, end
+        span = end["price"] - start["price"]
+        for ratio in (0, .236, .382, .5, .618, .786, 1):
+            fib["levels"].append({"ratio": ratio, "price": end["price"] - span * ratio})
         tolerance = max(abs(span) * .012, average_range * .35)
         volume_levels = [("POC", profile["poc"]), ("VAH", profile["vah"]), ("VAL", profile["val"])] if profile["status"] != "unavailable" else []
         for level in fib["levels"]:
@@ -2815,6 +2816,16 @@ def delete_drawing(db: sqlite3.Connection, drawing_id: str, symbol: str | None =
 class Handler(SimpleHTTPRequestHandler):
     server_version = "BattyCountDashboard/0.1"
 
+    def show_me_request_allowed(self) -> bool:
+        if self.client_address[0] not in {"127.0.0.1", "::1"}:
+            return False
+        port = self.server.server_address[1]  # type: ignore[attr-defined]
+        hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        origin = self.headers.get("Origin", "")
+        return (self.headers.get("Host", "") in hosts
+                and (not origin or origin in {f"http://{host}" for host in hosts})
+                and self.headers.get("Sec-Fetch-Site", "") in {"", "none", "same-origin"})
+
     def send_json(self, payload: object, status: int = 200, extra_headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload).encode()
         self.send_response(status)
@@ -2902,6 +2913,25 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/codex-widget/"):
+            if not self.show_me_request_allowed():
+                return self.send_json({"error": "Codex chat is available only from this local Count Desk page."}, 403)
+            try:
+                if parsed.path == "/api/codex-widget/health":
+                    return self.send_json({"available": True})
+                widget = self.server.codex_widget  # type: ignore[attr-defined]
+                if parsed.path == "/api/codex-widget/account":
+                    return self.send_json(widget.account())
+                match = re.fullmatch(r"/api/codex-widget/threads/([0-9a-fA-F-]{20,})", parsed.path)
+                if match:
+                    return self.send_json(widget.read(match.group(1)))
+                match = re.fullmatch(r"/api/codex-widget/threads/([0-9a-fA-F-]{20,})/events", parsed.path)
+                if match:
+                    after = max(0, int(parse_qs(parsed.query).get("after", ["0"])[0]))
+                    return self.send_json(widget.events(match.group(1), after))
+            except (CodexWidgetError, ValueError) as exc:
+                return self.send_json({"error": str(exc)}, 400)
+            return self.send_json({"error": "Unknown Codex widget route."}, 404)
         if parsed.path.startswith("/api/indicator-agent/"):
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Indicator research is local-only."}, 403)
@@ -3211,6 +3241,24 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/codex-widget/"):
+            if not self.show_me_request_allowed():
+                return self.send_json({"error": "Codex chat is available only from this local Count Desk page."}, 403)
+            if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
+                return self.send_json({"error": "Codex widget expects JSON."}, 415)
+            try:
+                widget = self.server.codex_widget  # type: ignore[attr-defined]
+                payload = self.read_json()
+                if parsed.path == "/api/codex-widget/threads":
+                    return self.send_json(widget.create(), 201)
+                match = re.fullmatch(r"/api/codex-widget/threads/([0-9a-fA-F-]{20,})/(turns|interrupt)", parsed.path)
+                if match:
+                    if match.group(2) == "turns":
+                        return self.send_json(widget.send(match.group(1), str(payload.get("text", "")), payload.get("chart")), 202)
+                    return self.send_json(widget.interrupt(match.group(1), str(payload.get("turnId", ""))))
+            except (CodexWidgetError, ValueError) as exc:
+                return self.send_json({"error": str(exc)}, 400)
+            return self.send_json({"error": "Unknown Codex widget route."}, 404)
         if parsed.path.startswith("/api/indicator-agent/"):
             if self.client_address[0] not in {"127.0.0.1", "::1"}:
                 return self.send_json({"error": "Indicator research is local-only."}, 403)
@@ -3671,6 +3719,7 @@ def main() -> None:
         seed(db)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.db_path = args.db  # type: ignore[attr-defined]
+    server.codex_widget = CodexWidget(ROOT, args.port)  # type: ignore[attr-defined]
     def deliver_paper_journal_events() -> None:
         while True:
             try:

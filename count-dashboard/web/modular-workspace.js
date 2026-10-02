@@ -1,4 +1,5 @@
 import {DESK_GRID, packLegoGrid} from './lego-grid-core.js';
+import {createCodexWidget} from './codex-widget.js?v=1';
 
 const storageKey = 'count-desk-modular-workspace-v1';
 const templatesKey = 'count-desk-modular-workspace-templates-v1';
@@ -7,6 +8,7 @@ const $ = selector => document.querySelector(selector);
 const widgetCatalog = {
   chart:{title:'Chart',icon:'⌁',size:'full'},
   agents:{title:'Agents',icon:'✦',size:'medium'},
+  codex:{title:'Codex',icon:'›',size:'medium'},
   ladder:{title:'Ladder',icon:'⇅',size:'medium'},
   watchlist:{title:'List',icon:'☷',size:'small'},
   indicators:{title:'Indicator cubes',icon:'▦',size:'medium'},
@@ -225,8 +227,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     if (!mobile) {
       for (const region of ['left','right']) {
         const items = placements.filter(item => item.id !== 'chart' && (region === 'left'
-          ? ['agents','watchlist'].includes(item.id)
-          : !['agents','watchlist'].includes(item.id)));
+          ? ['agents','codex','watchlist'].includes(item.id)
+          : !['agents','codex','watchlist'].includes(item.id)));
         let cursor = 1;
         items.forEach((item,index) => {
           const span = Math.max(1,Math.floor(8 / items.length) + (index < 8 % items.length ? 1 : 0));
@@ -238,7 +240,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     for (const placement of placements) {
       const widget = widgets.get(placement.id);
       const region = placement.id === 'chart' ? 'center'
-        : ['agents','watchlist'].includes(placement.id) ? 'left' : 'right';
+        : ['agents','codex','watchlist'].includes(placement.id) ? 'left' : 'right';
       widget.dataset.region = region;
       widget.dataset.size = state.sizes[placement.id] || (state.spans[placement.id] ? 'custom' : 'auto');
       widget.dataset.layoutCols = String(placement.columns);
@@ -322,6 +324,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       mount.dataset.agentsMount = '';
       body.append(mount);
       mountAgents(article);
+    } else if (kind === 'codex') {
+      createCodexWidget(body);
     } else if (kind === 'ladder') {
       const ladder = document.createElement('div');
       ladder.className = 'modular-ladder';
@@ -588,7 +592,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     }
     if (kind === 'chart' && load && grid.firstElementChild) grid.insertBefore(widget,grid.firstElementChild);
     else grid.append(widget);
-    const region = kind === 'chart' ? 'center' : ['agents','watchlist'].includes(kind) ? 'left' : 'right';
+    const region = kind === 'chart' ? 'center' : ['agents','codex','watchlist'].includes(kind) ? 'left' : 'right';
     widget.dataset.region = region;
     widget.hidden = workspace.classList.contains(`is-${region}-collapsed`);
     if (!state.sizes[kind]) widget.dataset.size = 'auto';
@@ -780,6 +784,14 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   $('#modularToggleLeft').addEventListener('click',event => toggleWorkspaceRail('left',event.currentTarget));
   $('#modularToggleRight').addEventListener('click',event => toggleWorkspaceRail('right',event.currentTarget));
   $('#modularAddWidget').addEventListener('click',() => dialog.showModal());
+  $('#modularSelectCodex').addEventListener('click',() => {
+    const widget = widgets.get('codex');
+    if (widget?.parentElement !== grid) addWidget('codex');
+    if (workspace.classList.contains('is-left-collapsed')) $('#modularToggleLeft').click();
+    const selected = widgets.get('codex');
+    selected?.scrollIntoView({behavior:'smooth',block:'nearest'});
+    selected?.querySelector('.codex-widget-composer textarea')?.focus({preventScroll:true});
+  });
   document.querySelector('[data-open-widget-gallery]').addEventListener('click',() => dialog.showModal());
   dialog.addEventListener('click',event => { if (event.target === dialog) dialog.close(); });
   dialog.querySelectorAll('[data-modular-add]').forEach(button => button.addEventListener('click',() => addWidget(button.dataset.modularAdd)));
