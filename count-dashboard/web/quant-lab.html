@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Count Desk · Quant Lab</title>
+  <link rel="stylesheet" href="./quant-lab.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <a class="home" href="./trading-landing.html" title="Count Desk home">◈ <span>Count Desk</span></a>
+    <a class="tab" href="./vela-preview.html">Vela workspace</a>
+    <span class="tab selected">✦ Quant Lab</span>
+    <span class="top-spacer"></span>
+    <span class="boundary">PAPER RESEARCH · PUBLIC MARKET DATA</span>
+    <a class="top-action" href="./trade-journal.html">Journal ↗</a>
+  </header>
+  <main class="shell">
+    <aside class="conversation" aria-label="Quant Lab conversation">
+      <div class="panel-head"><div><small>CHART RESEARCH ASSISTANT</small><h1>Quant Lab</h1></div><button id="newChat" type="button" title="New conversation">＋</button></div>
+      <div class="chat-stream" id="chatStream" aria-live="polite">
+        <div class="assistant-message intro"><span class="message-author">✦ COUNT DESK</span><p>Ask about the selected chart, describe an indicator, or attach a screenshot. Answers are research hypotheses tied to the source and last loaded bar. A suggestion does not become a validated script or trade.</p></div>
+      </div>
+      <div class="suggestions" id="suggestions"><button type="button" data-prompt="Describe the current chart structure, uncertainty, and an alternate path.">Read structure</button><button type="button" data-prompt="Suggest a measurable indicator hypothesis for this market and timeframe.">Indicator idea</button><button type="button" data-prompt="Help refine a paper strategy rule with explicit entry, exit, and invalidation.">Refine rule</button></div>
+      <form id="chatForm" class="composer">
+        <label class="file-attach" title="Attach a chart screenshot"><input id="chatImage" type="file" accept="image/png,image/jpeg,image/webp" hidden>＋</label>
+        <textarea id="chatInput" rows="3" placeholder="Ask about this chart or describe a rule…" maxlength="12000" aria-label="Message"></textarea>
+        <button id="sendChat" type="submit" aria-label="Send message">↑</button>
+        <div class="composer-meta"><span id="imageName">No screenshot selected</span><span>GPT-6 Luna · local Codex session</span></div>
+      </form>
+    </aside>
+    <section class="workspace" aria-label="Quant Lab chart workspace">
+      <div class="toolbar">
+        <div class="market-picker"><label>Source<select id="provider"><option value="binance">Binance</option><option value="coinbase">Coinbase</option><option value="hyperliquid">Hyperliquid</option></select></label><label>Market<input id="market" value="BTCUSDT" maxlength="32" spellcheck="false"></label><label>Interval<select id="timeframe"><option value="1m">1m</option><option value="5m" selected>5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option></select></label><button id="loadChart" class="strong-action" type="button">Load chart</button></div>
+        <div class="chart-actions"><button id="indicatorButton" type="button">⌁ Indicators</button><button id="replayButton" type="button">◁ Replay</button><button id="strategyButton" type="button">▥ Backtest</button><button id="libraryButton" type="button">▤ Saved</button><button id="connectionsButton" type="button">◉ Connections</button></div>
+      </div>
+      <div class="source-line" role="status" aria-live="polite"><span id="sourceState">Select a market to load public bars.</span><span id="sourceCutoff">CUTOFF —</span></div>
+      <div class="chart-area"><div id="chart" aria-label="Vela chart"></div><div id="chartError" class="chart-error" hidden></div></div>
+      <div class="bottom-bar"><span>Vela chart · native drawings and indicators</span><span id="barCount">0 bars</span><span>UTC <time id="clock"></time></span></div>
+      <aside id="sidePanel" class="side-panel" hidden aria-label="Chart tools"><div class="side-head"><div><small id="panelEyebrow">QUANT LAB</small><h2 id="panelTitle">Tools</h2></div><button id="closePanel" type="button" aria-label="Close panel">×</button></div><div id="panelBody"></div></aside>
+    </section>
+  </main>
+  <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
+  <script type="module" src="./quant-lab.js?v=1"></script>
+</body>
+</html>
