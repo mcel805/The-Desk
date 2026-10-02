@@ -32,6 +32,7 @@ const namedSpans = Object.freeze({
 
 export function packLegoGrid(items, {mobile = false} = {}) {
   if (!Array.isArray(items) || items.length === 0) return [];
+  if (items.length === 1) return [{id:items[0].id, x:1, y:1, columns:mobile ? 1 : 12, rows:mobile ? 1 : 8}];
   if (mobile) {
     let row = 1;
     return items.map(item => {
