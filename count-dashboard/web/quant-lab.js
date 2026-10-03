@@ -2,7 +2,7 @@ import {runSmaBacktest} from './quant-backtest.mjs';
 import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
 import {renderQuantOrderFlow,renderQuantExecutedOrderFlow} from './quant-order-flow-overlays.mjs?v=2';
 import {fetchCoinbaseFootprint} from './coinbase-footprint-feed.mjs';
-import {createCodexWidget} from './codex-widget.js?v=4';
+import {createCodexWidget} from './codex-widget.js?v=7';
 import {registerVolumeAnalyst} from './volume-analyst.mjs?v=5';
 
 const $ = selector => document.querySelector(selector);
@@ -187,7 +187,7 @@ function makeSlot(index,params){
   const error=document.createElement('div');error.className='chart-error';error.hidden=true;
   cell.append(head,host,error);cell.addEventListener('pointerdown',()=>activateSlot(index));head.addEventListener('click',()=>activateSlot(index));
   $('#chartGrid').append(cell);
-  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[],premium:new Set(),premiumDrawings:new Map(),executionPanels:new Map(),executionPanelTab:'footprint',executionPanelCollapsed:false,fib:null,premiumStatus:''};
+  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[],premium:new Set(),premiumDrawings:new Map(),executionPanels:new Map(),executionPanelTab:'footprint',executionPanelCollapsed:false,tradeDrawings:[],cleoDrawingIds:[],cleoMarksVisible:true,cleoReadout:null,hover:null,fib:null,premiumStatus:''};
 }
 function renderExecutionPanel(slot){
   let panel=slot.host.querySelector('.execution-ladder');
@@ -322,6 +322,7 @@ function activateSlot(index,refresh=true){
   if(slot.error.hidden)setStatus(source?`Chart ${index+1} · ${source.label} · ${source.market} · ${source.timeframe} · snapshot loaded ${utc(source.loadedAt)}`:`Chart ${index+1} · loading ${slot.params.market}…`);
   else setStatus(`Chart ${index+1} · ${slot.error.textContent}`,true);
   $('#loadChart').disabled=false;
+  updateCleoMarksButton();
   if(changed){lastResult=null;lastRunKey='';if(refresh)refreshActivePanel();saveLayoutState();}
 }
 async function fetchBars(params){
@@ -348,6 +349,7 @@ async function loadSlot(index,params,reuse=null){
     if(!nextBars.length)throw new Error('The public provider returned no valid bars. Check the symbol or network.');
     for(const off of slot.unsub)off();slot.unsub=[];
     for(const id of slot.premium)clearPremium(slot,id);
+    slot.cleoDrawingIds=[];
     slot.chart?.destroy();slot.host.replaceChildren();
     const nextChart=new window.Vela.Vela(slot.host,{symbol:params.market,timeframe:params.timeframe,data:nextBars,live:false,theme:'dark',drawings:true,volume:true,currentPriceLine:true,timeScale:{timezone:'UTC'},nativeBackend:'canvas2d',animations:{intro:false}});
     slot.chart=nextChart;
@@ -355,7 +357,16 @@ async function loadSlot(index,params,reuse=null){
     if(slot.sequence!==sequence || slots[index]!==slot){nextChart.destroy();return;}
     await new Promise(resolve=>requestAnimationFrame(resolve));nextChart.resize();
     slot.bars=nextBars;slot.source={...params,label:providerSpecs[params.id].label,type:providerSpecs[params.id].type,cutoff:nextBars.at(-1).time,snapshotAsOf,loadedAt:Date.now()};
-    slot.unsub.push(nextChart.renderer.onCrosshairMove(event=>syncCrosshairFrom(index,event)));
+    restoreCleoMarks(slot);
+    slot.unsub.push(nextChart.on('drawing:edited',({id})=>{if(slot.cleoDrawingIds.includes(id))saveCleoMarks(slot);}));
+    slot.unsub.push(nextChart.on('drawing:removed',({id})=>{
+      if(!slot.cleoDrawingIds.includes(id))return;
+      slot.cleoDrawingIds=slot.cleoDrawingIds.filter(item=>item!==id);saveCleoMarks(slot);updateCleoMarksButton();
+    }));
+    slot.unsub.push(nextChart.renderer.onCrosshairMove(event=>{
+      if(Number.isFinite(Number(event.price)))slot.hover={price:Number(event.price),time:Number.isFinite(Number(event.time))?Number(event.time):slot.bars.at(-1)?.time};
+      syncCrosshairFrom(index,event);
+    }));
     slot.unsub.push(nextChart.renderer.onConfigChanged(()=>syncStyleFrom(index)));
     for(const id of slot.premium){
       try{await addPremium(slot,id);}catch(error){slot.premium.delete(id);slot.premiumStatus=`${quantPremiumItems[id].name} unavailable: ${error.message}`;}
@@ -526,15 +537,198 @@ for(const message of history){
   row.textContent=`${message.role==='user'?'You':'Count Desk'}: ${String(message.displayContent||message.content||'')}`;
   $('#legacyChatMessages').append(row);
 }
-createCodexWidget($('#quantCodexHost'),{surface:'quant-lab',contextProvider:()=>{
-  const slot=slots[activeIndex];
-  const activeSource=slot?.source||source;
-  if(!activeSource||!slot?.bars?.length)return null;
-  const recentBars=slot.bars.slice(-8).map(bar=>({time:utc(bar.time),open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume}));
-  return {tab:'Quant Lab',chart:activeIndex+1,provider:activeSource.id,sourceLabel:activeSource.label,
-    symbol:activeSource.market,timeframe:activeSource.timeframe,
-    cutoff:activeSource.cutoff?utc(activeSource.cutoff):null,loadedAt:activeSource.loadedAt?utc(activeSource.loadedAt):null,
-    freshness:'unverified public provider snapshot',recentBars,capturedAt:new Date().toISOString()};
+const cleoMarksStorageKey='count-desk-cleo-marks-v1';
+const cleoReadsStorageKey='count-desk-cleo-reads-v1';
+function cleoMarksKey(source){return [source?.id,source?.market,source?.timeframe,source?.cutoff].join('|');}
+function readCleoMarks(){try{const value=JSON.parse(localStorage.getItem(cleoMarksStorageKey)||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
+function readCleoReads(){try{const value=JSON.parse(localStorage.getItem(cleoReadsStorageKey)||'[]');return Array.isArray(value)?value:[];}catch{return [];}}
+function archiveCleoRead(slot,spec){
+  if(!slot?.source||!spec?.source||!Array.isArray(spec.marks))return false;
+  try{
+    const reads=readCleoReads();
+    reads.unshift({id:crypto.randomUUID(),source:{id:slot.source.id,market:slot.source.market,timeframe:slot.source.timeframe,cutoff:slot.source.cutoff},
+      readout:spec.readout||null,method:String(spec.method||'Chart read').slice(0,120),marks:spec.marks.slice(0,5),createdAt:Date.now()});
+    localStorage.setItem(cleoReadsStorageKey,JSON.stringify(reads.slice(0,30)));
+    renderCleoReadArchive();return true;
+  }catch{return false;}
+}
+function renderCleoReadArchive(){
+  const list=$('#cleoReadArchiveList');if(!list)return;
+  list.replaceChildren();const reads=readCleoReads();
+  if(!reads.length){list.textContent='No saved Cleo chart reads yet.';return;}
+  for(const read of reads){
+    const card=document.createElement('article');card.className='cleo-read-archive-card';
+    const headline=document.createElement('strong');headline.textContent=read.readout?.headline||read.method||'Saved chart read';
+    const detail=document.createElement('small');detail.textContent=`${read.source?.id||'source unknown'} · ${read.source?.market||'market unknown'} · ${read.source?.timeframe||'timeframe unknown'} · cutoff ${read.source?.cutoff?utc(read.source.cutoff):'unknown'} · ${new Date(read.createdAt).toLocaleString()}`;
+    const rationale=document.createElement('p');rationale.textContent=read.readout?.takeaway||`${read.marks?.length||0} saved chart marks`;
+    const button=document.createElement('button');button.type='button';button.textContent='Show on matching chart';
+    const matches=slots.some(slot=>slot.source&&slot.source.id===read.source?.id&&slot.source.market===read.source?.market&&slot.source.timeframe===read.source?.timeframe&&Number(slot.source.cutoff)===Number(read.source?.cutoff));
+    button.disabled=!matches;
+    button.title=matches?'Restore this Cleo mark set on its original chart.':'Load the same source, market, timeframe, and cutoff to restore these marks.';
+    button.addEventListener('click',()=>{
+      const index=slots.findIndex(slot=>slot.source&&slot.source.id===read.source?.id&&slot.source.market===read.source?.market&&slot.source.timeframe===read.source?.timeframe&&Number(slot.source.cutoff)===Number(read.source?.cutoff));
+      if(index<0)return;
+      activateSlot(index,false);
+      try{applyCleoMarkup({schema:'cleo.chart-markup.v1',chart:index+1,method:read.method,source:{provider:read.source.id,symbol:read.source.market,timeframe:read.source.timeframe,cutoff:read.source.cutoff},readout:read.readout,marks:read.marks});$('#cleoReadArchive').close();}
+      catch(error){setStatus(`Saved marks could not be restored · ${error.message}`,true);}
+    });
+    card.append(headline,detail,rationale,button);list.append(card);
+  }
+}
+$('#savedCleoReads').addEventListener('click',()=>{renderCleoReadArchive();$('#cleoReadArchive').showModal();});
+$('#closeCleoReadArchive').addEventListener('click',()=>$('#cleoReadArchive').close());
+$('#cleoReadArchive').addEventListener('click',event=>{if(event.target===$('#cleoReadArchive'))$('#cleoReadArchive').close();});
+function saveCleoMarks(slot){
+  if(!slot?.source)return;
+  try{
+    const all=readCleoMarks(),key=cleoMarksKey(slot.source),ids=new Set(slot.cleoDrawingIds||[]);
+    const drawings=(slot.chart?.drawings?.all?.()||[]).filter(item=>ids.has(item.id)).map(item=>({type:item.type,paneId:item.paneId,anchors:item.anchors,style:item.style,text:item.text,props:item.props,zIndex:item.zIndex}));
+    if(drawings.length)all[key]={source:{id:slot.source.id,market:slot.source.market,timeframe:slot.source.timeframe,cutoff:slot.source.cutoff},drawings,readout:slot.cleoReadout||null,savedAt:Date.now()};
+    else delete all[key];
+    const keys=Object.keys(all);for(const stale of keys.slice(0,Math.max(0,keys.length-20)))delete all[stale];
+    localStorage.setItem(cleoMarksStorageKey,JSON.stringify(all));
+  }catch{}
+}
+function restoreCleoMarks(slot){
+  if(!slot?.source||!slot.chart?.drawings?.supported)return;
+  const stored=readCleoMarks()[cleoMarksKey(slot.source)];
+  if(!stored||Number(stored.source?.cutoff)!==Number(slot.source.cutoff)||!Array.isArray(stored.drawings))return;
+  const ids=[];
+  try{
+    for(const item of stored.drawings.slice(0,40)){
+      if(!['trendline','ray','hray','hline'].includes(item?.type)||!Array.isArray(item.anchors)||!item.anchors.length||item.anchors.length>2)continue;
+      if(item.anchors.some(point=>!Number.isFinite(Number(point?.time))||!Number.isFinite(Number(point?.price))||Number(point.price)<=0))continue;
+      const type=item.type==='hline'?'hray':item.type;
+      const style=item.style&&typeof item.style==='object'?{...item.style,lineWidth:1}:{lineWidth:1};
+      const drawing=slot.chart.drawings.add(type,{paneId:'price',anchors:item.anchors,style,props:item.props,zIndex:item.zIndex});
+      if(drawing?.id)ids.push(drawing.id);
+    }
+  }catch{for(const id of ids)slot.chart.drawings.remove(id);return;}
+  slot.cleoDrawingIds=ids;
+  slot.cleoReadout=stored.readout||null;
+  slot.cleoMarksVisible=true;
+}
+function clearCleoMarks(slot){
+  for(const id of [...(slot?.cleoDrawingIds||[])])slot.chart?.drawings?.remove?.(id);
+  if(slot)slot.cleoDrawingIds=[];
+  saveCleoMarks(slot);
+  updateCleoMarksButton();
+}
+function updateCleoMarksButton(){
+  const button=$('#toggleCleoMarks'),clear=$('#clearCleoMarks');
+  if(!button||!clear)return;
+  const count=slots[activeIndex]?.cleoDrawingIds?.length||0;
+  button.hidden=count===0;
+  button.textContent=`✦ ${slots[activeIndex]?.cleoMarksVisible===false?'Show':'Hide'} Cleo marks · ${count}`;
+  button.setAttribute('aria-pressed',String(slots[activeIndex]?.cleoMarksVisible!==false));
+  clear.hidden=count===0;
+}
+$('#toggleCleoMarks').addEventListener('click',()=>{
+  const slot=slots[activeIndex];if(!slot?.chart)return;
+  slot.cleoMarksVisible=slot.cleoMarksVisible===false;
+  for(const id of slot.cleoDrawingIds)slot.chart.drawings?.setVisible?.(id,slot.cleoMarksVisible);
+  updateCleoMarksButton();
+});
+$('#clearCleoMarks').addEventListener('click',()=>clearCleoMarks(slots[activeIndex]));
+function applyCleoMarkup(spec){
+  const chartIndex=Number(spec.chart);
+  const slot=Number.isInteger(chartIndex)&&chartIndex>=1?slots[chartIndex-1]:null;
+  if(!slot?.chart||!slot.source||!slot.bars.length)throw new Error('That chart is no longer loaded.');
+  const sourceSpec=spec.source||{};
+  if(sourceSpec.provider!==slot.source.id||String(sourceSpec.symbol||'').toUpperCase()!==slot.source.market||sourceSpec.timeframe!==slot.source.timeframe||Number(sourceSpec.cutoff)!==Number(slot.source.cutoff))
+    throw new Error('The chart source or cutoff changed. Ask Cleo to refresh its read before marking.');
+  if(!slot.chart.drawings?.supported||typeof slot.chart.drawings.add!=='function')throw new Error('This chart cannot accept native marks right now.');
+  if(!Array.isArray(spec.marks)||spec.marks.length<1||spec.marks.length>5)throw new Error('A markup must contain 1–5 focused marks.');
+  const minTime=Number(slot.bars[0].time),cutoff=Number(slot.source.cutoff);
+  const barsByTime=new Map(slot.bars.map(bar=>[Number(bar.time),bar]));
+  const roleStyle={OBSERVED:{color:'#69c8bc',dash:'solid'},CONTEXT:{color:'#88a9b8',dash:'solid'},PRIMARY_PROJECTION:{color:'#c3a1ff',dash:'dashed'},ALTERNATE_PROJECTION:{color:'#9c8bb7',dash:'dotted'},INVALIDATION:{color:'#ef7888',dash:'dashed'}};
+  const seen=new Set();
+  for(const mark of spec.marks){
+    if(!mark||typeof mark.id!=='string'||!/^[-a-zA-Z0-9_]{1,50}$/.test(mark.id)||seen.has(mark.id))throw new Error('Cleo returned an invalid or repeated mark id.');
+    seen.add(mark.id);
+    if(!roleStyle[mark.role]||!['level','trendline','ray'].includes(mark.geometry)||!Array.isArray(mark.anchors))throw new Error(`Unsupported mark ${mark.id}.`);
+    if(!Array.isArray(mark.evidenceRefs)||!mark.evidenceRefs.length||mark.evidenceRefs.length>16)throw new Error(`Missing loaded-bar evidence for ${mark.id}.`);
+    const evidenceTimes=new Set(mark.evidenceRefs.map(Number));
+    if([...evidenceTimes].some(time=>!Number.isFinite(time)||!barsByTime.has(time)))throw new Error(`Unknown evidence bar for ${mark.id}.`);
+    const anchorCount=mark.geometry==='level'?1:2;
+    if(mark.anchors.length!==anchorCount)throw new Error(`A ${mark.geometry} needs ${anchorCount} sourced anchor${anchorCount===1?'':'s'} (${mark.id}).`);
+    const isProjection=['PRIMARY_PROJECTION','ALTERNATE_PROJECTION'].includes(mark.role);
+    if((mark.geometry==='ray')!==isProjection)throw new Error(`Use a ray only for a conditional projection (${mark.id}).`);
+    if(mark.anchors.length===2&&Number(mark.anchors[1]?.time)<=Number(mark.anchors[0]?.time))throw new Error(`Order the two ${mark.geometry} anchors from left to right (${mark.id}).`);
+    for(const point of mark.anchors){
+      const time=Number(point?.time),price=Number(point?.price);
+      if(!Number.isFinite(time)||!Number.isFinite(price)||price<=0||time<minTime||time>cutoff)throw new Error(`Use only loaded-bar anchors in ${mark.id}.`);
+      const bar=barsByTime.get(time);
+      if(!bar||!evidenceTimes.has(time))throw new Error(`Anchor ${mark.id} must use a cited loaded bar time.`);
+      if(price<Number(bar.low)||price>Number(bar.high))throw new Error(`Anchor ${mark.id} is outside its cited bar range.`);
+    }
+    if(mark.label!=null&&(typeof mark.label!=='string'||mark.label.length>18||/[\r\n]/.test(mark.label)))throw new Error(`Keep chart labels to 18 characters on one line (${mark.id}).`);
+  }
+  const currentCleoIds=new Set(slot.cleoDrawingIds||[]);
+  const existingLines=(slot.chart.drawings.all?.()||[]).filter(item=>!currentCleoIds.has(item.id)&&['trendline','ray','hray','hline'].includes(item.type));
+  const lineEquation=(geometry,anchors)=>{
+    if(geometry==='level'||geometry==='hray'||geometry==='hline'){
+      const time=Number(anchors[0]?.time),price=Number(anchors[0]?.price);
+      return {slope:0,time,price,startTime:geometry==='hline'?-Infinity:time,endTime:Infinity};
+    }
+    const [a,b]=anchors||[];
+    if(!a||!b||Number(b.time)===Number(a.time))return null;
+    const startTime=Math.min(Number(a.time),Number(b.time));
+    const endTime=geometry==='ray'?Infinity:Math.max(Number(a.time),Number(b.time));
+    return {slope:(Number(b.price)-Number(a.price))/(Number(b.time)-Number(a.time)),time:startTime,price:Number(a.price),startTime,endTime};
+  };
+  for(const mark of spec.marks){
+    const candidate=lineEquation(mark.geometry,mark.anchors);
+    if(existingLines.some(item=>{
+      const existing=lineEquation(item.type,item.anchors);
+      if(!existing||!candidate)return false;
+      const overlapStart=Math.max(existing.startTime,candidate.startTime);
+      if(overlapStart>Math.min(existing.endTime,candidate.endTime))return false;
+      const slopeScale=Math.max(1,Math.abs(existing.slope),Math.abs(candidate.slope));
+      if(Math.abs(existing.slope-candidate.slope)>1e-18*slopeScale)return false;
+      const sharedPrice=existing.price+existing.slope*(overlapStart-existing.time);
+      const candidatePrice=candidate.price+candidate.slope*(overlapStart-candidate.time);
+      return Math.abs(sharedPrice-candidatePrice)<=1e-8*Math.max(1,Math.abs(sharedPrice),Math.abs(candidatePrice));
+    }))throw new Error(`Cleo skipped a line that duplicates an existing chart drawing (${mark.id}).`);
+  }
+  const nextIds=[];
+  const add=(type,anchors,mark)=>{
+    const style=roleStyle[mark.role];
+    // Vela places new line drawings just below the price series by default, keeping candle bodies and wicks in front.
+    const label=String(mark.label||'').trim();
+    const drawing=slot.chart.drawings.add(type,{paneId:'price',anchors,style:{lineColor:style.color,lineWidth:1,lineStyle:style.dash},...(label?{text:{value:label,color:style.color,size:'tiny',hAlign:'right',vAlign:'bottom'}}:{})});
+    if(!drawing?.id)throw new Error('Vela did not return a drawing id.');
+    nextIds.push(drawing.id);
+  };
+  try{
+    for(const mark of spec.marks){
+      const type=mark.geometry==='level'?'hray':mark.geometry;
+      add(type,mark.anchors,mark);
+    }
+  }catch(error){for(const id of nextIds)slot.chart.drawings.remove(id);throw error;}
+  clearCleoMarks(slot);slot.cleoDrawingIds=nextIds;slot.cleoMarksVisible=true;slot.cleoReadout=spec.readout||null;saveCleoMarks(slot);
+  const archived=archiveCleoRead(slot,spec);
+  updateCleoMarksButton();
+  const explanation=String(spec.method||'Provisional chart assessment').slice(0,100);
+  return {message:`${nextIds.length} chart mark${nextIds.length===1?'':'s'} added · ${archived?'saved to Cleo’s chart archive':'archive unavailable in this browser'} · ${explanation}`};
+}
+createCodexWidget($('#quantCodexHost'),{surface:'quant-lab',applyChartMarkup:applyCleoMarkup,
+captureChartImage:()=>slots[activeIndex]?.chart?.renderer?.screenshot?.()||'',contextProvider:()=>{
+  const active=slots[activeIndex];
+  if(!active?.source||!active.bars.length)return null;
+  const charts=slots.filter(slot=>slot.source&&slot.bars.length).map(slot=>{
+    const activeChart=slot.index===activeIndex;
+    const drawings=slot.chart?.drawings?.all?.()||[];
+    return {chart:slot.index+1,provider:slot.source.id,sourceLabel:slot.source.label,symbol:slot.source.market,
+      timeframe:slot.source.timeframe,cutoff:slot.source.cutoff,loadedAt:slot.source.loadedAt,
+      freshness:'unverified public provider snapshot',barCount:slot.bars.length,
+      visibleRange:slot.chart?.getVisibleRange?.()||null,
+      studies:[...slot.premium,...(slot.chart?.indicators?.()||[]).map(item=>item.nativeType).filter(Boolean)],
+      drawings:drawings.slice(-80).map(item=>({id:item.id,type:item.type,anchors:item.anchors,
+        label:item.text?.value||item.text?.text||''})),
+      bars:slot.bars.slice(activeChart?-500:-120).map(bar=>({time:bar.time,open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume}))};
+  });
+  return {tab:'Quant Lab',activeChart:activeIndex+1,chartCount:charts.length,charts,capturedAt:new Date().toISOString()};
 }});
 
 const restoredLayout=readLayoutState();

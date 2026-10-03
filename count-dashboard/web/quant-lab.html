@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Quant Lab</title>
-  <link rel="stylesheet" href="./quant-lab.css?v=7">
-  <link rel="stylesheet" href="./codex-widget.css?v=3">
+  <link rel="stylesheet" href="./quant-lab.css?v=8">
+  <link rel="stylesheet" href="./codex-widget.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -30,7 +30,7 @@
           <div class="layout-control"><button id="layoutButton" class="layout-trigger" type="button" aria-label="Chart layout, 1 chart" aria-expanded="false" aria-controls="layoutPopover" title="Chart layout"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M12 3v18M3 12h18"/></svg><span id="layoutCount">1</span></button>
             <section id="layoutPopover" class="layout-popover" aria-label="Chart layout and sync" hidden><div class="layout-side"><div class="layout-heading">LAYOUT <span title="Choose one through six charts">ⓘ</span></div><div id="layoutChoices" class="layout-choices" role="group" aria-label="Number of charts"></div><small id="layoutDescription">1 chart</small></div><div class="sync-side"><div class="layout-heading">SYNC</div><label class="sync-row">Symbol <input id="syncSymbol" type="checkbox"><span class="switch" aria-hidden="true"></span></label><label class="sync-row">Interval <input id="syncInterval" type="checkbox"><span class="switch" aria-hidden="true"></span></label><label class="sync-row">Crosshair <input id="syncCrosshair" type="checkbox"><span class="switch" aria-hidden="true"></span></label><label class="sync-row">Style <input id="syncStyle" type="checkbox"><span class="switch" aria-hidden="true"></span></label></div></section>
           </div>
-          <button id="indicatorButton" type="button">⌁ Indicators</button><button id="replayButton" type="button">◁ Replay</button><button id="strategyButton" type="button">▥ Backtest</button><button id="libraryButton" type="button">▤ Saved</button><button id="connectionsButton" type="button">◉ Connections</button>
+          <button id="indicatorButton" type="button">⌁ Indicators</button><button id="toggleCleoMarks" type="button" hidden aria-pressed="true">✦ Hide Cleo marks</button><button id="clearCleoMarks" type="button" hidden>Clear</button><button id="savedCleoReads" type="button">✦ Saved reads</button><button id="replayButton" type="button">◁ Replay</button><button id="strategyButton" type="button">▥ Backtest</button><button id="libraryButton" type="button">▤ Saved</button><button id="connectionsButton" type="button">◉ Connections</button>
         </div>
       </div>
       <div class="source-line" role="status" aria-live="polite"><span id="sourceState">Select a market to load public bars.</span><span id="sourceCutoff">CUTOFF —</span></div>
@@ -38,9 +38,10 @@
       <div class="bottom-bar"><span>Quant Lab chart · native drawings and indicators</span><span id="barCount">0 bars</span><span>UTC <time id="clock"></time></span></div>
       <aside id="sidePanel" class="side-panel" hidden aria-label="Chart tools"><div class="side-head"><div><small id="panelEyebrow">QUANT LAB</small><h2 id="panelTitle">Tools</h2></div><button id="closePanel" type="button" aria-label="Close panel">×</button></div><div id="panelBody"></div></aside>
       <div id="chartContextMenu" class="chart-context-menu" hidden role="menu" aria-label="Chart trading actions"><button type="button" data-trade-side="long" role="menuitem">Buy / Long paper ticket</button><button type="button" data-trade-side="short" role="menuitem">Sell / Short paper ticket</button><button type="button" data-trader-open role="menuitem">Open Chart Trader</button></div>
+      <dialog id="cleoReadArchive" class="cleo-read-archive" aria-labelledby="cleoReadArchiveTitle"><header><div><small>SAVED CHART READS</small><h2 id="cleoReadArchiveTitle">Cleo’s chart archive</h2></div><button id="closeCleoReadArchive" type="button" aria-label="Close saved reads">×</button></header><p class="cleo-read-archive-note">Saved marks are restored only when the exact market, timeframe, and source cutoff are loaded.</p><div id="cleoReadArchiveList"></div></dialog>
     </section>
   </main>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./quant-lab.js?v=15"></script>
+  <script type="module" src="./quant-lab.js?v=16"></script>
 </body>
 </html>

@@ -18,6 +18,8 @@ Firstmate is the coordinator system around agents. It is not a model name. In th
 
 For Count Desk questions, the server reads a fresh, read-only snapshot from its local store for that request. It includes the selected symbol, timeframe and cutoff; run metadata and data age; up to 64 recent OHLC bars; recent structural count points; the saved drawings; and selected analytics such as confirmed swings, volume profile, Fibonacci levels, confluences, provisional paths, and liquidity zones. It does not send the full historical database.
 
+On **Quant Lab**, “Share chart” sends the loaded chart evidence from the browser: up to 500 bars for the selected chart, up to 120 bars for each other loaded chart, the visible time range, active studies, and chart drawings. It also attaches a rendered image of the active chart when the renderer supports it; the separate **Screenshot** control lets you attach another image. If Cleo returns a `chart-markup` proposal, review the explanation and choose **Add chart marks** before it is drawn. Added Cleo marks use the native drawing controls, so they can be selected, moved, edited, and erased. **Clear Cleo marks** removes only Cleo's marks from the selected chart.
+
 ## Ask about other tabs
 
 Batty stays available on Count Desk, Trading Journal, and Resources. On those pages it receives the active page and visible filter/selection label. It does not currently receive Trading Journal account rows, Liquidity Lab content, or the contents of other applications. Say what you want it to consider, or switch to Count Desk for a chart read.

@@ -146,3 +146,17 @@
 .legacy-quant-chat{flex:none;max-height:35vh;overflow:auto;border-top:1px solid #383941;padding:7px 12px;color:#b9bbc4;font-size:10px}
 .legacy-quant-chat summary{cursor:pointer;color:#aa9ac9}
 .legacy-quant-chat p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45;border-bottom:1px solid #34353d;padding-bottom:7px}
+.cleo-read-archive{width:min(720px,calc(100vw - 28px));max-height:min(80vh,760px);padding:0;border:1px solid #494a4b;border-radius:15px;background:#121314;color:#f2f2f0;box-shadow:0 24px 80px #000b}
+.cleo-read-archive::backdrop{background:#000b;backdrop-filter:blur(3px)}
+.cleo-read-archive>header{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;padding:18px 21px;border-bottom:1px solid #373839;background:#151617}
+.cleo-read-archive>header small{color:#aaa;font-size:10px;font-weight:700;letter-spacing:.12em}
+.cleo-read-archive>header h2{margin:4px 0 0;font-size:22px;letter-spacing:-.025em}
+.cleo-read-archive>header button{width:34px;height:34px;border:1px solid #555;border-radius:50%;background:#222;color:#eee;font-size:20px}
+.cleo-read-archive-note{margin:0;padding:12px 21px;color:#bbb;font-size:12px;line-height:1.5}
+#cleoReadArchiveList{display:grid;gap:9px;padding:0 21px 21px;overflow:auto}
+.cleo-read-archive-card{display:grid;gap:7px;padding:13px;border:1px solid #414243;border-radius:10px;background:#1a1b1c}
+.cleo-read-archive-card strong{font-size:15px;line-height:1.35}
+.cleo-read-archive-card small{color:#aaa;font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.cleo-read-archive-card p{margin:0;color:#ddd;font-size:13px;line-height:1.5}
+.cleo-read-archive-card button{justify-self:start;padding:7px 11px;border:1px solid #777;border-radius:999px;background:#292a2b;color:#eee;font-size:12px}
+.cleo-read-archive-card button:disabled{opacity:.52;cursor:not-allowed}
