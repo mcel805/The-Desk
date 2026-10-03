@@ -1,5 +1,7 @@
 import {runSmaBacktest} from './quant-backtest.mjs';
 import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
+import {renderQuantOrderFlow,renderQuantExecutedOrderFlow} from './quant-order-flow-overlays.mjs?v=2';
+import {fetchCoinbaseFootprint} from './coinbase-footprint-feed.mjs';
 import {createCodexWidget} from './codex-widget.js?v=4';
 
 const $ = selector => document.querySelector(selector);
@@ -183,12 +185,60 @@ function makeSlot(index,params){
   const error=document.createElement('div');error.className='chart-error';error.hidden=true;
   cell.append(head,host,error);cell.addEventListener('pointerdown',()=>activateSlot(index));head.addEventListener('click',()=>activateSlot(index));
   $('#chartGrid').append(cell);
-  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[],premium:new Set(),premiumDrawings:new Map(),fib:null,premiumStatus:''};
+  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[],premium:new Set(),premiumDrawings:new Map(),executionPanels:new Map(),executionPanelTab:'footprint',executionPanelCollapsed:false,fib:null,premiumStatus:''};
+}
+function renderExecutionPanel(slot){
+  let panel=slot.host.querySelector('.execution-ladder');
+  if(!slot.executionPanels.size){panel?.remove();return;}
+  if(!panel){panel=document.createElement('section');panel.className='execution-ladder';panel.setAttribute('aria-label','Coinbase executed volume ladder');slot.host.append(panel);}
+  if(!slot.executionPanels.has(slot.executionPanelTab))slot.executionPanelTab=slot.executionPanels.keys().next().value;
+  const id=slot.executionPanelTab,{payload,result}=slot.executionPanels.get(id);
+  const header=document.createElement('header');header.className='execution-ladder-head';
+  const title=document.createElement('strong');title.textContent=`${id==='footprint'?'Footprint':'Volume Bubbles'} · ${payload.product}`;
+  const collapse=document.createElement('button');collapse.type='button';collapse.textContent=slot.executionPanelCollapsed?'Expand':'Collapse';collapse.setAttribute('aria-expanded',String(!slot.executionPanelCollapsed));collapse.onclick=()=>{slot.executionPanelCollapsed=!slot.executionPanelCollapsed;renderExecutionPanel(slot);};
+  header.append(title,collapse);panel.replaceChildren(header);panel.classList.toggle('collapsed',slot.executionPanelCollapsed);
+  if(slot.executionPanelCollapsed)return;
+  if(slot.executionPanels.size>1){
+    const tabs=document.createElement('div');tabs.className='execution-ladder-tabs';
+    for(const key of slot.executionPanels.keys()){
+      const button=document.createElement('button');button.type='button';button.textContent=key==='footprint'?'Exact ticks':'Bubbles';button.setAttribute('aria-pressed',String(key===id));button.onclick=()=>{slot.executionPanelTab=key;renderExecutionPanel(slot);};tabs.append(button);
+    }
+    panel.append(tabs);
+  }
+  const note=document.createElement('p');note.className='execution-ladder-note';note.textContent=`${payload.source} · ${utc(payload.coverage.from)} · ${payload.coverage.trades} trades · ${payload.unit} · candle volume reconciled`;
+  panel.append(note);
+  const scroll=document.createElement('div');scroll.className='execution-ladder-scroll';
+  const table=document.createElement('table'),thead=document.createElement('thead'),headRow=document.createElement('tr');
+  const labels=id==='footprint'?['Bid sell','Exact price','Ask buy']:['Price bucket','Size','Delta'];
+  for(const label of labels){const th=document.createElement('th');th.textContent=label;headRow.append(th);}thead.append(headRow);table.append(thead);
+  const tbody=document.createElement('tbody');
+  const decimals=Math.max(0,Math.min(8,Math.ceil(-Math.log10(payload.tickSize))));
+  const number=value=>new Intl.NumberFormat('en-US',{maximumSignificantDigits:10}).format(value);
+  if(id==='footprint'){
+    for(const row of [...result.rows].reverse()){
+      const tr=document.createElement('tr');tr.className=row.delta>=0?'buy-dominant':'sell-dominant';
+      for(const value of [number(row.bidVolume),row.price.toFixed(decimals),number(row.askVolume)]){const td=document.createElement('td');td.textContent=value;tr.append(td);}tbody.append(tr);
+    }
+  }else{
+    const largest=Math.max(...result.clusters.map(row=>row.volume));
+    for(const row of [...result.clusters].reverse()){
+      const tr=document.createElement('tr');tr.className=row.delta>=0?'buy-dominant':'sell-dominant';
+      const price=document.createElement('td');price.textContent=row.price.toFixed(decimals);
+      const size=document.createElement('td'),bubble=document.createElement('span');size.className='execution-bubble-cell';bubble.className='execution-bubble';
+      const diameter=6+20*Math.sqrt(row.volume/largest);bubble.style.width=`${diameter}px`;bubble.style.height=`${diameter}px`;
+      bubble.style.background=row.delta>=0?'#43b89c88':'#dc667488';bubble.title=`${number(row.volume)} ${payload.unit}`;
+      size.append(bubble,document.createTextNode(number(row.volume)));
+      const delta=document.createElement('td');delta.textContent=`${row.delta>=0?'+':''}${number(row.delta)}`;
+      tr.append(price,size,delta);tbody.append(tr);
+    }
+  }
+  table.append(tbody);scroll.append(table);panel.append(scroll);
 }
 function clearPremium(slot,id){
   if(id==='smart-fib'){slot.fib?.destroy();slot.fib=null;slot.host.onpointerleave=null;}
   for(const drawingId of slot.premiumDrawings.get(id)||[])slot.chart?.drawings?.remove?.(drawingId);
   slot.premiumDrawings.delete(id);
+  if(slot.executionPanels.delete(id))renderExecutionPanel(slot);
 }
 function drawFor(slot,id){
   const ids=[];slot.premiumDrawings.set(id,ids);
@@ -196,13 +246,14 @@ function drawFor(slot,id){
     clear:()=>{for(const drawingId of ids)slot.chart.drawings.remove(drawingId);ids.length=0;}};
 }
 async function addPremium(slot,id){
+  if(quantPremiumItems[id]?.requiresExecutionFeed&&slot.params.id!=='coinbase')throw new Error('Select a Coinbase Exchange chart for executed-trade Footprint or Bubbles.');
   if(!slot.chart?.drawings?.supported||typeof slot.chart.drawings.add!=='function')throw new Error('This chart renderer cannot display research drawings.');
   const chartAtStart=slot.chart;
   clearPremium(slot,id);
   const draw=drawFor(slot,id);
   try{
     if(id==='liquidity'){
-      const chartBars=completedBars(slot.bars,slot.params.timeframe);
+      const chartBars=completedBars(slot.bars,slot.params.timeframe,slot.source.snapshotAsOf);
       const contextFrames=['1m','5m','15m','30m','1h'];
       const wanted=(['1m','5m','15m','1h'].includes(slot.params.timeframe)?contextFrames:['30m','1h'])
         .filter(timeframe=>timeframe!==slot.params.timeframe);
@@ -220,10 +271,25 @@ async function addPremium(slot,id){
       slot.fib=createSmartFibOverlay(slot.chart,closed,draw);
       if(!slot.fib.swingCount)throw new Error('No confirmed 1h swings are available in this snapshot.');
       slot.premiumStatus=`Smart Fib · ${slot.fib.swingCount} confirmed 1h swings · ${providerSpecs[slot.params.id].label} · ${slot.params.market} · last completed 1h bar opened ${utc(closed.at(-1).time)} · hover a swing to preview, then lock it in Tools · descriptive, unscored.`;
+    }else if(['volume-profile','tpo','vwap'].includes(id)){
+      const closed=completedBars(slot.bars,slot.params.timeframe,slot.source.snapshotAsOf);
+      const result=renderQuantOrderFlow(id,closed,slot.params.timeframe,draw.add);
+      slot.premiumStatus=`${quantPremiumItems[id].name} · ${result.status} · ${providerSpecs[slot.params.id].label} · ${slot.params.market} ${slot.params.timeframe} · last completed bar opened ${utc(result.cutoff)} · descriptive, unscored.`;
+    }else if(itemRequiresExecution(id)){
+      const closed=completedBars(slot.bars,slot.params.timeframe,slot.source.snapshotAsOf),bar=closed.at(-1);
+      if(!bar)throw new Error('No completed Coinbase bar is available.');
+      const payload=await fetchCoinbaseFootprint(slot.params.market,{...bar,timeframe:slot.params.timeframe});
+      if(slot.chart!==chartAtStart||!slots.includes(slot))return;
+      const result=renderQuantExecutedOrderFlow(id,payload,draw.add);
+      slot.executionPanels.set(id,{payload,result});slot.executionPanelTab=id;renderExecutionPanel(slot);
+      slot.premiumStatus=`${quantPremiumItems[id].name} · ${result.status} · ${slot.params.market} ${slot.params.timeframe} · completed bar opened ${utc(result.cutoff)} · local research only; no redistribution or trade execution.`;
+    }else{
+      throw new Error('Unknown premium study.');
     }
     slot.premium.add(id);
   }catch(error){clearPremium(slot,id);throw error;}
 }
+function itemRequiresExecution(id){return Boolean(quantPremiumItems[id]?.requiresExecutionFeed);}
 function updateSlotHead(slot){
   slot.head.innerHTML=`<span class="cell-number">${String(slot.index+1).padStart(2,'0')}</span><strong>${escapeHtml(slot.source?.market||slot.params.market)}</strong><small>${escapeHtml(slot.source?.timeframe||slot.params.timeframe)} · ${escapeHtml(providerSpecs[slot.params.id].label)}</small>`;
 }
@@ -261,11 +327,12 @@ async function fetchBars(params){
 async function loadSlot(index,params,reuse=null){
   const slot=slots[index];if(!slot)return;
   const sequence=++slot.sequence;slot.params={...params};updateSlotHead(slot);slot.error.hidden=true;
+  const snapshotAsOf=reuse?.snapshotAsOf??Date.now();
   if(index===activeIndex){$('#loadChart').disabled=true;setStatus(`Chart ${index+1} · loading ${providerSpecs[params.id].label} · ${params.market} · ${params.timeframe}…`);}
   try{
     if(!validParams(params))throw new Error('Enter a valid market and interval.');
     if(!window.Vela?.Vela)throw new Error('Vela browser bundle is unavailable.');
-    const nextBars=reuse || await fetchBars(params);
+    const nextBars=reuse?.bars || await fetchBars(params);
     if(slot.sequence!==sequence || slots[index]!==slot)return;
     if(!nextBars.length)throw new Error('The public provider returned no valid bars. Check the symbol or network.');
     for(const off of slot.unsub)off();slot.unsub=[];
@@ -276,7 +343,7 @@ async function loadSlot(index,params,reuse=null){
     await nextChart.ready();
     if(slot.sequence!==sequence || slots[index]!==slot){nextChart.destroy();return;}
     await new Promise(resolve=>requestAnimationFrame(resolve));nextChart.resize();
-    slot.bars=nextBars;slot.source={...params,label:providerSpecs[params.id].label,type:providerSpecs[params.id].type,cutoff:nextBars.at(-1).time,loadedAt:Date.now()};
+    slot.bars=nextBars;slot.source={...params,label:providerSpecs[params.id].label,type:providerSpecs[params.id].type,cutoff:nextBars.at(-1).time,snapshotAsOf,loadedAt:Date.now()};
     slot.unsub.push(nextChart.renderer.onCrosshairMove(event=>syncCrosshairFrom(index,event)));
     slot.unsub.push(nextChart.renderer.onConfigChanged(()=>syncStyleFrom(index)));
     for(const id of slot.premium){
@@ -311,7 +378,7 @@ function setLayout(count,{initial=false,charts=[]}={}){
     const params=validParams(raw)?raw:{id:seed.id,market:seed.market,timeframe:seed.timeframe};
     const slot=makeSlot(index,params);slots.push(slot);
     const same=slots.find(item=>item!==slot && item.source?.id===params.id && item.source?.market===params.market && item.source?.timeframe===params.timeframe && item.bars.length);
-    toLoad.push(loadSlot(index,params,same?.bars||null));
+    toLoad.push(loadSlot(index,params,same?{bars:same.bars,snapshotAsOf:same.source.snapshotAsOf}:null));
   }
   if(activeIndex>=count)activeIndex=count-1;
   updateLayoutPicker();activateSlot(activeIndex,false);resizeCharts();saveLayoutState();
@@ -355,38 +422,44 @@ async function renderIndicators() {
     button.addEventListener('click',()=>{indicatorTab=button.dataset.indicatorTab;void renderIndicators();});
   }
   const list=$('#indicatorList');
-  if (!chart) { list.textContent='Load a chart first.'; return; }
   const slot=slots[activeIndex];
-  $('#indicatorStatus').textContent=slot.premiumStatus;
+  $('#indicatorStatus').textContent=slot?.premiumStatus||'';
   if(indicatorTab!=='vela'){
-    $('#indicatorIntro').textContent=indicatorTab==='premium'?'Premium research indicators use completed public bars on the selected chart. Levels and convergence are descriptive, with no measured outcomes.':'Interactive chart tools use confirmed swings. Hover the chart after adding Smart Fib to preview its levels.';
-    const id=indicatorTab==='premium'?'liquidity':'smart-fib',item=quantPremiumItems[id],active=slot.premium.has(id);
-    const card=document.createElement('article');card.className=`card premium-card${active?' is-active':''}`;
-    const image=document.createElement('img');image.src=`./tool-belt-assets/${item.image}`;image.alt='';image.className='premium-icon';
-    const copy=document.createElement('div');copy.className='premium-copy';
-    const title=document.createElement('strong');title.textContent=item.name;
-    const detail=document.createElement('small');detail.textContent=item.description;
-    const state=document.createElement('span');state.className='premium-state';state.textContent=active?'On selected chart':'Available';
-    copy.append(title,detail,state);
-    const actions=document.createElement('div');actions.className='premium-actions';
-    const toggle=document.createElement('button');toggle.type='button';toggle.textContent=active?'Remove':'Add';
-    toggle.addEventListener('click',async()=>{
-      toggle.disabled=true;
-      try{
-        if(active){clearPremium(slot,id);slot.premium.delete(id);slot.premiumStatus=`${item.name} removed from chart ${slot.index+1}.`;}
-        else await addPremium(slot,id);
-      }catch(error){slot.premiumStatus=`${item.name} unavailable: ${error.message}`;}
-      if(activePanel==='indicators'&&slots[activeIndex]===slot)void renderIndicators();
-    });
-    actions.append(toggle);
-    if(id==='smart-fib'&&active){
-      const lock=document.createElement('button');lock.type='button';lock.textContent=slot.fib?.locked?'Unlock swing':'Lock preview';
-      lock.addEventListener('click',()=>{if(slot.fib?.locked)slot.fib.unlock();else if(!slot.fib?.lock())slot.premiumStatus='Hover a confirmed 1h swing on the chart before locking it.';void renderIndicators();});
-      actions.append(lock);
+    $('#indicatorIntro').textContent=indicatorTab==='premium'?'Volume Profile, TPO, and VWAP use completed candle bars. Coinbase Footprint and Bubbles use a recent completed bar only when public trade pagination and volume reconcile. Local research use only; all studies are descriptive and unscored.':'Interactive chart tools use confirmed swings. Hover the chart after adding Smart Fib to preview its levels.';
+    const ids=indicatorTab==='premium'?['liquidity','volume-profile','tpo','vwap','footprint','volume-bubbles']:['smart-fib'];
+    for(const id of ids){
+      const item=quantPremiumItems[id],active=Boolean(slot?.premium.has(id));
+      const card=document.createElement('article');card.className=`card premium-card${active?' is-active':''}`;
+      const image=document.createElement('img');image.src=`./tool-belt-assets/${item.image}`;image.alt='';image.className='premium-icon';
+      const copy=document.createElement('div');copy.className='premium-copy';
+      const title=document.createElement('strong');title.textContent=item.name;
+      const detail=document.createElement('small');detail.textContent=item.description;
+      const state=document.createElement('span');state.className='premium-state';state.textContent=active?'On selected chart':item.requiresExecutionFeed?(slot?.params.id==='coinbase'&&slot?.chart?'Coinbase trade check on Add':'Select Coinbase chart'):slot?.chart?'Available':'Load a chart';
+      copy.append(title,detail,state);
+      if(item.requiresExecutionFeed){const terms=document.createElement('a');terms.href='https://www.coinbase.com/legal/market_data';terms.target='_blank';terms.rel='noopener noreferrer';terms.textContent='Coinbase market-data terms ↗';terms.className='premium-terms';copy.append(terms);}
+      const actions=document.createElement('div');actions.className='premium-actions';
+      const toggle=document.createElement('button');toggle.type='button';toggle.textContent=active?'Remove':'Add';
+      toggle.disabled=!slot?.chart||(item.requiresExecutionFeed&&slot?.params.id!=='coinbase');
+      if(item.requiresExecutionFeed)toggle.title='Checks Coinbase trade coverage, maker-side inversion, product price increment, and candle-volume reconciliation before drawing.';
+      toggle.addEventListener('click',async()=>{
+        toggle.disabled=true;
+        try{
+          if(active){clearPremium(slot,id);slot.premium.delete(id);slot.premiumStatus=`${item.name} removed from chart ${slot.index+1}.`;}
+          else await addPremium(slot,id);
+        }catch(error){slot.premiumStatus=`${item.name} unavailable: ${error.message}`;}
+        if(activePanel==='indicators'&&slots[activeIndex]===slot)void renderIndicators();
+      });
+      actions.append(toggle);
+      if(id==='smart-fib'&&active){
+        const lock=document.createElement('button');lock.type='button';lock.textContent=slot.fib?.locked?'Unlock swing':'Lock preview';
+        lock.addEventListener('click',()=>{if(slot.fib?.locked)slot.fib.unlock();else if(!slot.fib?.lock())slot.premiumStatus='Hover a confirmed 1h swing on the chart before locking it.';void renderIndicators();});
+        actions.append(lock);
+      }
+      card.append(image,copy,actions);list.append(card);
     }
-    card.append(image,copy,actions);list.append(card);
     return;
   }
+  if (!chart) { list.textContent='Load a chart first.'; return; }
   $('#indicatorIntro').textContent='Native Vela studies run in the renderer on the selected chart. They do not validate a trading strategy.';
   try {
     const indicators=await chart.availableNativeIndicators();
