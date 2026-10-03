@@ -1,7 +1,7 @@
 """Deterministic, paper-only indicator measurement primitives.
 
-Volume Profile here allocates each OHLCV bar's reported volume uniformly over
-its price range. It is an approximation, never trade-at-price volume. No
+Volume Profile here allocates each OHLCV bar's reported volume in proportion
+to overlap with each price row. It is an approximation, never trade-at-price volume. No
 directional probability or trading edge is inferred from this calculation.
 """
 
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 
-PROFILE_VERSION = "volume-profile-range-allocation-v1.0.0"
+PROFILE_VERSION = "volume-profile-range-overlap-v1.1.0"
 
 
 @dataclass(frozen=True)
@@ -77,7 +77,7 @@ def build_volume_profile(bars: list[object], settings: ProfileSettings | None = 
         "lastBar": _bar_value(sample[-1], "time"),
         "inputHash": _input_hash(sample, settings),
         "calculationVersion": PROFILE_VERSION, "settings": settings.as_dict(),
-        "method": "OHLCV bar volume allocated uniformly across touched price bins; not trade-at-price volume",
+        "method": "OHLCV bar volume allocated by price-range overlap; estimated, not trade-at-price volume",
         "probability": None,
     }
     total = sum(float(_bar_value(bar, "volume")) for bar in known)
@@ -90,11 +90,23 @@ def build_volume_profile(bars: list[object], settings: ProfileSettings | None = 
     volumes = [0.0] * settings.bins
     for bar in known:
         low, high = float(_bar_value(bar, "low")), float(_bar_value(bar, "high"))
-        start = max(0, min(settings.bins - 1, int((low - floor) / step)))
-        end = max(0, min(settings.bins - 1, int((high - floor) / step)))
-        portion = float(_bar_value(bar, "volume")) / (end - start + 1)
-        for index in range(start, end + 1):
-            volumes[index] += portion
+        volume = float(_bar_value(bar, "volume"))
+        if low == high:
+            index = max(0, min(settings.bins - 1, int((low - floor) / step)))
+            volumes[index] += volume
+            continue
+        touched = []
+        for index in range(settings.bins):
+            row_low = floor + index * step
+            row_high = row_low + step
+            overlap = max(0.0, min(high, row_high) - max(low, row_low))
+            if overlap > 0:
+                touched.append((index, overlap))
+        weight = sum(overlap for _, overlap in touched)
+        if not weight:
+            raise ValueError("bar range did not intersect any profile row")
+        for index, overlap in touched:
+            volumes[index] += volume * overlap / weight
     poc_index = max(range(settings.bins), key=lambda index: volumes[index])
     left = right = poc_index
     captured = volumes[poc_index]

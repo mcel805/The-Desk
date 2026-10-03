@@ -262,6 +262,7 @@ body.vela-preview-page main.vela-preview-main{background:var(--screen-bg);color:
 .tool-card-kind{position:absolute;top:6px;left:7px;z-index:1;padding:2px 4px;border:1px solid #566267;border-radius:3px;background:#11191ddd;color:#aebabc;font:7px ui-monospace,monospace;letter-spacing:.06em}
 .tool-belt-card[data-kind="tool"] .tool-card-kind{border-color:#8d7651;color:#e2c681}
 .tool-belt-card.is-active .tool-card-toggle>small{color:#a6d7c4}
+.tool-card-premium{position:absolute;top:6px;left:50%;z-index:1;transform:translateX(-50%);padding:2px 4px;border:1px solid #a88e53;border-radius:3px;background:#181b17e8;color:#ecd28d;font:7px ui-monospace,monospace;letter-spacing:.06em}
 .tool-belt-card .tool-card-gear{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:23px;height:23px;padding:0;border:1px solid #58666b;border-radius:4px;background:#11191dde;color:#b9c5c6;font:15px system-ui;cursor:pointer}
 .tool-belt-card .tool-card-gear:hover{border-color:#bee9d7;color:#e4ffef}
 .smart-fib-controls{position:absolute;z-index:12;top:10px;right:10px;left:auto;display:flex;align-items:center;justify-content:flex-end;gap:8px;max-width:min(360px,calc(100% - 20px));padding:6px 8px;border:1px solid #456758;border-radius:5px;background:#14251fee;box-shadow:0 4px 18px #0008;pointer-events:auto}

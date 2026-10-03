@@ -1,6 +1,6 @@
 # Tool Belt indicator framework
 
-The dashboard entry is `count-dashboard/web/tool-belt.html`. Its eleven cards catalog existing Count Desk chart layers and in-app indicators. Card `v0.1.0` labels the Tool Belt listing where no implemented engine version exists. Price and drawing controls are not listed as indicators; related count and projection layers are grouped under Elliott Wave.
+The dashboard entry is `count-dashboard/web/tool-belt.html`. Its cards catalog existing Count Desk chart layers and in-app indicators. Card `v0.1.0` labels the Tool Belt listing where no implemented engine version exists. Price and drawing controls are not listed as indicators; related count and projection layers are grouped under Elliott Wave.
 
 `volume-profile.indicator.mjs` identifies the first implemented indicator. `count-dashboard/volume_profile_lab.py` calculates a cutoff-safe OHLCV range-allocated profile with versioned settings, input hash, missing-volume status, contiguous 70% value area, and causal replay quality checks. Count Desk uses it for the existing `profile` layer; the Tool Belt's **Inspect calculation** panel exposes the local read-only report. This is an approximation from bar volume, not trade-at-price volume. Its directional outcome, independent reference, and source-specific data rights are still undefined, so it remains descriptive and unscored.
 

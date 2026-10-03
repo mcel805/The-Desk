@@ -643,7 +643,9 @@ function renderLedger(result) {
   const a = result.analytics;
   $('#analyticsSummary').innerHTML = [
     ['Confirmed swings', `${a.confirmedSwings.points.length} · window ${a.confirmedSwings.window}`],
-    ['Volume profile', `POC ${fmt(a.volumeProfile.poc)} · VA ${fmt(a.volumeProfile.val)}–${fmt(a.volumeProfile.vah)}`],
+    ['Volume profile', a.volumeProfile.status === 'unavailable'
+      ? `Unavailable · ${a.volumeProfile.reason}`
+      : `POC ${fmt(a.volumeProfile.poc)} · VA ${fmt(a.volumeProfile.val)}–${fmt(a.volumeProfile.vah)}${a.volumeProfile.status === 'partial' ? ' · PARTIAL VOLUME' : ''} · OHLCV approximation`],
     ['Fib anchors', a.fibonacci.anchorStart ? `${fmt(a.fibonacci.anchorStart.price)} → ${fmt(a.fibonacci.anchorEnd.price)}` : 'Unresolved'],
     ['Convergences', `${a.confluences.length} scored zones`],
     ['Paths', `${a.projections.length} provisional scenarios`],
@@ -820,6 +822,7 @@ function renderBattyPaths(layer) {
 function renderProfile(layer) {
   if (!state.result || !state.visibility.profile) return;
   const profile = state.result.analytics.volumeProfile;
+  if (!profile || profile.status === 'unavailable') return;
   const width = layer.clientWidth;
   profile.bins.forEach(bin => {
     const y1 = state.candles.priceToCoordinate(bin.high), y2 = state.candles.priceToCoordinate(bin.low);

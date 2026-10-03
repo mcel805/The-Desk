@@ -2,6 +2,7 @@ const $ = selector => document.querySelector(selector);
 import {buildChartContract} from './chart-contract.js';
 import {liquidityConvergenceGroups} from './liquidity-convergence.js';
 import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.js';
+import {selectProfileWindow,candleVolumeProfile,candleTPO,candleVWAP,executedFootprint,executedBubbles} from './order-flow-premium.mjs?v=1';
 import {createPaperChartPlanner} from './paper-chart-planner.js?v=paper-cats-20261001';
 import {createModularWorkspace} from './modular-workspace.js?v=paper-cats-20261001';
 import {resetCandleSpacing,stepCandleSpacing,keepCandleSpacingReadable} from './candle-viewport.js?v=3';
@@ -94,7 +95,11 @@ const timeframeOptions = {
   provider:[['1M','1m'],['2M','2m'],['3M','3m'],['5M','5m'],['15M','15m'],['30M','30m'],['45M','45m'],['1H','1h'],['2H','2h'],['3H','3h'],['4H','4h'],['6H','6h'],['8H','8h'],['12H','12h'],['1D','1d'],['1W','1w'],['1MO','1mo']],
 };
 const toolBeltIndicators = [
-  {id:'volume-profile',name:'Volume Profile',version:'v1.0.0',image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['bins','Price bins','number',32,8,128],['lookback','Lookback bars','number',160,20,2000],['valueArea','Show value area','checkbox',true]]},
+  {id:'volume-profile',name:'Volume Profile · OHLCV estimate',version:'v1.1.0',premium:true,image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['window','Window','select','rolling',['rolling','session']],['bins','Price bins','number',32,8,128],['lookback','Rolling lookback bars','number',160,20,2000],['valueArea','Show 70% value area','checkbox',true]]},
+  {id:'tpo',name:'TPO · time at price',version:'v1.0.0',premium:true,image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['blockMinutes','Block minutes','select','60',['5','15','30','60','240']],['rows','Price rows','number',24,8,64],['valueArea','Show 70% value area','checkbox',true]]},
+  {id:'vwap',name:'VWAP · candle volume',version:'v1.0.0',premium:true,image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['anchor','UTC anchor','select','day',['day','week','month']],['source','Price source','select','hlc3',['hlc3','ohlc4','close']],['band1','Show ±1σ band','checkbox',true],['band2','Show ±2σ band','checkbox',false]]},
+  {id:'footprint',name:'Footprint · execution levels required',version:'v1.0.0',premium:true,image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['bars','Recent footprint bars','number',12,1,50]]},
+  {id:'volume-bubbles',name:'Volume Bubbles · execution levels required',version:'v1.0.0',premium:true,image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['hideBelow','Hide below largest (%)','number',50,0,100],['maxVisible','Maximum bubbles','number',80,1,500]]},
   {id:'fibonacci',name:'Fibonacci',version:'v0.1.0',kind:'tool',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['anchor','Swing anchor','select','Last confirmed swing',['Last confirmed swing','Visible range','Manual']],['levels','Retracement levels','text','0.382, 0.5, 0.618']]},
   {id:'smart-fib',name:'Smart Fib',version:'v1.1.0',kind:'tool',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['swingTimeframe','Swing timeframe','select','60MIN',['15M','30M','60MIN','4H','1D','1W']]]},
   {id:'liquidity',name:'Liquidity',version:'001',latestVersion:'001',versions:[{id:'001',label:'001 · HTF convergence',state:'current',summary:'30m / 1h anchors, present internal levels, and compact convergence tags.'},{id:'000',label:'000 · Baseline',state:'archived',summary:'Original chart-timeframe pivots with wick-swept history.'}],image:'liquidity-sketch.png',colorImage:'liquidity-color.png',settings:[['externalPivot','External pivot length','number',14,1,50],['internalPivot','Internal pivot length','number',5,1,50],['showSweeps','Show broken history','checkbox',true],['convergenceAtr','Convergence range (ATR)','number',0.1,0.05,0.2],['showLocalConvergences','Show local timeframe convergences','checkbox',true]]},
@@ -459,7 +464,9 @@ async function activeToolBeltBars(timeframeOverride = null) {
   }
   bars = (bars || []).map(bar => ({
     time:Number(bar.time) < 1e12 ? Number(bar.time) * 1000 : Number(bar.time),
-    open:Number(bar.open),high:Number(bar.high),low:Number(bar.low),close:Number(bar.close),volume:Number(bar.volume || 0),
+    open:Number(bar.open),high:Number(bar.high),low:Number(bar.low),close:Number(bar.close),
+    volume:(bar.reportedVolume !== undefined ? bar.reportedVolume : bar.volume) == null
+      ? null : Number(bar.reportedVolume !== undefined ? bar.reportedVolume : bar.volume),
   })).filter(bar => Number.isFinite(bar.time) && bar.time <= cutoffMs && [bar.open,bar.high,bar.low,bar.close].every(Number.isFinite)).sort((a,b) => a.time-b.time);
   if (context.tab !== 'Count Desk' && bars.length > 20) bars = bars.slice(0,-1); // Ignore the current provider bar for confirmed structures.
   if (bars.length < 8) throw new Error(`Only ${bars.length} usable ${timeframe} bars are available from ${symbol}; more history is needed.`);
@@ -802,6 +809,108 @@ function setLiquidityHoverGroups(groups,chartEndTime) {
   });
 }
 
+function orderFlowLine(owner,start,end,price,color,width=1) {
+  if(!(end>start)||!Number.isFinite(price))return;
+  addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:start,price},{time:end,price}],style:{lineColor:color,lineWidth:width,lineStyle:'solid'}},owner);
+}
+
+function orderFlowText(owner,time,price,value,color,align='center') {
+  addToolBeltDrawing('text',{paneId:'price',anchors:[{time,price}],text:{value:String(value),color,size:'tiny',hAlign:align,vAlign:'middle'},style:{lineColor:'transparent',lineWidth:0,lineStyle:'solid'}},owner);
+}
+
+function renderCandleProfile(owner,bars,settings) {
+  const sample=selectProfileWindow(bars,{window:settings.window,lookback:Number(settings.lookback)});
+  const profile=candleVolumeProfile(sample,{rows:Number(settings.bins)});
+  if(profile.status==='unavailable')throw new Error(profile.reason);
+  const start=sample[0].time,end=sample.at(-1).time,span=end-start;
+  if(!(span>0))throw new Error('Profile needs at least two closed bars.');
+  const recentSpacing=sample.at(-1).time-sample.at(-2).time;
+  const maxWidth=Math.min(span*.24,recentSpacing*16);
+  const peak=Math.max(...profile.rows.map(row=>row.volume));
+  for(const row of profile.rows){
+    if(!(row.volume>0))continue;
+    const x=end-maxWidth*row.volume/peak,color=row.price===profile.poc?'#f4c966':'#5aa9b5';
+    addToolBeltDrawing('box',{paneId:'price',anchors:[{time:x,price:row.high},{time:end,price:row.low}],style:{lineColor:'transparent',lineWidth:0,lineStyle:'solid',fillColor:`${color}55`}},owner);
+  }
+  orderFlowLine(owner,start,end,profile.poc,'#f4c966',2);
+  if(settings.valueArea){orderFlowLine(owner,start,end,profile.val,'#a8c9d0');orderFlowLine(owner,start,end,profile.vah,'#a8c9d0');}
+  return `Volume Profile · ${profile.status} · ${settings.window==='session'?'UTC day':'rolling '+sample.length+' bars'} · ${profile.totalVolume.toLocaleString()} reported volume units · ${profile.missingVolumeBars} missing-volume bars · range-overlap estimate, no aggressor split`;
+}
+
+function renderCandleTPO(owner,bars,settings) {
+  const profile=candleTPO(bars,{blockMinutes:Number(settings.blockMinutes),rows:Number(settings.rows)});
+  if(profile.status!=='ready')throw new Error(profile.reason);
+  const first=profile.firstBar,span=profile.lastBar-first;
+  const compact=($('#velaChart')?.clientWidth||0)<700;
+  let count=0;
+  for(const row of profile.rows){
+    if(!row.letters.length)continue;
+    const label=compact?String(row.letters.length):row.letters.slice(0,12).join('')+(row.letters.length>12?'…':'');
+    orderFlowText(owner,first+span*.03,row.price,label,row.price>=profile.val&&row.price<=profile.vah?'#cbdcf2':'#738296',compact?'right':'left');
+    count++;
+  }
+  orderFlowLine(owner,profile.firstBar,profile.lastBar,profile.poc,'#f4c966',2);
+  if(settings.valueArea){orderFlowLine(owner,profile.firstBar,profile.lastBar,profile.val,'#8ab6ca');orderFlowLine(owner,profile.firstBar,profile.lastBar,profile.vah,'#8ab6ca');}
+  return `TPO · UTC day · ${profile.blocks.length} ${settings.blockMinutes}m blocks · ${count} price rows drawn (${compact?'counts in compact chart; widen for letters':'up to 12 letters per row'}) · POC ${profile.poc.toFixed(4)} · OHLC range presence, no volume claim`;
+}
+
+function renderCandleVWAP(owner,bars,settings) {
+  const multipliers=[...(settings.band1?[1]:[]),...(settings.band2?[2]:[])];
+  const report=candleVWAP(bars,{anchor:settings.anchor,source:settings.source,multipliers});
+  if(report.status==='unavailable')throw new Error('VWAP needs positive reported candle volume.');
+  const points=report.points.slice(-120);
+  for(let index=1;index<points.length;index++){
+    const a=points[index-1],b=points[index];
+    if(a.vwap==null||b.vwap==null||a.anchorStart!==b.anchorStart)continue;
+    // Drawing trendlines use two prices, unlike the horizontal level helper.
+    const segment=(p,q,color)=>addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:a.time,price:p},{time:b.time,price:q}],style:{lineColor:color,lineWidth:1,lineStyle:'solid'}},owner);
+    segment(a.vwap,b.vwap,'#e8c969');
+    for(let n=0;n<multipliers.length;n++){
+      segment(a.bands[n].upper,b.bands[n].upper,n?'#8794ae':'#7aa9d1');
+      segment(a.bands[n].lower,b.bands[n].lower,n?'#8794ae':'#7aa9d1');
+    }
+  }
+  const latest=report.points.at(-1);
+  return `VWAP · ${report.status} · ${settings.source.toUpperCase()} × reported candle volume · UTC ${settings.anchor} anchor · ${report.missingVolumeBars} missing-volume bars · latest ${latest.vwap?.toFixed(4)??'unavailable'}`;
+}
+
+async function loadExecutedPriceLevels(symbol,timeframe,bars) {
+  const resolved=velaChart?.data?.resolve?.(symbol);
+  const provider=resolved&&velaChart?.data?.providerInstance?.(resolved.provider);
+  if(typeof provider?.getFootprints!=='function')throw new Error('Executed bid/ask volume at price is unavailable from this chart feed. Footprint and bubbles need an approved side-aware execution feed.');
+  const payload=await provider.getFootprints(resolved.ticker,providerTimeframe(timeframe),{from:bars[0].time,to:bars.at(-1).time});
+  if(payload?.authority!=='executed_trades'||payload?.sideConvention!=='aggressor_at_bid_ask'||payload?.complete!==true||!payload?.source||!payload?.unit)
+    throw new Error('Footprint feed lacks complete executed-trade provenance, aggressor-side convention, source, or units.');
+  const tickSize=Number(payload.tickSize);
+  const expected=chartTickSizes[symbol];
+  if(expected&&Math.abs(tickSize-expected)>1e-9)throw new Error('Footprint tick size disagrees with the verified chart contract.');
+  const validTimes=new Set(bars.map(bar=>bar.time));
+  if(!Array.isArray(payload.bars)||payload.bars.some(bar=>!validTimes.has(bar.time)))throw new Error('Footprint bars do not align with the closed chart window.');
+  return {...payload,footprints:executedFootprint(payload.bars,{tickSize})};
+}
+
+async function renderExecutedOrderFlow(owner,id,symbol,timeframe,bars,settings) {
+  const payload=await loadExecutedPriceLevels(symbol,timeframe,bars);
+  const footprints=payload.footprints;
+  const interval=bars.length>1?bars.at(-1).time-bars.at(-2).time:60_000;
+  if(id==='footprint'){
+    let count=0;
+    for(const bar of footprints.slice(-Number(settings.bars))){
+      for(const row of bar.levels){if(!row.volume||count>=200)continue;
+        orderFlowText(owner,bar.time,row.price,`${row.bidVolume.toLocaleString()}×${row.askVolume.toLocaleString()}`,row.delta>=0?'#77d1b2':'#e58b94');count++;
+      }
+    }
+    return `Footprint · ${count} executed-price rows · ${payload.source} · ${payload.unit} · bid sell / ask buy · closed ${new Date(bars.at(-1).time).toLocaleString()}`;
+  }
+  const bubbles=executedBubbles(footprints,{hideBelowFraction:Number(settings.hideBelow)/100,maxVisible:Number(settings.maxVisible)});
+  const largest=Math.max(...bubbles.map(item=>item.volume),0);
+  for(const row of bubbles){
+    const radiusTime=interval*(.04+.16*Math.sqrt(row.volume/largest));
+    addToolBeltDrawing('circle',{paneId:'price',anchors:[{time:row.time,price:row.price},{time:row.time+radiusTime,price:row.price}],style:{lineColor:row.delta>=0?'#39bea2':'#e47d88',lineWidth:1,lineStyle:'solid',fillColor:row.delta>=0?'#39bea266':'#e47d8866'}},owner);
+  }
+  return `Volume Bubbles · ${bubbles.length} executed-price clusters · ${payload.source} · ${payload.unit} · closed ${new Date(bars.at(-1).time).toLocaleString()}`;
+}
+
 async function renderUniversalToolBeltIndicator(id) {
   if (!velaChart?.drawings?.supported || typeof velaChart.drawings.add !== 'function') throw new Error('This renderer cannot display chart drawings.');
   const definition=toolBeltIndicators.find(item=>item.id===id);
@@ -812,6 +921,8 @@ async function renderUniversalToolBeltIndicator(id) {
   const swingSourceTimeframe=smartFibSourceTimeframe(settings.swingTimeframe||'60MIN');
   const fibSeries=id==='smart-fib'?await activeToolBeltBars(swingSourceTimeframe):null;
   const bars=fibSeries?.bars||chartSeries.bars;
+  const orderFlowBars=['volume-profile','tpo','vwap','footprint','volume-bubbles'].includes(id) && source==='Count Desk'
+    ? bars.slice(0,-1) : bars;
   const swingTimeframe=fibSeries?.timeframe||timeframe;
   const last=bars.at(-1), first=bars[0];
   if(id==='smart-fib'){
@@ -869,14 +980,13 @@ async function renderUniversalToolBeltIndicator(id) {
     if (!(range>0)) throw new Error('Not enough price range to calculate retracements.');
     for(const level of String(settings.levels||'0.382, 0.5, 0.618').split(',').map(Number).filter(x=>x>0&&x<1)) toolDrawLine(owner,bars,Math.min(lo?.index??0,hi?.index??bars.length-1),bottom+range*level,'#e0bd72',`${(level*100).toFixed(1)}%`,'solid');
   } else if (id==='volume-profile') {
-    const windowBars=bars.slice(-Math.min(Number(settings.lookback||160),bars.length)), bins=Math.max(8,Math.min(80,Number(settings.bins||32)));
-    const low=Math.min(...windowBars.map(bar=>bar.low)),high=Math.max(...windowBars.map(bar=>bar.high)),step=(high-low)/bins;
-    if (!(step>0)) throw new Error('Not enough price range for a volume profile.');
-    const volumes=Array(bins).fill(0);
-    for(const bar of windowBars){const bin=Math.max(0,Math.min(bins-1,Math.floor((bar.close-low)/step)));volumes[bin]+=bar.volume||1;}
-    const peak=Math.max(...volumes),poc=volumes.indexOf(peak),start=windowBars[0].time,end=last.time;
-    volumes.forEach((volume,index)=>{if(!volume)return;const width=(end-start)*.22*(volume/peak),x=Math.max(start,end-width);const color=index===poc?'#f1c75b':'#6f9ce0';addToolBeltDrawing('box',{paneId:'price',anchors:[{time:x,price:low+(index+1)*step},{time:end,price:low+index*step}],style:{lineColor:`${color}00`,lineWidth:1,lineStyle:'solid',fillColor:`${color}65`}},owner);});
-    toolDrawLine(owner,bars,0,low+(poc+.5)*step,'#ffe082','POC','solid',2);
+    $('#indicatorTemplateStatus').textContent=`${renderCandleProfile(owner,orderFlowBars,settings)} · ${symbol} ${timeframe} · ${source} · confirmed cutoff ${new Date(orderFlowBars.at(-1).time).toLocaleString()}`;
+  } else if (id==='tpo') {
+    $('#indicatorTemplateStatus').textContent=`${renderCandleTPO(owner,orderFlowBars,settings)} · ${symbol} ${timeframe} · ${source} · confirmed cutoff ${new Date(orderFlowBars.at(-1).time).toLocaleString()}`;
+  } else if (id==='vwap') {
+    $('#indicatorTemplateStatus').textContent=`${renderCandleVWAP(owner,orderFlowBars,settings)} · ${symbol} ${timeframe} · ${source} · confirmed cutoff ${new Date(orderFlowBars.at(-1).time).toLocaleString()}`;
+  } else if (id==='footprint'||id==='volume-bubbles') {
+    $('#indicatorTemplateStatus').textContent=await renderExecutedOrderFlow(owner,id,symbol,timeframe,orderFlowBars,settings);
   } else if (id==='liquidity-zones') {
     const atr=averageTrueRange(bars),tolerance=atr*Number(settings.tolerance??.12),candidates=pivots.slice(-40),clusters=[];
     for(const point of candidates){let cluster=clusters.find(item=>Math.abs(item.price-point.price)<=Math.max(tolerance,atr*.025));if(!cluster)clusters.push(cluster={price:point.price,points:[]});cluster.points.push(point);cluster.price=cluster.points.reduce((sum,item)=>sum+item.price,0)/cluster.points.length;}
@@ -902,7 +1012,7 @@ async function renderUniversalToolBeltIndicator(id) {
     toolDrawLine(owner,bars,0,eq,'#e6c879',`EQUILIBRIUM · ${settings.equilibrium||50}%`,'dashed');
   }
   const hasDrawings=(toolBeltDrawingIds[owner]||[]).length>0;
-  if(!['bias','structure-zones','smart-fib'].includes(id) && !(id==='liquidity'&&selectedToolBeltVersion(definition)==='001')) $('#indicatorTemplateStatus').textContent=`${definition.name} ${id==='liquidity'?`v${selectedToolBeltVersion(definition)}`:''} active on ${symbol} ${timeframe} · ${bars.length} ${source} bars · last confirmed ${new Date(last.time).toLocaleString()} · ${hasDrawings?'OHLCV-derived descriptive overlay; no predictive claim.':'no qualifying structures in this window; settings are active.'}`;
+  if(!['bias','structure-zones','smart-fib','volume-profile','tpo','vwap','footprint','volume-bubbles'].includes(id) && !(id==='liquidity'&&selectedToolBeltVersion(definition)==='001')) $('#indicatorTemplateStatus').textContent=`${definition.name} ${id==='liquidity'?`v${selectedToolBeltVersion(definition)}`:''} active on ${symbol} ${timeframe} · ${bars.length} ${source} bars · last confirmed ${new Date(last.time).toLocaleString()} · ${hasDrawings?'OHLCV-derived descriptive overlay; no predictive claim.':'no qualifying structures in this window; settings are active.'}`;
 }
 
 async function renderToolBeltIndicator(id) {
@@ -929,7 +1039,7 @@ function renderToolBeltIndicators() {
     const enabled = active.has(definition.id);
     const version=selectedToolBeltVersion(definition);
     const kind=definition.kind||'indicator';
-    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}" data-kind="${kind}"><span class="tool-card-kind">${kind==='tool'?'TOOL':'INDICATOR'}</span><button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE · ' : ''}${definition.id==='liquidity'?`v${version}`:definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button></article>`;
+    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}" data-kind="${kind}"><span class="tool-card-kind">${kind==='tool'?'TOOL':'INDICATOR'}</span>${definition.premium?'<span class="tool-card-premium">PREMIUM</span>':''}<button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE · ' : ''}${definition.id==='liquidity'?`v${version}`:definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button></article>`;
   }).join('');
   document.querySelectorAll('[data-tool-belt-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.toolBeltKind===toolBeltKindFilter)));
   const nativeCount = presentNativeTypes().size;
