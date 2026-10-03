@@ -8,15 +8,20 @@ const providerSpecs = {
 };
 const storageKey = 'count-desk-quant-lab-v1';
 const versionsKey = 'count-desk-quant-lab-strategies-v1';
+const layoutStorageKey = 'count-desk-quant-lab-layout-v1';
 let chart = null;
 let bars = [];
 let source = null;
+let slots = [];
+let activeIndex = 0;
+let syncPrefs = {symbol:false,interval:false,crosshair:false,style:false};
+let styleSyncBusy = false;
+const pendingBars = new Map();
 let history = [];
 let versions = [];
 let activePanel = '';
 let lastResult = null;
 let lastRunKey = '';
-let loadSequence = 0;
 
 function readStored(key, fallback) { try { const value = JSON.parse(localStorage.getItem(key)); return Array.isArray(value) ? value : fallback; } catch { return fallback; } }
 history = readStored(storageKey, []);
@@ -43,45 +48,169 @@ function updateClock(){ $('#clock').textContent=new Date().toISOString().slice(1
 updateClock(); setInterval(updateClock,1000);
 function validMarket(value){ return /^[A-Z0-9/_-]{1,32}$/.test(value); }
 function isBar(bar) { return Number.isFinite(bar?.time) && Number.isFinite(bar?.open) && Number.isFinite(bar?.high) && Number.isFinite(bar?.low) && Number.isFinite(bar?.close); }
-async function loadChart() {
-  const sequence=++loadSequence;
-  const id=$('#provider').value, spec=providerSpecs[id], market=$('#market').value.trim().toUpperCase(), timeframe=$('#timeframe').value;
-  if (!validMarket(market)) { setStatus('Enter a valid market symbol using letters, numbers, /, - or _.',true); return; }
-  const Provider=window.Vela?.[spec.className];
-  if (!window.Vela?.Vela || !Provider) { setStatus('Vela browser bundle is unavailable.',true); return; }
-  $('#loadChart').disabled=true; $('#chartError').hidden=true; setStatus(`Loading ${spec.label} · ${market} · ${timeframe}…`);
-  try {
-    const provider=new Provider();
-    const nextBars=(await provider.getBars(market,timeframe,{limit:500})).filter(isBar).sort((a,b)=>a.time-b.time);
-    if (sequence!==loadSequence) return;
-    if (!nextBars.length) throw new Error('The public provider returned no valid bars. Check the market symbol, network, or provider availability.');
-    if (chart) { chart.destroy(); chart=null; }
-    $('#chart').replaceChildren();
-    // This page owns its Vela instance and browser storage. It does not mutate the main chart workspace.
-    chart=new window.Vela.Vela('#chart',{symbol:market,timeframe,data:nextBars,live:false,theme:'dark',drawings:true,volume:true,currentPriceLine:true,timeScale:{timezone:'UTC'},nativeBackend:'canvas2d',animations:{intro:false}});
-    await chart.ready();
-    await new Promise(resolve=>requestAnimationFrame(resolve));
-    chart.resize();
-    bars=nextBars;
-    source={id,label:spec.label,market,timeframe,cutoff:nextBars.at(-1).time,loadedAt:Date.now(),type:spec.type};
-    lastResult=null; lastRunKey='';
-    $('#sourceCutoff').textContent=`LAST BAR ${utc(source.cutoff)}`;
-    $('#barCount').textContent=`${bars.length} bars`;
-    setStatus(`${spec.label} · ${market} · ${timeframe} · ${spec.type} · snapshot loaded ${utc(source.loadedAt)}`);
-    if (activePanel==='connections') renderConnections();
-    if (activePanel==='strategy') renderStrategy();
-    if (activePanel==='indicators') void renderIndicators();
-    if (activePanel==='replay') renderReplay();
-  } catch(error) {
-    if(sequence!==loadSequence)return;
-    setStatus(error.message,true); $('#chartError').textContent=error.message; $('#chartError').hidden=false;
-  } finally { if(sequence===loadSequence)$('#loadChart').disabled=false; }
+const styleKeys = ['layout','panes','grid','priceScale','crosshair'];
+function styleSlice(chartInstance) {
+  const config=chartInstance?.renderer?.getConfig?.();
+  if (!config || typeof config!=='object') return null;
+  return Object.fromEntries(styleKeys.filter(key=>config[key] && typeof config[key]==='object').map(key=>[key,config[key]]));
+}
+function syncStyleFrom(originIndex) {
+  if (!syncPrefs.style || styleSyncBusy) return;
+  const slice=styleSlice(slots[originIndex]?.chart);
+  if (!slice) return;
+  styleSyncBusy=true;
+  try { for (const slot of slots) if(slot.index!==originIndex && slot.chart && JSON.stringify(styleSlice(slot.chart))!==JSON.stringify(slice)) slot.chart.renderer.applyConfig(slice); }
+  finally { styleSyncBusy=false; }
+}
+function clearGhosts(){for(const slot of slots)slot.chart?.renderer?.setExternalCrosshair?.(null);}
+function syncCrosshairFrom(originIndex,event){
+  if(!syncPrefs.crosshair)return;
+  const origin=slots[originIndex]?.source;
+  for(const slot of slots){
+    if(slot.index===originIndex||!slot.chart)continue;
+    const sameMarket=origin && slot.source?.id===origin.id && slot.source?.market===origin.market;
+    slot.chart.renderer.setExternalCrosshair(event.time??null,sameMarket&&event.paneKind==='price'?event.price:null);
+  }
+}
+function saveLayoutState(){
+  try {localStorage.setItem(layoutStorageKey,JSON.stringify({count:slots.length,activeIndex,sync:syncPrefs,charts:slots.map(slot=>slot.params)}));}catch{}
+}
+function readLayoutState(){
+  try{const value=JSON.parse(localStorage.getItem(layoutStorageKey));if(!value||typeof value!=='object')return null;
+    const count=Number(value.count);if(!Number.isInteger(count)||count<1||count>6)return null;
+    return {count,activeIndex:Math.max(0,Math.min(count-1,Number(value.activeIndex)||0)),sync:value.sync||{},charts:Array.isArray(value.charts)?value.charts:[]};
+  }catch{return null;}
+}
+function validParams(value){return value && providerSpecs[value.id] && validMarket(String(value.market||'')) && ['1m','5m','15m','1h','4h','1d'].includes(value.timeframe);}
+function selectedParams(){return {id:$('#provider').value,market:$('#market').value.trim().toUpperCase(),timeframe:$('#timeframe').value};}
+function slotLabel(slot){return slot.source?`${slot.source.market} · ${slot.source.timeframe}`:slot.params?`${slot.params.market} · ${slot.params.timeframe}`:'Waiting for data';}
+function makeSlot(index,params){
+  const cell=document.createElement('section');cell.className='chart-cell';cell.dataset.slot=String(index);
+  const head=document.createElement('button');head.type='button';head.className='chart-cell-head';head.innerHTML=`<span class="cell-number">${String(index+1).padStart(2,'0')}</span><strong>${escapeHtml(params.market)}</strong><small>${escapeHtml(params.timeframe)} · ${escapeHtml(providerSpecs[params.id].label)}</small>`;
+  const host=document.createElement('div');host.className='chart-host';host.setAttribute('aria-label',`Vela chart ${index+1}`);
+  const error=document.createElement('div');error.className='chart-error';error.hidden=true;
+  cell.append(head,host,error);cell.addEventListener('pointerdown',()=>activateSlot(index));head.addEventListener('click',()=>activateSlot(index));
+  $('#chartGrid').append(cell);
+  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[]};
+}
+function updateSlotHead(slot){
+  slot.head.innerHTML=`<span class="cell-number">${String(slot.index+1).padStart(2,'0')}</span><strong>${escapeHtml(slot.source?.market||slot.params.market)}</strong><small>${escapeHtml(slot.source?.timeframe||slot.params.timeframe)} · ${escapeHtml(providerSpecs[slot.params.id].label)}</small>`;
+}
+function refreshActivePanel(){
+  if(activePanel==='connections')renderConnections();
+  if(activePanel==='strategy')renderStrategy();
+  if(activePanel==='indicators')void renderIndicators();
+  if(activePanel==='replay')renderReplay();
+}
+function activateSlot(index,refresh=true){
+  const slot=slots[index];if(!slot)return;
+  const changed=activeIndex!==index;
+  activeIndex=index;chart=slot.chart;bars=slot.bars;source=slot.source;
+  for(const item of slots)item.cell.classList.toggle('active',item.index===index);
+  $('#provider').value=slot.params.id;$('#market').value=slot.params.market;$('#timeframe').value=slot.params.timeframe;
+  $('#sourceCutoff').textContent=source?`LAST BAR ${utc(source.cutoff)}`:'CUTOFF —';
+  $('#barCount').textContent=`${bars.length} bars · ${slots.length} chart${slots.length===1?'':'s'}`;
+  if(slot.error.hidden)setStatus(source?`Chart ${index+1} · ${source.label} · ${source.market} · ${source.timeframe} · snapshot loaded ${utc(source.loadedAt)}`:`Chart ${index+1} · loading ${slot.params.market}…`);
+  else setStatus(`Chart ${index+1} · ${slot.error.textContent}`,true);
+  $('#loadChart').disabled=false;
+  if(changed){lastResult=null;lastRunKey='';if(refresh)refreshActivePanel();saveLayoutState();}
+}
+async function fetchBars(params){
+  const key=`${params.id}|${params.market}|${params.timeframe}`;
+  if(!pendingBars.has(key)){
+    const Provider=window.Vela?.[providerSpecs[params.id].className];
+    if(!Provider)throw new Error('Vela public provider is unavailable.');
+    const request=new Provider().getBars(params.market,params.timeframe,{limit:500}).then(result=>result.filter(isBar).sort((a,b)=>a.time-b.time));
+    pendingBars.set(key,request);
+    request.finally(()=>{if(pendingBars.get(key)===request)pendingBars.delete(key);}).catch(()=>{});
+  }
+  return pendingBars.get(key);
+}
+async function loadSlot(index,params,reuse=null){
+  const slot=slots[index];if(!slot)return;
+  const sequence=++slot.sequence;slot.params={...params};updateSlotHead(slot);slot.error.hidden=true;
+  if(index===activeIndex){$('#loadChart').disabled=true;setStatus(`Chart ${index+1} · loading ${providerSpecs[params.id].label} · ${params.market} · ${params.timeframe}…`);}
+  try{
+    if(!validParams(params))throw new Error('Enter a valid market and interval.');
+    if(!window.Vela?.Vela)throw new Error('Vela browser bundle is unavailable.');
+    const nextBars=reuse || await fetchBars(params);
+    if(slot.sequence!==sequence || slots[index]!==slot)return;
+    if(!nextBars.length)throw new Error('The public provider returned no valid bars. Check the symbol or network.');
+    for(const off of slot.unsub)off();slot.unsub=[];
+    slot.chart?.destroy();slot.host.replaceChildren();
+    const nextChart=new window.Vela.Vela(slot.host,{symbol:params.market,timeframe:params.timeframe,data:nextBars,live:false,theme:'dark',drawings:true,volume:true,currentPriceLine:true,timeScale:{timezone:'UTC'},nativeBackend:'canvas2d',animations:{intro:false}});
+    slot.chart=nextChart;
+    await nextChart.ready();
+    if(slot.sequence!==sequence || slots[index]!==slot){nextChart.destroy();return;}
+    await new Promise(resolve=>requestAnimationFrame(resolve));nextChart.resize();
+    slot.bars=nextBars;slot.source={...params,label:providerSpecs[params.id].label,type:providerSpecs[params.id].type,cutoff:nextBars.at(-1).time,loadedAt:Date.now()};
+    slot.unsub.push(nextChart.renderer.onCrosshairMove(event=>syncCrosshairFrom(index,event)));
+    slot.unsub.push(nextChart.renderer.onConfigChanged(()=>syncStyleFrom(index)));
+    updateSlotHead(slot);slot.error.hidden=true;
+    if(syncPrefs.style && index!==activeIndex)syncStyleFrom(activeIndex);
+    if(index===activeIndex){lastResult=null;lastRunKey='';activateSlot(index,false);refreshActivePanel();}
+    saveLayoutState();
+  }catch(error){
+    if(slot.sequence!==sequence || slots[index]!==slot)return;
+    slot.error.textContent=error.message;slot.error.hidden=false;
+    if(index===activeIndex)activateSlot(index,false);
+  }finally{if(index===activeIndex && slot.sequence===sequence)$('#loadChart').disabled=false;}
+}
+function resizeCharts(){requestAnimationFrame(()=>{for(const slot of slots)slot.chart?.resize();});}
+function updateLayoutPicker(){
+  $('#chartGrid').dataset.count=String(slots.length);
+  $('#layoutCount').textContent=String(slots.length);
+  $('#layoutButton').setAttribute('aria-label',`Chart layout, ${slots.length} chart${slots.length===1?'':'s'}`);
+  $('#layoutDescription').textContent=`${slots.length} chart${slots.length===1?'':'s'} · select a chart to edit it`;
+  for(const button of $('#layoutChoices').querySelectorAll('[data-layout-count]'))button.setAttribute('aria-pressed',String(Number(button.dataset.layoutCount)===slots.length));
+}
+function setLayout(count,{initial=false,charts=[]}={}){
+  if(!Number.isInteger(count)||count<1||count>6)return;
+  const seed=slots[activeIndex]?.source || selectedParams();
+  while(slots.length>count){const slot=slots.pop();slot.sequence++;for(const off of slot.unsub)off();slot.chart?.destroy();slot.cell.remove();}
+  const toLoad=[];
+  while(slots.length<count){
+    const index=slots.length;
+    const raw=initial?charts[index]:null;
+    const params=validParams(raw)?raw:{id:seed.id,market:seed.market,timeframe:seed.timeframe};
+    const slot=makeSlot(index,params);slots.push(slot);
+    const same=slots.find(item=>item!==slot && item.source?.id===params.id && item.source?.market===params.market && item.source?.timeframe===params.timeframe && item.bars.length);
+    toLoad.push(loadSlot(index,params,same?.bars||null));
+  }
+  if(activeIndex>=count)activeIndex=count-1;
+  updateLayoutPicker();activateSlot(activeIndex,false);resizeCharts();saveLayoutState();
+  return Promise.allSettled(toLoad);
+}
+async function loadChart(){
+  const chosen=selectedParams();
+  if(!validParams(chosen)){setStatus('Enter a valid market symbol and interval.',true);return;}
+  const tasks=slots.map((slot,index)=>{
+    const current=slot.source||slot.params;
+    return loadSlot(index,{
+      id:syncPrefs.symbol||index===activeIndex?chosen.id:current.id,
+      market:syncPrefs.symbol||index===activeIndex?chosen.market:current.market,
+      timeframe:syncPrefs.interval||index===activeIndex?chosen.timeframe:current.timeframe,
+    });
+  });
+  await Promise.allSettled(tasks);
+}
+for(let count=1;count<=6;count++){
+  const button=document.createElement('button');button.type='button';button.className='layout-choice';button.dataset.layoutCount=String(count);button.title=`${count} chart${count===1?'':'s'}`;button.setAttribute('aria-label',button.title);
+  const mini=document.createElement('span');mini.className='mini-layout';mini.dataset.count=String(count);for(let i=0;i<count;i++)mini.append(document.createElement('i'));button.append(mini);
+  button.addEventListener('click',()=>{setLayout(count);$('#layoutPopover').hidden=true;$('#layoutButton').setAttribute('aria-expanded','false');});$('#layoutChoices').append(button);
+}
+$('#layoutButton').addEventListener('click',()=>{const popover=$('#layoutPopover');popover.hidden=!popover.hidden;$('#layoutButton').setAttribute('aria-expanded',String(!popover.hidden));});
+document.addEventListener('pointerdown',event=>{if(!event.target.closest('.layout-control')){$('#layoutPopover').hidden=true;$('#layoutButton').setAttribute('aria-expanded','false');}});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'){$('#layoutPopover').hidden=true;$('#layoutButton').setAttribute('aria-expanded','false');}});
+for(const kind of ['symbol','interval','crosshair','style']){
+  const input=$(`#sync${kind[0].toUpperCase()}${kind.slice(1)}`);
+  input.addEventListener('change',()=>{syncPrefs[kind]=input.checked;saveLayoutState();if(kind==='crosshair')clearGhosts();else if(kind==='style')syncStyleFrom(activeIndex);else if(input.checked)void loadChart();});
 }
 $('#loadChart').addEventListener('click',loadChart);
 $('#provider').addEventListener('change',()=>{$('#market').value=providerSpecs[$('#provider').value].market;setStatus('Source changed. Press Load chart to load its bars.');});
 $('#market').addEventListener('keydown',event=>{if(event.key==='Enter')loadChart();});
 $('#timeframe').addEventListener('change',()=>setStatus('Interval changed. Press Load chart to load its bars.'));
-window.addEventListener('resize',()=>chart?.resize());
+window.addEventListener('resize',resizeCharts);
 
 async function renderIndicators() {
   panel('indicators','Native Vela indicators','<p>These studies run in the Vela renderer on the loaded chart. They do not validate a trading strategy.</p><div id="indicatorList" class="panel-list"></div>');
@@ -157,4 +286,10 @@ $('#chatForm').addEventListener('submit',async event=>{
   }catch(error){waiting.remove();addMessage('assistant',error.message,true);}finally{$('#sendChat').disabled=false;}
 });
 
-loadChart();
+const restoredLayout=readLayoutState();
+if(restoredLayout){
+  for(const kind of Object.keys(syncPrefs))syncPrefs[kind]=restoredLayout.sync[kind]===true;
+  activeIndex=restoredLayout.activeIndex;
+}
+for(const kind of Object.keys(syncPrefs))$(`#sync${kind[0].toUpperCase()}${kind.slice(1)}`).checked=syncPrefs[kind];
+void setLayout(restoredLayout?.count||1,{initial:true,charts:restoredLayout?.charts||[]});
