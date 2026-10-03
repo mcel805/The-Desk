@@ -93,3 +93,20 @@
 .trader-create{padding-top:12px;border-top:1px solid #393b43}
 .trader-create form{margin-top:10px}
 .trader-create .muted{min-height:14px}
+.trader-tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:0 0 13px;padding:3px;border:1px solid #383a44;border-radius:7px;background:#202127}
+.side-panel .trader-tabs button{padding:8px;border-color:transparent;background:transparent;color:#aeb0ba}
+.side-panel .trader-tabs button[aria-selected="true"]{border-color:#655a7f;background:#393345;color:#f0eafa}
+.trader-accounts-head{display:flex;align-items:center;justify-content:space-between;margin:2px 0 11px}
+.trader-accounts-head strong,.trader-active-summary strong{display:block;font-size:13px}
+.trader-accounts-head small,.trader-active-summary small,.trader-active-summary span{display:block;margin-top:4px;color:#9da1aa;font-size:10px}
+.trader-accounts-head>span{padding:4px 7px;border:1px solid #63567c;border-radius:4px;color:#d1c1f1;font:700 9px ui-monospace,monospace}
+.trader-active-summary{padding:11px;margin:10px 0;border:1px solid #514765;border-radius:6px;background:#282530}
+.trader-active-summary small{margin:0;color:#baa8e5;font:700 9px ui-monospace,monospace;letter-spacing:.08em}
+.trader-active-summary strong{margin-top:5px}
+.trader-account-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 2px;border-bottom:1px solid #373a43}
+.trader-account-row.is-active{border-left:2px solid #a88be2;padding-left:8px}
+.trader-account-row strong{display:block;font-size:11px}
+.trader-account-row small{display:block;margin-top:4px;color:#9da1aa;font-size:10px}
+.trader-account-row button{flex:none}
+.trader-account-row button:disabled{opacity:.68;cursor:default}
+#createSimAccount{padding-top:12px;margin-top:14px;border-top:1px solid #393b43}

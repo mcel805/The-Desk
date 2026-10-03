@@ -27,6 +27,7 @@ let lastRunKey = '';
 const accountStorageKey = 'count-desk-quant-lab-active-sim-account-v1';
 let simAccounts = [];
 let activeAccountId = '';
+let traderView = 'trade';
 
 function readStored(key, fallback) { try { const value = JSON.parse(localStorage.getItem(key)); return Array.isArray(value) ? value : fallback; } catch { return fallback; } }
 history = readStored(storageKey, []);
@@ -78,18 +79,18 @@ $('#activeSimAccount').addEventListener('change',event=>{
 });
 function closeContextMenu(){const menu=$('#chartContextMenu');menu.hidden=true;}
 function openTradePanel(side='long'){
-  closeContextMenu();renderChartTrader(side);
+  closeContextMenu();traderView='trade';renderChartTrader(side);
   $('#chartTraderButton').setAttribute('aria-expanded','true');
 }
 function renderChartTrader(side='long'){
+  if(traderView==='accounts'){renderTraderAccounts(side);return;}
   const account=simAccounts.find(item=>item.account_id===activeAccountId);
   const supported=Boolean(source&&source.type==='micro futures (stored bars)');
-  panel('trader','Chart Trader',`<div class="trader-account-card"><span>ACTIVE SIM ACCOUNT</span><strong>${escapeHtml(account?.name||'No account selected')}</strong><small>${account?`${escapeHtml(account.currency||'USD')} · virtual starting balance ${fmt(account.starting_balance,2)}`:'Create or select an account above to continue.'}</small></div>
+  panel('trader','Chart Trader',`<div class="trader-tabs" role="tablist" aria-label="Chart Trader views"><button type="button" role="tab" data-trader-view="trade" aria-selected="true">Trade</button><button type="button" role="tab" data-trader-view="accounts" aria-selected="false">Accounts</button></div><div class="trader-account-card"><span>ACTIVE SIM ACCOUNT</span><strong>${escapeHtml(account?.name||'No account selected')}</strong><small>${account?`${escapeHtml(account.currency||'USD')} · virtual starting balance ${fmt(account.starting_balance,2)}`:'Create or select an account above to continue.'}</small></div>
   <p class="trader-market"><b>${escapeHtml(source?.market||slots[activeIndex]?.params?.market||'No chart loaded')}</b> · ${escapeHtml(source?.timeframe||slots[activeIndex]?.params?.timeframe||'—')} · ${escapeHtml(source?.label||'public chart source')}</p>
   <p class="trader-boundary">${supported?'This chart source is eligible for the local paper simulator. Orders remain simulated.':`Paper order entry is unavailable for this chart. Quant Lab is showing ${escapeHtml(source?.type||'public crypto data')}; the current simulator requires stored micro-futures bars. No order will be sent.`}</p>
   <div class="trader-ticket"><div class="trader-ticket-head"><strong>Order ticket</strong><span>SIM · PAPER</span></div><label>Side<select id="traderSide"><option value="long" ${side==='long'?'selected':''}>Buy / Long</option><option value="short" ${side==='short'?'selected':''}>Sell / Short</option></select></label><div class="panel-row"><label>Order type<select id="traderType"><option value="market">Market</option><option value="limit">Limit</option></select></label><label>Quantity<input id="traderQty" type="number" min="1" step="1" value="1"></label></div><label>Limit price<input id="traderLimit" type="number" min="0" step="any" placeholder="Only used for limit orders"></label><button id="traderReview" class="trader-submit" type="button" disabled>${supported&&account?'Review paper order':'Unavailable for this chart'}</button><small class="trader-cutoff">Chart cutoff: ${source?escapeHtml(utc(source.cutoff)):'not loaded'}</small></div>
-  <div class="trader-list-head"><strong>Orders &amp; positions</strong><button id="traderRefresh" type="button">Refresh</button></div><div id="traderLedger" class="trader-ledger"><p>${account?'Loading account activity…':'Select a SIM account to view its activity.'}</p></div>
-  <div class="trader-create"><strong>Simulation accounts</strong><p>Create a virtual account stored on this device. It does not connect to a broker.</p><form id="createSimAccount"><label>Account name<input name="name" maxlength="80" required placeholder="e.g. BTC paper study"></label><label>Starting virtual balance (USD)<input name="starting_balance" type="number" min="1" step="any" value="10000" required></label><button type="submit">Create SIM account</button></form><p id="traderNotice" class="muted" role="status"></p></div>`);
+  <div class="trader-list-head"><strong>Orders &amp; positions</strong><button id="traderRefresh" type="button">Refresh</button></div><div id="traderLedger" class="trader-ledger"><p>${account?'Loading account activity…':'Select a SIM account to view its activity.'}</p></div><p id="traderNotice" class="muted" role="status"></p>`);
   $('#chartTraderButton').setAttribute('aria-expanded','true');
   $('#traderType').addEventListener('change',()=>{$('#traderLimit').closest('label').hidden=$('#traderType').value!=='limit';});
   $('#traderType').dispatchEvent(new Event('change'));
@@ -97,16 +98,22 @@ function renderChartTrader(side='long'){
     if(!supported||!account)return;
     $('#traderNotice').textContent='Review flow is ready when this chart is backed by stored simulator bars. The current public crypto snapshot cannot be submitted to the micro-futures simulator.';
   });
+  $('#panelBody').querySelectorAll('[data-trader-view]').forEach(button=>button.addEventListener('click',()=>{traderView=button.dataset.traderView;renderChartTrader(side);}));
   $('#traderRefresh').addEventListener('click',()=>void loadTraderLedger());
-  $('#createSimAccount').addEventListener('submit',async event=>{
-    event.preventDefault();const form=new FormData(event.currentTarget);
-    const button=event.currentTarget.querySelector('button');button.disabled=true;
-    try{const account=await simRequest('accounts',{method:'POST',body:JSON.stringify({name:form.get('name'),starting_balance:form.get('starting_balance')})});
-      simAccounts.push(account);activeAccountId=account.account_id;syncAccountPicker();renderChartTrader(side);
-    }catch(error){$('#traderNotice').textContent=error.message;}
-    finally{if($('#createSimAccount button'))$('#createSimAccount button').disabled=false;}
-  });
   void loadTraderLedger();
+}
+function renderTraderAccounts(side='long'){
+  const account=simAccounts.find(item=>item.account_id===activeAccountId);
+  const rows=simAccounts.map(item=>`<div class="trader-account-row ${item.account_id===activeAccountId?'is-active':''}"><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.currency||'USD')} · virtual starting balance ${fmt(item.starting_balance,2)} · SIM</small></div><button type="button" data-select-sim-account="${escapeHtml(item.account_id)}" ${item.account_id===activeAccountId?'disabled':''}>${item.account_id===activeAccountId?'Active':'Select'}</button></div>`).join('');
+  panel('trader','Chart Trader',`<div class="trader-tabs" role="tablist" aria-label="Chart Trader views"><button type="button" role="tab" data-trader-view="trade" aria-selected="false">Trade</button><button type="button" role="tab" data-trader-view="accounts" aria-selected="true">Accounts</button></div><div class="trader-accounts-head"><div><strong>Accounts</strong><small>Local simulation accounts for paper trading</small></div><span>SIM</span></div><div class="trader-active-summary"><small>ACTIVE ACCOUNT</small><strong>${escapeHtml(account?.name||'No account selected')}</strong><span>${account?`${escapeHtml(account.currency||'USD')} · virtual starting balance ${fmt(account.starting_balance,2)}`:'Create a SIM account to start.'}</span></div><div class="trader-account-list">${rows||'<p>No simulation accounts yet. Create one below.</p>'}</div><p class="trader-boundary">Live broker accounts are not connected. These accounts are local simulations and do not control a broker.</p><form id="createSimAccount"><label>New account name<input name="name" maxlength="80" required placeholder="e.g. BTC paper study"></label><label>Starting virtual balance (USD)<input name="starting_balance" type="number" min="1" step="any" value="10000" required></label><button type="submit">Create SIM account</button></form><p id="accountsNotice" class="muted" role="status"></p>`);
+  $('#panelBody').querySelectorAll('[data-trader-view]').forEach(button=>button.addEventListener('click',()=>{traderView=button.dataset.traderView;renderChartTrader(side);}));
+  $('#panelBody').querySelectorAll('[data-select-sim-account]').forEach(button=>button.addEventListener('click',()=>{activeAccountId=button.dataset.selectSimAccount;syncAccountPicker();renderChartTrader(side);}));
+  $('#createSimAccount').addEventListener('submit',async event=>{
+    event.preventDefault();const form=new FormData(event.currentTarget);const button=event.currentTarget.querySelector('button');button.disabled=true;
+    try{const created=await simRequest('accounts',{method:'POST',body:JSON.stringify({name:form.get('name'),starting_balance:form.get('starting_balance')})});simAccounts.push(created);activeAccountId=created.account_id;traderView='accounts';syncAccountPicker();renderChartTrader(side);}
+    catch(error){$('#accountsNotice').textContent=error.message;}
+    finally{const submit=$('#createSimAccount button');if(submit)submit.disabled=false;}
+  });
 }
 async function loadTraderLedger(){
   const target=$('#traderLedger');if(!target)return;
