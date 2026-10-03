@@ -1,8 +1,8 @@
 interface:
   display_name: "Cleo"
-  short_description: "Evidence-led chart analysis and trade coaching"
+  short_description: "Chart, quant research, and trading-agent design"
   brand_color: "#F0B55B"
-  default_prompt: "Use $cleo to review this chart and give me a clear conditional plan."
+  default_prompt: "Use $cleo to research this trading idea and define a testable, paper-first plan."
 
 policy:
   allow_implicit_invocation: true

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Quant Lab</title>
   <link rel="stylesheet" href="./quant-lab.css?v=5">
+  <link rel="stylesheet" href="./codex-widget.css?v=3">
 </head>
 <body>
   <header class="topbar">
@@ -17,17 +18,8 @@
   </header>
   <main class="shell">
     <aside class="conversation" aria-label="Quant Lab conversation">
-      <div class="panel-head"><div><small>CHART RESEARCH ASSISTANT</small><h1>Quant Lab</h1></div><button id="newChat" type="button" title="New conversation">＋</button></div>
-      <div class="chat-stream" id="chatStream" aria-live="polite">
-        <div class="assistant-message intro"><span class="message-author">✦ COUNT DESK</span><p>Ask about the selected chart, describe an indicator, or attach a screenshot. Answers are research hypotheses tied to the source and last loaded bar. A suggestion does not become a validated script or trade.</p></div>
-      </div>
-      <div class="suggestions" id="suggestions"><button type="button" data-prompt="Describe the current chart structure, uncertainty, and an alternate path.">Read structure</button><button type="button" data-prompt="Suggest a measurable indicator hypothesis for this market and timeframe.">Indicator idea</button><button type="button" data-prompt="Help refine a paper strategy rule with explicit entry, exit, and invalidation.">Refine rule</button></div>
-      <form id="chatForm" class="composer">
-        <label class="file-attach" title="Attach a chart screenshot"><input id="chatImage" type="file" accept="image/png,image/jpeg,image/webp" hidden>＋</label>
-        <textarea id="chatInput" rows="3" placeholder="Ask about this chart or describe a rule…" maxlength="12000" aria-label="Message"></textarea>
-        <button id="sendChat" type="submit" aria-label="Send message">↑</button>
-        <div class="composer-meta"><span id="imageName">No screenshot selected</span><span>GPT-6 Luna · local Codex session</span></div>
-      </form>
+      <div id="quantCodexHost" class="quant-codex-host"></div>
+      <details class="legacy-quant-chat"><summary>Previous Quant Lab chat · read only</summary><div id="legacyChatMessages"></div></details>
     </aside>
     <section class="workspace" aria-label="Quant Lab chart workspace">
       <div class="toolbar">

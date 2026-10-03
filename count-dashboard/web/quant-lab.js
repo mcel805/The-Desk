@@ -1,5 +1,6 @@
 import {runSmaBacktest} from './quant-backtest.mjs';
 import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
+import {createCodexWidget} from './codex-widget.js?v=4';
 
 const $ = selector => document.querySelector(selector);
 const providerSpecs = {
@@ -37,15 +38,6 @@ function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({
 function fmt(value, maximumFractionDigits=2) { return Number(value).toLocaleString(undefined,{maximumFractionDigits}); }
 function utc(time) { return new Date(time).toISOString().replace('T',' ').replace(/\.\d{3}Z$/,' UTC'); }
 function runKey() { return JSON.stringify({name:draft.name,fast:draft.fast,slow:draft.slow,feeBps:draft.feeBps,source:source&&{id:source.id,market:source.market,timeframe:source.timeframe,cutoff:source.cutoff}}); }
-function addMessage(role, content, error=false) {
-  const node = document.createElement('div');
-  node.className = `${role === 'user' ? 'user-message' : 'assistant-message'}${error ? ' error' : ''}`;
-  if (role !== 'user') { const author=document.createElement('span'); author.className='message-author'; author.textContent='✦ COUNT DESK'; node.append(author); }
-  const body=document.createElement('p'); body.textContent=content; node.append(body);
-  $('#chatStream').append(node); $('#chatStream').scrollTop=$('#chatStream').scrollHeight;
-  return node;
-}
-for (const message of history) if (message && ['user','assistant'].includes(message.role) && typeof message.content==='string') addMessage(message.role,message.content);
 function setStatus(message, error=false) { $('#sourceState').textContent=message; $('#sourceState').style.color=error?'#ffb8c1':''; }
 function panel(name,title,html) { activePanel=name; $('#panelEyebrow').textContent='QUANT LAB · '+name.toUpperCase(); $('#panelTitle').textContent=title; $('#panelBody').innerHTML=html; $('#sidePanel').hidden=false; $('#chartTraderButton').setAttribute('aria-expanded',String(name==='trader')); }
 function closePanel() { activePanel=''; $('#sidePanel').hidden=true; $('#chartTraderButton').setAttribute('aria-expanded','false'); }
@@ -443,28 +435,23 @@ $('#libraryButton').addEventListener('click',renderLibrary);
 function renderConnections(){const active=source?`${escapeHtml(source.label)} · ${escapeHtml(source.market)} · ${escapeHtml(source.timeframe)}<br>Loaded ${utc(source.loadedAt)} · last bar ${utc(source.cutoff)}`:'No chart source loaded.';panel('connections','Market data connections',`<div class="card"><strong>Active chart source</strong><p>${active}</p></div>${Object.entries(providerSpecs).map(([id,spec])=>`<div class="card"><strong>${escapeHtml(spec.label)}</strong><small>${escapeHtml(spec.type)} · public market bars through Vela</small><small>${source?.id===id?'ACTIVE SNAPSHOT':'AVAILABLE TO LOAD'}</small></div>`).join('')}<p class="warning">These are public market-data adapters. Broker login, balances, positions, fills, private streams, and order routing are not connected. A chart refresh requests a new snapshot; availability and freshness depend on the provider.</p>`);}
 $('#connectionsButton').addEventListener('click',renderConnections);
 
-function fileAsDataUrl(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Could not read screenshot.'));reader.readAsDataURL(file);});}
-$('#chatImage').addEventListener('change',()=>{$('#imageName').textContent=$('#chatImage').files[0]?.name||'No screenshot selected';});
-$('#newChat').addEventListener('click',()=>{history=[];save();$('#chatStream').replaceChildren();addMessage('assistant','New Quant Lab conversation. Load a chart to include its source and cutoff.');});
-for(const button of document.querySelectorAll('[data-prompt]'))button.addEventListener('click',()=>{$('#chatInput').value=button.dataset.prompt;$('#chatInput').focus();});
-$('#chatInput').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('#chatForm').requestSubmit();}});
-$('#chatForm').addEventListener('submit',async event=>{
-  event.preventDefault();const prompt=$('#chatInput').value.trim();const file=$('#chatImage').files[0];if(!prompt&&!file)return;
-  if(file&&file.size>8*1024*1024){addMessage('assistant','Screenshot must be 8 MB or smaller.',true);return;}
-  const userText=prompt||'Please describe the attached chart screenshot as a provisional research observation.';
-  addMessage('user',userText+(file?`\n[Attached ${file.name}]`:''));history.push({role:'user',content:userText});save();$('#chatInput').value='';$('#sendChat').disabled=true;
-  const waiting=addMessage('assistant','Reading chart context…');
-  try{
-    const recent=bars.slice(-8).map(bar=>({time:utc(bar.time),open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume}));
-    const context=source?`Chart: ${source.label}; ${source.market}; ${source.timeframe}; loaded ${utc(source.loadedAt)}; last bar ${utc(source.cutoff)}. Public provider snapshot; freshness unverified. Last 8 OHLCV bars: ${JSON.stringify(recent)}. Treat structure as provisional; do not infer fills or broker account state.`:'No chart loaded. Do not infer current prices or chart structure.';
-    const messages=history.slice(-23).map(item=>({role:item.role,content:item.content}));
-    messages[messages.length-1]={role:'user',content:`${context}\n\nUser request: ${userText}`};
-    const attachments=file?[{name:file.name,type:file.type,data:await fileAsDataUrl(file)}]:[];
-    const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-6-luna',effort:'medium',context:'Quant Lab chart research',view:{tab:'Quant Lab',symbol:source?.market||'',timeframe:source?.timeframe||'',cutoff:source?Math.floor(source.cutoff/1000):null},messages,attachments})});
-    const result=await response.json();if(!response.ok)throw new Error(result.error||`Chat request failed (${response.status}).`);
-    waiting.remove();const answer=String(result.text||'No answer returned.');addMessage('assistant',answer);history.push({role:'assistant',content:answer});save();$('#chatImage').value='';$('#imageName').textContent='No screenshot selected';
-  }catch(error){waiting.remove();addMessage('assistant',error.message,true);}finally{$('#sendChat').disabled=false;}
-});
+for(const message of history){
+  if(!message||!['user','assistant'].includes(message.role))continue;
+  const row=document.createElement('p');
+  row.className=message.role==='user'?'legacy-user':'legacy-assistant';
+  row.textContent=`${message.role==='user'?'You':'Count Desk'}: ${String(message.displayContent||message.content||'')}`;
+  $('#legacyChatMessages').append(row);
+}
+createCodexWidget($('#quantCodexHost'),{surface:'quant-lab',contextProvider:()=>{
+  const slot=slots[activeIndex];
+  const activeSource=slot?.source||source;
+  if(!activeSource||!slot?.bars?.length)return null;
+  const recentBars=slot.bars.slice(-8).map(bar=>({time:utc(bar.time),open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume}));
+  return {tab:'Quant Lab',chart:activeIndex+1,provider:activeSource.id,sourceLabel:activeSource.label,
+    symbol:activeSource.market,timeframe:activeSource.timeframe,
+    cutoff:activeSource.cutoff?utc(activeSource.cutoff):null,loadedAt:activeSource.loadedAt?utc(activeSource.loadedAt):null,
+    freshness:'unverified public provider snapshot',recentBars,capturedAt:new Date().toISOString()};
+}});
 
 const restoredLayout=readLayoutState();
 if(restoredLayout){

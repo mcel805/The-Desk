@@ -2922,6 +2922,8 @@ class Handler(SimpleHTTPRequestHandler):
                 widget = self.server.codex_widget  # type: ignore[attr-defined]
                 if parsed.path == "/api/codex-widget/account":
                     return self.send_json(widget.account())
+                if parsed.path == "/api/codex-widget/catalog":
+                    return self.send_json(widget.catalog())
                 match = re.fullmatch(r"/api/codex-widget/threads/([0-9a-fA-F-]{20,})", parsed.path)
                 if match:
                     return self.send_json(widget.read(match.group(1)))
@@ -3251,10 +3253,17 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = self.read_json()
                 if parsed.path == "/api/codex-widget/threads":
                     return self.send_json(widget.create(), 201)
-                match = re.fullmatch(r"/api/codex-widget/threads/([0-9a-fA-F-]{20,})/(turns|interrupt)", parsed.path)
+                match = re.fullmatch(r"/api/codex-widget/threads/([0-9a-fA-F-]{20,})/(turns|interrupt|approvals)", parsed.path)
                 if match:
                     if match.group(2) == "turns":
-                        return self.send_json(widget.send(match.group(1), str(payload.get("text", "")), payload.get("chart")), 202)
+                        return self.send_json(widget.send(match.group(1), str(payload.get("text", "")),
+                                                          payload.get("chart"), str(payload.get("mode") or "research"),
+                                                          str(payload.get("skill") or ""), str(payload.get("agent") or ""),
+                                                          payload.get("image") or ""), 202)
+                    if match.group(2) == "approvals":
+                        return self.send_json(widget.decide(match.group(1), str(payload.get("turnId", "")),
+                                                            str(payload.get("approvalId", "")),
+                                                            str(payload.get("decision", ""))))
                     return self.send_json(widget.interrupt(match.group(1), str(payload.get("turnId", ""))))
             except (CodexWidgetError, ValueError) as exc:
                 return self.send_json({"error": str(exc)}, 400)

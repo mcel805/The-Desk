@@ -110,3 +110,19 @@
 .trader-account-row button{flex:none}
 .trader-account-row button:disabled{opacity:.68;cursor:default}
 #createSimAccount{padding-top:12px;margin-top:14px;border-top:1px solid #393b43}
+.quant-codex-host{display:flex;flex:1;min-height:0;min-width:0}
+.conversation .codex-widget{background:#14161b;color:#e8eaee}
+.conversation .codex-widget-toolbar,.conversation .codex-widget-controls{background:#1b1d23;border-color:#383941}
+.conversation .codex-widget-auth,.conversation .codex-widget-receipt{color:#bba5ec}
+.conversation .codex-widget-auth.is-connected{color:#8ed4bd}
+.conversation .codex-widget select,.conversation .codex-widget-composer textarea{background:#1d1f25;border-color:#555060;color:#e8eaee}
+.conversation .codex-widget button,.conversation .codex-widget-attach{background:#343043;border-color:#655a7f;color:#eee8fc}
+.conversation .codex-widget-message{background:#1b1d23;border-color:#383941}
+.conversation .codex-widget-message.is-user{background:#303039;border-color:#5b536d}
+.conversation .codex-widget-message strong{color:#bba5ec}
+.conversation .codex-widget-context,.conversation .codex-widget-help{border-color:#383941;color:#bbb3cf}
+.conversation .codex-widget-composer{background:#1b1d23;border-color:#383941}
+.conversation .codex-widget-activity{border-color:#383941}
+.legacy-quant-chat{flex:none;max-height:35vh;overflow:auto;border-top:1px solid #383941;padding:7px 12px;color:#b9bbc4;font-size:10px}
+.legacy-quant-chat summary{cursor:pointer;color:#aa9ac9}
+.legacy-quant-chat p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45;border-bottom:1px solid #34353d;padding-bottom:7px}

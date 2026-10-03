@@ -1,5 +1,5 @@
 import {DESK_GRID, packLegoGrid} from './lego-grid-core.js';
-import {createCodexWidget} from './codex-widget.js?v=1';
+import {createCodexWidget} from './codex-widget.js?v=4';
 
 const storageKey = 'count-desk-modular-workspace-v1';
 const templatesKey = 'count-desk-modular-workspace-templates-v1';
