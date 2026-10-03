@@ -16,7 +16,9 @@ Translate supplied charts/data into a source-bounded structure read and a decisi
 
 ## Visual review layout
 
-Header: symbol/contract, timeframe, source, timezone/cutoff, and `provisional`. Main image: full source chart. Separate analyst overlay: current price area, relevant HTF level, relevant structure, conditional confirmation, invalidation, and next reference, each labeled as observed/inferred/conditional. Side cards: preferred case, alternate case, risk/room check, and no-trade condition. End with one next decision.
+Follow `chart-markup.md`. When the active chart interface and native drawing renderer are available, place Cleo’s sourced marks directly over that chart in its own independently hideable layer; preserve the source candles and user drawings. Show source, market/contract, timeframe, cutoff, and provisional/review status in the chart interface. Keep the read short beside the chart and mark explanation/provenance inspectable. A separate annotated page is a fallback for conversations that only provide an image or do not expose a chart renderer; label that limitation and keep screenshot-derived prices approximate.
+
+For read-only requests, do not draw plan-only entry, trigger, stop, target, or order marks. Add those only for an explicitly requested paper plan and only when evidence anchors and the plan contract support them. Keep the strongest alternate case distinct and conditional.
 
 For Mark’s color convention, use yellow=15m, purple=30m, orange=1h only when he has supplied/confirmed the key. Lines can be platform orders rather than indicator levels; verify before classifying them.
 
