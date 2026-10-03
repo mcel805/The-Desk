@@ -65,3 +65,31 @@
 .chart-cell .chart-error{z-index:3;top:10px;left:10px;right:10px}
 @media(max-width:900px){.layout-popover{left:auto;right:0}}
 @media(max-width:720px){.chart-grid[data-count]{grid-template-columns:1fr;grid-template-rows:none;grid-auto-rows:minmax(285px,1fr);overflow:auto}.chart-grid[data-count] .chart-cell{grid-column:auto}.layout-popover{width:min(440px,calc(100vw - 12px));grid-template-columns:1fr 1fr;padding:13px}.layout-side{padding-right:10px}.sync-side{padding-left:12px}.layout-choices{grid-template-columns:repeat(3,42px)}.toolbar .layout-choice{width:42px;height:42px}.layout-popover .sync-row{font-size:12px}}
+.chart-actions .active-sim-account{display:flex;align-items:center;gap:5px;color:#b8bac1;font:700 9px ui-monospace,monospace;letter-spacing:.04em;white-space:nowrap}
+.chart-actions .active-sim-account select{max-width:150px;height:30px;padding:0 7px;border:1px solid #4a4d56;border-radius:5px;background:#1d2026;color:#e7e9ee;font-size:10px}
+.chart-actions button.trade-buy{border-color:#1f765f;background:#153d34;color:#a8f0d6;font-weight:700}
+.chart-actions button.trade-sell{border-color:#8b3947;background:#49242d;color:#ffb7c1;font-weight:700}
+.chart-actions button.trade-buy:hover,.chart-actions button.trade-sell:hover{filter:brightness(1.18)}
+.chart-context-menu{position:absolute;z-index:12;min-width:220px;padding:5px;border:1px solid #494b55;border-radius:7px;background:#202127;box-shadow:0 12px 32px #0009}
+.chart-context-menu[hidden]{display:none}
+.chart-context-menu button{display:block;width:100%;padding:9px;border:0;border-radius:4px;background:transparent;color:#e9eaf0;text-align:left;font-size:11px}
+.chart-context-menu button:hover{background:#34313d}
+.trader-account-card,.trader-ticket{padding:12px;margin-bottom:13px;border:1px solid #41434c;border-radius:7px;background:#22242b}
+.trader-account-card span,.trader-ticket-head span{display:block;color:#b8a6e9;font:700 9px ui-monospace,monospace;letter-spacing:.08em}
+.trader-account-card strong{display:block;margin-top:5px;font-size:14px}
+.trader-account-card small,.trader-cutoff{display:block;margin-top:5px;color:#a1a4ae;font-size:10px}
+.trader-market{font:11px ui-monospace,monospace}
+.trader-boundary{padding:10px;border-left:2px solid #c3a35f;background:#29261f;color:#e3d2a7!important;font-size:11px!important}
+.trader-ticket-head,.trader-list-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.trader-ticket-head strong,.trader-list-head strong,.trader-create>strong{font-size:12px}
+.trader-ticket .panel-row{align-items:start}
+.trader-ticket .panel-row label{flex:1;min-width:0}
+.trader-ticket .trader-submit{width:100%;margin-top:5px;background:#34333c}
+.trader-ticket .trader-submit:disabled{cursor:not-allowed;opacity:.63}
+.trader-ledger{margin-bottom:15px}
+.trader-ledger-row{padding:9px 2px;border-bottom:1px solid #373a43}
+.trader-ledger-row strong{font-size:11px}
+.trader-ledger-row small{display:block;margin-top:4px;color:#9da1aa;font-size:10px}
+.trader-create{padding-top:12px;border-top:1px solid #393b43}
+.trader-create form{margin-top:10px}
+.trader-create .muted{min-height:14px}

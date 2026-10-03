@@ -24,6 +24,9 @@ let activePanel = '';
 let indicatorTab = 'vela';
 let lastResult = null;
 let lastRunKey = '';
+const accountStorageKey = 'count-desk-quant-lab-active-sim-account-v1';
+let simAccounts = [];
+let activeAccountId = '';
 
 function readStored(key, fallback) { try { const value = JSON.parse(localStorage.getItem(key)); return Array.isArray(value) ? value : fallback; } catch { return fallback; } }
 history = readStored(storageKey, []);
@@ -43,9 +46,97 @@ function addMessage(role, content, error=false) {
 }
 for (const message of history) if (message && ['user','assistant'].includes(message.role) && typeof message.content==='string') addMessage(message.role,message.content);
 function setStatus(message, error=false) { $('#sourceState').textContent=message; $('#sourceState').style.color=error?'#ffb8c1':''; }
-function panel(name,title,html) { activePanel=name; $('#panelEyebrow').textContent='QUANT LAB · '+name.toUpperCase(); $('#panelTitle').textContent=title; $('#panelBody').innerHTML=html; $('#sidePanel').hidden=false; }
-function closePanel() { activePanel=''; $('#sidePanel').hidden=true; }
+function panel(name,title,html) { activePanel=name; $('#panelEyebrow').textContent='QUANT LAB · '+name.toUpperCase(); $('#panelTitle').textContent=title; $('#panelBody').innerHTML=html; $('#sidePanel').hidden=false; $('#chartTraderButton').setAttribute('aria-expanded',String(name==='trader')); }
+function closePanel() { activePanel=''; $('#sidePanel').hidden=true; $('#chartTraderButton').setAttribute('aria-expanded','false'); }
 $('#closePanel').addEventListener('click',closePanel);
+const simRequest = async (path,options={}) => {
+  const response=await fetch(`/api/chart-sim/${path}`,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.error||`Simulation service returned ${response.status}`);
+  return data;
+};
+function syncAccountPicker(){
+  const picker=$('#activeSimAccount');
+  picker.replaceChildren();
+  const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=simAccounts.length?'Choose SIM account':'No SIM accounts';picker.append(placeholder);
+  for(const account of simAccounts){const option=document.createElement('option');option.value=account.account_id;option.textContent=`${account.name} · ${Number(account.starting_balance).toLocaleString(undefined,{style:'currency',currency:account.currency||'USD',maximumFractionDigits:0})}`;picker.append(option);}
+  if(!simAccounts.some(item=>item.account_id===activeAccountId))activeAccountId=simAccounts[0]?.account_id||'';
+  picker.value=activeAccountId;
+  try{if(activeAccountId)localStorage.setItem(accountStorageKey,activeAccountId);else localStorage.removeItem(accountStorageKey);}catch{}
+}
+async function loadSimAccounts(){
+  try{const data=await simRequest('accounts',{method:'GET'});simAccounts=data.accounts||[];
+    try{activeAccountId=localStorage.getItem(accountStorageKey)||activeAccountId;}catch{}
+    syncAccountPicker();
+    if(activePanel==='trader')renderChartTrader();
+  }catch(error){simAccounts=[];syncAccountPicker();$('#activeSimAccount').title=error.message;}
+}
+$('#activeSimAccount').addEventListener('change',event=>{
+  activeAccountId=event.target.value;
+  try{if(activeAccountId)localStorage.setItem(accountStorageKey,activeAccountId);else localStorage.removeItem(accountStorageKey);}catch{}
+  if(activePanel==='trader')renderChartTrader();
+});
+function closeContextMenu(){const menu=$('#chartContextMenu');menu.hidden=true;}
+function openTradePanel(side='long'){
+  closeContextMenu();renderChartTrader(side);
+  $('#chartTraderButton').setAttribute('aria-expanded','true');
+}
+function renderChartTrader(side='long'){
+  const account=simAccounts.find(item=>item.account_id===activeAccountId);
+  const supported=Boolean(source&&source.type==='micro futures (stored bars)');
+  panel('trader','Chart Trader',`<div class="trader-account-card"><span>ACTIVE SIM ACCOUNT</span><strong>${escapeHtml(account?.name||'No account selected')}</strong><small>${account?`${escapeHtml(account.currency||'USD')} · virtual starting balance ${fmt(account.starting_balance,2)}`:'Create or select an account above to continue.'}</small></div>
+  <p class="trader-market"><b>${escapeHtml(source?.market||slots[activeIndex]?.params?.market||'No chart loaded')}</b> · ${escapeHtml(source?.timeframe||slots[activeIndex]?.params?.timeframe||'—')} · ${escapeHtml(source?.label||'public chart source')}</p>
+  <p class="trader-boundary">${supported?'This chart source is eligible for the local paper simulator. Orders remain simulated.':`Paper order entry is unavailable for this chart. Quant Lab is showing ${escapeHtml(source?.type||'public crypto data')}; the current simulator requires stored micro-futures bars. No order will be sent.`}</p>
+  <div class="trader-ticket"><div class="trader-ticket-head"><strong>Order ticket</strong><span>SIM · PAPER</span></div><label>Side<select id="traderSide"><option value="long" ${side==='long'?'selected':''}>Buy / Long</option><option value="short" ${side==='short'?'selected':''}>Sell / Short</option></select></label><div class="panel-row"><label>Order type<select id="traderType"><option value="market">Market</option><option value="limit">Limit</option></select></label><label>Quantity<input id="traderQty" type="number" min="1" step="1" value="1"></label></div><label>Limit price<input id="traderLimit" type="number" min="0" step="any" placeholder="Only used for limit orders"></label><button id="traderReview" class="trader-submit" type="button" disabled>${supported&&account?'Review paper order':'Unavailable for this chart'}</button><small class="trader-cutoff">Chart cutoff: ${source?escapeHtml(utc(source.cutoff)):'not loaded'}</small></div>
+  <div class="trader-list-head"><strong>Orders &amp; positions</strong><button id="traderRefresh" type="button">Refresh</button></div><div id="traderLedger" class="trader-ledger"><p>${account?'Loading account activity…':'Select a SIM account to view its activity.'}</p></div>
+  <div class="trader-create"><strong>Simulation accounts</strong><p>Create a virtual account stored on this device. It does not connect to a broker.</p><form id="createSimAccount"><label>Account name<input name="name" maxlength="80" required placeholder="e.g. BTC paper study"></label><label>Starting virtual balance (USD)<input name="starting_balance" type="number" min="1" step="any" value="10000" required></label><button type="submit">Create SIM account</button></form><p id="traderNotice" class="muted" role="status"></p></div>`);
+  $('#chartTraderButton').setAttribute('aria-expanded','true');
+  $('#traderType').addEventListener('change',()=>{$('#traderLimit').closest('label').hidden=$('#traderType').value!=='limit';});
+  $('#traderType').dispatchEvent(new Event('change'));
+  $('#traderReview').addEventListener('click',()=>{
+    if(!supported||!account)return;
+    $('#traderNotice').textContent='Review flow is ready when this chart is backed by stored simulator bars. The current public crypto snapshot cannot be submitted to the micro-futures simulator.';
+  });
+  $('#traderRefresh').addEventListener('click',()=>void loadTraderLedger());
+  $('#createSimAccount').addEventListener('submit',async event=>{
+    event.preventDefault();const form=new FormData(event.currentTarget);
+    const button=event.currentTarget.querySelector('button');button.disabled=true;
+    try{const account=await simRequest('accounts',{method:'POST',body:JSON.stringify({name:form.get('name'),starting_balance:form.get('starting_balance')})});
+      simAccounts.push(account);activeAccountId=account.account_id;syncAccountPicker();renderChartTrader(side);
+    }catch(error){$('#traderNotice').textContent=error.message;}
+    finally{if($('#createSimAccount button'))$('#createSimAccount button').disabled=false;}
+  });
+  void loadTraderLedger();
+}
+async function loadTraderLedger(){
+  const target=$('#traderLedger');if(!target)return;
+  if(!activeAccountId){target.innerHTML='<p>Select or create a SIM account to see activity.</p>';return;}
+  try{
+    const result=await simRequest(`positions?account_id=${encodeURIComponent(activeAccountId)}`,{method:'GET'});
+    if(!$('#traderLedger'))return;
+    const orders=result.orders||[],positions=result.positions||[];
+    if(!orders.length&&!positions.length){target.innerHTML='<p>No paper orders or positions in this account yet.</p>';return;}
+    const rows=[...orders.slice(0,8).map(order=>`<div class="trader-ledger-row"><strong>${escapeHtml(order.side)} ${fmt(order.quantity,0)} · ${escapeHtml(order.symbol)}</strong><small>Order · ${escapeHtml(order.status)} · ${escapeHtml(order.timeframe)}</small></div>`),...positions.slice(0,8).map(position=>`<div class="trader-ledger-row"><strong>${escapeHtml(position.side)} ${fmt(position.quantity,0)} · ${escapeHtml(position.symbol)}</strong><small>Position · ${escapeHtml(position.status)} · entry ${fmt(position.entry_price,2)}</small></div>`)];
+    target.innerHTML=rows.join('');
+  }catch(error){target.innerHTML=`<p class="warning">${escapeHtml(error.message)}</p>`;}
+}
+$('#chartTraderButton').addEventListener('click',()=>{if(activePanel==='trader'&&!$('#sidePanel').hidden){closePanel();$('#chartTraderButton').setAttribute('aria-expanded','false');}else openTradePanel();});
+$('#quickBuy').addEventListener('click',()=>openTradePanel('long'));
+$('#quickSell').addEventListener('click',()=>openTradePanel('short'));
+$('#chartContextMenu').addEventListener('click',event=>{
+  const button=event.target.closest('[data-trade-side]');if(button)openTradePanel(button.dataset.tradeSide);
+  else if(event.target.closest('[data-trader-open]'))openTradePanel();
+});
+document.addEventListener('pointerdown',event=>{if(!event.target.closest('#chartContextMenu'))closeContextMenu();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeContextMenu();});
+$('#chartGrid').addEventListener('contextmenu',event=>{
+  if(!event.target.closest('.chart-host'))return;
+  event.preventDefault();
+  const menu=$('#chartContextMenu');const bounds=$('.workspace').getBoundingClientRect();
+  menu.style.left=`${Math.max(8,Math.min(event.clientX-bounds.left,bounds.width-240))}px`;
+  menu.style.top=`${Math.max(8,Math.min(event.clientY-bounds.top,bounds.height-100))}px`;menu.hidden=false;
+});
+loadSimAccounts();
 function updateClock(){ $('#clock').textContent=new Date().toISOString().slice(11,19); }
 updateClock(); setInterval(updateClock,1000);
 function validMarket(value){ return /^[A-Z0-9/_-]{1,32}$/.test(value); }
@@ -89,7 +180,7 @@ function slotLabel(slot){return slot.source?`${slot.source.market} · ${slot.sou
 function makeSlot(index,params){
   const cell=document.createElement('section');cell.className='chart-cell';cell.dataset.slot=String(index);
   const head=document.createElement('button');head.type='button';head.className='chart-cell-head';head.innerHTML=`<span class="cell-number">${String(index+1).padStart(2,'0')}</span><strong>${escapeHtml(params.market)}</strong><small>${escapeHtml(params.timeframe)} · ${escapeHtml(providerSpecs[params.id].label)}</small>`;
-  const host=document.createElement('div');host.className='chart-host';host.setAttribute('aria-label',`Vela chart ${index+1}`);
+  const host=document.createElement('div');host.className='chart-host';host.setAttribute('aria-label',`Quant Lab chart ${index+1}`);
   const error=document.createElement('div');error.className='chart-error';error.hidden=true;
   cell.append(head,host,error);cell.addEventListener('pointerdown',()=>activateSlot(index));head.addEventListener('click',()=>activateSlot(index));
   $('#chartGrid').append(cell);
@@ -142,6 +233,7 @@ function refreshActivePanel(){
   if(activePanel==='strategy')renderStrategy();
   if(activePanel==='indicators')void renderIndicators();
   if(activePanel==='replay')renderReplay();
+  if(activePanel==='trader')renderChartTrader();
 }
 function activateSlot(index,refresh=true){
   const slot=slots[index];if(!slot)return;
