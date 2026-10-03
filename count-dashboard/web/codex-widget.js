@@ -239,10 +239,12 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     currentWorkCard=null;
   }
   function readableToolName(tool, server='') {
-    const known={read_chart:'Reading the selected chart',dashboard_overview:'Checking Count Desk context',read_trading_journal:'Checking available journal records',read_liquidity_lab:'Checking Quant Lab study records',read_market_research:'Checking approved market context and sentiment'};
+    const known={read_chart:'Reading the selected chart',dashboard_overview:'Checking Count Desk context',read_trading_journal:'Checking available journal records',read_liquidity_lab:'Checking Quant Lab study records',read_market_research:'Checking approved market context'};
     if (known[tool]) return known[tool];
+    if (/^cua_repl$/i.test(server)) return 'Checking the visible workspace context';
+    if (/web|search/i.test(`${server} ${tool}`)) return 'Checking current public sources';
     const human=String(tool||'workspace source').replaceAll('_',' ').replace(/\b\w/g,letter=>letter.toUpperCase());
-    return server ? `Reading ${server} · ${human}` : `Checking ${human}`;
+    return server && !/codex|mcp|workspace/i.test(server) ? `Checking ${server} · ${human}` : `Checking ${human}`;
   }
   function refreshList(threads) {
     const selected = threadId;
@@ -491,21 +493,17 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       addWorkStep(`Current public source search ${done?'complete':'needs attention'}`,item.id||`web-${workSteps.size}`,done?'done':'failed');
       setStatus(`Current public source search ${done?'complete':'needs attention'}`,!done);
     } else if (method === 'item/started' && item.type === 'commandExecution') {
-      const label=activeMode==='build'?'Running a requested local build or check':'Running a workspace command';
+      const label=activeMode==='build'?'Running a requested local command':'Using a workspace utility';
       addWorkStep(label,item.id||`command-${workSteps.size}`,'active'); setStatus(label);
     } else if (method === 'item/completed' && item.type === 'commandExecution') {
       const done=item.status==='completed';
-      const label=`Local build or check ${done?'finished':'needs attention'}`;
+      const label=`Workspace utility ${done?'finished':'needs attention'}`;
       addWorkStep(label,item.id||`command-${workSteps.size}`,done?'done':'failed'); setStatus(label,!done);
     } else if (method === 'item/started' && item.type === 'fileChange') {
       const label='Editing the requested workspace files'; addWorkStep(label,item.id||`edit-${workSteps.size}`,'active'); setStatus(label);
     } else if (method === 'item/completed' && item.type === 'fileChange') {
       const done=item.status!=='failed'; const label=`Workspace edit ${done?'complete':'needs attention'}`;
       addWorkStep(label,item.id||`edit-${workSteps.size}`,done?'done':'failed'); setStatus(label,!done);
-    } else if (method === 'item/started' && item.type === 'reasoning') {
-      addWorkStep('Reviewing the available evidence',item.id||`review-${workSteps.size}`,'active'); setStatus('Reviewing the available evidence');
-    } else if (method === 'item/completed' && item.type === 'reasoning') {
-      addWorkStep('Evidence review complete',item.id||`review-${workSteps.size}`,'done');
     } else if (method === 'widget/approvalDeclined') {
       setStatus('A requested action was declined by the current permission mode.', true);
     } else if (method === 'widget/approvalRequested') {

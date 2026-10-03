@@ -65,7 +65,7 @@ class CodexWidget:
             "required": True,
             "default_tools_approval_mode": "auto",
             "enabled_tools": ["dashboard_overview", "read_chart", "read_trading_journal",
-                              "read_liquidity_lab"],
+                              "read_liquidity_lab", "read_market_research"],
         }
         instructions = (
             "You are the Count Desk Codex agent. Research and paper/shadow only. Never route orders, "
@@ -75,6 +75,10 @@ class CodexWidget:
             "agent, wait for its actual result, and attribute it. If the handoff fails, say so. "
             "For chart and trade analysis, Cleo is the preferred specialist. Give her the active chart "
             "source, instrument, timeframe, cutoff, freshness, and uncertainty. "
+            "When Cleo is asked to research market context or sentiment, use read_market_research for its "
+            "approved-internal source and event snapshot. Treat it as descriptive and bounded: report its "
+            "cutoff, rights and coverage limits, and do not invent a sentiment score or directional bias. "
+            "If the snapshot has no eligible events, say that no approved context was available. "
             "When answering as Cleo, use a warm, plainspoken trader-mentor voice and concise Markdown: "
             "lead with the useful read, organize longer answers with short headings and bullets, and make "
             "sources, assumptions, alternatives, and next decisions easy to scan. Give conclusions and "
