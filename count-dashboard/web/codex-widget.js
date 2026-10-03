@@ -645,7 +645,11 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       stream.scrollTop = stream.scrollHeight;
     } else if (method === 'item/completed' && item.type === 'agentMessage') {
       const body = messages.get(item.id) || bubble('agent', '', item.id);
-      renderAgentAnswer(body, item.text || body.textContent, activeChartRead);
+      const content = item.text || body.textContent;
+      // Codex can complete a commentary message while Cleo is still working. Keep it visible as progress,
+      // but do not render the final chart card or report missing marks until the final answer arrives.
+      if (activeChartRead && item.phase === 'commentary') renderMarkdown(body, content);
+      else renderAgentAnswer(body, content, activeChartRead);
     } else if (method === 'item/started' && item.type === 'subAgentActivity') {
       const actualName = item.agentName || item.name;
       const label=actualName ? `${actualName.replaceAll('_',' ')} specialist started` : `Specialist started${requestedAgent ? ` · ${requestedAgent}` : ''}`;

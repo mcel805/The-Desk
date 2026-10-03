@@ -541,7 +541,12 @@ class CodexWidget:
                 "enough evidence for defensible anchors, explain that in the short readout and omit the markup "
                 "block. The chart app validates and draws the marks; you do not issue drawing commands."
             )
-        if agent:
+        if agent == "cleo" and skill == "cleo":
+            prompt = (
+                "Cleo is the selected responder. Apply the included Cleo skill directly in this turn; do not spawn or wait for a second Cleo specialist. "
+                "Return the chart read and any validated chart-markup block yourself.\n\n" + prompt
+            )
+        elif agent:
             prompt = (f"Delegate this request to the project-scoped custom Codex agent named {agent}. "
                       "Wait for its actual result and attribute it. If delegation is unavailable, say so.\n\n" + prompt)
         input_items: list[dict] = [{"type": "text", "text": f"${skill} {prompt}" if skill else prompt}]

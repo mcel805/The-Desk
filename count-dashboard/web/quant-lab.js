@@ -2,7 +2,7 @@ import {runSmaBacktest} from './quant-backtest.mjs';
 import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
 import {renderQuantOrderFlow,renderQuantExecutedOrderFlow} from './quant-order-flow-overlays.mjs?v=2';
 import {fetchCoinbaseFootprint} from './coinbase-footprint-feed.mjs';
-import {createCodexWidget} from './codex-widget.js?v=7';
+import {createCodexWidget} from './codex-widget.js?v=9';
 import {registerVolumeAnalyst} from './volume-analyst.mjs?v=5';
 
 const $ = selector => document.querySelector(selector);
