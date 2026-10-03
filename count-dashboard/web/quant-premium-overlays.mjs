@@ -9,6 +9,7 @@ export const quantPremiumItems={
   vwap:{name:'VWAP',kind:'indicator',image:'volume-profile-color.png',description:'UTC day anchored HLC3 × reported candle volume, with a volume weighted deviation band.'},
   footprint:{name:'Footprint',kind:'indicator',image:'volume-profile-color.png',description:'Executed bid and ask volume at price on the latest complete Coinbase Exchange bar. Maker side is inverted to aggressor.',requiresExecutionFeed:true},
   'volume-bubbles':{name:'Volume Bubbles',kind:'indicator',image:'volume-profile-color.png',description:'Executed size clusters on the latest complete Coinbase Exchange bar. Availability requires full trade pagination and volume reconciliation.',requiresExecutionFeed:true},
+  'ttp-volume-analyst':{name:'TTP RelativeVolume',kind:'indicator',image:'volume-profile-color.png',description:'Lower indicator pane with relative-volume columns, same-time average, and optional colored bars or price symbols. Loads supplemental public history. Descriptive only.'},
   'smart-fib':{name:'Smart Fib',kind:'tool',image:'fibonacci-color.png',description:'Hover a confirmed 1h swing to preview retracements; lock it to track the latest extreme.'},
 };
 

@@ -3,8 +3,10 @@ import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOve
 import {renderQuantOrderFlow,renderQuantExecutedOrderFlow} from './quant-order-flow-overlays.mjs?v=2';
 import {fetchCoinbaseFootprint} from './coinbase-footprint-feed.mjs';
 import {createCodexWidget} from './codex-widget.js?v=4';
+import {registerVolumeAnalyst} from './volume-analyst.mjs?v=5';
 
 const $ = selector => document.querySelector(selector);
+registerVolumeAnalyst();
 const providerSpecs = {
   binance:{label:'Binance public data',className:'BinanceProvider',market:'BTCUSDT',type:'spot or perpetual, according to market symbol'},
   coinbase:{label:'Coinbase Exchange public data',className:'CoinbaseProvider',market:'BTC-USD',type:'spot'},
@@ -235,6 +237,7 @@ function renderExecutionPanel(slot){
   table.append(tbody);scroll.append(table);panel.append(scroll);
 }
 function clearPremium(slot,id){
+  if(id==='ttp-volume-analyst'){const handle=slot.chart?.indicators?.().find(item=>item.nativeType==='ttp-relative-volume');handle?.remove();}
   if(id==='smart-fib'){slot.fib?.destroy();slot.fib=null;slot.host.onpointerleave=null;}
   for(const drawingId of slot.premiumDrawings.get(id)||[])slot.chart?.drawings?.remove?.(drawingId);
   slot.premiumDrawings.delete(id);
@@ -246,6 +249,14 @@ function drawFor(slot,id){
     clear:()=>{for(const drawingId of ids)slot.chart.drawings.remove(drawingId);ids.length=0;}};
 }
 async function addPremium(slot,id){
+  if(id==='ttp-volume-analyst'){
+    clearPremium(slot,id);
+    const handle=slot.chart?.addNativeIndicator?.('ttp-relative-volume',{inputs:{provider:slot.params.id,ticker:slot.params.market}});
+    if(!handle)throw new Error('The chart could not create the native RelativeVolume indicator.');
+    slot.premium.add(id);
+    slot.premiumStatus=`TTP RelativeVolume · dedicated indicator pane · separately loads up to 5,000 prior bars to build the same-time UTC reference · ${providerSpecs[slot.params.id].label} · ${slot.params.market} ${slot.params.timeframe} · last completed bar ${utc(slot.source.cutoff)} · descriptive, unscored.`;
+    return;
+  }
   if(quantPremiumItems[id]?.requiresExecutionFeed&&slot.params.id!=='coinbase')throw new Error('Select a Coinbase Exchange chart for executed-trade Footprint or Bubbles.');
   if(!slot.chart?.drawings?.supported||typeof slot.chart.drawings.add!=='function')throw new Error('This chart renderer cannot display research drawings.');
   const chartAtStart=slot.chart;
@@ -284,7 +295,7 @@ async function addPremium(slot,id){
       slot.executionPanels.set(id,{payload,result});slot.executionPanelTab=id;renderExecutionPanel(slot);
       slot.premiumStatus=`${quantPremiumItems[id].name} · ${result.status} · ${slot.params.market} ${slot.params.timeframe} · completed bar opened ${utc(result.cutoff)} · local research only; no redistribution or trade execution.`;
     }else{
-      throw new Error('Unknown premium study.');
+      throw new Error('Unknown premium indicator.');
     }
     slot.premium.add(id);
   }catch(error){clearPremium(slot,id);throw error;}
@@ -416,7 +427,7 @@ $('#timeframe').addEventListener('change',()=>setStatus('Interval changed. Press
 window.addEventListener('resize',resizeCharts);
 
 async function renderIndicators() {
-  panel('indicators','Chart studies','<div class="indicator-tabs" role="tablist" aria-label="Chart study categories"><button type="button" role="tab" data-indicator-tab="vela">Vela defaults</button><button type="button" role="tab" data-indicator-tab="premium">Premium</button><button type="button" role="tab" data-indicator-tab="tools">Tools</button></div><p id="indicatorIntro"></p><p id="indicatorStatus" class="indicator-status" role="status" aria-live="polite"></p><div id="indicatorList" class="panel-list" role="tabpanel"></div>');
+  panel('indicators','Indicators','<div class="indicator-tabs" role="tablist" aria-label="Chart study categories"><button type="button" role="tab" data-indicator-tab="vela">Vela defaults</button><button type="button" role="tab" data-indicator-tab="premium">Premium</button><button type="button" role="tab" data-indicator-tab="tools">Tools</button></div><p id="indicatorIntro"></p><p id="indicatorStatus" class="indicator-status" role="status" aria-live="polite"></p><div id="indicatorList" class="panel-list" role="tabpanel"></div>');
   for(const button of $('#panelBody').querySelectorAll('[data-indicator-tab]')){
     button.setAttribute('aria-selected',String(button.dataset.indicatorTab===indicatorTab));
     button.addEventListener('click',()=>{indicatorTab=button.dataset.indicatorTab;void renderIndicators();});
@@ -425,8 +436,8 @@ async function renderIndicators() {
   const slot=slots[activeIndex];
   $('#indicatorStatus').textContent=slot?.premiumStatus||'';
   if(indicatorTab!=='vela'){
-    $('#indicatorIntro').textContent=indicatorTab==='premium'?'Volume Profile, TPO, and VWAP use completed candle bars. Coinbase Footprint and Bubbles use a recent completed bar only when public trade pagination and volume reconcile. Local research use only; all studies are descriptive and unscored.':'Interactive chart tools use confirmed swings. Hover the chart after adding Smart Fib to preview its levels.';
-    const ids=indicatorTab==='premium'?['liquidity','volume-profile','tpo','vwap','footprint','volume-bubbles']:['smart-fib'];
+    $('#indicatorIntro').textContent=indicatorTab==='premium'?'TTP RelativeVolume is a native indicator with its own lower pane. It loads additional public bars, up to the provider limit, to build the same-time UTC historical reference; outputs are descriptive and unscored.':'Interactive chart tools use confirmed swings. Hover the chart after adding Smart Fib to preview its levels.';
+    const ids=indicatorTab==='premium'?['liquidity','volume-profile','tpo','vwap','footprint','volume-bubbles','ttp-volume-analyst']:['smart-fib'];
     for(const id of ids){
       const item=quantPremiumItems[id],active=Boolean(slot?.premium.has(id));
       const card=document.createElement('article');card.className=`card premium-card${active?' is-active':''}`;
@@ -473,7 +484,7 @@ async function renderIndicators() {
       button.addEventListener('click',()=>{try{if(item.present){const handle=chart.indicators().find(h=>h.nativeType===item.type);handle?.remove();}else chart.addNativeIndicator(item.type);renderIndicators();}catch(error){setStatus(error.message,true);}});
       card.append(title,detail,button);list.append(card);
     }
-    if(!indicators.length)list.textContent='No native studies are available.';
+    if(!indicators.length)list.textContent='No native indicators are available.';
   } catch(error){list.textContent=error.message;}
 }
 $('#indicatorButton').addEventListener('click',renderIndicators);
