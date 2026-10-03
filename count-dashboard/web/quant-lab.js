@@ -1,4 +1,5 @@
 import {runSmaBacktest} from './quant-backtest.mjs';
+import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
 
 const $ = selector => document.querySelector(selector);
 const providerSpecs = {
@@ -20,6 +21,7 @@ const pendingBars = new Map();
 let history = [];
 let versions = [];
 let activePanel = '';
+let indicatorTab = 'vela';
 let lastResult = null;
 let lastRunKey = '';
 
@@ -91,7 +93,46 @@ function makeSlot(index,params){
   const error=document.createElement('div');error.className='chart-error';error.hidden=true;
   cell.append(head,host,error);cell.addEventListener('pointerdown',()=>activateSlot(index));head.addEventListener('click',()=>activateSlot(index));
   $('#chartGrid').append(cell);
-  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[]};
+  return {index,cell,head,host,error,params,chart:null,bars:[],source:null,sequence:0,unsub:[],premium:new Set(),premiumDrawings:new Map(),fib:null,premiumStatus:''};
+}
+function clearPremium(slot,id){
+  if(id==='smart-fib'){slot.fib?.destroy();slot.fib=null;slot.host.onpointerleave=null;}
+  for(const drawingId of slot.premiumDrawings.get(id)||[])slot.chart?.drawings?.remove?.(drawingId);
+  slot.premiumDrawings.delete(id);
+}
+function drawFor(slot,id){
+  const ids=[];slot.premiumDrawings.set(id,ids);
+  return {add:(type,config)=>{const drawing=slot.chart.drawings.add(type,config);if(drawing?.id)ids.push(drawing.id);return drawing;},
+    clear:()=>{for(const drawingId of ids)slot.chart.drawings.remove(drawingId);ids.length=0;}};
+}
+async function addPremium(slot,id){
+  if(!slot.chart?.drawings?.supported||typeof slot.chart.drawings.add!=='function')throw new Error('This chart renderer cannot display research drawings.');
+  const chartAtStart=slot.chart;
+  clearPremium(slot,id);
+  const draw=drawFor(slot,id);
+  try{
+    if(id==='liquidity'){
+      const chartBars=completedBars(slot.bars,slot.params.timeframe);
+      const contextFrames=['1m','5m','15m','30m','1h'];
+      const wanted=(['1m','5m','15m','1h'].includes(slot.params.timeframe)?contextFrames:['30m','1h'])
+        .filter(timeframe=>timeframe!==slot.params.timeframe);
+      const series=await Promise.allSettled(wanted.map(async timeframe=>({timeframe,bars:await fetchBars({...slot.params,timeframe})})));
+      if(slot.chart!==chartAtStart||!slots.includes(slot))return;
+      const available=series.filter(result=>result.status==='fulfilled').map(result=>result.value);
+      const result=renderLiquidityOverlay([{timeframe:slot.params.timeframe,bars:chartBars},...available],slot.params.timeframe,chartBars,draw.add);
+      if(!result.count)throw new Error('No confirmed Liquidity levels are drawable in this completed-bar snapshot.');
+      slot.premiumStatus=`Liquidity · ${result.count} chart drawings · ${result.method} · ${providerSpecs[slot.params.id].label} · ${slot.params.market} ${slot.params.timeframe} · last completed bar opened ${utc(result.cutoff)} · descriptive, unscored.`;
+    }else if(id==='smart-fib'){
+      const sourceBars=await fetchBars({...slot.params,timeframe:'1h'});
+      if(slot.chart!==chartAtStart||!slots.includes(slot))return;
+      const closed=completedBars(sourceBars,'1h');
+      if(closed.length<5)throw new Error('Smart Fib needs at least five completed 1h bars.');
+      slot.fib=createSmartFibOverlay(slot.chart,closed,draw);
+      if(!slot.fib.swingCount)throw new Error('No confirmed 1h swings are available in this snapshot.');
+      slot.premiumStatus=`Smart Fib · ${slot.fib.swingCount} confirmed 1h swings · ${providerSpecs[slot.params.id].label} · ${slot.params.market} · last completed 1h bar opened ${utc(closed.at(-1).time)} · hover a swing to preview, then lock it in Tools · descriptive, unscored.`;
+    }
+    slot.premium.add(id);
+  }catch(error){clearPremium(slot,id);throw error;}
 }
 function updateSlotHead(slot){
   slot.head.innerHTML=`<span class="cell-number">${String(slot.index+1).padStart(2,'0')}</span><strong>${escapeHtml(slot.source?.market||slot.params.market)}</strong><small>${escapeHtml(slot.source?.timeframe||slot.params.timeframe)} · ${escapeHtml(providerSpecs[slot.params.id].label)}</small>`;
@@ -137,6 +178,7 @@ async function loadSlot(index,params,reuse=null){
     if(slot.sequence!==sequence || slots[index]!==slot)return;
     if(!nextBars.length)throw new Error('The public provider returned no valid bars. Check the symbol or network.');
     for(const off of slot.unsub)off();slot.unsub=[];
+    for(const id of slot.premium)clearPremium(slot,id);
     slot.chart?.destroy();slot.host.replaceChildren();
     const nextChart=new window.Vela.Vela(slot.host,{symbol:params.market,timeframe:params.timeframe,data:nextBars,live:false,theme:'dark',drawings:true,volume:true,currentPriceLine:true,timeScale:{timezone:'UTC'},nativeBackend:'canvas2d',animations:{intro:false}});
     slot.chart=nextChart;
@@ -146,6 +188,9 @@ async function loadSlot(index,params,reuse=null){
     slot.bars=nextBars;slot.source={...params,label:providerSpecs[params.id].label,type:providerSpecs[params.id].type,cutoff:nextBars.at(-1).time,loadedAt:Date.now()};
     slot.unsub.push(nextChart.renderer.onCrosshairMove(event=>syncCrosshairFrom(index,event)));
     slot.unsub.push(nextChart.renderer.onConfigChanged(()=>syncStyleFrom(index)));
+    for(const id of slot.premium){
+      try{await addPremium(slot,id);}catch(error){slot.premium.delete(id);slot.premiumStatus=`${quantPremiumItems[id].name} unavailable: ${error.message}`;}
+    }
     updateSlotHead(slot);slot.error.hidden=true;
     if(syncPrefs.style && index!==activeIndex)syncStyleFrom(activeIndex);
     if(index===activeIndex){lastResult=null;lastRunKey='';activateSlot(index,false);refreshActivePanel();}
@@ -167,7 +212,7 @@ function updateLayoutPicker(){
 function setLayout(count,{initial=false,charts=[]}={}){
   if(!Number.isInteger(count)||count<1||count>6)return;
   const seed=slots[activeIndex]?.source || selectedParams();
-  while(slots.length>count){const slot=slots.pop();slot.sequence++;for(const off of slot.unsub)off();slot.chart?.destroy();slot.cell.remove();}
+  while(slots.length>count){const slot=slots.pop();slot.sequence++;for(const off of slot.unsub)off();for(const id of slot.premium)clearPremium(slot,id);slot.chart?.destroy();slot.cell.remove();}
   const toLoad=[];
   while(slots.length<count){
     const index=slots.length;
@@ -213,12 +258,48 @@ $('#timeframe').addEventListener('change',()=>setStatus('Interval changed. Press
 window.addEventListener('resize',resizeCharts);
 
 async function renderIndicators() {
-  panel('indicators','Native Vela indicators','<p>These studies run in the Vela renderer on the loaded chart. They do not validate a trading strategy.</p><div id="indicatorList" class="panel-list"></div>');
+  panel('indicators','Chart studies','<div class="indicator-tabs" role="tablist" aria-label="Chart study categories"><button type="button" role="tab" data-indicator-tab="vela">Vela defaults</button><button type="button" role="tab" data-indicator-tab="premium">Premium</button><button type="button" role="tab" data-indicator-tab="tools">Tools</button></div><p id="indicatorIntro"></p><p id="indicatorStatus" class="indicator-status" role="status" aria-live="polite"></p><div id="indicatorList" class="panel-list" role="tabpanel"></div>');
+  for(const button of $('#panelBody').querySelectorAll('[data-indicator-tab]')){
+    button.setAttribute('aria-selected',String(button.dataset.indicatorTab===indicatorTab));
+    button.addEventListener('click',()=>{indicatorTab=button.dataset.indicatorTab;void renderIndicators();});
+  }
   const list=$('#indicatorList');
   if (!chart) { list.textContent='Load a chart first.'; return; }
+  const slot=slots[activeIndex];
+  $('#indicatorStatus').textContent=slot.premiumStatus;
+  if(indicatorTab!=='vela'){
+    $('#indicatorIntro').textContent=indicatorTab==='premium'?'Premium research indicators use completed public bars on the selected chart. Levels and convergence are descriptive, with no measured outcomes.':'Interactive chart tools use confirmed swings. Hover the chart after adding Smart Fib to preview its levels.';
+    const id=indicatorTab==='premium'?'liquidity':'smart-fib',item=quantPremiumItems[id],active=slot.premium.has(id);
+    const card=document.createElement('article');card.className=`card premium-card${active?' is-active':''}`;
+    const image=document.createElement('img');image.src=`./tool-belt-assets/${item.image}`;image.alt='';image.className='premium-icon';
+    const copy=document.createElement('div');copy.className='premium-copy';
+    const title=document.createElement('strong');title.textContent=item.name;
+    const detail=document.createElement('small');detail.textContent=item.description;
+    const state=document.createElement('span');state.className='premium-state';state.textContent=active?'On selected chart':'Available';
+    copy.append(title,detail,state);
+    const actions=document.createElement('div');actions.className='premium-actions';
+    const toggle=document.createElement('button');toggle.type='button';toggle.textContent=active?'Remove':'Add';
+    toggle.addEventListener('click',async()=>{
+      toggle.disabled=true;
+      try{
+        if(active){clearPremium(slot,id);slot.premium.delete(id);slot.premiumStatus=`${item.name} removed from chart ${slot.index+1}.`;}
+        else await addPremium(slot,id);
+      }catch(error){slot.premiumStatus=`${item.name} unavailable: ${error.message}`;}
+      if(activePanel==='indicators'&&slots[activeIndex]===slot)void renderIndicators();
+    });
+    actions.append(toggle);
+    if(id==='smart-fib'&&active){
+      const lock=document.createElement('button');lock.type='button';lock.textContent=slot.fib?.locked?'Unlock swing':'Lock preview';
+      lock.addEventListener('click',()=>{if(slot.fib?.locked)slot.fib.unlock();else if(!slot.fib?.lock())slot.premiumStatus='Hover a confirmed 1h swing on the chart before locking it.';void renderIndicators();});
+      actions.append(lock);
+    }
+    card.append(image,copy,actions);list.append(card);
+    return;
+  }
+  $('#indicatorIntro').textContent='Native Vela studies run in the renderer on the selected chart. They do not validate a trading strategy.';
   try {
     const indicators=await chart.availableNativeIndicators();
-    if (activePanel!=='indicators')return;
+    if (activePanel!=='indicators'||indicatorTab!=='vela'||slots[activeIndex]!==slot)return;
     list.replaceChildren();
     for(const item of indicators){
       const card=document.createElement('div'); card.className='card';

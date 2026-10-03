@@ -48,6 +48,19 @@
 .chart-cell-head strong{color:#e4e6ed;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chart-cell-head small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chart-cell-head .cell-number{color:#bda8f1;font-weight:800}
+.indicator-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:13px}
+.side-panel .indicator-tabs button{min-width:0;padding:8px 4px;border-color:#454550;background:#24252d;color:#bfc0ca;font-weight:700}
+.side-panel .indicator-tabs button[aria-selected="true"]{border-color:#a78ddc;background:#423554;color:#fff}
+.side-panel .indicator-status{min-height:0;margin:0 0 8px;color:#cbb9ef;font-size:10px}
+.side-panel .premium-card{display:grid;grid-template-columns:54px minmax(0,1fr);gap:10px;align-items:start}
+.side-panel .premium-card.is-active{border-color:#8875ad;background:#292634}
+.premium-icon{width:54px;height:54px;object-fit:contain;filter:grayscale(1);transition:filter .15s ease}
+.premium-card:hover .premium-icon,.premium-card:focus-within .premium-icon,.premium-card.is-active .premium-icon{filter:none}
+.premium-copy{min-width:0;padding-top:2px}
+.side-panel .premium-copy strong{display:block;font-size:13px}
+.side-panel .premium-copy small{line-height:1.4}
+.premium-state{display:block;margin-top:7px;color:#bba5ec;font:700 9px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.07em}
+.premium-actions{grid-column:2;display:flex;gap:6px;flex-wrap:wrap}
 .chart-host{flex:1;min-height:0;min-width:0;position:relative}
 .chart-cell .chart-error{z-index:3;top:10px;left:10px;right:10px}
 @media(max-width:900px){.layout-popover{left:auto;right:0}}
