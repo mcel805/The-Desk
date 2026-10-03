@@ -2,7 +2,7 @@ import {runSmaBacktest} from './quant-backtest.mjs';
 import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
 import {renderQuantOrderFlow,renderQuantExecutedOrderFlow} from './quant-order-flow-overlays.mjs?v=2';
 import {fetchCoinbaseFootprint} from './coinbase-footprint-feed.mjs';
-import {createCodexWidget} from './codex-widget.js?v=9';
+import {createCodexWidget} from './codex-widget.js?v=12';
 import {registerVolumeAnalyst} from './volume-analyst.mjs?v=5';
 
 const $ = selector => document.querySelector(selector);
@@ -696,7 +696,7 @@ function applyCleoMarkup(spec){
     const style=roleStyle[mark.role];
     // Vela places new line drawings just below the price series by default, keeping candle bodies and wicks in front.
     const label=String(mark.label||'').trim();
-    const drawing=slot.chart.drawings.add(type,{paneId:'price',anchors,style:{lineColor:style.color,lineWidth:1,lineStyle:style.dash},...(label?{text:{value:label,color:style.color,size:'tiny',hAlign:'right',vAlign:'bottom'}}:{})});
+    const drawing=slot.chart.drawings.add(type,{paneId:'price',anchors,style:{lineColor:style.color,lineWidth:1.5,lineStyle:style.dash},...(label?{text:{value:label,color:style.color,size:'tiny',hAlign:'right',vAlign:'bottom'}}:{})});
     if(!drawing?.id)throw new Error('Vela did not return a drawing id.');
     nextIds.push(drawing.id);
   };
@@ -719,14 +719,21 @@ captureChartImage:()=>slots[activeIndex]?.chart?.renderer?.screenshot?.()||'',co
   const charts=slots.filter(slot=>slot.source&&slot.bars.length).map(slot=>{
     const activeChart=slot.index===activeIndex;
     const drawings=slot.chart?.drawings?.all?.()||[];
+    const visibleRange=slot.chart?.getVisibleRange?.()||null;
+    const from=Number(visibleRange?.from),to=Number(visibleRange?.to);
+    const rangeIsValid=Number.isFinite(from)&&Number.isFinite(to)&&to>from;
+    const rangeBars=rangeIsValid?slot.bars.filter(bar=>Number(bar.time)>=from-(to-from)*0.15&&Number(bar.time)<=to):[];
+    // Keep chart reads focused on what is actually visible, with a little left context for swing structure.
+    // The full bar set stays loaded locally and remains the authority for validating returned anchors.
+    const analysisBars=rangeBars.length?rangeBars.slice(-320):slot.bars.slice(activeChart?-320:-120);
     return {chart:slot.index+1,provider:slot.source.id,sourceLabel:slot.source.label,symbol:slot.source.market,
       timeframe:slot.source.timeframe,cutoff:slot.source.cutoff,loadedAt:slot.source.loadedAt,
-      freshness:'unverified public provider snapshot',barCount:slot.bars.length,
-      visibleRange:slot.chart?.getVisibleRange?.()||null,
+      freshness:'unverified public provider snapshot',barCount:slot.bars.length,contextBarCount:analysisBars.length,
+      visibleRange,
       studies:[...slot.premium,...(slot.chart?.indicators?.()||[]).map(item=>item.nativeType).filter(Boolean)],
       drawings:drawings.slice(-80).map(item=>({id:item.id,type:item.type,anchors:item.anchors,
         label:item.text?.value||item.text?.text||''})),
-      bars:slot.bars.slice(activeChart?-500:-120).map(bar=>({time:bar.time,open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume}))};
+      bars:analysisBars.map(bar=>({time:bar.time,open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume}))};
   });
   return {tab:'Quant Lab',activeChart:activeIndex+1,chartCount:charts.length,charts,capturedAt:new Date().toISOString()};
 }});

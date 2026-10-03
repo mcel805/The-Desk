@@ -21,7 +21,7 @@ function chartSnapshot() {
   };
 }
 
-export function createCodexWidget(host, {contextProvider = chartSnapshot, surface = 'vela', applyChartMarkup = null, captureChartImage = null} = {}) {
+export function createCodexWidget(host, {contextProvider = chartSnapshot, surface = 'vela', applyChartMarkup = null, applyElliottMarkup = null, captureChartImage = null} = {}) {
   const root = document.createElement('section');
   root.className = 'codex-widget';
   root.dataset.surface = surface;
@@ -72,19 +72,26 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   let requestedAgent = '';
   let activeMode = 'research';
   let activeChartRead = false;
+  let chartReadFinalReturned = false;
   const messages = new Map();
   const appliedMarkupResults = new WeakMap();
   const approvalCards = new Map();
   let currentWorkCard = null;
   let workSteps = new Map();
   const primaryChart = chart => chart?.charts?.find(item => item.chart === chart.activeChart) || chart;
+  const isChartWorkflowNote = value => /^i(?:['’]m| am) (?:applying|using|following|handing|sending|reviewing)\b/i.test(String(value||'').trim())
+    && /\b(?:workflow|snapshot|for review|to cleo)\b/i.test(String(value||''));
 
   function assistantName() {
+    if (agentSelect.value === 'tradingagents') return 'TradingAgents';
     if (skillSelect.value === 'cleo' || agentSelect.value === 'cleo') return 'Cleo';
     return surface === 'quant-lab' ? 'Quant Lab' : 'Codex';
   }
   function updatePersona() {
-    persona.textContent = assistantName();
+    const name = assistantName();
+    persona.textContent = name;
+    textarea.setAttribute('aria-label', `Message ${name}`);
+    textarea.placeholder = `Ask ${name} about the chart, a market, or an indicator…`;
   }
   function loadProfile() {
     try {
@@ -105,6 +112,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       if (indicatorSkill) skillSelect.value = indicatorSkill.value;
     }
     if (!skillSelect.value && [...skillSelect.options].some(option => option.value === 'cleo')) skillSelect.value = 'cleo';
+    if (agentSelect.value === 'tradingagents' && skillSelect.value === 'cleo') skillSelect.value = '';
     updatePersona();
   }
   function openSetup() {
@@ -156,16 +164,25 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     skillSelect.disabled = value;
     agentSelect.disabled = value;
   }
-  function bubble(type, content, key = '', metadata = null) {
+  function bubble(type, content, key = '', metadata = null, existingBody = null, autoApplyMarkup = false) {
     const element = document.createElement('article');
     element.className = `codex-widget-message is-${type}`;
+    if (type === 'agent' && !activeChartRead && isChartWorkflowNote(content)) element.classList.add('is-chart-workflow-note');
     const label = document.createElement('strong');
     label.textContent = type === 'user' ? 'You' : type === 'activity' ? 'Work update' : assistantName();
-    const body = document.createElement(type === 'agent' ? 'div' : 'p');
+    const body = existingBody || document.createElement(type === 'agent' ? 'div' : 'p');
     if (type === 'agent') body.className='codex-widget-message-body codex-widget-markdown';
     body.textContent = content;
     element.append(label, body);
     if (metadata) {
+      if (typeof metadata.imagePreview === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/i.test(metadata.imagePreview)
+          && metadata.imagePreview.length <= 11_000_000) {
+        const preview = document.createElement('img');
+        preview.className = 'codex-widget-image-preview';
+        preview.src = metadata.imagePreview;
+        preview.alt = 'Chart image shared with Cleo';
+        element.append(preview);
+      }
       const note = document.createElement('small');
       note.className = 'codex-widget-receipt';
       note.textContent = [metadata.mode, metadata.skill && `$${metadata.skill}`,
@@ -173,13 +190,13 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
         metadata.chart && (() => { const current=primaryChart(metadata.chart); return [current?.sourceLabel || current?.provider || 'chart',
           current?.symbol || current?.market || 'symbol unknown', current?.timeframe || 'timeframe unknown',
           current?.cutoff ? new Date(current.cutoff).toISOString() : 'cutoff unknown',
-          current?.barCount != null && `${current.barCount} loaded bars`].filter(Boolean).join(' · '); })(),
+          current?.contextBarCount != null ? `${current.contextBarCount} visible bars shared · ${current.barCount} loaded` : current?.barCount != null && `${current.barCount} loaded bars`].filter(Boolean).join(' · '); })(),
         metadata.imageAttached && 'screenshot attached'].filter(Boolean).join(' · ');
       element.append(note);
     }
     stream.querySelector('.codex-widget-empty')?.remove();
     if (type !== 'activity') stream.querySelector('.codex-widget-message.is-activity')?.remove();
-    if (type === 'agent' && content) renderAgentAnswer(body, content);
+    if (type === 'agent' && content) renderAgentAnswer(body, content, autoApplyMarkup);
     stream.append(element);
     stream.scrollTop = stream.scrollHeight;
     if (key) messages.set(key, body);
@@ -255,18 +272,25 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     if (!match) return {match:null,markup:null};
     try {
       const parsed = JSON.parse(match[1]);
-      if (parsed?.schema === 'cleo.chart-markup.v1' && Array.isArray(parsed.marks)) return {match,markup:parsed};
+      if ((parsed?.schema === 'cleo.chart-markup.v1' && Array.isArray(parsed.marks))
+          || (parsed?.schema === 'cleo.elliott-markup.v1' && Array.isArray(parsed.primary?.pivots))) return {match,markup:parsed};
     } catch {}
     return {match,markup:null};
   }
+  function chartMarkCount(markup) {
+    return markup?.schema === 'cleo.elliott-markup.v1'
+      ? (markup.primary?.pivots?.length || 0) + (markup.alternate?.pivots?.length || 0) + (markup.projections?.length || 0) + (markup.invalidations?.length || 0)
+      : (markup?.marks?.length || 0);
+  }
   function applyStreamingMarkup(body, content) {
-    if (!activeChartRead || typeof applyChartMarkup !== 'function' || appliedMarkupResults.has(body)) return;
+    if (!activeChartRead || (!applyChartMarkup && !applyElliottMarkup) || appliedMarkupResults.has(body)) return;
     const {markup} = parseChartMarkup(content);
     if (!markup) return;
     try {
-      const result = applyChartMarkup(markup);
+      const result = markup.schema === 'cleo.elliott-markup.v1' ? applyElliottMarkup?.(markup) : applyChartMarkup?.(markup);
+      if (!result) throw new Error('This chart cannot apply the returned markup format.');
       appliedMarkupResults.set(body,{result});
-      setStatus(`Cleo mapped ${markup.marks.length} sourced chart marks`);
+      setStatus(`${assistantName()} mapped ${chartMarkCount(markup)} sourced chart marks`);
     } catch (error) {
       appliedMarkupResults.set(body,{error});
       setStatus(`Chart marks unavailable · ${error.message}`,true);
@@ -277,6 +301,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     const visibleText = match ? String(content).replace(match[0], '').trim() : String(content || '');
     const compactText = visibleText.replace(/^\s*#{1,3}\s*/gm, '').replace(/\*\*/g, '').trim();
     const shortRead = markup?.readout || {};
+    const markCount = chartMarkCount(markup);
     if (activeChartRead || (surface === 'quant-lab' && markup)) {
       body.replaceChildren();
       const readCard = document.createElement('section');
@@ -284,34 +309,40 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       const state = document.createElement('strong');
       state.className = 'codex-widget-chart-decision';
       state.textContent = String(shortRead.decision || 'CHART READ').toUpperCase().slice(0, 24);
+      const processOnly = !markup && isChartWorkflowNote(compactText);
       const headline = document.createElement('h3');
-      headline.textContent = String(shortRead.headline || compactText.split(/(?<=[.!?])\s+/)[0] || 'Cleo completed a chart read.').slice(0, 180);
+      headline.textContent = processOnly ? `${assistantName()} hasn’t completed the read yet.`
+        : String(shortRead.headline || compactText.split(/(?<=[.!?])\s+/)[0] || `${assistantName()} completed a chart read.`).slice(0, 110);
       const takeaway = document.createElement('p');
-      takeaway.textContent = String(shortRead.takeaway || compactText.split(/(?<=[.!?])\s+/).slice(1, 3).join(' ') || '').slice(0, 360);
+      takeaway.textContent = processOnly ? 'The chart was shared, but this reply contains no market findings.'
+        : String(shortRead.takeaway || compactText.split(/(?<=[.!?])\s+/).slice(1, 3).join(' ') || '').slice(0, 210);
       readCard.append(state, headline, takeaway);
       for (const [label, value] of [['Against', shortRead.countercase], ['Watch', shortRead.next]]) {
         if (!value) continue;
         const row = document.createElement('p');
         row.className = 'codex-widget-chart-read-row';
         const tag = document.createElement('b'); tag.textContent = `${label} · `;
-        row.append(tag, document.createTextNode(String(value).slice(0, 220)));
+        row.append(tag, document.createTextNode(String(value).slice(0, 140)));
         readCard.append(row);
       }
       const markStatus = document.createElement('small');
       markStatus.className = 'codex-widget-chart-mark-status';
-      if (markup && autoApplyMarkup && typeof applyChartMarkup === 'function') {
+      if (markup && autoApplyMarkup && (applyChartMarkup || applyElliottMarkup)) {
         const prior = appliedMarkupResults.get(body);
-        if (prior?.result) markStatus.textContent = prior.result.message || `Cleo marked ${markup.marks.length} chart locations.`;
+        if (prior?.result) markStatus.textContent = prior.result.message || `Cleo marked ${markCount} chart locations.`;
         else if (prior?.error) markStatus.textContent = `Chart marks unavailable · ${prior.error.message}`;
         else {
           try {
-            const result = applyChartMarkup(markup);
+            const result = markup.schema === 'cleo.elliott-markup.v1' ? applyElliottMarkup?.(markup) : applyChartMarkup?.(markup);
+            if (!result) throw new Error('This chart cannot apply the returned markup format.');
             appliedMarkupResults.set(body,{result});
-            markStatus.textContent = result?.message || `Cleo marked ${markup.marks.length} chart locations.`;
+            markStatus.textContent = result?.message || `Cleo marked ${markCount} chart locations.`;
           } catch (error) { appliedMarkupResults.set(body,{error}); markStatus.textContent = `Chart marks unavailable · ${error.message}`; }
         }
-      } else if (markup) markStatus.textContent = `${markup.marks.length} marks are available for this saved read.`;
-      else if (activeChartRead) markStatus.textContent = 'Cleo did not return source-validated chart marks for this read.';
+      } else if (markup) markStatus.textContent = `${markCount} chart locations are available for this saved read.`;
+      else if (activeChartRead) markStatus.textContent = processOnly
+        ? 'No chart findings or validated marks were returned. The shared chart context is shown with your message.'
+        : 'No source-validated chart marks were returned for this read.';
       if (markStatus.textContent) readCard.append(markStatus);
       const details = document.createElement('details');
       details.className = 'codex-widget-chart-read-details';
@@ -322,16 +353,17 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       body.append(readCard, details);
     } else renderMarkdown(body, visibleText);
     body.parentElement?.querySelector('.codex-widget-markup-action')?.remove();
-    if (!markup || typeof applyChartMarkup !== 'function') return;
+    if (!markup || (!applyChartMarkup && !applyElliottMarkup)) return;
     if (autoApplyMarkup && surface === 'quant-lab') return;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'codex-widget-markup-action';
-    button.textContent = `Add ${markup.marks.length} chart mark${markup.marks.length === 1 ? '' : 's'}`;
+    button.textContent = `Add ${markCount} chart mark${markCount === 1 ? '' : 's'}`;
     button.addEventListener('click', () => {
       button.disabled = true;
       try {
-        const result = applyChartMarkup(markup);
+        const result = markup.schema === 'cleo.elliott-markup.v1' ? applyElliottMarkup?.(markup) : applyChartMarkup?.(markup);
+        if (!result) throw new Error('This chart cannot apply the returned markup format.');
         button.textContent = result?.message || 'Marks added · select them on the chart to edit or erase';
       } catch (error) {
         button.disabled = false;
@@ -366,7 +398,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     const steps = document.createElement('ol'); steps.className='codex-widget-work-steps';
     const source = document.createElement('small'); source.className='codex-widget-work-source';
     const current=primaryChart(chart);
-    source.textContent=chart ? `${chart.chartCount||1} chart${chart.chartCount===1?'':'s'} shared · ${[current?.sourceLabel||current?.provider,current?.symbol||current?.market,current?.timeframe,current?.cutoff&&new Date(current.cutoff).toISOString(),current?.barCount!=null&&`${current.barCount} bars`].filter(Boolean).join(' · ')}${imageAttached?' · screenshot attached':''}` : `No chart context shared${imageAttached?' · screenshot attached':''}`;
+    source.textContent=chart ? `${chart.chartCount||1} chart${chart.chartCount===1?'':'s'} shared · ${[current?.sourceLabel||current?.provider,current?.symbol||current?.market,current?.timeframe,current?.cutoff&&new Date(current.cutoff).toISOString(),current?.contextBarCount!=null?`${current.contextBarCount} visible bars / ${current.barCount} loaded`:current?.barCount!=null&&`${current.barCount} bars`].filter(Boolean).join(' · ')}${imageAttached?' · chart image attached':''}` : `No chart context shared${imageAttached?' · screenshot attached':''}`;
     card.append(head,summary,steps,source); stream.append(card); stream.scrollTop=stream.scrollHeight;
     currentWorkCard={card,summary,steps,title,live};
     addWorkStep('Request sent to the workspace','request','done');
@@ -397,7 +429,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     currentWorkCard.card.classList.add(completed?'is-complete':'is-failed');
     currentWorkCard.live.textContent=completed?'DONE':'PAUSED';
     currentWorkCard.title.textContent=completed?'Review ready':'Needs attention';
-    currentWorkCard.summary.textContent=completed?'The response is ready. Check the source and limits noted in Cleo’s reply.':detail || 'The turn stopped before the review was complete.';
+    currentWorkCard.summary.textContent=completed?`The response is ready. Check the source and limits noted in ${assistantName()}’s reply.`:detail || 'The turn stopped before the review was complete.';
     for (const item of workSteps.values()) if (item.classList.contains('is-active')) item.classList.replace('is-active', completed?'is-done':'is-failed');
     currentWorkCard=null;
   }
@@ -436,17 +468,18 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       skillSelect.append(option);
     }
     for (const item of catalog.agents || []) {
-      const option = new Option(item.name.replaceAll('_', ' '), item.name);
+      const label = item.label || item.name.replaceAll('_', ' ');
+      const option = new Option(label, item.name);
       option.title = item.description || '';
       agentSelect.append(option);
-      setupAgent.append(new Option(item.name.replaceAll('_', ' '), item.name));
+      setupAgent.append(new Option(label, item.name));
       const choice = document.createElement('button');
       choice.type = 'button';
       choice.className = 'cleo-agent-choice';
       choice.dataset.agentName = item.name;
       choice.setAttribute('aria-pressed', 'false');
       const name = document.createElement('b');
-      name.textContent = item.name.replaceAll('_', ' ');
+      name.textContent = label;
       const description = document.createElement('small');
       description.textContent = item.description || 'Project-scoped specialist';
       const authority = document.createElement('small');
@@ -511,7 +544,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     const current=primaryChart(chart);
     contextLine.textContent = chart ? `${chart.chartCount||1} chart${chart.chartCount===1?'':'s'} · ${[current?.sourceLabel||current?.provider||'Chart source unknown',
       current?.symbol||current?.market||'symbol unknown',current?.timeframe||'timeframe unknown',
-      current?.cutoff?new Date(current.cutoff).toISOString():'last bar unknown',current?.barCount!=null&&`${current.barCount} bars`].filter(Boolean).join(' · ')}` : 'No loaded chart context is available.';
+      current?.cutoff?new Date(current.cutoff).toISOString():'last bar unknown',current?.contextBarCount!=null?`${current.contextBarCount} visible bars shared`:current?.barCount!=null&&`${current.barCount} bars`].filter(Boolean).join(' · ')}` : 'No loaded chart context is available.';
     return chart;
   }
   function readImage(file) {
@@ -637,6 +670,21 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       setStatus(`${assistantName()} is reviewing your request`);
     } else if (method === 'item/agentMessage/delta') {
       const key = params.itemId || `stream-${turnId}`;
+      if (activeChartRead) {
+        let body = messages.get(key);
+        if (!body) {
+          body = document.createElement('div');
+          messages.set(key, body);
+          addWorkStep('Reading the shared chart','chart-context','active');
+        }
+        body.textContent += params.delta || '';
+        applyStreamingMarkup(body, body.textContent);
+        const markupResult=appliedMarkupResults.get(body);
+        if (markupResult?.result) addWorkStep('Chart marks drawn from loaded-bar evidence','chart-marks','done');
+        else if (markupResult?.error) addWorkStep('Chart marks need attention','chart-marks','failed');
+        else setStatus(`${assistantName()} is reading the shared chart`);
+        return;
+      }
       const body = messages.get(key) || bubble('agent', '', key);
       body.textContent += params.delta || '';
       applyStreamingMarkup(body, body.textContent);
@@ -644,12 +692,23 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
         addWorkStep('Writing the response for you','final-answer','active');
       stream.scrollTop = stream.scrollHeight;
     } else if (method === 'item/completed' && item.type === 'agentMessage') {
-      const body = messages.get(item.id) || bubble('agent', '', item.id);
-      const content = item.text || body.textContent;
-      // Codex can complete a commentary message while Cleo is still working. Keep it visible as progress,
-      // but do not render the final chart card or report missing marks until the final answer arrives.
-      if (activeChartRead && item.phase === 'commentary') renderMarkdown(body, content);
-      else renderAgentAnswer(body, content, activeChartRead);
+      let body = messages.get(item.id);
+      const content = item.text || body?.textContent || '';
+      // Commentary often repeats the handoff; keep that update in the compact work-stage row, not as an answer.
+      if (activeChartRead && item.phase === 'commentary') {
+        body?.closest('.codex-widget-message')?.remove();
+        messages.delete(item.id);
+        addWorkStep('Chart context checked · reading market structure','chart-context','done');
+        setStatus(`${assistantName()} is reading the shared chart`);
+      } else if (activeChartRead && body && !body.isConnected) {
+        chartReadFinalReturned = true;
+        bubble('agent', content, item.id, null, body, true);
+      } else {
+        if (activeChartRead) chartReadFinalReturned = true;
+        body ||= bubble('agent', '', item.id);
+        body.textContent = content;
+        renderAgentAnswer(body, content, activeChartRead);
+      }
     } else if (method === 'item/started' && item.type === 'subAgentActivity') {
       const actualName = item.agentName || item.name;
       const label=actualName ? `${actualName.replaceAll('_',' ')} specialist started` : `Specialist started${requestedAgent ? ` · ${requestedAgent}` : ''}`;
@@ -712,6 +771,8 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       turnId = '';
       setBusy(false);
       if (status === 'completed') {
+        if (activeChartRead && !chartReadFinalReturned)
+          bubble('agent', `The chart context was shared, but ${assistantName()}’s turn ended before a market read or validated marks came back.`);
         auth.textContent = `ChatGPT connected${planType ? ` · ${planType}` : ''}`;
         auth.classList.add('is-connected');
         finishWork('completed');
@@ -719,6 +780,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       } else if (status === 'failed') { finishWork('failed'); showTurnFailure(params.turn); }
       else { finishWork(status); setStatus(`Turn ${status} · review may be incomplete`, true); }
       activeChartRead = false;
+      chartReadFinalReturned = false;
     }
   }
   async function poll() {
@@ -756,9 +818,19 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       requestedAgent = agent;
       updatePersona();
       const message = text || 'Analyze the attached screenshot as provisional chart evidence.';
-      activeChartRead = surface === 'quant-lab' && (skill === 'cleo' || agent === 'cleo') && Boolean(chart?.charts?.length)
+      const isChartReadRequest = (skill === 'cleo' || agent === 'cleo' || agent === 'tradingagents')
         && /\b(read|analy[sz]e|review|inspect|look at|what stands out|what do you see)\b/i.test(message);
-      bubble('user', message, '', {mode, skill, agentRequested:agent, chart, imageAttached:Boolean(image)});
+      const selectedChart = chart?.charts?.find(item => Number(item.chart) === Number(chart.activeChart));
+      if (surface === 'quant-lab' && isChartReadRequest && $('.codex-widget-chart').checked
+          && !selectedChart?.bars?.length && !uploadedImage) {
+        setBusy(false);
+        setStatus('Share chart is on, but no loaded chart data is available. Load the chart, then try again.', true);
+        return;
+      }
+      activeChartRead = surface === 'quant-lab' && (skill === 'cleo' || agent === 'cleo' || agent === 'tradingagents') && Boolean(chart?.charts?.length)
+        && isChartReadRequest;
+      chartReadFinalReturned = false;
+      bubble('user', message, '', {mode, skill, agentRequested:agent, chart, imageAttached:Boolean(image), imagePreview:image});
       beginWorkCard(message, chart, Boolean(image));
       const result = await request(`/threads/${encodeURIComponent(threadId)}/turns`, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -790,6 +862,8 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   agentSelect.addEventListener('change', () => {
     if (agentSelect.value === 'cleo' && [...skillSelect.options].some(option => option.value === 'cleo'))
       skillSelect.value = 'cleo';
+    else if (agentSelect.value === 'tradingagents' && skillSelect.value === 'cleo')
+      skillSelect.value = '';
     updatePersona();
   });
   skillSelect.addEventListener('change', updatePersona);
@@ -849,5 +923,15 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   }, 900);
   document.addEventListener('visibilitychange', onVisible);
   queueMicrotask(() => { void connect(); });
-  return root;
+  return {root, analyzeElliott() {
+    if (busy) return false;
+    $('.codex-widget-chart').checked = true;
+    chartContext();
+    skillSelect.value = [...skillSelect.options].some(option => option.value === 'cleo') ? 'cleo' : skillSelect.value;
+    agentSelect.value = [...agentSelect.options].some(option => option.value === 'cleo') ? 'cleo' : '';
+    updatePersona();
+    textarea.value = 'Run an Elliott Wave analysis on the active chart and place the sourced wave labels and conditional paths directly on that chart.';
+    form.requestSubmit();
+    return true;
+  }};
 }

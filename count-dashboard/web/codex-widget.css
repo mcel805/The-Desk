@@ -164,6 +164,7 @@
 .codex-widget-message{max-width:min(98%,720px);padding:14px 16px;border-color:#414243;border-radius:14px;background:#1b1c1d;box-shadow:none}
 .codex-widget-message.is-user{max-width:92%;border-color:#555657;border-radius:14px 14px 4px 14px;background:#292a2b}
 .codex-widget-message.is-agent{border-color:#38393a;border-radius:14px 14px 14px 4px;background:#171819}
+.codex-widget-message.is-chart-workflow-note{display:none}
 .codex-widget-message strong{margin-bottom:7px;color:#e7e7e5;font:650 11px system-ui,sans-serif;letter-spacing:.015em}
 .codex-widget-message p,.codex-widget-message-body{font-size:15px;line-height:1.68}
 .codex-widget-markdown>p{margin:0 0 12px}
@@ -240,13 +241,14 @@
 .cleo-setup-step{color:#aaa;font-size:12px}
 .codex-widget-chart-read{padding:15px 17px;border:1px solid #555657;border-radius:14px;background:#1b1c1d}
 .codex-widget-chart-decision{display:inline-flex;margin-bottom:7px;padding:3px 8px;border:1px solid #717273;border-radius:999px;color:#f1f1ef!important;font:650 10px system-ui,sans-serif!important;letter-spacing:.08em!important}
-.codex-widget-chart-read h3{margin:2px 0 8px;color:#fff;font-size:21px;line-height:1.28;letter-spacing:-.025em}
-.codex-widget-chart-read>p{margin:0 0 8px;color:#e2e2e0;font-size:14px;line-height:1.5}
+.codex-widget-chart-read h3{margin:2px 0 6px;color:#fff;font-size:17px;line-height:1.3;letter-spacing:-.02em}
+.codex-widget-chart-read>p{margin:0 0 7px;color:#e2e2e0;font-size:12px;line-height:1.48}
 .codex-widget-chart-read-row b{color:#fff}
-.codex-widget-chart-mark-status{display:block;margin-top:10px;padding-top:9px;border-top:1px solid #414243;color:#eee;font-size:11px;line-height:1.45}
+.codex-widget-chart-mark-status{display:block;margin-top:8px;padding-top:7px;border-top:1px solid #414243;color:#ccc;font-size:10px;line-height:1.4}
 .codex-widget-chart-read-details{padding:0 2px;color:#ccc;font-size:12px}
 .codex-widget-chart-read-details>summary{padding:7px 0;cursor:pointer;color:#ddd;font-weight:600}
 .codex-widget-chart-read-details .codex-widget-markdown{padding:3px 0 8px}
+.codex-widget-image-preview{display:block;width:min(100%,420px);max-height:190px;margin:8px 0 0;border:1px solid #4a4b4c;border-radius:8px;background:#111;object-fit:contain;object-position:left center}
 @media(min-width:900px){.codex-widget-stream{padding-right:22px;padding-left:22px}.codex-widget-welcome-card{max-width:540px}}
 @media(max-width:720px){.codex-widget-welcome{padding:13px}.codex-widget-welcome>div span{font-size:11px}.codex-widget-stream{padding:15px 13px}.codex-widget-welcome-card h2{font-size:25px}.codex-widget-welcome-card p{font-size:14px}.codex-widget-starters{grid-template-columns:1fr}.codex-widget-composer textarea{min-height:78px;font-size:14px}.cleo-setup-backdrop{padding:10px}.cleo-setup-dialog{max-height:calc(100vh - 20px);border-radius:14px}.cleo-setup-dialog>header{padding:19px 18px 14px}.cleo-setup-progress{padding:12px 18px 0}.cleo-setup-page{padding:14px 18px 18px}.cleo-setup-page h3{font-size:20px}.cleo-setup-dialog>footer{padding:13px 18px 16px}}
 @media(max-width:410px){.codex-widget-welcome>div span{max-width:190px}.codex-widget-starters{grid-template-columns:1fr}.cleo-setup-markets{grid-template-columns:1fr}}

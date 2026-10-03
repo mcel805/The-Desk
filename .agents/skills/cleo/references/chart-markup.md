@@ -24,6 +24,8 @@ Use a compact set of sourced marks to show only what supports the read:
 - the nearest opposing reference when it changes the read;
 - an optional dashed conditional branch and distinct alternate when they materially explain what could change the read.
 
+When the visible chart confirms a sequence of lower highs or higher lows, normally include one native trendline connecting the relevant pivots. A directional read should make that structure visible when the chart supports it; do not use extra horizontal levels as a substitute. A useful compact map often has a key swing reference, the nearest opposing level, and one structure line, provided each adds distinct information.
+
 Do not add an entry, stop, target, trigger, position side, or order-like mark unless the user explicitly requested a paper scenario. A touch or sweep alone is not confirmation.
 
 ### Explicit paper plan
@@ -32,7 +34,7 @@ Keep the chart marks synchronized with the written plan. Add only sourced anchor
 
 ## Professional visual grammar
 
-- Usually use 2–4 marks; never exceed five in a routine read. Remove non-decision-relevant marks.
+- Usually use 2–4 marks; never exceed five in a routine read. Prefer three distinct marks when the evidence supports them. Remove non-decision-relevant or redundant marks.
 - Keep marks thin and behind the candle series where the renderer permits. Preserve wick and body visibility. Use native horizontal rays for sourced levels, trend lines between confirmed pivots, and a right-extending ray only for a conditional path when supported.
 - Prefer short, directly attached labels. Avoid large floating text boxes, decorative patterns, and long prose over price action. Put the explanation in the adjacent Cleo readout or the mark’s “Why this mark?” detail.
 - Match the project/user’s confirmed chart color key when available. Do not invent a timeframe palette or call a house convention universal. Pair color with a label, line style, or legend so meaning survives grayscale and color-vision differences.
