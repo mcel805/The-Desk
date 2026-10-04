@@ -259,6 +259,31 @@
 .codex-widget-market-read-marks h3{margin:0 0 5px;color:#f3f3f1;font-size:13px}
 .codex-widget-market-read-marks p{margin:0;color:#b9d9cb;font-size:12px!important}
 .codex-widget-image-preview{display:block;width:min(100%,420px);max-height:190px;margin:8px 0 0;border:1px solid #4a4b4c;border-radius:8px;background:#111;object-fit:contain;object-position:left center}
+.codex-widget .codex-widget-avatar{padding:0;overflow:hidden;cursor:pointer;transition:transform .15s ease,border-color .15s ease}
+.codex-widget .codex-widget-avatar:hover{transform:scale(1.06);border-color:#fff}
+.codex-widget .codex-widget-avatar:focus-visible{outline:3px solid #fff;outline-offset:3px}
+.codex-widget .codex-widget-avatar.has-avatar{border-color:#626365;background-color:#f4f4f2}
+.cleo-avatar-backdrop{position:fixed;inset:0;z-index:10001;display:grid;place-items:center;padding:20px;background:#000b;backdrop-filter:blur(4px)}
+.cleo-avatar-backdrop[hidden]{display:none}
+.cleo-avatar-dialog{display:flex;width:min(560px,100%);max-height:min(760px,calc(100vh - 40px));flex-direction:column;overflow:auto;border:1px solid #4a4b4c;border-radius:18px;background:#111213;color:#f6f6f4;box-shadow:0 24px 90px #000b}
+.cleo-avatar-dialog>header{padding:22px 24px 16px;border-bottom:1px solid #38393a}
+.cleo-avatar-dialog>header>div{display:flex;align-items:center;justify-content:space-between}
+.cleo-avatar-dialog>header small{color:#aaa;font-size:11px;font-weight:650;letter-spacing:.12em}
+.cleo-avatar-dialog h2{margin:10px 0 5px;font-size:clamp(23px,4vw,30px);letter-spacing:-.035em}
+.cleo-avatar-dialog header p{margin:0;color:#b9baba;font-size:13px;line-height:1.5}
+.cleo-avatar-dialog .cleo-avatar-close{width:36px;height:36px;border:1px solid #555;border-radius:50%;background:transparent;color:#eee;font-size:23px;cursor:pointer}
+.cleo-avatar-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:20px 24px}
+.cleo-avatar-dialog .cleo-avatar-choice{aspect-ratio:1;min-width:0;padding:0;overflow:hidden;border:2px solid #444;border-radius:13px;background-color:#f3eddb;cursor:pointer;transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
+.codex-widget-avatar.has-avatar img,.cleo-avatar-choice img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.cleo-avatar-dialog .cleo-avatar-choice.is-unavailable{display:grid;place-items:center;font-size:36px}
+.cleo-avatar-choice:hover{transform:scale(1.04);border-color:#aaa}
+.cleo-avatar-choice.is-selected{border-color:#fff;box-shadow:0 0 0 2px #ffffff55}
+.cleo-avatar-choice:focus-visible,.cleo-avatar-close:focus-visible,.cleo-avatar-dialog footer button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+.cleo-avatar-error{margin:0 24px 10px;color:#ffaaa0;font-size:12px}
+.cleo-avatar-dialog>footer{display:flex;justify-content:flex-end;gap:9px;margin-top:auto;padding:14px 24px 20px;border-top:1px solid #38393a}
+.cleo-avatar-dialog footer button{min-height:40px;padding:0 16px;border:1px solid #555;border-radius:999px;background:#242526;color:#eee;font-size:13px;cursor:pointer}
+.cleo-avatar-dialog footer .cleo-avatar-save{border-color:#eee;background:#f1f1ef;color:#171819}
+.cleo-avatar-dialog footer button:disabled{opacity:.45;cursor:default}
 @media(min-width:900px){.codex-widget-stream{padding-right:22px;padding-left:22px}.codex-widget-welcome-card{max-width:540px}}
 @media(max-width:720px){.codex-widget-welcome{padding:13px}.codex-widget-welcome>div span{font-size:11px}.codex-widget-stream{padding:15px 13px}.codex-widget-welcome-card h2{font-size:25px}.codex-widget-welcome-card p{font-size:14px}.codex-widget-starters{grid-template-columns:1fr}.codex-widget-composer textarea{min-height:78px;font-size:14px}.cleo-setup-backdrop,.cleo-avatar-backdrop{padding:10px}.cleo-setup-dialog,.cleo-avatar-dialog{max-height:calc(100vh - 20px);border-radius:14px}.cleo-setup-dialog>header{padding:19px 18px 14px}.cleo-setup-progress{padding:12px 18px 0}.cleo-setup-page{padding:14px 18px 18px}.cleo-setup-page h3{font-size:20px}.cleo-setup-dialog>footer{padding:13px 18px 16px}.cleo-avatar-dialog>header{padding:18px 18px 13px}.cleo-avatar-grid{gap:7px;padding:15px 18px}.cleo-avatar-dialog>footer{padding:12px 18px 16px}}
 @media(max-width:410px){.codex-widget-welcome>div span{max-width:190px}.codex-widget-starters{grid-template-columns:1fr}.cleo-setup-markets{grid-template-columns:1fr}}

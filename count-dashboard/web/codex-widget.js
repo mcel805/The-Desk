@@ -25,7 +25,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   const root = document.createElement('section');
   root.className = 'codex-widget';
   root.dataset.surface = surface;
-  root.innerHTML = `<header class="codex-widget-welcome"><span class="codex-widget-avatar" aria-hidden="true">C</span><div><small>YOUR TRADING PARTNER</small><strong class="codex-widget-persona">Cleo</strong><span>Chart reads · quant research · paper strategies</span></div><button type="button" class="codex-widget-setup-open">Set up</button></header>
+  root.innerHTML = `<header class="codex-widget-welcome"><button type="button" class="codex-widget-avatar" aria-label="Edit Cleo avatar" title="Edit Cleo avatar">C</button><div><small>YOUR TRADING PARTNER</small><strong class="codex-widget-persona">Cleo</strong><span>Chart reads · quant research · paper strategies</span></div><button type="button" class="codex-widget-setup-open">Set up</button></header>
     <div class="codex-widget-toolbar"><span class="codex-widget-auth" role="status">Checking sign-in…</span><label class="codex-widget-thread-label">Conversation<select class="codex-widget-threads" aria-label="Recent conversations"></select></label><button type="button" class="codex-widget-new">＋ New chat</button></div>
     <details class="codex-widget-options"><summary>Work settings <span>Research is read-only · Build can edit this workspace</span></summary><div class="codex-widget-controls"><label>Mode<select class="codex-widget-mode" aria-label="Codex permission mode"><option value="research">Research · read only</option><option value="build">Build · edit and test</option></select></label><label>Skill<select class="codex-widget-skill" aria-label="Use a Codex skill"><option value="">Auto · choose as needed</option></select></label><label>Specialist<select class="codex-widget-agent" aria-label="Ask a named Codex agent"><option value="">No separate specialist</option></select></label></div></details>
     <div class="codex-widget-context" role="status">Chart context is shared with your next message. Source and cutoff are shown here.</div>
@@ -33,7 +33,8 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     <details class="codex-widget-help"><summary>How Cleo’s work stages are shown</summary><p>The live work card reports visible events such as chart/data reads, source searches, specialist starts, and local build steps. It gives concise activity summaries, not private chain-of-thought. A stage appears only when the connected runtime reports that work.</p><p>Research is read-only. Build can edit this repository and run local checks. Codex pauses for command or file approvals. Indicator measurements, strategy outcomes, and paper fills are reported only when their actual tools return evidence.</p></details>
     <div class="codex-widget-activity" role="status" aria-live="polite"><span class="codex-widget-activity-dot" aria-hidden="true"></span><span class="codex-widget-activity-text">Ready when you are · research and paper only</span></div>
     <form class="codex-widget-composer"><textarea rows="3" maxlength="12000" aria-label="Message Cleo" placeholder="Ask Cleo about the chart, a market, or an indicator…"></textarea><div class="codex-widget-compose-row"><label class="codex-widget-chart-toggle"><input type="checkbox" class="codex-widget-chart" checked> Share chart</label><label class="codex-widget-attach">＋ Screenshot<input class="codex-widget-image" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><button type="button" class="codex-widget-stop" hidden>Stop</button><button type="submit" class="codex-widget-send">Send <span aria-hidden="true">↑</span></button></div><div class="codex-widget-image-name" hidden></div><small class="codex-widget-paper-note">Research and paper workflows · no live order routing</small></form>
-    <div class="cleo-setup-backdrop" hidden><section class="cleo-setup-dialog" role="dialog" aria-modal="true" aria-labelledby="cleoSetupTitle"><header><div><small>TRADING AGENT SETUP</small><button type="button" class="cleo-setup-close" aria-label="Close setup">×</button></div><h2 id="cleoSetupTitle">Build your Cleo workspace</h2><p>Choose what Cleo should focus on. You can change this any time.</p></header><div class="cleo-setup-progress" aria-label="Setup progress"><span></span><span></span><span></span></div><main class="cleo-setup-page" data-page="0"><h3>What will you use Cleo for?</h3><p>Choose all that apply.</p><div class="cleo-setup-options" data-group="workflows"><button type="button" data-value="charting"><b>Chart reads</b><small>Structure, levels, context and annotated chart reviews</small></button><button type="button" data-value="indicators"><b>Indicators</b><small>Define, build and review indicator ideas</small></button><button type="button" data-value="strategies"><b>Strategies & research</b><small>Formalize rules and design paper studies</small></button><button type="button" data-value="agentic"><b>Trading agents</b><small>Design guarded, human-controlled paper or shadow systems</small></button></div></main><main class="cleo-setup-page" data-page="1" hidden><h3>Which markets matter to you?</h3><p>Choose the markets you want Cleo to prioritize. Data availability still depends on the selected source.</p><div class="cleo-setup-options cleo-setup-markets" data-group="markets"><button type="button" data-value="stocks">Stocks</button><button type="button" data-value="etfs">ETFs</button><button type="button" data-value="crypto">Crypto</button><button type="button" data-value="futures">Futures</button><button type="button" data-value="forex">Forex & CFDs</button></div></main><main class="cleo-setup-page" data-page="2" hidden><h3>Choose your working team</h3><p>Cleo stays your primary mentor. Pick one available specialist as the default for a request.</p><div class="cleo-team-primary"><b>Cleo · Primary mentor</b><span>Chart analysis, indicator and strategy research, agent policy design</span></div><div class="cleo-setup-roster" aria-label="Available specialists"></div><label class="cleo-setup-specialist">Default specialist<select class="cleo-setup-agent"><option value="">Cleo handles requests by default</option></select></label><p class="cleo-setup-disclosure">A specialist runs only when a request is sent with that agent selected. Setup does not start background monitoring, dispatch workers, or enable trading.</p></main><footer><button type="button" class="cleo-setup-back">Back</button><span class="cleo-setup-step">1 of 3</span><button type="button" class="cleo-setup-next">Continue</button></footer></section></div>`;
+    <div class="cleo-setup-backdrop" hidden><section class="cleo-setup-dialog" role="dialog" aria-modal="true" aria-labelledby="cleoSetupTitle"><header><div><small>TRADING AGENT SETUP</small><button type="button" class="cleo-setup-close" aria-label="Close setup">×</button></div><h2 id="cleoSetupTitle">Build your Cleo workspace</h2><p>Choose what Cleo should focus on. You can change this any time.</p></header><div class="cleo-setup-progress" aria-label="Setup progress"><span></span><span></span><span></span></div><main class="cleo-setup-page" data-page="0"><h3>What will you use Cleo for?</h3><p>Choose all that apply.</p><div class="cleo-setup-options" data-group="workflows"><button type="button" data-value="charting"><b>Chart reads</b><small>Structure, levels, context and annotated chart reviews</small></button><button type="button" data-value="indicators"><b>Indicators</b><small>Define, build and review indicator ideas</small></button><button type="button" data-value="strategies"><b>Strategies & research</b><small>Formalize rules and design paper studies</small></button><button type="button" data-value="agentic"><b>Trading agents</b><small>Design guarded, human-controlled paper or shadow systems</small></button></div></main><main class="cleo-setup-page" data-page="1" hidden><h3>Which markets matter to you?</h3><p>Choose the markets you want Cleo to prioritize. Data availability still depends on the selected source.</p><div class="cleo-setup-options cleo-setup-markets" data-group="markets"><button type="button" data-value="stocks">Stocks</button><button type="button" data-value="etfs">ETFs</button><button type="button" data-value="crypto">Crypto</button><button type="button" data-value="futures">Futures</button><button type="button" data-value="forex">Forex & CFDs</button></div></main><main class="cleo-setup-page" data-page="2" hidden><h3>Choose your working team</h3><p>Cleo stays your primary mentor. Pick one available specialist as the default for a request.</p><div class="cleo-team-primary"><b>Cleo · Primary mentor</b><span>Chart analysis, indicator and strategy research, agent policy design</span></div><div class="cleo-setup-roster" aria-label="Available specialists"></div><label class="cleo-setup-specialist">Default specialist<select class="cleo-setup-agent"><option value="">Cleo handles requests by default</option></select></label><p class="cleo-setup-disclosure">A specialist runs only when a request is sent with that agent selected. Setup does not start background monitoring, dispatch workers, or enable trading.</p></main><footer><button type="button" class="cleo-setup-back">Back</button><span class="cleo-setup-step">1 of 3</span><button type="button" class="cleo-setup-next">Continue</button></footer></section></div>
+    <div class="cleo-avatar-backdrop" hidden><section class="cleo-avatar-dialog" role="dialog" aria-modal="true" aria-labelledby="cleoAvatarTitle" aria-describedby="cleoAvatarHelp"><header><div><small>CLEO PROFILE</small><button type="button" class="cleo-avatar-close" aria-label="Close avatar picker">×</button></div><h2 id="cleoAvatarTitle">Choose Cleo’s avatar</h2><p id="cleoAvatarHelp">Pick one cat portrait. Your choice becomes Cleo’s default avatar in this browser.</p></header><div class="cleo-avatar-grid" role="group" aria-label="25 cat avatars"></div><p class="cleo-avatar-error" role="alert" hidden></p><footer><button type="button" class="cleo-avatar-cancel">Cancel</button><button type="button" class="cleo-avatar-save" disabled>Save avatar</button></footer></section></div>`;
   host.append(root);
   const $ = selector => root.querySelector(selector);
   const auth = $('.codex-widget-auth');
@@ -53,12 +54,97 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   const persona = $('.codex-widget-persona');
   const setupBackdrop = $('.cleo-setup-backdrop');
   const setupAgent = $('.cleo-setup-agent');
+  const avatarButton = $('.codex-widget-avatar');
+  const avatarBackdrop = $('.cleo-avatar-backdrop');
+  const avatarGrid = $('.cleo-avatar-grid');
+  const avatarSave = $('.cleo-avatar-save');
+  const avatarStorageKey = 'countdesk.cleo.avatar.v1';
+  const avatarUrl = index => new URL(`./cleo-avatar-assets/icons/cat-${String(index + 1).padStart(2, '0')}.png`, import.meta.url).href;
+  const avatarFaces = ['🐈','🐈‍⬛','😺','😸','😹','😻','😼','😽','🙀','😿','😾','🐈','🐈‍⬛','😺','😸','😹','😻','😼','😽','🙀','😿','😾','🐈','🐈‍⬛','😺'];
+  let pendingAvatar = null;
   const profileKey = `countdesk.cleo.profile.v1.${surface}`;
   const choices = {
     workflows: ['charting', 'indicators', 'strategies', 'agentic'],
     markets: ['stocks', 'etfs', 'crypto', 'futures', 'forex'],
   };
   let profile = loadProfile();
+  function readAvatar() {
+    try {
+      const saved = localStorage.getItem(avatarStorageKey);
+      if (saved == null || !/^\d+$/.test(saved)) return null;
+      const value = Number(saved);
+      return Number.isInteger(value) && value >= 0 && value < 25 ? value : null;
+    } catch { return null; }
+  }
+  function applyAvatar(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= 25) {
+      avatarButton.textContent = 'C';
+      avatarButton.classList.remove('has-avatar');
+      avatarButton.removeAttribute('style');
+      return;
+    }
+    avatarButton.replaceChildren();
+    avatarButton.classList.add('has-avatar');
+    const image = document.createElement('img');
+    image.alt = '';
+    image.setAttribute('aria-hidden', 'true');
+    image.addEventListener('error', () => { avatarButton.textContent = avatarFaces[index]; }, {once:true});
+    image.src = avatarUrl(index);
+    avatarButton.append(image);
+  }
+  function renderAvatarPicker(selected) {
+    avatarGrid.replaceChildren();
+    for (let index = 0; index < 25; index += 1) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cleo-avatar-choice';
+      button.dataset.avatarIndex = String(index);
+      button.setAttribute('aria-label', `Cat avatar ${index + 1}`);
+      button.setAttribute('aria-pressed', String(index === selected));
+      button.classList.toggle('is-selected', index === selected);
+      const image = document.createElement('img');
+      image.alt = '';
+      image.setAttribute('aria-hidden', 'true');
+      image.addEventListener('error', () => {
+        button.classList.add('is-unavailable');
+        button.textContent = avatarFaces[index];
+      }, {once:true});
+      image.src = avatarUrl(index);
+      button.append(image);
+      button.addEventListener('click', () => {
+        pendingAvatar = index;
+        renderAvatarPicker(pendingAvatar);
+        avatarGrid.querySelector(`[data-avatar-index="${pendingAvatar}"]`)?.focus();
+      });
+      avatarGrid.append(button);
+    }
+    avatarSave.disabled = selected == null;
+  }
+  function openAvatarPicker() {
+    pendingAvatar = readAvatar();
+    $('.cleo-avatar-error').hidden = true;
+    renderAvatarPicker(pendingAvatar);
+    avatarBackdrop.hidden = false;
+    $('.cleo-avatar-dialog').scrollTop = 0;
+    $('.cleo-avatar-close').focus();
+  }
+  function closeAvatarPicker() {
+    avatarBackdrop.hidden = true;
+    avatarButton.focus();
+  }
+  function saveAvatar() {
+    if (pendingAvatar == null) return;
+    try {
+      localStorage.setItem(avatarStorageKey, String(pendingAvatar));
+      applyAvatar(pendingAvatar);
+      closeAvatarPicker();
+    } catch {
+      const error = $('.cleo-avatar-error');
+      error.textContent = 'Could not save the avatar in this browser. Please try again.';
+      error.hidden = false;
+    }
+  }
+  applyAvatar(readAvatar());
   let setupPage = 0;
   let threadId = '';
   let turnId = '';
@@ -966,9 +1052,18 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   });
   skillSelect.addEventListener('change', updatePersona);
   $('.codex-widget-setup-open').addEventListener('click', openSetup);
+  avatarButton.addEventListener('click', openAvatarPicker);
+  $('.cleo-avatar-close').addEventListener('click', closeAvatarPicker);
+  $('.cleo-avatar-cancel').addEventListener('click', closeAvatarPicker);
+  $('.cleo-avatar-save').addEventListener('click', saveAvatar);
+  avatarBackdrop.addEventListener('click', event => { if (event.target === avatarBackdrop) closeAvatarPicker(); });
   $('.cleo-setup-close').addEventListener('click', closeSetup);
   setupBackdrop.addEventListener('click', event => { if (event.target === setupBackdrop) closeSetup(); });
-  root.addEventListener('keydown', event => { if (event.key === 'Escape' && !setupBackdrop.hidden) closeSetup(); });
+  root.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (!avatarBackdrop.hidden) closeAvatarPicker();
+    else if (!setupBackdrop.hidden) closeSetup();
+  });
   $('.cleo-setup-back').addEventListener('click', () => { setupPage = Math.max(0, setupPage - 1); renderSetupPage(); });
   $('.cleo-setup-next').addEventListener('click', () => {
     if (setupPage < 2) { setupPage += 1; renderSetupPage(); }
