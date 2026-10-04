@@ -630,7 +630,7 @@ $('#toggleCleoMarks').addEventListener('click',()=>{
   updateCleoMarksButton();
 });
 $('#clearCleoMarks').addEventListener('click',()=>clearCleoMarks(slots[activeIndex]));
-function applyCleoMarkup(spec){
+function applyCleoMarkup(spec,{allowExistingDuplicates=false}={}){
   const chartIndex=Number(spec.chart);
   const slot=Number.isInteger(chartIndex)&&chartIndex>=1?slots[chartIndex-1]:null;
   if(!slot?.chart||!slot.source||!slot.bars.length)throw new Error('That chart is no longer loaded.');
@@ -677,20 +677,22 @@ function applyCleoMarkup(spec){
     const endTime=geometry==='ray'?Infinity:Math.max(Number(a.time),Number(b.time));
     return {slope:(Number(b.price)-Number(a.price))/(Number(b.time)-Number(a.time)),time:startTime,price:Number(a.price),startTime,endTime};
   };
-  for(const mark of spec.marks){
-    if(mark.geometry==='zone')continue;
-    const candidate=lineEquation(mark.geometry,mark.anchors);
-    if(existingLines.some(item=>{
-      const existing=lineEquation(item.type,item.anchors);
-      if(!existing||!candidate)return false;
-      const overlapStart=Math.max(existing.startTime,candidate.startTime);
-      if(overlapStart>Math.min(existing.endTime,candidate.endTime))return false;
-      const slopeScale=Math.max(1,Math.abs(existing.slope),Math.abs(candidate.slope));
-      if(Math.abs(existing.slope-candidate.slope)>1e-18*slopeScale)return false;
-      const sharedPrice=existing.price+existing.slope*(overlapStart-existing.time);
-      const candidatePrice=candidate.price+candidate.slope*(overlapStart-candidate.time);
-      return Math.abs(sharedPrice-candidatePrice)<=1e-8*Math.max(1,Math.abs(sharedPrice),Math.abs(candidatePrice));
-    }))throw new Error(`Cleo skipped a line that duplicates an existing chart drawing (${mark.id}).`);
+  if(!allowExistingDuplicates){
+    for(const mark of spec.marks){
+      if(mark.geometry==='zone')continue;
+      const candidate=lineEquation(mark.geometry,mark.anchors);
+      if(existingLines.some(item=>{
+        const existing=lineEquation(item.type,item.anchors);
+        if(!existing||!candidate)return false;
+        const overlapStart=Math.max(existing.startTime,candidate.startTime);
+        if(overlapStart>Math.min(existing.endTime,candidate.endTime))return false;
+        const slopeScale=Math.max(1,Math.abs(existing.slope),Math.abs(candidate.slope));
+        if(Math.abs(existing.slope-candidate.slope)>1e-18*slopeScale)return false;
+        const sharedPrice=existing.price+existing.slope*(overlapStart-existing.time);
+        const candidatePrice=candidate.price+candidate.slope*(overlapStart-candidate.time);
+        return Math.abs(sharedPrice-candidatePrice)<=1e-8*Math.max(1,Math.abs(sharedPrice),Math.abs(candidatePrice));
+      }))throw new Error(`Cleo skipped a line that duplicates an existing chart drawing (${mark.id}).`);
+    }
   }
   const nextIds=[];
   const add=(type,anchors,mark)=>{
@@ -755,7 +757,7 @@ function applyMarketReadMarkup(payload,chartContext){
   return applyCleoMarkup({schema:'cleo.chart-markup.v1',chart:chartIndex,
     method:'Read the Market · sourced active-chart marks',
     source:{provider:slot.source.id,symbol:slot.source.market,timeframe:slot.source.timeframe,cutoff:slot.source.cutoff},
-    marks:chartMarks});
+    marks:chartMarks},{allowExistingDuplicates:true});
 }
 const readMarketTimeframes=['1d','4h','2h','1h','30m','15m','5m','3m','2m','1m'];
 async function collectReadMarket(onProgress=()=>{}){
