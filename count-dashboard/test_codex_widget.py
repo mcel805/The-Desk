@@ -91,6 +91,58 @@ class CodexWidgetTurnTests(unittest.TestCase):
             self.assertIn("$cleo", turn["input"][0]["text"])
             self.assertEqual(widget._load_history()["test-thread"][0]["metadata"]["skill"], "cleo")
 
+    def test_multi_timeframe_chart_context_fits_the_bounded_turn_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            widget = self.make_widget(directory)
+            widget._request = Mock(return_value={"turn": {"id": "turn-large-chart"}})
+            bars = [{"time": 1_700_000_000 + index * 60, "open": 65000.0, "high": 65020.5,
+                     "low": 64990.25, "close": 65010.75, "volume": 12.34}
+                    for index in range(4000)]
+            chart = {"readMarket": {"schema": "cleo.market-read-context.v1",
+                                     "frames": [{"timeframe": "1m", "status": "available", "bars": bars}]}}
+
+            result = widget.send("test-thread", "Read the market", chart)
+
+            self.assertEqual(result["turnId"], "turn-large-chart")
+            turn = widget._request.call_args.args[1]
+            self.assertIn('"readMarket"', turn["input"][0]["text"])
+            self.assertIn('"timeframe":"1m"', turn["input"][0]["text"])
+
+    def test_read_market_uses_its_four_section_contract_without_generic_chart_read_markup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            widget = self.make_widget(directory)
+
+            def request(method, params, timeout=20):
+                if method == "skills/list":
+                    return {"data": [{"cwd": str(widget.workspace), "skills": [
+                        {"name": "cleo", "path": str(widget.workspace / ".agents/skills/cleo/SKILL.md"),
+                         "enabled": True}]}]}
+                if method == "turn/start":
+                    return {"turn": {"id": "turn-market-read"}}
+                self.fail(method)
+
+            widget._request = Mock(side_effect=request)
+            chart = {"symbol": "BTC", "timeframe": "1h", "cutoff": 1_700_000_000,
+                     "readMarket": {"schema": "cleo.market-read-context.v1", "frames": []}}
+
+            widget.send("test-thread", "Read the market", chart, skill="cleo")
+
+            prompt = widget._request.call_args.args[1]["input"][0]["text"]
+            self.assertIn("READ THE MARKET MODE", prompt)
+            self.assertIn("Relative Volume & Divergence", prompt)
+            self.assertIn("CLEO_MARKET_READ_START", prompt)
+            self.assertIn("source {provider,symbol,timeframe,cutoff}", prompt)
+            self.assertIn("Return at most five unique active-chart marks", prompt)
+            self.assertIn("geometry must be level", prompt)
+            self.assertIn("visible zone corners", prompt)
+            self.assertNotIn("on-demand technician's market read", prompt)
+
+    def test_chart_context_still_rejects_payloads_above_the_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            widget = self.make_widget(directory)
+            with self.assertRaisesRegex(ValueError, "Chart context is too large"):
+                widget.send("test-thread", "Read the market", {"notes": "x" * 750_000})
+
     def test_build_turn_is_repo_scoped_and_agent_request_is_explicit(self):
         with tempfile.TemporaryDirectory() as directory:
             widget = self.make_widget(directory)

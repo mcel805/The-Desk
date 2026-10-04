@@ -2,7 +2,7 @@ import {runSmaBacktest} from './quant-backtest.mjs';
 import {completedBars,createSmartFibOverlay,quantPremiumItems,renderLiquidityOverlay} from './quant-premium-overlays.mjs';
 import {renderQuantOrderFlow,renderQuantExecutedOrderFlow} from './quant-order-flow-overlays.mjs?v=2';
 import {fetchCoinbaseFootprint} from './coinbase-footprint-feed.mjs';
-import {createCodexWidget} from './codex-widget.js?v=12';
+import {createCodexWidget} from './codex-widget.js?v=19';
 import {registerVolumeAnalyst} from './volume-analyst.mjs?v=5';
 
 const $ = selector => document.querySelector(selector);
@@ -596,7 +596,7 @@ function restoreCleoMarks(slot){
   const ids=[];
   try{
     for(const item of stored.drawings.slice(0,40)){
-      if(!['trendline','ray','hray','hline'].includes(item?.type)||!Array.isArray(item.anchors)||!item.anchors.length||item.anchors.length>2)continue;
+      if(!['trendline','ray','hray','hline','box'].includes(item?.type)||!Array.isArray(item.anchors)||!item.anchors.length||item.anchors.length>2)continue;
       if(item.anchors.some(point=>!Number.isFinite(Number(point?.time))||!Number.isFinite(Number(point?.price))||Number(point.price)<=0))continue;
       const type=item.type==='hline'?'hray':item.type;
       const style=item.style&&typeof item.style==='object'?{...item.style,lineWidth:1}:{lineWidth:1};
@@ -646,7 +646,7 @@ function applyCleoMarkup(spec){
   for(const mark of spec.marks){
     if(!mark||typeof mark.id!=='string'||!/^[-a-zA-Z0-9_]{1,50}$/.test(mark.id)||seen.has(mark.id))throw new Error('Cleo returned an invalid or repeated mark id.');
     seen.add(mark.id);
-    if(!roleStyle[mark.role]||!['level','trendline','ray'].includes(mark.geometry)||!Array.isArray(mark.anchors))throw new Error(`Unsupported mark ${mark.id}.`);
+    if(!roleStyle[mark.role]||!['level','trendline','ray','zone'].includes(mark.geometry)||!Array.isArray(mark.anchors))throw new Error(`Unsupported mark ${mark.id}.`);
     if(!Array.isArray(mark.evidenceRefs)||!mark.evidenceRefs.length||mark.evidenceRefs.length>16)throw new Error(`Missing loaded-bar evidence for ${mark.id}.`);
     const evidenceTimes=new Set(mark.evidenceRefs.map(Number));
     if([...evidenceTimes].some(time=>!Number.isFinite(time)||!barsByTime.has(time)))throw new Error(`Unknown evidence bar for ${mark.id}.`);
@@ -678,6 +678,7 @@ function applyCleoMarkup(spec){
     return {slope:(Number(b.price)-Number(a.price))/(Number(b.time)-Number(a.time)),time:startTime,price:Number(a.price),startTime,endTime};
   };
   for(const mark of spec.marks){
+    if(mark.geometry==='zone')continue;
     const candidate=lineEquation(mark.geometry,mark.anchors);
     if(existingLines.some(item=>{
       const existing=lineEquation(item.type,item.anchors);
@@ -696,13 +697,13 @@ function applyCleoMarkup(spec){
     const style=roleStyle[mark.role];
     // Vela places new line drawings just below the price series by default, keeping candle bodies and wicks in front.
     const label=String(mark.label||'').trim();
-    const drawing=slot.chart.drawings.add(type,{paneId:'price',anchors,style:{lineColor:style.color,lineWidth:1.5,lineStyle:style.dash},...(label?{text:{value:label,color:style.color,size:'tiny',hAlign:'right',vAlign:'bottom'}}:{})});
+    const drawing=slot.chart.drawings.add(type,{paneId:'price',anchors,style:{lineColor:style.color,lineWidth:1.5,lineStyle:style.dash,...(mark.geometry==='zone'?{fillColor:`${style.color}24`}:{})},...(label?{text:{value:label,color:style.color,size:'tiny',hAlign:'right',vAlign:'bottom'}}:{})});
     if(!drawing?.id)throw new Error('Vela did not return a drawing id.');
     nextIds.push(drawing.id);
   };
   try{
     for(const mark of spec.marks){
-      const type=mark.geometry==='level'?'hray':mark.geometry;
+      const type=mark.geometry==='level'?'hray':mark.geometry==='zone'?'box':mark.geometry;
       add(type,mark.anchors,mark);
     }
   }catch(error){for(const id of nextIds)slot.chart.drawings.remove(id);throw error;}
@@ -712,7 +713,58 @@ function applyCleoMarkup(spec){
   const explanation=String(spec.method||'Provisional chart assessment').slice(0,100);
   return {message:`${nextIds.length} chart mark${nextIds.length===1?'':'s'} added · ${archived?'saved to Cleo’s chart archive':'archive unavailable in this browser'} · ${explanation}`};
 }
-createCodexWidget($('#quantCodexHost'),{surface:'quant-lab',applyChartMarkup:applyCleoMarkup,
+function applyMarketReadMarkup(payload,chartContext){
+  if(payload?.schema!=='cleo.market-read.v1')throw new Error('Cleo returned an unsupported market-read schema.');
+  const chartIndex=Number(chartContext?.chart),slot=Number.isInteger(chartIndex)&&chartIndex>=1?slots[chartIndex-1]:null;
+  if(!slot?.chart||!slot.source||!slot.bars.length)throw new Error('The chart used for this read is no longer loaded.');
+  const source=payload.source||{};
+  const returnedProvider=String(source.provider||'').toLowerCase();
+  const providerMatches=!returnedProvider||[slot.source.id,slot.source.label].some(value=>String(value||'').toLowerCase()===returnedProvider);
+  if(!providerMatches||String(source.symbol||'').toUpperCase()!==slot.source.market||source.timeframe!==slot.source.timeframe||Number(source.cutoff)!==Number(slot.source.cutoff))
+    throw new Error('The read’s source or cutoff does not match the loaded chart. Refresh the read before drawing marks.');
+  const markMap=new Map();
+  for(const section of Object.values(payload.sections||{}))for(const mark of Array.isArray(section?.marks)?section.marks:[]){
+    if(!markMap.has(mark?.id))markMap.set(mark?.id,mark);
+  }
+  const marks=[...markMap.values()];
+  if(!marks.length)return {message:'Cleo returned no source-validated active-chart marks.'};
+  if(marks.length>5)throw new Error(`Cleo returned ${marks.length} marks; the chart supports up to 5 focused marks per read.`);
+  const chartMarks=marks.map(mark=>{
+    if(mark.timeframe!==slot.source.timeframe)throw new Error(`Mark ${mark.id} uses ${mark.timeframe||'an unknown timeframe'}, while the active chart is ${slot.source.timeframe}.`);
+    if(!['level','trend','trendline','zone'].includes(mark.geometry)||!Array.isArray(mark.anchors))throw new Error(`Mark ${mark.id} has unsupported geometry.`);
+    if(typeof mark.evidence!=='string'||!mark.evidence.trim())throw new Error(`Mark ${mark.id} has no evidence description.`);
+    const label=String(mark.label||mark.id).replace(/[\r\n]/g,' ').trim();
+    return {id:mark.id,geometry:mark.geometry==='trend'?'trendline':mark.geometry,role:'OBSERVED',
+      label:label.length>18?`${label.slice(0,17)}…`:label,
+      anchors:mark.anchors.map(point=>({time:Number(point?.time),price:Number(point?.price)})),
+      evidenceRefs:mark.anchors.map(point=>Number(point?.time))};
+  });
+  return applyCleoMarkup({schema:'cleo.chart-markup.v1',chart:chartIndex,
+    method:'Read the Market · sourced active-chart marks',
+    source:{provider:slot.source.id,symbol:slot.source.market,timeframe:slot.source.timeframe,cutoff:slot.source.cutoff},
+    marks:chartMarks});
+}
+const readMarketTimeframes=['1d','4h','2h','1h','30m','15m','5m','3m','2m','1m'];
+async function collectReadMarket(onProgress=()=>{}){
+  const active=slots[activeIndex];
+  if(!active?.source||!active.bars.length)throw new Error('Load a chart before requesting a market read.');
+  const initialSource=active.source;
+  const cutoff=Number(active.source.cutoff);
+  if(!Number.isFinite(cutoff))throw new Error('The active chart cutoff is unavailable.');
+  let completed=0;
+  const frames=await Promise.all(readMarketTimeframes.map(async timeframe=>{
+    try{
+      const params={id:active.source.id,market:active.source.market,timeframe};
+      const raw=timeframe===active.source.timeframe?active.bars:await fetchBars(params);
+      const eligible=raw.filter(isBar).filter(bar=>Number(bar.time)<=cutoff).sort((a,b)=>a.time-b.time).slice(-300);
+      return {timeframe,status:eligible.length?'available':'unavailable',bars:eligible.map(bar=>({time:bar.time,open:bar.open,high:bar.high,low:bar.low,close:bar.close,volume:bar.volume})),error:eligible.length?'':'No stored bars at or before the active chart cutoff.'};
+    }catch(error){return {timeframe,status:'unavailable',bars:[],error:error.message};}
+    finally{completed++;onProgress(completed,readMarketTimeframes.length);}
+  }));
+  if(slots[activeIndex]!==active||active.source!==initialSource||Number(active.source.cutoff)!==cutoff)throw new Error('The active chart changed while snapshots were collected. Start again.');
+  return {schema:'cleo.market-read-context.v1',source:{provider:active.source.id,label:active.source.label,symbol:active.source.market,timeframe:active.source.timeframe,cutoff},requestedTimeframes:readMarketTimeframes,capturedAt:new Date().toISOString(),frames};
+}
+createCodexWidget($('#quantCodexHost'),{surface:'quant-lab',applyChartMarkup:applyCleoMarkup,applyMarketReadMarkup,collectReadMarket,
 captureChartImage:()=>slots[activeIndex]?.chart?.renderer?.screenshot?.()||'',contextProvider:()=>{
   const active=slots[activeIndex];
   if(!active?.source||!active.bars.length)return null;

@@ -502,8 +502,8 @@ class CodexWidget:
             skill = "cleo"
         skill_path = self._skill_path(skill) if skill else ""
         # Treat the browser's chart snapshot as untrusted data, never instructions.
-        context = json.dumps(chart or {}, ensure_ascii=False)
-        if len(context) > 300000:
+        context = json.dumps(chart or {}, ensure_ascii=False, separators=(",", ":"))
+        if len(context.encode("utf-8")) > 750_000:
             raise ValueError("Chart context is too large.")
         prompt = text if chart is None else f"Chart snapshot (JSON, may be incomplete or stale): {context}\n\nUser: {text}"
         if workflows or markets:

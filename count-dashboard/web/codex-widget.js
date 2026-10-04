@@ -21,7 +21,7 @@ function chartSnapshot() {
   };
 }
 
-export function createCodexWidget(host, {contextProvider = chartSnapshot, surface = 'vela', applyChartMarkup = null, applyElliottMarkup = null, captureChartImage = null} = {}) {
+export function createCodexWidget(host, {contextProvider = chartSnapshot, surface = 'vela', applyChartMarkup = null, applyElliottMarkup = null, applyMarketReadMarkup = null, captureChartImage = null, collectReadMarket = null} = {}) {
   const root = document.createElement('section');
   root.className = 'codex-widget';
   root.dataset.surface = surface;
@@ -29,7 +29,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     <div class="codex-widget-toolbar"><span class="codex-widget-auth" role="status">Checking sign-in…</span><label class="codex-widget-thread-label">Conversation<select class="codex-widget-threads" aria-label="Recent conversations"></select></label><button type="button" class="codex-widget-new">＋ New chat</button></div>
     <details class="codex-widget-options"><summary>Work settings <span>Research is read-only · Build can edit this workspace</span></summary><div class="codex-widget-controls"><label>Mode<select class="codex-widget-mode" aria-label="Codex permission mode"><option value="research">Research · read only</option><option value="build">Build · edit and test</option></select></label><label>Skill<select class="codex-widget-skill" aria-label="Use a Codex skill"><option value="">Auto · choose as needed</option></select></label><label>Specialist<select class="codex-widget-agent" aria-label="Ask a named Codex agent"><option value="">No separate specialist</option></select></label></div></details>
     <div class="codex-widget-context" role="status">Chart context is shared with your next message. Source and cutoff are shown here.</div>
-    <div class="codex-widget-stream" aria-live="polite"><section class="codex-widget-welcome-card"><span class="codex-widget-welcome-spark" aria-hidden="true">✦</span><h2>What are we looking at?</h2><p>I can read the chart with you, shape an indicator idea, or map out a paper strategy. I’ll show the work stages as they happen and call out what I could actually verify.</p><div class="codex-widget-starters"><button type="button" data-starter="Read the active chart. Tell me what stands out, what argues against the setup, and what would change your view.">Read this chart</button><button type="button" data-starter="Help me turn this indicator idea into one clear purpose, exact rules, and a build plan.">Build an indicator</button><button type="button" data-starter="Help me formalize this strategy as a paper study, including entries, exits, costs, and what would disprove it.">Study a strategy</button><button type="button" data-starter="Review the current market context and sentiment using available sourced data. Tell me what was actually checked.">Check market context</button></div></section></div>
+    <div class="codex-widget-stream" aria-live="polite"><section class="codex-widget-welcome-card"><span class="codex-widget-welcome-spark" aria-hidden="true">✦</span><h2>What are we looking at?</h2><p>I can read the chart with you, shape an indicator idea, or map out a paper strategy. I’ll show the work stages as they happen and call out what I could actually verify.</p><div class="codex-widget-starters"><button type="button" data-starter="Read the active chart. Tell me what stands out, what argues against the setup, and what would change your view.">Read this chart</button><button type="button" data-starter="Help me turn this indicator idea into one clear purpose, exact rules, and a build plan.">Build an indicator</button><button type="button" data-starter="Help me formalize this strategy as a paper study, including entries, exits, costs, and what would disprove it.">Study a strategy</button><button type="button" data-starter="Review the current market context and sentiment using available sourced data. Tell me what was actually checked.">Check market context</button>${surface === 'quant-lab' ? '<button type="button" class="codex-widget-read-market" data-action="read-market">✦ Read the Market · 10 chart intervals</button>' : ''}</div></section></div>
     <details class="codex-widget-help"><summary>How Cleo’s work stages are shown</summary><p>The live work card reports visible events such as chart/data reads, source searches, specialist starts, and local build steps. It gives concise activity summaries, not private chain-of-thought. A stage appears only when the connected runtime reports that work.</p><p>Research is read-only. Build can edit this repository and run local checks. Codex pauses for command or file approvals. Indicator measurements, strategy outcomes, and paper fills are reported only when their actual tools return evidence.</p></details>
     <div class="codex-widget-activity" role="status" aria-live="polite"><span class="codex-widget-activity-dot" aria-hidden="true"></span><span class="codex-widget-activity-text">Ready when you are · research and paper only</span></div>
     <form class="codex-widget-composer"><textarea rows="3" maxlength="12000" aria-label="Message Cleo" placeholder="Ask Cleo about the chart, a market, or an indicator…"></textarea><div class="codex-widget-compose-row"><label class="codex-widget-chart-toggle"><input type="checkbox" class="codex-widget-chart" checked> Share chart</label><label class="codex-widget-attach">＋ Screenshot<input class="codex-widget-image" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><button type="button" class="codex-widget-stop" hidden>Stop</button><button type="submit" class="codex-widget-send">Send <span aria-hidden="true">↑</span></button></div><div class="codex-widget-image-name" hidden></div><small class="codex-widget-paper-note">Research and paper workflows · no live order routing</small></form>
@@ -64,6 +64,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   let turnId = '';
   let sequence = 0;
   let busy = false;
+  let collectingReadMarket = false;
   let polling = false;
   let connecting = false;
   let reconnectTimer = 0;
@@ -72,6 +73,10 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   let requestedAgent = '';
   let activeMode = 'research';
   let activeChartRead = false;
+  let activeReadMarket = false;
+  let activeReadMarketContext = null;
+  let activeReadMarketMarksTried = false;
+  let pendingReadMarket = null;
   let chartReadFinalReturned = false;
   const messages = new Map();
   const appliedMarkupResults = new WeakMap();
@@ -277,6 +282,78 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     } catch {}
     return {match,markup:null};
   }
+  function parseMarketReadPayload(content) {
+    const match = String(content || '').match(/<!--CLEO_MARKET_READ_START-->\s*([\s\S]*?)\s*<!--CLEO_MARKET_READ_END-->/i);
+    if (!match) return {text:String(content || ''),payload:null};
+    try {
+      const payload = JSON.parse(match[1]);
+      if (payload?.schema === 'cleo.market-read.v1')
+        return {text:String(content || '').replace(match[0], '').trim(),payload};
+    } catch {}
+    return {text:String(content || ''),payload:null};
+  }
+  function renderMarketRead(body, payload, fallbackText = '') {
+    const sections = [
+      ['sentiment_bias', 'Market Sentiment & Market Bias'],
+      ['liquidity', 'Reading the Liquidity Levels'],
+      ['elliott_fib', 'Elliott Wave, Trend Change & Fibonacci'],
+      ['volume_divergence', 'Relative Volume & Divergence'],
+    ];
+    body.replaceChildren();
+    if (!payload) {
+      renderMarkdown(body, fallbackText || 'Cleo returned no written market read.');
+      return;
+    }
+    for (const [key, heading] of sections) {
+      const section = payload.sections?.[key];
+      if (!section) continue;
+      const article = document.createElement('section');
+      article.className = 'codex-widget-market-read-section';
+      const title = document.createElement('h3');
+      title.textContent = heading;
+      article.append(title);
+      if (section.summary) {
+        const summary = document.createElement('div');
+        renderMarkdown(summary, section.summary);
+        article.append(summary);
+      }
+      if (section.recommendation) {
+        const recommendation = document.createElement('p');
+        recommendation.className = 'codex-widget-market-read-recommendation';
+        recommendation.textContent = `Recommendation: ${section.recommendation}`;
+        article.append(recommendation);
+      }
+      body.append(article);
+    }
+    if (payload.finalRecommendation) {
+      const final = document.createElement('section');
+      final.className = 'codex-widget-market-read-final';
+      const title = document.createElement('h3');
+      title.textContent = 'Final Recommendation';
+      const recommendation = document.createElement('p');
+      recommendation.textContent = payload.finalRecommendation;
+      final.append(title, recommendation);
+      body.append(final);
+    }
+    if (payload.sections && !activeReadMarketMarksTried) {
+      const marks = Object.values(payload.sections).flatMap(section => Array.isArray(section?.marks) ? section.marks : []);
+      activeReadMarketMarksTried = true;
+      let message = 'No source-validated active-chart marks were returned.';
+      if (marks.length && typeof applyMarketReadMarkup === 'function') {
+        try { message = applyMarketReadMarkup(payload, activeReadMarketContext)?.message || `${marks.length} chart marks added.`; }
+        catch (error) { message = `Chart marks were not drawn · ${error.message}`; }
+      }
+      const status = document.createElement('section');
+      status.className = 'codex-widget-market-read-marks';
+      const title = document.createElement('h3');
+      title.textContent = 'Chart marks';
+      const detail = document.createElement('p');
+      detail.textContent = message;
+      status.append(title, detail);
+      body.append(status);
+    }
+    if (!body.childElementCount) renderMarkdown(body, fallbackText || 'Cleo returned no written market read.');
+  }
   function chartMarkCount(markup) {
     return markup?.schema === 'cleo.elliott-markup.v1'
       ? (markup.primary?.pivots?.length || 0) + (markup.alternate?.pivots?.length || 0) + (markup.projections?.length || 0) + (markup.invalidations?.length || 0)
@@ -297,12 +374,15 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     }
   }
   function renderAgentAnswer(body, content, autoApplyMarkup = false) {
+    const marketRead = activeReadMarket ? parseMarketReadPayload(content) : null;
     const {match,markup} = parseChartMarkup(content);
-    const visibleText = match ? String(content).replace(match[0], '').trim() : String(content || '');
+    const visibleText = marketRead?.text ?? (match ? String(content).replace(match[0], '').trim() : String(content || ''));
     const compactText = visibleText.replace(/^\s*#{1,3}\s*/gm, '').replace(/\*\*/g, '').trim();
     const shortRead = markup?.readout || {};
     const markCount = chartMarkCount(markup);
-    if (activeChartRead || (surface === 'quant-lab' && markup)) {
+    if (activeReadMarket) {
+      renderMarketRead(body, marketRead?.payload, visibleText);
+    } else if (activeChartRead || (surface === 'quant-lab' && markup)) {
       body.replaceChildren();
       const readCard = document.createElement('section');
       readCard.className = 'codex-widget-chart-read';
@@ -384,6 +464,7 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       ['Study a strategy','Help me formalize this strategy as a paper study, including entries, exits, costs, and what would disprove it.'],
       ['Check market context','Review the current market context and sentiment using available sourced data. Tell me what was actually checked.'],
     ]) { const button = document.createElement('button'); button.type='button'; button.dataset.starter=prompt; button.textContent=label; starters.append(button); }
+    if (surface === 'quant-lab') { const button=document.createElement('button'); button.type='button'; button.className='codex-widget-read-market'; button.dataset.action='read-market'; button.textContent='✦ Read the Market · 10 chart intervals'; starters.append(button); }
     card.append(spark,title,intro,starters); stream.replaceChildren(card);
   }
   function beginWorkCard(message, chart, imageAttached) {
@@ -780,6 +861,8 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       } else if (status === 'failed') { finishWork('failed'); showTurnFailure(params.turn); }
       else { finishWork(status); setStatus(`Turn ${status} · review may be incomplete`, true); }
       activeChartRead = false;
+      activeReadMarket = false;
+      activeReadMarketContext = null;
       chartReadFinalReturned = false;
     }
   }
@@ -796,15 +879,21 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     } catch (error) { setStatus(error.message, true); }
     finally { polling = false; }
   }
-  form.addEventListener('submit', async event => {
-    event.preventDefault();
-    const text = textarea.value.trim();
-    if ((!text && !imageInput.files[0]) || busy) return;
+  async function submitMessage(messageText = textarea.value) {
+    const text = String(messageText || '').trim();
+    if ((!text && !imageInput.files[0]) || busy || collectingReadMarket) return false;
     try {
       if (!threadId) await newThread();
       setBusy(true);
       setStatus('Sending to Codex…');
       const chart = chartContext();
+      if (pendingReadMarket && chart) {
+        chart.readMarket = pendingReadMarket;
+        pendingReadMarket = null;
+      }
+      activeReadMarket = surface === 'quant-lab' && Boolean(chart?.readMarket);
+      activeReadMarketContext = activeReadMarket ? primaryChart(chart) : null;
+      activeReadMarketMarksTried = false;
       const uploadedImage = await readImage(imageInput.files[0]);
       let image = uploadedImage;
       if (!image && chart && typeof captureChartImage === 'function') {
@@ -839,19 +928,28 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
       });
       turnId = result.turnId;
       addWorkStep('Request accepted · waiting for activity updates','request','done');
-      textarea.value = '';
+      if (textarea.value.trim() === text) textarea.value = '';
       imageInput.value = '';
       $('.codex-widget-image-name').hidden = true;
       void poll();
       const state = await request('/account');
       refreshList(state.threads || []);
+      return true;
     } catch (error) {
       setBusy(false);
+      activeReadMarket = false;
+      activeReadMarketContext = null;
+      activeChartRead = false;
       addWorkStep('The request did not start','request','failed');
       finishWork('failed', error.message);
       setStatus(error.message, true);
       if (/\barchived\b/i.test(error.message)) void connect();
+      return false;
     }
+  }
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    void submitMessage();
   });
   $('.codex-widget-chart').addEventListener('change', chartContext);
   imageInput.addEventListener('change', () => {
@@ -888,10 +986,13 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
     if (button) button.classList.toggle('is-selected');
   });
   stream.addEventListener('click', event => {
+    if (event.target.closest('[data-action="read-market"]')) {
+      if (!busy) widgetApi.analyzeReadMarket();
+      return;
+    }
     const starter=event.target.closest('[data-starter]');
     if (!starter || busy) return;
-    textarea.value=starter.dataset.starter||'';
-    form.requestSubmit();
+    void submitMessage(starter.dataset.starter || '');
   });
   $('.codex-widget-new').addEventListener('click', () => { void newThread().catch(error => setStatus(error.message, true)); });
   selector.addEventListener('change', () => { void loadThread(selector.value).catch(error => setStatus(error.message, true)); });
@@ -923,15 +1024,47 @@ export function createCodexWidget(host, {contextProvider = chartSnapshot, surfac
   }, 900);
   document.addEventListener('visibilitychange', onVisible);
   queueMicrotask(() => { void connect(); });
-  return {root, analyzeElliott() {
+  const widgetApi = {root, analyzeReadMarket() {
+    if (busy || typeof collectReadMarket !== 'function') return false;
+    collectingReadMarket = true;
+    const button = root.querySelector('.codex-widget-read-market');
+    const progress = contextLine;
+    if (button) button.disabled = true;
+    if (progress) { progress.hidden = false; progress.textContent = 'Collecting stored chart snapshots…'; }
+    void collectReadMarket((completed, total) => {
+      if (progress) progress.textContent = `Collecting stored chart snapshots · ${completed}/${total}`;
+    }).then(async readMarket => {
+      if (!readMarket || !Array.isArray(readMarket.frames)) throw new Error('No multi-timeframe snapshot was returned.');
+      pendingReadMarket = readMarket;
+      $('.codex-widget-chart').checked = true;
+      chartContext();
+      skillSelect.value = [...skillSelect.options].some(option => option.value === 'cleo') ? 'cleo' : skillSelect.value;
+      agentSelect.value = [...agentSelect.options].some(option => option.value === 'cleo') ? 'cleo' : '';
+      updatePersona();
+      const prompt = 'Read the market across the supplied stored snapshots. Give me the four sections: Market Sentiment & Market Bias; Reading the Liquidity Levels; Elliott Wave, Trend Change & Fibonacci; Relative Volume & Divergence. Daily is context; trade levels come from 15m, 30m, 1h, and 4h; 1m is confirmation only. Keep liquidity and inducement as chart-based hypotheses, disclose provisional RVOL and divergence measures, state unavailable intervals, and finish with a short Final Recommendation. Return any active-chart marks only when their source and exact timestamps are supported by the supplied bars.';
+      if (progress) progress.textContent = `${readMarket.frames.filter(frame => frame.status === 'available').length}/10 snapshots ready · starting Cleo review`;
+      collectingReadMarket = false;
+      const sent = await submitMessage(prompt);
+      if (!sent && progress) progress.textContent = 'Read could not start · check the chat connection and try again.';
+      if (button) button.disabled = false;
+    }).catch(error => {
+      collectingReadMarket = false;
+      activeReadMarket = false;
+      activeReadMarketContext = null;
+      if (progress) progress.textContent = `Read could not start · ${error.message}`;
+      if (button) button.disabled = false;
+    });
+    return true;
+  }, analyzeElliott() {
     if (busy) return false;
     $('.codex-widget-chart').checked = true;
     chartContext();
     skillSelect.value = [...skillSelect.options].some(option => option.value === 'cleo') ? 'cleo' : skillSelect.value;
     agentSelect.value = [...agentSelect.options].some(option => option.value === 'cleo') ? 'cleo' : '';
     updatePersona();
-    textarea.value = 'Run an Elliott Wave analysis on the active chart and place the sourced wave labels and conditional paths directly on that chart.';
+    textarea.value = 'Analyze the active chart with Elliott Wave and place sourced wave labels and conditional paths directly on that chart.';
     form.requestSubmit();
     return true;
   }};
+  return widgetApi;
 }
