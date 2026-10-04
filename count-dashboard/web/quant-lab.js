@@ -713,15 +713,28 @@ function applyCleoMarkup(spec){
   const explanation=String(spec.method||'Provisional chart assessment').slice(0,100);
   return {message:`${nextIds.length} chart mark${nextIds.length===1?'':'s'} added · ${archived?'saved to Cleo’s chart archive':'archive unavailable in this browser'} · ${explanation}`};
 }
+function normalizeChartTimestamp(value){
+  if(typeof value==='number'&&Number.isFinite(value))return Math.abs(value)>=1e9&&Math.abs(value)<1e11?value*1000:value;
+  if(typeof value!=='string'||!value.trim())return NaN;
+  const numeric=Number(value);
+  if(Number.isFinite(numeric))return Math.abs(numeric)>=1e9&&Math.abs(numeric)<1e11?numeric*1000:numeric;
+  const parsed=Date.parse(value);
+  return Number.isFinite(parsed)?parsed:NaN;
+}
 function applyMarketReadMarkup(payload,chartContext){
   if(payload?.schema!=='cleo.market-read.v1')throw new Error('Cleo returned an unsupported market-read schema.');
   const chartIndex=Number(chartContext?.chart),slot=Number.isInteger(chartIndex)&&chartIndex>=1?slots[chartIndex-1]:null;
   if(!slot?.chart||!slot.source||!slot.bars.length)throw new Error('The chart used for this read is no longer loaded.');
   const source=payload.source||{};
   const returnedProvider=String(source.provider||'').toLowerCase();
-  const providerMatches=!returnedProvider||[slot.source.id,slot.source.label].some(value=>String(value||'').toLowerCase()===returnedProvider);
-  if(!providerMatches||String(source.symbol||'').toUpperCase()!==slot.source.market||source.timeframe!==slot.source.timeframe||Number(source.cutoff)!==Number(slot.source.cutoff))
-    throw new Error('The read’s source or cutoff does not match the loaded chart. Refresh the read before drawing marks.');
+  const providerAliases=[slot.source.id,slot.source.label].map(value=>String(value||'').toLowerCase()).filter(Boolean);
+  const providerMatches=Boolean(returnedProvider)&&providerAliases.some(alias=>returnedProvider===alias||[' —',' –',' ·',' -',' ('].some(separator=>returnedProvider.startsWith(`${alias}${separator}`)));
+  if(!providerMatches)throw new Error(`The read provider ${source.provider||'(missing)'} does not match ${slot.source.label}.`);
+  if(String(source.symbol||'').toUpperCase()!==slot.source.market)throw new Error(`The read symbol ${source.symbol||'(missing)'} does not match ${slot.source.market}.`);
+  if(source.timeframe!==slot.source.timeframe)throw new Error(`The read timeframe ${source.timeframe||'(missing)'} does not match ${slot.source.timeframe}.`);
+  const readCutoff=normalizeChartTimestamp(source.cutoff);
+  if(!Number.isFinite(readCutoff)||readCutoff!==Number(slot.source.cutoff))
+    throw new Error(`The read cutoff ${source.cutoff||'(missing)'} does not match the loaded chart cutoff ${utc(slot.source.cutoff)}.`);
   const markMap=new Map();
   for(const section of Object.values(payload.sections||{}))for(const mark of Array.isArray(section?.marks)?section.marks:[]){
     if(!markMap.has(mark?.id))markMap.set(mark?.id,mark);
@@ -736,8 +749,8 @@ function applyMarketReadMarkup(payload,chartContext){
     const label=String(mark.label||mark.id).replace(/[\r\n]/g,' ').trim();
     return {id:mark.id,geometry:mark.geometry==='trend'?'trendline':mark.geometry,role:'OBSERVED',
       label:label.length>18?`${label.slice(0,17)}…`:label,
-      anchors:mark.anchors.map(point=>({time:Number(point?.time),price:Number(point?.price)})),
-      evidenceRefs:mark.anchors.map(point=>Number(point?.time))};
+      anchors:mark.anchors.map(point=>({time:normalizeChartTimestamp(point?.time),price:Number(point?.price)})),
+      evidenceRefs:mark.anchors.map(point=>normalizeChartTimestamp(point?.time))};
   });
   return applyCleoMarkup({schema:'cleo.chart-markup.v1',chart:chartIndex,
     method:'Read the Market · sourced active-chart marks',

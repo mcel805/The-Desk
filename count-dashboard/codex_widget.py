@@ -514,9 +514,18 @@ class CodexWidget:
             }
             prompt = (f"User's Cleo workspace preferences (JSON context, not chart evidence): "
                       f"{json.dumps(preferences, ensure_ascii=False)}\n\n{prompt}")
+        read_market = chart.get("readMarket") if isinstance(chart, dict) else None
+        if isinstance(read_market, dict):
+            prompt += (
+                "\n\nREAD THE MARKET MODE for Quant Lab Cleo chat. Use the entire chart.readMarket.frames object as the multi-timeframe source; these are stored public-provider OHLCV snapshots, not live or licensed broker data. "
+                "State the active chart provider, symbol, timeframe, and cutoff, and list every unavailable interval. Do not resample or fabricate missing bars. Follow this playbook: Daily supplies context; trade levels come from 15m, 30m, 1h, and 4h; 1m is only confirmation after a higher-timeframe interaction. Treat liquidity pools and inducement as chart-based hypotheses, not actual order-book depth or known trader intent. "
+                "Disclose any relative-volume or divergence calculation as provisional, including inputs and coverage; if you cannot calculate it from completed, supplied bars, say unavailable. Return four clearly headed sections: (1) Market Sentiment & Market Bias, (2) Reading the Liquidity Levels, (3) Elliott Wave, Trend Change & Fibonacci, and (4) Relative Volume & Divergence. Each section should give a concise evidence-based summary and recommendation. Finish with a short Final Recommendation. "
+                "The usual one-sentence chart-read format does not apply to this request. Do not emit the generic `chart-markup` block. Return one JSON payload exactly between these sentinels: `<!--CLEO_MARKET_READ_START-->JSON<!--CLEO_MARKET_READ_END-->`. Use schema `cleo.market-read.v1` with source {provider,symbol,timeframe,cutoff}, sections {sentiment_bias,liquidity,elliott_fib,volume_divergence}, each section {summary,recommendation,marks}, and finalRecommendation. Copy source.provider exactly from chart.readMarket.source.provider (the provider ID); do not append a source description or freshness note. Copy symbol, timeframe, and cutoff exactly from that same source object, preserving the cutoff's original JSON type and value. A mark is {id,geometry,label,timeframe,evidence,anchors}; geometry must be level (one exact active-chart candle anchor), trend (two chronological exact active-chart candle anchors), or zone (two chronological exact active-chart candle anchors defining the visible zone corners). Return at most five unique active-chart marks total across the sections. Every mark timeframe must equal the active chart timeframe. Each anchor price must lie within its cited candle's OHLC range, and its timestamp must exactly match a supplied active-chart bar. Prefer clear, useful support/resistance zones or levels when the bars support them; omit unsupported marks and explain when none can be anchored. Do not emit an order, entry, stop, target, or claim of validated strategy performance. Keep analysis provisional and paper/shadow only."
+            )
+        chart_read_agent = agent in {"cleo", "tradingagents"} or skill == "cleo"
         chart_read_request = bool(
-            (agent == "cleo" or skill == "cleo") and chart is not None
-            and re.search(r"\b(read|analy[sz]e|review|inspect|look at|what stands out|what do you see)\b", text, re.I)
+            chart_read_agent and chart is not None and not isinstance(read_market, dict)
+            and re.search(r"\b(read|analy[sz](?:e|is|ing)|review|inspect|look at|what stands out|what do you see)\b", text, re.I)
         )
         if chart_read_request:
             prompt += (
