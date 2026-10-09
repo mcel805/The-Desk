@@ -1,0 +1,133 @@
+{
+  "method": "taper.volume.v1",
+  "questionPack": "taper.geometry-volume.questions.v1",
+  "questions": {
+    "volume_participation": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. How does recent reported volume compare with its SMA and, when adequately sampled, same-time historical RVOL? Name the available baseline; raw rolling average does not remove seasonality.",
+      "criteria": {
+        "EXPANDING": "Increasing participation against available baseline.",
+        "CONTRACTING": "Decreasing participation against available baseline.",
+        "ORDINARY": "Near baseline without clear change.",
+        "MIXED": "Raw and same-time or recent comparisons disagree.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_effort_result": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Does high measured volume produce directional price progress, or little net progress with rejection? Small candle body alone is not absorption proof.",
+      "criteria": {
+        "PROGRESS_UP": "Effort accompanies completed upward progress.",
+        "PROGRESS_DOWN": "Effort accompanies completed downward progress.",
+        "POSSIBLE_ABSORPTION": "High effort, limited progress and observed rejection at a relevant level.",
+        "ORDINARY": "No qualified effort/result anomaly.",
+        "MIXED": "Effort and result conflict without a resolved interpretation.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_location": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Where are recent climax/churn/spikes relative to selected liquidity and active channel/Fib context? Require actual contact and completed close, not merely a large colored bar.",
+      "criteria": {
+        "UPPER_REJECTION": "Upper hunted level contact and close away below.",
+        "LOWER_REJECTION": "Lower hunted level contact and close away above.",
+        "BREAKOUT_ACCEPTANCE": "Observed consecutive closes accepting through a selected level.",
+        "NO_OVERLAP": "Available signal evidence is away from selected levels.",
+        "CONFLICTED": "Both sides or channels give incompatible contacts.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_sequence": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Assess the observed climax then churn sequence and candle close location; do not assume every sequence causes a turn.",
+      "criteria": {
+        "UPPER_STALL": "Sequence with completed upper level rejection.",
+        "LOWER_STALL": "Sequence with completed lower level rejection.",
+        "CONTINUATION": "Sequence followed by completed acceptance in original direction.",
+        "NONE": "No qualified sequence in supplied recent evidence.",
+        "UNRESOLVED": "Sequence exists but subsequent evidence is inconclusive.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_follow_through": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. What do timestamped followThrough states show for the most relevant recent signal? Never classify missing continuation as reversal. Use knownAt and no future bar.",
+      "criteria": {
+        "CONTINUATION": "Two subsequent bars include a close beyond directional extreme.",
+        "OPPOSITE_BREAK": "Observed close beyond opposite extreme.",
+        "PENDING": "Two subsequent completed bars are not yet available.",
+        "UNRESOLVED": "No decisive close beyond either extreme, or incompatible events.",
+        "NONE": "No recent signal to assess.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_pullback": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Within available parent trend and a selected level, is the corrective leg losing participation and then resuming price progress? Avoid counting presumed pullbacks or calling a third pullback unsafe without evidence.",
+      "criteria": {
+        "UP_RESUMPTION": "Rising parent context, lighter pullback and completed upward resumption.",
+        "DOWN_RESUMPTION": "Falling parent context, lighter pullback and completed downward resumption.",
+        "CORRECTION_ONLY": "Lighter corrective leg but no completed resumption.",
+        "CONFLICTED": "Volume or parent trend contradicts resumption.",
+        "NONE": "No coherent corrective leg and resumption evidence.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_divergence": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Assess confirmed raw-volume/price pivot divergences with recorded anchorTime and confirmedAt. Candle-sign delta cannot establish bid/ask divergence.",
+      "criteria": {
+        "BEARISH": "Confirmed higher high with at least 20% lower raw pivot volume.",
+        "BULLISH": "Confirmed lower low with at least 20% lower raw pivot volume.",
+        "BOTH": "Recent confirmed divergences in both directions.",
+        "NONE": "No confirmed divergence; unconfirmed pivots do not qualify.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_geometry_agreement": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Does observed volume and price reaction agree with active higher-frame geometry? Broken rails are references; missing parents cannot establish agreement.",
+      "criteria": {
+        "UP_ALIGNED": "Available parent trend and reaction support upward scenario.",
+        "DOWN_ALIGNED": "Available parent trend and reaction support downward scenario.",
+        "COUNTERTREND": "Reaction opposes a coherent parent trend.",
+        "CONFLICTED": "Parents and reaction disagree without coherent context.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_invalidation": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. What observed evidence would invalidate the volume-supported reaction at the selected level? Assess actual closes and known signal extremes; invent no stop/target.",
+      "criteria": {
+        "ACCEPTED_THROUGH": "Completed consecutive closes have accepted through the reaction level.",
+        "OPPOSITE_PROGRESS": "Observed strong directional progress contradicts the reaction.",
+        "STILL_CONDITIONAL": "Potential reaction has not been invalidated but remains conditional.",
+        "NO_VALID_REACTION": "No observed volume-supported reaction to invalidate.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_supplement": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. How should volume supplement the selected-level liquidity watch? Use observed price confirmation and frozen risk gates directly, without seeing other question answers. Volume cannot create a level, move brackets, authorize a ticket or estimate profit.",
+      "criteria": {
+        "SUPPORTS_LONG_WATCH": "Qualified lower reaction with compatible volume and price confirmation.",
+        "SUPPORTS_SHORT_WATCH": "Qualified upper reaction with compatible volume and price confirmation.",
+        "WAIT_CONFIRMATION": "Interesting volume but missing qualified completed confirmation.",
+        "CONTRADICTS": "Observed acceptance/progress opposes the proposed reaction.",
+        "NEUTRAL": "Available volume adds no meaningful directional evidence.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    },
+    "volume_evidence_quality": {
+      "type": "choice",
+      "instructions": "Use `volumeEvidence` and completed context; apply its semantics. Independent question. Assess volume evidence quality, supplied history coverage, source freshness, missing bars, units and same-time reference counts. Need not have RVOL for a valid raw-volume read; report relative limitations explicitly.",
+      "criteria": {
+        "RAW_ONLY": "Valid completed raw OHLCV; same-time sample unavailable.",
+        "RELATIVE_LIMITED": "Raw valid; same-time ratio has 3\u201314 observed historical samples.",
+        "RELATIVE_FULL": "Raw valid; same-time ratio has 15 prior observed samples.",
+        "CONFLICTED": "Volume source or measurements conflict.",
+        "UNAVAILABLE": "Required evidence missing or invalid."
+      }
+    }
+  }
+}

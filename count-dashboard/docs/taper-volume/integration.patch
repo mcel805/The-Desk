@@ -1,0 +1,356 @@
+--- a/count-dashboard/taper_decisions.py
++++ b/count-dashboard/taper_decisions.py
+@@ -14,13 +14,14 @@
+ import threading
+ import time
+ import taper_geometry
++import taper_volume
+ from pathlib import Path
+ from urllib.error import HTTPError, URLError
+ from urllib.request import Request, urlopen
+ 
+ 
+ MODEL = "jev-1.13.0"  # Pinned for reproducible decisions and pricing.
+-METHOD = "taper.tape-read.v0.3.geometry"
++METHOD = "taper.tape-read.v0.4.volume"
+ INPUT_USD_PER_MILLION = 0.042  # docs.typesafe.ai/models, retrieved 2026-10-09.
+ MAX_REQUEST_USD = 64_000 * INPUT_USD_PER_MILLION / 1_000_000
+ API_URL = "https://api.typesafe.ai/v1/systemone"
+@@ -32,7 +33,7 @@
+     return {"agent": "Taper", "method": METHOD, "provider": "typesafe", "configured": configured,
+             "credentialEnv": "TYPESAFE_API_KEY", "connection": "credentials_present_unverified" if configured else "missing_key",
+             "mode": "paper research; no order route", "model": MODEL, "inputUsdPerMillion": INPUT_USD_PER_MILLION,
+-            "maxRequestUsd": MAX_REQUEST_USD, "questionPack":taper_geometry.PACK, "questionPlan":decision_questions(True), "inputMode": "completed OHLC and structured Wave Court state; text only"}
++            "maxRequestUsd": MAX_REQUEST_USD, "questionPack":taper_volume.PACK, "questionPlan":decision_questions(True, True), "inputMode": "completed OHLCV, recomputed volume and structured Wave Court state; text only"}
+ 
+ 
+ def _number(value, field: str) -> float:
+@@ -75,7 +76,9 @@
+         if bar["low"] <= 0 or bar["high"] < max(bar["open"], bar["close"], bar["low"]) or bar["low"] > min(bar["open"], bar["close"]):
+             raise ValueError("A bar has invalid OHLC geometry")
+         if row.get("volume") is not None:
+-            bar["volume"] = max(0, _number(row["volume"], "volume"))
++            bar["volume"] = _number(row["volume"], "volume")
++            if isinstance(row["volume"], bool) or bar["volume"] < 0:
++                raise ValueError("Volume must be nonnegative, finite and not boolean")
+         clean.append(bar)
+         prior = bar["time"]
+     if int(clean[-1]["time"]) != cutoff:
+@@ -165,7 +168,8 @@
+     return {"method": METHOD, "source": {"provider": provider, "symbol": symbol, "timeframe": "1m",
+             "completedCutoff": cutoff, "snapshotAsOf": asof}, "frames": bounded_frames,
+             "levels": bounded_levels, "game": bounded_game, "hunt": bounded_hunt, "bars": clean,
+-            "marketGeometry": taper_geometry.evidence(payload.get("marketGeometry"),provider,symbol,cutoff,_number)}
++            "marketGeometry": taper_geometry.evidence(payload.get("marketGeometry"),provider,symbol,cutoff,_number),
++            "volumeEvidence": taper_volume.evidence(payload.get("volumeHistory"), {"provider":provider,"symbol":symbol,"completedCutoff":cutoff}, clean)}
+ 
+ 
+ class JevResponseError(RuntimeError):
+@@ -219,7 +223,7 @@
+     return answers
+ 
+ 
+-def decision_questions(include_geometry=False):
++def decision_questions(include_geometry=False, include_volume=False):
+     """Exact public questions and criteria; no model reasoning trace."""
+     questions = {
+         "tape_state": {"type": "choice", "instructions":
+@@ -257,6 +261,9 @@
+     }
+ 
+     if include_geometry:questions.update(taper_geometry.questions())
++    if include_volume:
++        questions.update(taper_volume.questions())
++        questions["research_bias"]["instructions"] += " Use volumeEvidence as supplemental context. Missing volume cannot support a directional claim. No volume signal may create levels or bypass completed price confirmation or frozen risk gates."
+     return questions
+ 
+ 
+@@ -265,7 +272,7 @@
+     api_key = os.environ.get("TYPESAFE_API_KEY", "").strip()
+     if not api_key:
+         raise RuntimeError("Taper needs TYPESAFE_API_KEY in the Count Desk server environment")
+-    questions = decision_questions(evidence.get("marketGeometry") is not None)
++    questions = decision_questions(evidence.get("marketGeometry") is not None, True)
+     body = json.dumps({"model": MODEL, "state": evidence, "questions": questions},
+                       separators=(",", ":"), allow_nan=False).encode()
+     # Conservative ASCII byte bound beneath the documented 64k combined token budget.
+@@ -312,7 +319,7 @@
+         paper_gate = {"status": "wait", "reason": "No paper setup from the current completed-bar read"}
+     record = {"decisionId": decision_id, "agent": "Taper", "method": METHOD,
+               "source": evidence["source"], "evidenceHash": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest(),
+-              "provider": "typesafe", "model": result["model"], "answers": answers, "questions": questions, "questionPack":taper_geometry.PACK if evidence.get("marketGeometry") else "taper.base.questions.v1", "marketGeometry":evidence.get("marketGeometry"), "rawAnswers": result["answers"], "usage": usage,
++              "provider": "typesafe", "model": result["model"], "answers": answers, "questions": questions, "questionPack":taper_volume.PACK, "volumeEvidence":evidence.get("volumeEvidence"), "marketGeometry":evidence.get("marketGeometry"), "rawAnswers": result["answers"], "usage": usage,
+               "latencyMs": latency_ms, "requestBytes": len(body),
+               "pricing": {"inputUsdPerMillion": INPUT_USD_PER_MILLION, "outputUsdPerMillion": 0,
+                           "source": "https://docs.typesafe.ai/models", "asOf": "2026-10-09", "model": MODEL},
+--- a/count-dashboard/crypto_day_desk.py
++++ b/count-dashboard/crypto_day_desk.py
+@@ -266,9 +266,9 @@
+         estimated=sum(float(json.loads(r[0] or '{}').get('estimatedUsd',0)) for r in attempts)
+         if len(attempts)>=p['maxApiReads'] or estimated+taper_decisions.MAX_REQUEST_USD>p['maxApiUsd']:raise ValueError('Daily Jev read/cost budget reached')
+         db.execute('INSERT INTO api_attempts VALUES(?,?,?,?)',(key,'pending',now(),encode({'provider':'typesafe','estimatedUsd':taper_decisions.MAX_REQUEST_USD,'costReserved':True})))
+-        questions=taper_decisions.decision_questions(evidence.get('marketGeometry') is not None)
++        questions=taper_decisions.decision_questions(evidence.get('marketGeometry') is not None, True)
+         hunts.event(db,hunt['id'],'taper','api_request',{
+-            'text':'Preparing Jev read for the completed 1m candle. '+str(len(questions))+' independent questions cover tape, channels, breaks and context.',
++            'text':'Preparing Jev read for the completed 1m candle. '+str(len(questions))+' independent questions cover tape, channels, breaks, volume and context.',
+             'barTime':bars[-1]['time'],'source':source,'questions':questions,
+             'model':taper_decisions.MODEL,'levelRevision':hunt.get('levelRevision',1),
+             'levels':[{'price':x['price'],'tf':x['tf']} for x in hunt['levels']],
+--- a/count-dashboard/web/quant-lab.js
++++ b/count-dashboard/web/quant-lab.js
+@@ -1,5 +1,6 @@
+ import {createQuantGame,gameMarketAllowed,gameStudyCount} from './quant-game.js?v=14';
+-import {startCryptoDesk} from './crypto-day-desk.js?v=jev-guide-1';
++import {startCryptoDesk} from './crypto-day-desk.js?v=taper-volume-1';
++import {registerTaperVolume} from './taper-volume.mjs';
+ import {analyze as analyzePineWaveCourt,render as renderPineWaveCourt,DEFAULTS as pineDefaults} from './wave-court-port.mjs';
+ const cryptoDeskEnabled=location.pathname.endsWith('/crypto-day.html');
+ const routeParams=new URLSearchParams(location.search);
+@@ -28,6 +29,7 @@
+   ?'DAY TRADING · BTC / ETH / SOL · Wave Court uses seven-frame research context; the chart and paper entries remain scoped to the active 1-minute tape and frozen 15-minute liquidity field.'
+   :'1-HOUR WORKFLOW · Cleo handles market research; Shammy handles Elliott Wave structure across the analyst reference charts.';
+ registerVolumeAnalyst();
++registerTaperVolume();
+ const providerSpecs = {
+   binance:{label:'Binance public data',className:'BinanceProvider',market:'BTCUSDT',type:'spot or perpetual, according to market symbol'},
+   coinbase:{label:'Coinbase Exchange public data',className:'CoinbaseProvider',market:'BTC-USD',type:'spot'},
+--- a/count-dashboard/web/crypto-day-desk.js
++++ b/count-dashboard/web/crypto-day-desk.js
+@@ -3,6 +3,7 @@
+ import {nearestCoreLevels} from './crypto-session-setup.mjs';
+ import {taperEvidence} from './quant-wave-court.mjs';
+ import {marketGeometryEvidence} from './jev-market-geometry.mjs';
++import {analyzeVolume,MODES} from './taper-volume.mjs';
+ const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=v=>Number(v||0).toLocaleString(undefined,{style:'currency',currency:'USD'}),num=v=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:4}),clock=t=>new Date(t).toLocaleTimeString('en-US',{hour12:false,timeZone:'UTC'});
+ const STAGE_COLOR={WAIT:'#737f93',APPROACH:'#5398f8',TOUCH:'#19d0e9',RECLAIM:'#ffc75e',REJECTION:'#ffc75e',CONFIRMED:'#85efba'};
+ async function api(path,body){const r=await fetch('/api/crypto-desk/'+path,{...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Desk service unavailable');return data;}
+@@ -24,6 +25,14 @@
+ export function startCryptoDesk(bridge){
+  let state=null,read=null,settings={...DEFAULTS},busy=false,polling=true,selected=null,lastKey='',lastObserved='',lastModel='',modelBusy=false,modelError='',error='',drawingSlot=null,decisionIds=[],refreshTimer=null,hoverOff=null,clickOff=null,startedAt=Date.now(),currentSource='',lastRoundGross=null,quoteOff=null,quoteKey='',quoteAt=0,sessionTicker=null;
+  const workspace=$('.workspace'),conversation=$('.conversation');
++ let volumeMode=localStorage.getItem('taper.volume.mode')||'Volume';if(!MODES.includes(volumeMode))volumeMode='Volume';
++ let volumeVisible=true,volumeSlot=null;
++ const volumeStrip=document.createElement('section');volumeStrip.className='desk-volume-strip';volumeStrip.setAttribute('aria-label',"Taper's Volume study");volumeStrip.innerHTML="<button id='deskVolumeToggle' aria-pressed='true'>Taper's Volume · ON</button><select id='deskVolumeMode' aria-label='Volume calculation mode'></select><span id='deskVolumeSummary'>Waiting for completed OHLCV</span><button id='deskVolumeHelp'>Volume guide</button>";$('.bottom-bar').before(volumeStrip);
++ for(const mode of MODES){const option=document.createElement('option');option.value=mode;option.textContent=mode;$('#deskVolumeMode').append(option);}$('#deskVolumeMode').value=volumeMode;
++ function paintVolume(){const slot=bridge.slot();if(!slot?.chart||!read)return;const r=analyzeVolume(read.frames[6].barData,'1m',Date.now());const b=r.latest;$('#deskVolumeSummary').textContent=slot.source.id+' · '+slot.source.market+' · 1M '+(b?clock(b.time+60000)+' UTC · '+b.kind:'unavailable')+' · RVOL '+(b?.rvol==null?'unavailable':num(b.rvol)+'% ('+b.referenceCount+'/15)')+' · supplemental';let handle=slot.chart.indicators().find(h=>h.nativeType==='taper-volume');if(!handle&&volumeVisible)handle=slot.chart.addNativeIndicator('taper-volume',{inputs:{mode:volumeMode}});if(handle){handle.setVisible(volumeVisible);if(handle.inputValues().mode!==volumeMode)handle.setInputs({mode:volumeMode});}volumeSlot=slot;}
++ $('#deskVolumeToggle').onclick=()=>{volumeVisible=!volumeVisible;$('#deskVolumeToggle').textContent="Taper's Volume · "+(volumeVisible?'ON':'OFF');$('#deskVolumeToggle').setAttribute('aria-pressed',String(volumeVisible));paintVolume();};
++ $('#deskVolumeMode').onchange=()=>{volumeMode=$('#deskVolumeMode').value;localStorage.setItem('taper.volume.mode',volumeMode);paintVolume();};
++ $('#deskVolumeHelp').onclick=()=>window.open('./taper-volume-guide.html','_blank');
+  document.title='Wave Court · Crypto Day Desk';
+  $('.home').innerHTML='◈ <span>WAVE COURT</span>';$('.home').href='./crypto-day.html';
+  $('.boundary').textContent='CRYPTO DAY DESK · PAPER';
+@@ -163,11 +172,12 @@
+   if(!bar||bar.time<=session.startCutoff||!session.levels.length||bar.time+60000<=session.levelsChangedAt)return;
+   const key=`${slot.source.id}:${slot.source.market}:${bar.time}`;if(lastModel===key)return;
+   modelBusy=true;modelError='';renderTaper();
+-  const stream=$('#deskSessionStream');const working=document.createElement('article');working.className='desk-session-message desk-jev-working';working.id='deskJevWorking';working.innerHTML=`<b>Jev · preparing completed ${esc(clock(bar.time+60000))} candle</b><p>Checking all seven frames: channels, wick reactions, breaks/retests, Fibonacci, hunted liquidity and tape. Waiting for the actual API response…</p>`;stream.append(working);stream.scrollTop=stream.scrollHeight;
++  const stream=$('#deskSessionStream');const working=document.createElement('article');working.className='desk-session-message desk-jev-working';working.id='deskJevWorking';working.innerHTML=`<b>Jev · preparing completed ${esc(clock(bar.time+60000))} candle</b><p>Checking all seven frames: channels, wick reactions, breaks/retests, Fibonacci, hunted liquidity and volume. Waiting for the actual API response…</p>`;stream.append(working);stream.scrollTop=stream.scrollHeight;
+   const progress=setInterval(()=>void loadState().catch(()=>{}),1500);
+   try{
+    const evidence=taperEvidence({...read,chartTimeframe:'1m',cutoff:bar.time},read.frames[6].barData,{...slot.source,timeframe:'1m',snapshotAsOf:Date.now()});
+    evidence.marketGeometry=marketGeometryEvidence(read,slot.source);
++   evidence.volumeHistory={method:'taper.volume.v1',source:{provider:slot.source.id,symbol:slot.source.market,completedCutoff:bar.time},bars:read.frames[6].barData.slice(-5000)};
+    const record=await api('decision',{evidence,session:session.id});lastModel=key;
+    await loadState();await syncSessionJournal();await loadState();paintDecisions();
+   }catch(e){modelError=e.message;lastModel=key;await loadState().catch(()=>{});await syncSessionJournal().catch(()=>{});}
+@@ -175,7 +185,7 @@
+  }
+  function clearDecisions(){if(drawingSlot?.chart)for(const id of decisionIds)drawingSlot.chart.drawings.remove(id);decisionIds=[];}
+  function paintDecisions(){clearDecisions();const slot=bridge.slot();if(!slot?.chart||!state||settings.decisions===false)return;drawingSlot=slot;const bars=slot.bars,ms=FRAME_MS[FRAMES.indexOf(slot.params.timeframe)],byTime=new Map(state.decisions.filter(d=>d.provider===slot.source.id&&d.symbol===slot.source.market).map(d=>[d.barTime,d]));if(ms!==60000)return;clickOff?.();clickOff=slot.chart.renderer.onClick(e=>{if(Number.isFinite(e.time)){const stamp=Math.round(e.time/60000)*60000,ev=state.sessionEvents?.find(x=>x.kind==='bar'&&x.body.barTime===stamp),c=ev?.body.candidates?.find(x=>x.id===ev.body.best)||ev?.body.candidates?.[0],d=c||byTime.get(stamp);if(d)showDecision(d);}});for(const b of bars){const d=byTime.get(b.time);if(!d)continue;const col=d.direction<0?'#ff647c':STAGE_COLOR[d.stage]||'#737f93',gap=Math.max((b.high-b.low)*.18,(read?.chart.atr||0)*.12);const mark=slot.chart.drawings.add('text',{paneId:'price',locked:true,anchors:[{time:b.time,price:d.direction<0?b.high+gap:b.low-gap}],text:{value:d.model?'◆':'●',color:col,size:'tiny',hAlign:'center',vAlign:'center'},style:{lineColor:'transparent',lineWidth:0}});if(mark?.id)decisionIds.push(mark.id);}hoverOff?.();hoverOff=slot.chart.renderer.onCrosshairMove(e=>{if(!Number.isFinite(e.time))return;const d=byTime.get(Math.round(e.time/60000)*60000);if(d){$('#deskCutoff').textContent='Inspect '+clock(d.barTime)+' UTC · '+d.stage+' · '+d.bias;}});}
+- function paint(){const slot=bridge.slot();if(!read||!slot?.chart)return;bridge.clearWave();const draw=bridge.waveDraw();render({...read,settings},draw);paintDecisions();renderChartHunt();$('#deskLegend').innerHTML=FRAMES.map((tf,i)=>`<span><i style="background:${COLORS[i]};${i===6?'box-shadow:0 0 0 1px #757f8f':''}"></i>${tf.toUpperCase()}</span>`).join('')+'<span><i style="background:#963ce6"></i>Convergence</span><span>● rules / ◆ API</span>';}
++ function paint(){const slot=bridge.slot();if(!read||!slot?.chart)return;bridge.clearWave();const draw=bridge.waveDraw();render({...read,settings},draw);paintVolume();paintDecisions();renderChartHunt();$('#deskLegend').innerHTML=FRAMES.map((tf,i)=>`<span><i style="background:${COLORS[i]};${i===6?'box-shadow:0 0 0 1px #757f8f':''}"></i>${tf.toUpperCase()}</span>`).join('')+'<span><i style="background:#963ce6"></i>Convergence</span><span>● rules / ◆ API</span>';}
+  const legend=document.createElement('div');legend.id='deskLegend';legend.className='desk-chart-legend';$('.bottom-bar').prepend(legend);
+  async function sync(force=false){if(busy||document.hidden||!polling&&!force)return;const slot=bridge.slot();if(!slot?.source||!slot.chart)return;busy=true;error='';updateFeed();try{if(bridge.cycle()&&Date.now()>=bridge.cycle().endsAt)await loadState();if(force||Date.now()-slot.source.snapshotAsOf>8000)await bridge.refresh();const current=bridge.slot();if(current!==slot)return;const src=slot.source,asof=Date.now(),sourceKey=`${src.id}:${src.market}`,identity=sourceKey+':'+src.timeframe;if(identity!==currentSource){currentSource=identity;startQuotes();selected=null;lastKey='';lastObserved='';await loadState();}const latest=Math.floor(asof/60000)*60000-60000,key=identity+':'+latest+':'+JSON.stringify(settings);if(!force&&key===lastKey){renderBoard();return;}const results=await Promise.allSettled(FRAMES.map(async(tf,i)=>({timeframe:tf,bars:cleanBars(await bridge.fetchBars({...slot.params,timeframe:tf},i===6?1200:tf==='30m'||tf==='15m'?800:400),FRAME_MS[i],asof)})));if(bridge.slot()!==slot||slot.source.id!==src.id||slot.source.market!==src.market)return;const series=results.filter(r=>r.status==='fulfilled').map(r=>r.value);read=analyze(series,src.timeframe,settings);const one=read.frames[6];if(one.bars<20)throw new Error('Waiting for 20 completed one-minute bars');const evidence=taperEvidence({...read,cutoff:one.cutoff},one.barData,{...src,timeframe:'1m',snapshotAsOf:asof}),observationKey=sourceKey+':'+one.cutoff+':'+state?.policy.id;if(observationKey!==lastObserved||force){await api('context',{source:evidence.source,series});const receipt=await api('observe',{source:evidence.source,bars:one.barData,frames:evidence.frames,raw:read.raw,indicatorSettings:settings,method:read.method});if(receipt.sourceRevisions)$('#deskHandoffState').textContent=receipt.sourceRevisions+' revised candles detected · original decision evidence retained';lastObserved=observationKey;await bridge.advance(one.barData,src);await loadState();await syncSessionJournal();}paint();lastKey=key;renderTaper();const missing=results.map((r,i)=>r.status==='rejected'?FRAMES[i]:null).filter(Boolean);if(missing.length)$('#deskHandoffState').textContent='Unavailable source frames: '+missing.join(', ');if((activeSession()&&sessionMatches()&&(activeSession().apiRequested||state?.policy.apiEnabled))&&state.api.configured&&state.decisions[0]?.model==null){busy=false;await modelRead();busy=true;} }catch(e){error=e.message;$('#deskReason').textContent='Tape paused · '+error;}finally{busy=false;updateFeed();renderTaper();}}
+  function openConfig(){const form=$('#deskConfigForm');for(const [k,v] of Object.entries(settings)){const e=form.elements.namedItem(k);if(e&&typeof v!=='object')e.value=String(v);}settings.weights.forEach((v,i)=>form.elements.namedItem('weight'+i).value=v);for(const [k,v] of Object.entries(state?.policy||{})){const e=form.elements.namedItem(k);if(!e)continue;if(e.type==='checkbox')e.checked=v;else e.value=v;}form.elements.advancedIndicator.value=JSON.stringify(settings,null,2);config.showModal();}
+@@ -190,5 +200,5 @@
+  window.addEventListener('pagehide',()=>{clearInterval(refreshTimer);clearInterval(sessionTicker);quoteOff?.();hoverOff?.();clickOff?.();clearDecisions();},{once:true});
+  sessionTicker=setInterval(()=>renderSessionTimer(),1000);
+  refreshTimer=setInterval(()=>void sync(),10_000);const readiness=setInterval(()=>{if(bridge.slot()?.source){clearInterval(readiness);void loadState().then(()=>sync(true)).catch(report);}else if(Date.now()-startedAt>30000){$('#deskReason').textContent='Waiting for public provider chart data';}},500);
+- window.cryptoDayDesk={sync,showDecision:()=>showDecision(current()),getState:()=>state,getRead:()=>read};
+-}
++ window.cryptoDayDesk={sync,showDecision:()=>showDecision(current()),getState:()=>state,getRead:()=>read,getVolume:()=>read?analyzeVolume(read.frames[6].barData,'1m',Date.now()):null};
++}
+--- a/count-dashboard/web/crypto-day.html
++++ b/count-dashboard/web/crypto-day.html
+@@ -9,7 +9,8 @@
+   <link rel="stylesheet" href="./codex-widget.css?v=14">
+   <link rel="stylesheet" href="./quant-lab-agents.css?v=19">
+   <link rel="stylesheet" href="./quant-game.css?v=6">
+-  <link rel="stylesheet" href="./crypto-day-desk.css?v=jev-guide-1">
++  <link rel="stylesheet" href="./crypto-day-desk.css?v=taper-volume-1">
++  <link rel="stylesheet" href="./taper-volume.css">
+ </head>
+ <body class="crypto-day-desk">
+   <header class="topbar">
+@@ -106,6 +107,6 @@
+     </section>
+   </main>
+   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
+-  <script type="module" src="./quant-lab.js?v=jev-guide-1"></script>
++  <script type="module" src="./quant-lab.js?v=taper-volume-1"></script>
+ </body>
+ </html>
+--- a/count-dashboard/web/crypto-day-desk.js
++++ b/count-dashboard/web/crypto-day-desk.js
+@@ -3,17 +3,17 @@
+ import {nearestCoreLevels} from './crypto-session-setup.mjs';
+ import {taperEvidence} from './quant-wave-court.mjs';
+ import {marketGeometryEvidence} from './jev-market-geometry.mjs';
+-import {analyzeVolume,MODES} from './taper-volume.mjs';
++import {analyzeVolume,MODES,loadVolumeReferences,mergeVolumeHistory} from './taper-volume.mjs';
+ const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=v=>Number(v||0).toLocaleString(undefined,{style:'currency',currency:'USD'}),num=v=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:4}),clock=t=>new Date(t).toLocaleTimeString('en-US',{hour12:false,timeZone:'UTC'});
+ const STAGE_COLOR={WAIT:'#737f93',APPROACH:'#5398f8',TOUCH:'#19d0e9',RECLAIM:'#ffc75e',REJECTION:'#ffc75e',CONFIRMED:'#85efba'};
+ async function api(path,body){const r=await fetch('/api/crypto-desk/'+path,{...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Desk service unavailable');return data;}
+ function modelAnswerHTML(a){
+- const names={tape_state:'Tape state',research_bias:'Watch decision',structure_clarity:'Structure clarity',geometry_1d:'Daily channels',geometry_4h:'4H channels',geometry_1h:'1H channels',geometry_30m:'30M channels',geometry_15m:'15M channels',geometry_5m:'5M channels',geometry_1m:'1M channels',geometry_interaction:'Channel reaction',geometry_break:'Break / retest',geometry_alignment:'Higher-frame agreement',geometry_liquidity:'Geometry + hunted liquidity',geometry_path:'Conditional scenario',geometry_fibonacci:'Fibonacci context',geometry_quality:'Geometry evidence quality'};const value=a.choice??a.score??'unavailable',confidence=a.confidence==null?'':' · classification confidence '+num(a.confidence);
++ const names={tape_state:'Tape state',research_bias:'Watch decision',structure_clarity:'Structure clarity',geometry_1d:'Daily channels',geometry_4h:'4H channels',geometry_1h:'1H channels',geometry_30m:'30M channels',geometry_15m:'15M channels',geometry_5m:'5M channels',geometry_1m:'1M channels',geometry_interaction:'Channel reaction',geometry_break:'Break / retest',geometry_alignment:'Higher-frame agreement',geometry_liquidity:'Geometry + hunted liquidity',geometry_path:'Conditional scenario',geometry_fibonacci:'Fibonacci context',geometry_quality:'Geometry evidence quality',volume_participation:'Volume participation',volume_effort_result:'Effort versus result',volume_location:'Volume at hunted liquidity',volume_sequence:'Climax then churn',volume_follow_through:'Volume follow-through',volume_pullback:'Corrective participation',volume_divergence:'Confirmed volume divergence',volume_geometry_agreement:'Volume and parent geometry',volume_invalidation:'Reaction invalidation',volume_supplement:'Volume supplement',volume_evidence_quality:'Volume evidence quality'};const value=a.choice??a.score??'unavailable',confidence=a.confidence==null?'':' · classification confidence '+num(a.confidence);
+  const probabilities=Object.entries(a.probabilities||{}).map(([k,v])=>`${k}: ${(Number(v)*100).toFixed(1)}%`).join(' · ');
+  return `<p>${esc(names[a.name]||a.name)} · <b>${esc(value)}</b><small>${esc(confidence)}</small></p>${probabilities?`<details open><summary>Model distribution</summary><p>${esc(probabilities)}</p><small>Classification probabilities; not trade win rates.</small></details>`:''}`;
+ }
+ function modelQuestionsHTML(questions){
+- const names={tape_state:'1 · What is the tape doing?',research_bias:'2 · Watch long, short, or wait?',structure_clarity:'3 · How clear is the structure?',geometry_1d:'Daily channels',geometry_4h:'4H channels',geometry_1h:'1H channels',geometry_30m:'30M channels',geometry_15m:'15M channels',geometry_5m:'5M channels',geometry_1m:'1M channels',geometry_interaction:'Channel reaction',geometry_break:'Break / retest',geometry_alignment:'Higher-frame agreement',geometry_liquidity:'Geometry + hunted liquidity',geometry_path:'Conditional scenario',geometry_fibonacci:'Fibonacci context',geometry_quality:'Geometry evidence quality'};
++ const names={tape_state:'1 · What is the tape doing?',research_bias:'2 · Watch long, short, or wait?',structure_clarity:'3 · How clear is the structure?',geometry_1d:'Daily channels',geometry_4h:'4H channels',geometry_1h:'1H channels',geometry_30m:'30M channels',geometry_15m:'15M channels',geometry_5m:'5M channels',geometry_1m:'1M channels',geometry_interaction:'Channel reaction',geometry_break:'Break / retest',geometry_alignment:'Higher-frame agreement',geometry_liquidity:'Geometry + hunted liquidity',geometry_path:'Conditional scenario',geometry_fibonacci:'Fibonacci context',geometry_quality:'Geometry evidence quality',volume_participation:'Volume participation',volume_effort_result:'Effort versus result',volume_location:'Volume at hunted liquidity',volume_sequence:'Climax then churn',volume_follow_through:'Volume follow-through',volume_pullback:'Corrective participation',volume_divergence:'Confirmed volume divergence',volume_geometry_agreement:'Volume and parent geometry',volume_invalidation:'Reaction invalidation',volume_supplement:'Volume supplement',volume_evidence_quality:'Volume evidence quality'};
+  return Object.entries(questions||{}).map(([key,q])=>`<section class="desk-jev-question"><b>${esc(names[key]||key)}</b><p>${esc(typeof q.instructions==='string'?q.instructions:JSON.stringify(q.instructions))}</p><details><summary>Answer criteria · ${esc(q.type)}</summary>${Object.entries(q.criteria||{}).map(([k,v])=>`<p><b>${esc(k)}</b> ${esc(typeof v==='string'?v:JSON.stringify(v))}</p>`).join('')}</details></section>`).join('');
+ }
+ function geometryReadHTML(record){
+@@ -26,10 +26,10 @@
+  let state=null,read=null,settings={...DEFAULTS},busy=false,polling=true,selected=null,lastKey='',lastObserved='',lastModel='',modelBusy=false,modelError='',error='',drawingSlot=null,decisionIds=[],refreshTimer=null,hoverOff=null,clickOff=null,startedAt=Date.now(),currentSource='',lastRoundGross=null,quoteOff=null,quoteKey='',quoteAt=0,sessionTicker=null;
+  const workspace=$('.workspace'),conversation=$('.conversation');
+  let volumeMode=localStorage.getItem('taper.volume.mode')||'Volume';if(!MODES.includes(volumeMode))volumeMode='Volume';
+- let volumeVisible=true,volumeSlot=null;
++ let volumeVisible=true,volumeReferenceKey='';
+  const volumeStrip=document.createElement('section');volumeStrip.className='desk-volume-strip';volumeStrip.setAttribute('aria-label',"Taper's Volume study");volumeStrip.innerHTML="<button id='deskVolumeToggle' aria-pressed='true'>Taper's Volume · ON</button><select id='deskVolumeMode' aria-label='Volume calculation mode'></select><span id='deskVolumeSummary'>Waiting for completed OHLCV</span><button id='deskVolumeHelp'>Volume guide</button>";$('.bottom-bar').before(volumeStrip);
+  for(const mode of MODES){const option=document.createElement('option');option.value=mode;option.textContent=mode;$('#deskVolumeMode').append(option);}$('#deskVolumeMode').value=volumeMode;
+- function paintVolume(){const slot=bridge.slot();if(!slot?.chart||!read)return;const r=analyzeVolume(read.frames[6].barData,'1m',Date.now());const b=r.latest;$('#deskVolumeSummary').textContent=slot.source.id+' · '+slot.source.market+' · 1M '+(b?clock(b.time+60000)+' UTC · '+b.kind:'unavailable')+' · RVOL '+(b?.rvol==null?'unavailable':num(b.rvol)+'% ('+b.referenceCount+'/15)')+' · supplemental';let handle=slot.chart.indicators().find(h=>h.nativeType==='taper-volume');if(!handle&&volumeVisible)handle=slot.chart.addNativeIndicator('taper-volume',{inputs:{mode:volumeMode}});if(handle){handle.setVisible(volumeVisible);if(handle.inputValues().mode!==volumeMode)handle.setInputs({mode:volumeMode});}volumeSlot=slot;}
++ function paintVolume(){const slot=bridge.slot();if(!slot?.chart||!read)return;const source={provider:slot.source.id,symbol:slot.source.market,timeframe:'1m'},cutoff=read.frames[6].barData.at(-1)?.time;const r=analyzeVolume(mergeVolumeHistory(source,read.frames[6].barData,cutoff),'1m',Date.now());const b=r.latest;$('#deskVolumeSummary').textContent=slot.source.id+' · '+slot.source.market+' · 1M '+(b?clock(b.time+60000)+' UTC · '+b.kind.replace(/([a-z])([A-Z])/g,'$1 $2').toLowerCase():'unavailable')+' · RVOL '+(b?.rvol==null?'unavailable':num(b.rvol)+'% ('+b.referenceCount+'/15)')+' · supplemental';let handle=slot.chart.indicators().find(h=>h.nativeType==='taper-volume');if(!handle&&volumeVisible)handle=slot.chart.addNativeIndicator('taper-volume',{inputs:{mode:volumeMode,provider:slot.source.id,ticker:slot.source.market}});if(handle){handle.setVisible(volumeVisible);const inputs=handle.inputValues();if(inputs.mode!==volumeMode||inputs.provider!==slot.source.id||inputs.ticker!==slot.source.market)handle.setInputs({mode:volumeMode,provider:slot.source.id,ticker:slot.source.market});}const refKey=source.provider+':'+source.symbol+':'+Math.floor(cutoff/3600000);if(refKey!==volumeReferenceKey){volumeReferenceKey=refKey;void loadVolumeReferences(source,cutoff).then(()=>{if(bridge.slot()===slot&&slot.source.id===source.provider&&slot.source.market===source.symbol){handle?.setInputs({mode:volumeMode});paintVolume();}}).catch(()=>{});}}
+  $('#deskVolumeToggle').onclick=()=>{volumeVisible=!volumeVisible;$('#deskVolumeToggle').textContent="Taper's Volume · "+(volumeVisible?'ON':'OFF');$('#deskVolumeToggle').setAttribute('aria-pressed',String(volumeVisible));paintVolume();};
+  $('#deskVolumeMode').onchange=()=>{volumeMode=$('#deskVolumeMode').value;localStorage.setItem('taper.volume.mode',volumeMode);paintVolume();};
+  $('#deskVolumeHelp').onclick=()=>window.open('./taper-volume-guide.html','_blank');
+@@ -177,7 +177,7 @@
+   try{
+    const evidence=taperEvidence({...read,chartTimeframe:'1m',cutoff:bar.time},read.frames[6].barData,{...slot.source,timeframe:'1m',snapshotAsOf:Date.now()});
+    evidence.marketGeometry=marketGeometryEvidence(read,slot.source);
+-   evidence.volumeHistory={method:'taper.volume.v1',source:{provider:slot.source.id,symbol:slot.source.market,completedCutoff:bar.time},bars:read.frames[6].barData.slice(-5000)};
++   evidence.volumeHistory={method:'taper.volume.v1',source:{provider:slot.source.id,symbol:slot.source.market,completedCutoff:bar.time},bars:mergeVolumeHistory({provider:slot.source.id,symbol:slot.source.market,timeframe:'1m'},read.frames[6].barData,bar.time)};
+    const record=await api('decision',{evidence,session:session.id});lastModel=key;
+    await loadState();await syncSessionJournal();await loadState();paintDecisions();
+   }catch(e){modelError=e.message;lastModel=key;await loadState().catch(()=>{});await syncSessionJournal().catch(()=>{});}
+@@ -200,5 +200,5 @@
+  window.addEventListener('pagehide',()=>{clearInterval(refreshTimer);clearInterval(sessionTicker);quoteOff?.();hoverOff?.();clickOff?.();clearDecisions();},{once:true});
+  sessionTicker=setInterval(()=>renderSessionTimer(),1000);
+  refreshTimer=setInterval(()=>void sync(),10_000);const readiness=setInterval(()=>{if(bridge.slot()?.source){clearInterval(readiness);void loadState().then(()=>sync(true)).catch(report);}else if(Date.now()-startedAt>30000){$('#deskReason').textContent='Waiting for public provider chart data';}},500);
+- window.cryptoDayDesk={sync,showDecision:()=>showDecision(current()),getState:()=>state,getRead:()=>read,getVolume:()=>read?analyzeVolume(read.frames[6].barData,'1m',Date.now()):null};
+-}
++ window.cryptoDayDesk={sync,showDecision:()=>showDecision(current()),getState:()=>state,getRead:()=>read,getVolume:()=>read?analyzeVolume(mergeVolumeHistory({provider:bridge.slot().source.id,symbol:bridge.slot().source.market,timeframe:'1m'},read.frames[6].barData,read.frames[6].cutoff),'1m',Date.now()):null};
++}
+--- a/count-dashboard/crypto_day_desk.py
++++ b/count-dashboard/crypto_day_desk.py
+@@ -240,6 +240,13 @@
+     result=crypto_risk.evaluate(p,provider,symbol,side,entry,stop,target)
+     if not result['qualified']:raise ValueError(result['reason'])
+     return result
++
++def volume_preview(payload):
++    """Read-only contract preview; no paid inference, order or ledger mutation."""
++    evidence=taper_decisions._evidence(payload.get('evidence',payload))
++    questions=taper_decisions.decision_questions(evidence.get('marketGeometry') is not None,True)
++    body=encode({'model':taper_decisions.MODEL,'state':evidence,'questions':questions})
++    return {'volumeEvidence':evidence['volumeEvidence'],'questionCount':len(questions),'questionPack':taper_decisions.taper_volume.PACK,'requestBytes':len(body.encode()),'requestWithinBound':len(body.encode())<=60000,'inferenceRun':False}
+ 
+ def model_read(payload):
+     evidence=payload.get('evidence',{});provider,symbol,bars,source=validate_bars(evidence)
+--- a/count-dashboard/server.py
++++ b/count-dashboard/server.py
+@@ -3776,7 +3776,7 @@
+             try:
+                 payload = self.read_json()
+                 path = parsed.path.rsplit("/", 1)[-1]
+-                routes = {"observe": crypto_day_desk.observe, "context": crypto_day_desk.save_context, "policy": crypto_day_desk.update_policy, "review": crypto_day_desk.review, "settings": crypto_day_desk.save_settings, "decision": crypto_day_desk.model_read}
++                routes = {"observe": crypto_day_desk.observe, "context": crypto_day_desk.save_context, "policy": crypto_day_desk.update_policy, "review": crypto_day_desk.review, "settings": crypto_day_desk.save_settings, "decision": crypto_day_desk.model_read, "volume-preview": crypto_day_desk.volume_preview}
+                 if path == "session-start":
+                     with connect(self.server.db_path) as trading_db:
+                         return self.send_json(crypto_hunt_sessions.start(payload, trading_db, crypto_day_desk))
+--- a/count-dashboard/web/crypto-day-desk.js
++++ b/count-dashboard/web/crypto-day-desk.js
+@@ -176,6 +176,7 @@
+   const progress=setInterval(()=>void loadState().catch(()=>{}),1500);
+   try{
+    const evidence=taperEvidence({...read,chartTimeframe:'1m',cutoff:bar.time},read.frames[6].barData,{...slot.source,timeframe:'1m',snapshotAsOf:Date.now()});
++   evidence.bars=evidence.bars.slice(-24); // Within the existing 20–60-bar contract; full volume history is separate.
+    evidence.marketGeometry=marketGeometryEvidence(read,slot.source);
+    evidence.volumeHistory={method:'taper.volume.v1',source:{provider:slot.source.id,symbol:slot.source.market,completedCutoff:bar.time},bars:mergeVolumeHistory({provider:slot.source.id,symbol:slot.source.market,timeframe:'1m'},read.frames[6].barData,bar.time)};
+    const record=await api('decision',{evidence,session:session.id});lastModel=key;
+--- a/count-dashboard/crypto_day_desk.py
++++ b/count-dashboard/crypto_day_desk.py
+@@ -243,7 +243,17 @@
+ 
+ def volume_preview(payload):
+     """Read-only contract preview; no paid inference, order or ledger mutation."""
+-    evidence=taper_decisions._evidence(payload.get('evidence',payload))
++    raw=dict(payload.get('evidence',payload))
++    # Preview the exact frozen hunt context used by model_read, without reserving
++    # an attempt or running inference. Caller supplies the actual 20–60-bar tape.
++    provider,symbol,bars,source=validate_bars(raw)
++    with connection() as db:
++        hunt=hunts.state(db,provider,symbol)['session']
++        if hunt and not hunt['ended']:
++            candidates=[c for c in hunts.state(db,provider,symbol)['sessionCandidates']
++                        if c['barTime']==bars[-1]['time'] and c.get('levelRevision',1)==hunt.get('levelRevision',1)]
++            raw['hunt']={'levels':hunt['levels'],'candidates':candidates,'policy':hunt['policy'],'learning':session_review.decision_context(db,bars[-1]['time'])}
++    evidence=taper_decisions._evidence(raw)
+     questions=taper_decisions.decision_questions(evidence.get('marketGeometry') is not None,True)
+     body=encode({'model':taper_decisions.MODEL,'state':evidence,'questions':questions})
+     return {'volumeEvidence':evidence['volumeEvidence'],'questionCount':len(questions),'questionPack':taper_decisions.taper_volume.PACK,'requestBytes':len(body.encode()),'requestWithinBound':len(body.encode())<=60000,'inferenceRun':False}
+--- a/count-dashboard/web/crypto-day.html
++++ b/count-dashboard/web/crypto-day.html
+@@ -9,7 +9,7 @@
+   <link rel="stylesheet" href="./codex-widget.css?v=14">
+   <link rel="stylesheet" href="./quant-lab-agents.css?v=19">
+   <link rel="stylesheet" href="./quant-game.css?v=6">
+-  <link rel="stylesheet" href="./crypto-day-desk.css?v=taper-volume-1">
++  <link rel="stylesheet" href="./crypto-day-desk.css?v=taper-volume-2">
+   <link rel="stylesheet" href="./taper-volume.css">
+ </head>
+ <body class="crypto-day-desk">
+@@ -107,6 +107,6 @@
+     </section>
+   </main>
+   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
+-  <script type="module" src="./quant-lab.js?v=taper-volume-1"></script>
++  <script type="module" src="./quant-lab.js?v=taper-volume-2"></script>
+ </body>
+ </html>
+--- a/count-dashboard/web/quant-lab.js
++++ b/count-dashboard/web/quant-lab.js
+@@ -1,5 +1,5 @@
+ import {createQuantGame,gameMarketAllowed,gameStudyCount} from './quant-game.js?v=14';
+-import {startCryptoDesk} from './crypto-day-desk.js?v=taper-volume-1';
++import {startCryptoDesk} from './crypto-day-desk.js?v=taper-volume-2';
+ import {registerTaperVolume} from './taper-volume.mjs';
+ import {analyze as analyzePineWaveCourt,render as renderPineWaveCourt,DEFAULTS as pineDefaults} from './wave-court-port.mjs';
+ const cryptoDeskEnabled=location.pathname.endsWith('/crypto-day.html');
+--- a/count-dashboard/taper_decisions.py
++++ b/count-dashboard/taper_decisions.py
+@@ -299,8 +299,8 @@
+         if result.get("model") != MODEL:
+             raise ValueError("Unexpected Jev model version; review pricing before using its output")
+         answers = normalize_answers(result.get("answers"), questions)
+-    except (TypeError, ValueError):
+-        raise JevResponseError("TypeSafe Jev returned an unexpected typed response", usage, estimate) from None
++    except (TypeError, ValueError) as exc:
++        raise JevResponseError("TypeSafe Jev returned an unexpected typed response: " + str(exc)[:160], usage, estimate) from None
+     decision_id = "taper-" + secrets.token_hex(10)
+     game = evidence.get("game")
+     bias_answer = next((answer for answer in answers if answer.get("name") == "research_bias"), {})
+--- a/count-dashboard/taper_decisions.py
++++ b/count-dashboard/taper_decisions.py
+@@ -209,7 +209,7 @@
+             raise ValueError("Incomplete probability distribution")
+         values = [_number(v, "probability") for v in probs.values()]
+         if any(not 0 <= v <= 1 for v in values) or abs(sum(values) - 1) > .005:
+-            raise ValueError("Invalid probability distribution")
++            raise ValueError(f"Invalid probability distribution for {name}: sum={sum(values):.6f}")
+         if q["type"] == "choice":
+             if a.get("choice") not in expected:
+                 raise ValueError("Choice outside criteria")
