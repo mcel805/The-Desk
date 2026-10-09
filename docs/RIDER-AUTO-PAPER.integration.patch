@@ -1,0 +1,460 @@
+--- a/count-dashboard/crypto_day_desk.py
++++ b/count-dashboard/crypto_day_desk.py
+@@ -16,6 +16,8 @@
+ from datetime import datetime, timezone
+ from zoneinfo import ZoneInfo
+ from paper_journal_bridge import queue_account
++import rider_auto
++from rider_playbooks import questions as rider_questions
+ import taper_decisions
+ import crypto_hunt_sessions as hunts
+ import crypto_risk
+@@ -64,6 +66,7 @@
+     CREATE TABLE IF NOT EXISTS bars(provider TEXT,symbol TEXT,time INTEGER,body TEXT,hash TEXT,PRIMARY KEY(provider,symbol,time));
+     CREATE TABLE IF NOT EXISTS decisions(id TEXT PRIMARY KEY,provider TEXT,symbol TEXT,time INTEGER,policy TEXT,body TEXT,outcome TEXT,created INTEGER,UNIQUE(provider,symbol,time,policy));
+     CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,decision TEXT,role TEXT,action TEXT,note TEXT,created INTEGER);
++    CREATE TABLE IF NOT EXISTS rider_auto_signals(id TEXT PRIMARY KEY,body TEXT);
+     CREATE TABLE IF NOT EXISTS trade_links(position TEXT PRIMARY KEY,decision TEXT,created INTEGER);
+     CREATE TABLE IF NOT EXISTS api_attempts(key TEXT PRIMARY KEY,state TEXT,created INTEGER,body TEXT);
+     CREATE TABLE IF NOT EXISTS api_trade_allocations(key TEXT PRIMARY KEY,position TEXT);
+@@ -230,6 +233,8 @@
+ def clock_out(payload,trading_db):
+     with LOCK:
+         session=hunts.end(payload,__import__(__name__))
++        if session.get('auto'):
++            session['auto']=rider_auto.control({'session':session['id'],'action':'pause'},trading_db,__import__(__name__))
+         result=state(session['provider'],session['symbol'],session['account'],trading_db)
+         review=next((r for r in result['clockOutReviews'] if r['session']==session['id']),None)
+         journal=hunts.sync_journal({'session':session['id']},__import__(__name__))
+@@ -258,8 +263,12 @@
+     body=encode({'model':taper_decisions.MODEL,'state':evidence,'questions':questions})
+     return {'volumeEvidence':evidence['volumeEvidence'],'questionCount':len(questions),'questionPack':taper_decisions.taper_volume.PACK,'requestBytes':len(body.encode()),'requestWithinBound':len(body.encode())<=60000,'inferenceRun':False}
+
+-def model_read(payload):
++def model_read(payload,playbook_bars=None):
+     evidence=payload.get('evidence',{});provider,symbol,bars,source=validate_bars(evidence)
++    if playbook_bars is None:playbook_bars=bars
++    else:
++        _,_,playbook_bars,_=validate_bars({'source':source,'bars':playbook_bars})
++        if playbook_bars[-len(bars):]!=bars:raise ValueError('Playbook history must match the submitted completed tape')
+     key=f"{provider}:{symbol}:{bars[-1]['time']}"
+     with LOCK,connection() as db:
+         p=policy(db)
+@@ -283,26 +292,33 @@
+         estimated=sum(float(json.loads(r[0] or '{}').get('estimatedUsd',0)) for r in attempts)
+         if len(attempts)>=p['maxApiReads'] or estimated+taper_decisions.MAX_REQUEST_USD>p['maxApiUsd']:raise ValueError('Daily Jev read/cost budget reached')
+         db.execute('INSERT INTO api_attempts VALUES(?,?,?,?)',(key,'pending',now(),encode({'provider':'typesafe','estimatedUsd':taper_decisions.MAX_REQUEST_USD,'costReserved':True})))
++        rider_candidates=rider_auto.candidates(playbook_bars,hunt,__import__(__name__))
+         questions=taper_decisions.decision_questions(evidence.get('marketGeometry') is not None, True)
++        if rider_candidates:questions={k:v for k,v in questions.items() if k in ('tape_state','structure_clarity')}
++        questions.update(rider_questions(rider_candidates))
+         hunts.event(db,hunt['id'],'taper','api_request',{
+             'text':'Preparing Jev read for the completed 1m candle. '+str(len(questions))+' independent questions cover tape, channels, breaks, volume and context.',
+             'barTime':bars[-1]['time'],'source':source,'questions':questions,
+             'model':taper_decisions.MODEL,'levelRevision':hunt.get('levelRevision',1),
+             'levels':[{'price':x['price'],'tf':x['tf']} for x in hunt['levels']],
+-            'riskGate':'Stop <=30 risk ticks; minimum 3R; prefer 5R+. Human paper-ticket confirmation required.'},
++            'riskGate':'Armed PAPER: frozen playbooks, risk checks and Jev entry judgment' if (hunt.get('auto') or {}).get('armed') else 'Human paper-ticket confirmation required.'},
+             hunt['id']+':api-request:'+key)
+     try:
+         with connection() as db:
+             candidates=[c for c in hunts.state(db,provider,symbol)['sessionCandidates']
+                         if c['barTime']==bars[-1]['time'] and c.get('levelRevision',1)==hunt.get('levelRevision',1)]
+             learning=session_review.decision_context(db,bars[-1]['time'])
+-        evidence={**evidence,'hunt':{'levels':hunt['levels'],'candidates':candidates,'policy':hunt['policy'],'learning':learning}}
++        evidence={**evidence,'riderCandidates':rider_candidates,'hunt':{'levels':hunt['levels'],'candidates':candidates,'policy':hunt['policy'],'learning':learning}}
+         record=taper_decisions.decide(evidence,DB_PATH.parent/'taper-decisions.jsonl')
+         record['huntSessionId']=hunt['id']
+         record['levelRevision']=hunt.get('levelRevision',1)
+         with LOCK,connection() as db:
+             db.execute('UPDATE api_attempts SET state=?,body=? WHERE key=?',('completed',encode(record),key))
+             hunts.attach_model(db,record,__import__(__name__))
++            for i,c in enumerate(record.get('riderCandidates',[])):
++                signal_id=record['decisionId']+':entry:'+str(i)
++                saved={**c,'id':signal_id,'policy':hunt['policy']['id'],'provider':provider,'symbol':symbol,'bias':'LONG' if c['direction']==1 else 'SHORT','confirmation':{'sweepTime':c['reactionTime']},'kind':'forward_rule'}
++                db.execute('INSERT OR IGNORE INTO rider_auto_signals VALUES(?,?)',(signal_id,encode(saved)))
+             row=db.execute('SELECT id,body FROM decisions WHERE provider=? AND symbol=? AND time=? ORDER BY created DESC LIMIT 1',(provider,symbol,bars[-1]['time'])).fetchone()
+             if row:
+                 d=json.loads(row['body']);d['model']=record;answer=next((a for a in record.get('answers',[]) if a.get('name')=='research_bias'),{});choice=answer.get('choice');d['modelForecast']={'direction':1 if choice=='WATCH_LONG' else -1 if choice=='WATCH_SHORT' else 0,'createdAt':record.get('createdAt',now())};db.execute('UPDATE decisions SET body=? WHERE id=?',(encode(d),row['id']))
+@@ -389,13 +405,18 @@
+             position['decisionApiReads']=len(receipts_for_trade);position['decisionApiTokens']=sum(int(r.get('usage',{}).get('input_tokens',0)) for r in receipts_for_trade)
+             frozen=db.execute('SELECT body FROM policy WHERE id=?',(linked['policy'],)).fetchone() if linked else None;cost_policy=json.loads(frozen[0]) if frozen else policy(db)
+             position['estimatedTradingCosts']=(position['entry_price']+(position['exit_price'] or position['entry_price']))*position['quantity']*(cost_policy['feeBps']+cost_policy['slippageBps'])/10000
++            auto_trade=trading_db.execute('SELECT body FROM rider_auto_trades WHERE position=?',(position['position_id'],)).fetchone() if trading_db is not None and trading_db.execute("SELECT 1 FROM sqlite_master WHERE name='rider_auto_trades'").fetchone() else None
++            if auto_trade:
++                ap=json.loads(auto_trade[0])['auto']['policy']
++                position['estimatedTradingCosts']=(position['entry_price']+(position['exit_price'] or position['entry_price']))*position['quantity']*ap['feeBps']/10000
+             position['estimatedNetPnl']=position['gross_pnl']-position['estimatedTradingCosts']-(position['decisionApiUsd'] or 0) if position['status']=='closed' else None
+         hunt_export={'huntSessions':[hunts.unpack(r) for r in db.execute('SELECT * FROM hunt_sessions')],'huntEvents':[{**dict(r),'body':json.loads(r['body'])} for r in db.execute('SELECT * FROM hunt_events ORDER BY created')],'huntCandidates':[json.loads(r[0]) for r in db.execute('SELECT body FROM hunt_candidates ORDER BY time')]} if export else {}
+         exported={'bars':[json.loads(r[0]) for r in db.execute('SELECT body FROM bars'+where+' ORDER BY time',args)],'sourceContext':[{'provider':r['provider'],'symbol':r['symbol'],'timeframe':r['timeframe'],'bar':json.loads(r['body'])} for r in db.execute('SELECT * FROM source_context'+where+' ORDER BY timeframe,time',args)],'apiAttempts':[dict(r) for r in db.execute('SELECT * FROM api_attempts ORDER BY created')]} if export else {}
+         hunts.trace_trades(db,positions)
+         session_metrics=session_review.refresh(db,positions,__import__(__name__),account) if account else {}
+         if export:session_metrics.update(clockReviewVersions=[{**dict(r),'body':json.loads(r['body'])} for r in db.execute('SELECT * FROM taper_review_versions ORDER BY created')],allDailySessionReviews=[json.loads(r['body']) for r in db.execute('SELECT * FROM taper_daily_reviews ORDER BY day')],allLearningProposals=[json.loads(r['body']) for r in db.execute('SELECT * FROM taper_learning_proposals ORDER BY created')])
+-        return {'cycle':cycle,**session_metrics,**exported,**hunt_export,**hunts.state(db,provider,symbol),'retainedDecisionCount':db.execute('SELECT COUNT(*) FROM decisions'+where,args).fetchone()[0],'policy':current_policy,'decisions':decisions,'reviews':[dict(r) for r in db.execute('SELECT * FROM reviews ORDER BY created')] if export else reviews,'learning':learning(db),'roundLearning':learning(db,now()//86400000*86400000),'cost':{'reads':len(receipts),'attempts':len(attempts),'inputTokens':tokens,'outputTokens':sum(int(r.get('usage',{}).get('output_tokens',0)) for r in receipts),'estimatedUsd':usd,'label':'estimated, not billed','unresolvedCosts':sum(bool(json.loads(r['body'] or '{}').get('costUnknown')) for r in attempts)},'api':taper_decisions.status(),'positions':positions,'accounts':accounts,'policies':[{'id':r['id'],'created':r['created'],'active':bool(r['active']),**json.loads(r['body'])} for r in db.execute('SELECT * FROM policy ORDER BY created DESC')],'settings':json.loads(db.execute('SELECT body FROM indicator_settings WHERE id=?',('default',)).fetchone()[0]) if db.execute('SELECT 1 FROM indicator_settings WHERE id=?',('default',)).fetchone() else {},'mode':'paper','storage':'local SQLite','barCount':db.execute('SELECT COUNT(*) FROM bars').fetchone()[0]}
++        auto_state=rider_auto.state(trading_db,hunts.state(db,provider,symbol)['session']) if trading_db is not None else {'worker':dict(rider_auto.STATUS)}
++        return {'riderAuto':auto_state,'cycle':cycle,**session_metrics,**exported,**hunt_export,**hunts.state(db,provider,symbol),'retainedDecisionCount':db.execute('SELECT COUNT(*) FROM decisions'+where,args).fetchone()[0],'policy':current_policy,'decisions':decisions,'reviews':[dict(r) for r in db.execute('SELECT * FROM reviews ORDER BY created')] if export else reviews,'learning':learning(db),'roundLearning':learning(db,now()//86400000*86400000),'cost':{'reads':len(receipts),'attempts':len(attempts),'inputTokens':tokens,'outputTokens':sum(int(r.get('usage',{}).get('output_tokens',0)) for r in receipts),'estimatedUsd':usd,'label':'estimated, not billed','unresolvedCosts':sum(bool(json.loads(r['body'] or '{}').get('costUnknown')) for r in attempts)},'api':taper_decisions.status(),'positions':positions,'accounts':accounts,'policies':[{'id':r['id'],'created':r['created'],'active':bool(r['active']),**json.loads(r['body'])} for r in db.execute('SELECT * FROM policy ORDER BY created DESC')],'settings':json.loads(db.execute('SELECT body FROM indicator_settings WHERE id=?',('default',)).fetchone()[0]) if db.execute('SELECT 1 FROM indicator_settings WHERE id=?',('default',)).fetchone() else {},'mode':'paper','storage':'local SQLite','barCount':db.execute('SELECT COUNT(*) FROM bars').fetchone()[0]}
+
+ def save_settings(payload):
+     data=payload.get('settings',{})
+--- a/count-dashboard/crypto_hunt_sessions.py
++++ b/count-dashboard/crypto_hunt_sessions.py
+@@ -5,6 +5,8 @@
+ import uuid
+ from urllib.request import Request, urlopen
+ from datetime import datetime, timezone
++
++import rider_auto
+
+ FRAMES = ('1d','4h','1h','30m','15m','5m','1m')
+
+@@ -25,6 +27,23 @@
+     eid=eid or 'hunt-event-'+uuid.uuid4().hex
+     changed=db.execute('INSERT OR IGNORE INTO hunt_events VALUES(?,?,?,?,?,?)',(eid,sid,int(time.time()*1000),role,kind,json.dumps(body))).rowcount
+     if changed:db.execute('UPDATE hunt_sessions SET journal_hash=NULL WHERE id=?',(sid,))
++
++def manual_levels(payload,provider,symbol,desk):
++    rows=payload.get('manualLevels',[])
++    if not isinstance(rows,list) or len(rows)>30:raise ValueError('At most 30 manual horizontal lines')
++    out=[]
++    for x in rows:
++        if not isinstance(x,dict) or x.get('provider')!=provider or x.get('symbol')!=symbol or x.get('type')!='hline':raise ValueError('Manual level must be a horizontal drawing on this source market')
++        ident=str(x.get('id',''))
++        if not ident.startswith('manual:') or len(ident)>100:raise ValueError('Invalid manual drawing ID')
++        price=desk.finite(x.get('price'),'Manual price')
++        if price<=0 or price>1e9 or x.get('side') not in (-1,1):raise ValueError('Invalid manual horizontal price or side')
++        out.append({'id':ident,'price':price,'side':x['side'],'tf':6,'weight':0,'born':desk.now(),'takenAt':0,
++                    'origin':'manual','drawingId':str(x.get('drawingId',''))[:100],'label':str(x.get('label','Manual horizontal'))[:80],
++                    'provider':provider,'symbol':symbol,'provenance':'Human drawn test level; not indicator-confirmed liquidity'})
++    if len({x['id'] for x in out})!=len(out):raise ValueError('Duplicate manual drawing ID')
++    return out
++
+
+ def start(payload,trading_db,desk):
+     provider,symbol=desk.validate_source(payload.get('source',{}))
+@@ -40,11 +59,14 @@
+         snapshot=db.execute('SELECT * FROM hunt_snapshots WHERE provider=? AND symbol=?',(provider,symbol)).fetchone()
+         if not snapshot or desk.now()-snapshot['time']-60000>120000:raise ValueError('Refresh the completed 1m liquidity snapshot before starting')
+         data=json.loads(snapshot['body']);levels={x['id']:x for x in data['levels'] if not x['takenAt']}
++        for x in manual_levels(payload, provider, symbol, desk):levels[x['id']]=x
+         if any(x not in levels for x in ids):raise ValueError('A selected level is no longer active; refresh the selection')
+         sid='hunt-'+uuid.uuid4().hex;stamp=desk.now();p=desk.policy(db)
+         body={'levels':[levels[x] for x in ids],'policy':p,'indicatorSettings':data['settings'],'startCutoff':snapshot['time'],
+               'accountName':acct['name'],'initialBalance':acct['starting_balance'],'openingRealizedBalance':acct['starting_balance']+sum(float(r[0] or 0) for r in trading_db.execute("SELECT gross_pnl FROM quant_lab_sim_positions WHERE account_id=? AND status='closed'",(account,))),'accountCycle':cycle['month'],'accountTimezone':cycle['timezone'],'mode':'paper','name':str(payload.get('name') or symbol+' liquidity hunt')[:100],
+               'apiRequested':payload.get('apiEnabled') is True,'monitoring':'Selected market while desk is visible; completed 1m bars only'}
++        body['auto']=rider_auto.config(payload.get('autoConfig',{}),{**body,'id':sid,'started':stamp,'provider':provider,'symbol':symbol,'account':account},data,desk)
++        if body['auto']:body['monitoring']='Server-owned completed-minute paper worker; machine must remain awake'
+         db.execute('INSERT INTO hunt_sessions VALUES(?,?,?,?,?,NULL,?,NULL,NULL)',(sid,provider,symbol,account,stamp,desk.encode(body)))
+         event(db,sid,'taper','start',{'text':'Clocked in. Hunting '+str(len(ids))+' selected liquidity levels. Confirmation and risk gates are frozen; chart calculations stay unchanged.'})
+         return unpack(db.execute('SELECT * FROM hunt_sessions WHERE id=?',(sid,)).fetchone())
+@@ -67,7 +89,9 @@
+     with desk.LOCK, desk.connection() as db:
+         row=db.execute('SELECT * FROM hunt_sessions WHERE id=? AND ended IS NULL',(sid,)).fetchone()
+         if not row:raise ValueError('This hunt session is no longer active')
+-        session=unpack(row);provider,symbol=desk.validate_source(payload.get('source',{}))
++        session=unpack(row)
++        if (session.get('auto') or {}).get('armed'):raise ValueError('Pause Rider entries before changing hunt levels; re-arm to approve new objectives')
++        provider,symbol=desk.validate_source(payload.get('source',{}))
+         if provider!=session['provider'] or symbol!=session['symbol']:raise ValueError('Return to the session market before changing hunt levels')
+         revision=session.get('levelRevision',1)
+         if payload.get('revision')!=revision:raise ValueError('Hunt selection changed; refresh before selecting again')
+@@ -78,6 +102,7 @@
+             snapshot=db.execute('SELECT * FROM hunt_snapshots WHERE provider=? AND symbol=?',(provider,symbol)).fetchone()
+             if not snapshot or desk.now()-snapshot['time']-60000>120000:raise ValueError('Refresh the completed liquidity snapshot before adding a level')
+             available={x['id']:x for x in json.loads(snapshot['body'])['levels'] if not x['takenAt']}
++            for x in manual_levels(payload,provider,symbol,desk):available[x['id']]=x
+             if any(x not in available for x in new_ids):raise ValueError('Selected level is no longer active; refresh the chart')
+             for ident in new_ids:current[ident]=available[ident]
+         for ident in removals:current.pop(ident)
+@@ -92,7 +117,7 @@
+
+
+ def observe(db,provider,symbol,bars,levels,frames,settings,desk):
+-    db.execute('INSERT OR REPLACE INTO hunt_snapshots VALUES(?,?,?,?)',(provider,symbol,bars[-1]['time'],desk.encode({'levels':levels,'settings':settings})))
++    db.execute('INSERT OR REPLACE INTO hunt_snapshots VALUES(?,?,?,?)',(provider,symbol,bars[-1]['time'],desk.encode({'levels':levels,'settings':settings,'lastPrice':bars[-1]['close']})))
+     row=db.execute('SELECT * FROM hunt_sessions WHERE ended IS NULL AND provider=? AND symbol=?',(provider,symbol)).fetchone()
+     if not row:return
+     session=unpack(row);p=session['policy'];live={x['id']:x for x in levels}
+@@ -107,11 +132,11 @@
+         selection_revision=applicable[-1].get('revision',1) if applicable else 1
+         candidates=[]
+         for frozen in selected_levels:
+-            pool=live.get(frozen['id'])
++            pool=frozen if frozen.get('origin')=='manual' else live.get(frozen['id'])
+             if pool is None:
+                 c={'barTime':b['time'],'stage':'WAIT','bias':'WAIT','direction':0,'reason':'Selected level is outside retained source history; no replacement inferred','level':frozen,'entry':None,'stop':None,'target':None,'rr':None,'kind':'forward_rule','confirmation':None,'horizonBars':p['horizon'],'forecastPrice':b['close']}
+             else:
+-                c=desk.tape_rule(bars,i,levels,p,frames,{frozen['id']},provider=provider,symbol=symbol)
++                c=desk.tape_rule(bars,i,levels+([frozen] if frozen.get('origin')=='manual' else []),p,frames,{frozen['id']},provider=provider,symbol=symbol)
+                 c['level']=pool
+                 if pool['takenAt'] and b['time']>pool['takenAt']+p['expiryBars']*60000:
+                     c.update(stage='RETIRED',direction=0,bias='WAIT',reason='Selected liquidity consumed; confirmation window expired',entry=None,stop=None,target=None,rr=None)
+@@ -129,7 +154,7 @@
+
+ def find_decision(db,did):
+     row=db.execute('SELECT body FROM decisions WHERE id=?',(did,)).fetchone()
+-    return row or db.execute('SELECT body FROM hunt_candidates WHERE id=?',(did,)).fetchone()
++    return row or db.execute('SELECT body FROM hunt_candidates WHERE id=?',(did,)).fetchone() or db.execute('SELECT body FROM rider_auto_signals WHERE id=?',(did,)).fetchone()
+
+ def state(db,provider=None,symbol=None):
+     row=db.execute('SELECT * FROM hunt_sessions WHERE ended IS NULL ORDER BY started DESC LIMIT 1').fetchone()
+@@ -152,7 +177,7 @@
+
+ def attach_model(db,record,desk):
+     source=record['source'];row=db.execute('SELECT id FROM hunt_sessions WHERE id=? AND provider=? AND symbol=?',(record.get('huntSessionId',''),source['provider'],source['symbol'])).fetchone()
+-    if row:event(db,row['id'],'taper','api',{'text':'Jev answered '+str(len(record['answers']))+' questions for this completed minute. Watch bias: '+str(next((a.get('choice') for a in record['answers'] if a['name']=='research_bias'),'unavailable'))+'. Rule gates and paper confirmation still apply.','barTime':source['completedCutoff'],'record':record},row['id']+':api:'+record['decisionId'])
++    if row:event(db,row['id'],'taper','api',{'text':'Jev answered '+str(len(record['answers']))+' questions for this completed minute. Watch bias: '+str(next((a.get('choice') for a in record['answers'] if a['name']=='research_bias'),'unavailable'))+'. Rule gates remain in force; only an explicitly armed Rider paper hunt can execute automatically.','barTime':source['completedCutoff'],'record':record},row['id']+':api:'+record['decisionId'])
+
+ def sync_journal(payload,desk):
+     sid=str(payload.get('session',''))
+--- a/count-dashboard/taper_decisions.py
++++ b/count-dashboard/taper_decisions.py
+@@ -13,6 +13,7 @@
+ import secrets
+ import threading
+ import time
++from rider_playbooks import questions as rider_questions
+ import taper_geometry
+ import taper_volume
+ from pathlib import Path
+@@ -150,7 +151,7 @@
+         if not isinstance(levels, list) or not 1 <= len(levels) <= 30:
+             raise ValueError("Hunt requires 1 to 30 selected levels")
+         bounded_hunt = {"selectedLevels": [{"id": str(x.get("id", ""))[:100], "price": _number(x["price"], "hunt price"),
+-                         "side": x["side"], "tf": x["tf"], "weight": _number(x.get("weight", 0), "hunt weight")} for x in levels],
++                         "side": x["side"], "tf": x["tf"], "origin": x.get("origin", "indicator"), "weight": _number(x.get("weight", 0), "hunt weight")} for x in levels],
+                         "ruleProposals": [{key: x.get(key) for key in ("barTime", "stage", "bias", "entry", "stop", "target", "rr", "risk", "reason")}
+                                           for x in hunt.get("candidates", [])[:30]],
+                         "policy": {key: hunt.get("policy", {}).get(key) for key in
+@@ -165,7 +166,7 @@
+             for item in reviews[:3] if isinstance(item, dict) and isinstance(item.get("publishedAt"), (int, float)) and item["publishedAt"] <= cutoff + 60000],
+             "minimumSamples": 30,
+             "authority": "Historical observational context only; no model training, profit probability or automatic policy adoption."}
+-    return {"method": METHOD, "source": {"provider": provider, "symbol": symbol, "timeframe": "1m",
++    return {"riderCandidates": payload.get("riderCandidates", [])[:4], "method": METHOD, "source": {"provider": provider, "symbol": symbol, "timeframe": "1m",
+             "completedCutoff": cutoff, "snapshotAsOf": asof}, "frames": bounded_frames,
+             "levels": bounded_levels, "game": bounded_game, "hunt": bounded_hunt, "bars": clean,
+             "marketGeometry": taper_geometry.evidence(payload.get("marketGeometry"),provider,symbol,cutoff,_number),
+@@ -273,6 +274,9 @@
+     if not api_key:
+         raise RuntimeError("Taper needs TYPESAFE_API_KEY in the Count Desk server environment")
+     questions = decision_questions(evidence.get("marketGeometry") is not None, True)
++    if evidence.get("riderCandidates"):
++        questions={k:v for k,v in questions.items() if k in ("tape_state","structure_clarity")}
++    questions.update(rider_questions(evidence.get("riderCandidates", [])))
+     body = json.dumps({"model": MODEL, "state": evidence, "questions": questions},
+                       separators=(",", ":"), allow_nan=False).encode()
+     # Conservative ASCII byte bound beneath the documented 64k combined token budget.
+@@ -318,7 +322,7 @@
+     else:
+         paper_gate = {"status": "wait", "reason": "No paper setup from the current completed-bar read"}
+     record = {"decisionId": decision_id, "agent": "Taper", "method": METHOD,
+-              "source": evidence["source"], "evidenceHash": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest(),
++              "riderCandidates": evidence.get("riderCandidates", []), "source": evidence["source"], "evidenceHash": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest(),
+               "provider": "typesafe", "model": result["model"], "answers": answers, "questions": questions, "questionPack":taper_volume.PACK, "volumeEvidence":evidence.get("volumeEvidence"), "marketGeometry":evidence.get("marketGeometry"), "rawAnswers": result["answers"], "usage": usage,
+               "latencyMs": latency_ms, "requestBytes": len(body),
+               "pricing": {"inputUsdPerMillion": INPUT_USD_PER_MILLION, "outputUsdPerMillion": 0,
+--- a/count-dashboard/server.py
++++ b/count-dashboard/server.py
+@@ -72,6 +72,7 @@
+ import quant_game_store
+ import quant_game_orders
+ import taper_decisions
++import rider_auto
+ import crypto_day_desk
+ import crypto_hunt_sessions
+
+@@ -857,7 +858,7 @@
+     ).fetchall()]
+
+
+-def open_quant_lab_sim_position(db: sqlite3.Connection, payload: dict, *, game_fill=False) -> dict:
++def open_quant_lab_sim_position(db: sqlite3.Connection, payload: dict, *, game_fill=False, rider_fill=False) -> dict:
+     """Record a Quant Lab paper position at the selected displayed chart price."""
+     account_id = str(payload.get("account_id", "")).strip()
+     account = db.execute("SELECT * FROM chart_sim_accounts WHERE account_id=?", (account_id,)).fetchone()
+@@ -904,18 +905,18 @@
+         current=crypto_day_desk.cycle_account(db)
+         if account_id!=current['account']['account_id']:raise ValueError('New entries use the current monthly paper account')
+         crypto_day_desk.require_clock_in(account_id,provider,symbol)
+-        crypto_day_desk.check_paper_risk(provider,symbol,side,entry,stop,target)
+-    position_id = "quant-lab-paper-" + secrets.token_hex(12)
++        if not rider_fill:crypto_day_desk.check_paper_risk(provider,symbol,side,entry,stop,target)
++    position_id = ("rider-paper-" + str(payload["rider_id"]) if rider_fill else "quant-lab-paper-" + secrets.token_hex(12))
+     recorded = utc_now()
+     db.execute("""INSERT INTO quant_lab_sim_positions
+       (position_id,account_id,provider,symbol,timeframe,side,quantity,multiplier,entry_price,entry_bar_time,
+        entry_source,entry_recorded_at,stop_price,target_price,status,checked_through_bar_time)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
+       (position_id,account_id,provider,symbol,timeframe,side,quantity,1.0,entry,bar_time,
+-       provider_labels[provider] + (" · forward liquidity-limit OHLC SIM" if game_fill else ""),recorded,stop,target,bar_time))
++       provider_labels[provider] + (" · Rider forward OHLC PAPER · adverse slippage" if rider_fill else " · forward liquidity-limit OHLC SIM" if game_fill else ""),recorded,stop,target,bar_time))
+     position = dict(db.execute("SELECT * FROM quant_lab_sim_positions WHERE position_id=?", (position_id,)).fetchone())
+     queue_paper_journal_execution(db, position, "entry")
+-    if not game_fill:
++    if not game_fill and not rider_fill:
+         db.commit()
+     return position
+
+@@ -1002,6 +1003,7 @@
+     checked = closed = 0
+     results = []
+     for position in positions:
++        if db.execute("SELECT name FROM sqlite_master WHERE name='rider_auto_trades'").fetchone() and db.execute('SELECT 1 FROM rider_auto_trades WHERE position=?',(position['position_id'],)).fetchone():continue
+         through = int(position["checked_through_bar_time"])
+         for timestamp,opening,high,low,close in bars:
+             if timestamp <= max(through,int(position["entry_bar_time"])):
+@@ -3777,6 +3779,9 @@
+                 payload = self.read_json()
+                 path = parsed.path.rsplit("/", 1)[-1]
+                 routes = {"observe": crypto_day_desk.observe, "context": crypto_day_desk.save_context, "policy": crypto_day_desk.update_policy, "review": crypto_day_desk.review, "settings": crypto_day_desk.save_settings, "decision": crypto_day_desk.model_read, "volume-preview": crypto_day_desk.volume_preview}
++                if path == "auto-control":
++                    with crypto_day_desk.LOCK, connect(self.server.db_path) as trading_db:
++                        return self.send_json(rider_auto.control(payload,trading_db,crypto_day_desk))
+                 if path == "session-start":
+                     with connect(self.server.db_path) as trading_db:
+                         return self.send_json(crypto_hunt_sessions.start(payload, trading_db, crypto_day_desk))
+@@ -4726,6 +4731,7 @@
+     Thread(target=observe_indicator_science, name="indicator-science-forward-observer", daemon=True).start()
+     print(f"Batty count dashboard: http://{args.host}:{args.port}")
+     print(f"SQLite store: {args.db}")
++    rider_auto.start_worker(__import__(__name__),crypto_day_desk,args.db)
+     server.serve_forever()
+
+
+--- a/count-dashboard/web/crypto-day-desk.js
++++ b/count-dashboard/web/crypto-day-desk.js
+@@ -1,5 +1,6 @@
+ import {DEFAULTS,FRAMES,FRAME_MS,COLORS,cleanBars,analyze,render} from './wave-court-port.mjs';
+ import {createLiquidityPicker} from './crypto-liquidity-picker.mjs';
++import {manualHuntLevels} from './manual-hunt-lines.mjs';
+ import {nearestCoreLevels} from './crypto-session-setup.mjs';
+ import {taperEvidence} from './quant-wave-court.mjs';
+ import {marketGeometryEvidence} from './jev-market-geometry.mjs';
+@@ -24,6 +25,7 @@
+ }
+ export function startCryptoDesk(bridge){
+  let state=null,read=null,settings={...DEFAULTS},busy=false,polling=true,selected=null,lastKey='',lastObserved='',lastModel='',modelBusy=false,modelError='',error='',drawingSlot=null,decisionIds=[],refreshTimer=null,hoverOff=null,clickOff=null,startedAt=Date.now(),currentSource='',lastRoundGross=null,quoteOff=null,quoteKey='',quoteAt=0,sessionTicker=null;
++ const autoStyle=document.createElement('link');autoStyle.rel='stylesheet';autoStyle.href='./rider-auto.css';document.head.append(autoStyle);
+  const workspace=$('.workspace'),conversation=$('.conversation');
+  let volumeMode=localStorage.getItem('taper.volume.mode')||'Volume';if(!MODES.includes(volumeMode))volumeMode='Volume';
+  let volumeVisible=true,volumeReferenceKey='';
+@@ -68,22 +70,29 @@
+  $('#deskMobileChat').onclick=()=>document.body.classList.toggle('desk-chat-visible');$('#deskSettings').onclick=openConfig;$('#deskFocus').onclick=()=>{document.body.classList.toggle('desk-chart-focus');bridge.resize();};$('#deskPause').onclick=()=>{polling=!polling;if(!polling){quoteOff?.();quoteOff=null;quoteKey='';}else startQuotes();$('#deskPause').textContent=polling?'Pause feed':'Resume feed';updateFeed();};$('#deskSync').onclick=()=>void sync(true);
+  $('#deskSessionScores').onclick=()=>{renderSessionReview();review.showModal();};$('#deskReview').onclick=()=>{renderSessionReview();review.showModal();};$('#deskExport').onclick=()=>void exportData();$('#deskApiRead').onclick=()=>void modelRead();$('#deskManage').onclick=()=>managePosition();
+  // Session console is separate from the chart renderer and indicator math.
+- const consolePanel=document.createElement('section');consolePanel.className='desk-session-console';consolePanel.innerHTML=`<header><div><small>TRADING SESSION</small><strong id="deskSessionName">Clocked out · choose hunt levels</strong></div><button id="deskStartSession" class="desk-primary">Start session</button></header><div class="desk-console-tabs" role="group" aria-label="Session agents"><button data-chat-agent="taper" class="selected">Taper <small>Tape & execution plan</small></button><button data-chat-agent="rider">Rider <small>Count review</small></button></div><p id="deskSessionStatus" class="desk-small">Start session guides your setup and clocks you in. Clock out saves its score and opens Taper’s daily review.</p><div class="desk-chart-hunt-controls"><button id="deskPickLines" aria-pressed="true">Pick levels on chart · ON</button><small id="deskPickHelp">Hover a liquidity line; click to select or deselect.</small><div id="deskChartHuntSelection"></div></div><div id="deskHuntPlans"></div><div id="deskSessionStream" class="desk-session-stream" role="log" aria-label="Taper and Rider decision chat"></div><form id="deskSessionComposer"><label class="desk-small" id="deskChatLabel" for="deskSessionMessage">Message Taper</label><textarea id="deskSessionMessage" rows="2" placeholder="Ask about a hunted level, entry, stop or target…"></textarea><footer><span id="deskChatStatus">Session notes are saved.</span><button type="submit">Send</button></footer></form>`;conversation.append(consolePanel);$('#quantCodexHost').hidden=true;
+- const sessionDialog=document.createElement('dialog');sessionDialog.className='desk-dialog desk-hunt-dialog desk-session-wizard';sessionDialog.id='deskSessionSetup';sessionDialog.innerHTML=`<header><div><small>START SESSION · PAPER ONLY</small><h2 id="deskSetupTitle">Set up your session</h2></div><button id="deskSessionSetupClose" aria-label="Close session setup">×</button></header><nav class="desk-setup-steps" aria-label="Session setup progress"><span data-setup-dot="0">1 · Session</span><span data-setup-dot="1">2 · Hunt levels</span><span data-setup-dot="2">3 · Review</span></nav><form id="deskSessionSetupForm"><section data-setup-step="0"><h3>Give this session a name</h3><label>Session name <input id="deskHuntName" maxlength="100" required></label><p id="deskHuntContext"></p><div class="desk-setup-note"><b>Your monthly paper account</b><p>$500 starting capital · +10% / $50 gross monthly goal. This session shares the monthly balance; it does not reset it.</p></div><label class="desk-check"><input id="deskSessionApi" type="checkbox">Include TypeSafe Jev reads each completed minute</label><p id="deskSetupApiHelp"></p><p>Keep this market visible and the feed running. You confirm every paper ticket. Clock out when your session is finished.</p></section><section data-setup-step="1" hidden><h3>Choose the lines Taper should watch</h3><button type="button" id="deskChooseOnChart">Choose on chart ↗</button><p>Each row is an actual active wick level on your chart. Check its box to hunt it. Above price: watch for rejection or acceptance; below price: watch for a reclaim or breakdown. Selecting a line does not place a trade.</p><button type="button" id="deskChooseNearest">Choose nearest core levels</button><p id="deskNearestHelp">Selects one active level above and one below price from 1H, 30M or 15M. This is a convenient watchlist, not a trade recommendation.</p><div id="deskPickedLevels" class="desk-picked-levels" aria-label="Selected hunt levels"></div><div class="desk-hunt-filters" role="group" aria-label="Liquidity timeframe filter">${['All',...FRAMES].map(tf=>`<button type="button" data-hunt-filter="${tf}" class="${tf==='All'?'selected':''}">${tf.toUpperCase()}</button>`).join('')}</div><div id="deskHuntChoices"></div><p class="desk-small">Targets use the nearest active opposite liquidity, including lines you did not select.</p></section><section data-setup-step="2" hidden><h3>Check your session plan</h3><div id="deskSetupSummary"></div><p id="deskHuntGate"></p><p>Start records completed-minute checks from now onward. Your chart stays intact. Entry, stop and target proposals require your confirmation.</p></section><p id="deskSetupError" role="alert"></p><footer><span id="deskHuntSelection">No levels selected</span><div><button type="button" id="deskSetupBack">Back</button><button type="button" id="deskSetupNext" class="desk-primary">Next · Hunt levels</button><button type="submit" id="deskSetupSubmit" class="desk-primary" hidden>Start session</button></div></footer></form>`;document.body.append(sessionDialog);
++ const consolePanel=document.createElement('section');consolePanel.className='desk-session-console';consolePanel.innerHTML=`<header><div><small>TRADING SESSION</small><strong id="deskSessionName">Clocked out · choose hunt levels</strong></div><button id="deskStartSession" class="desk-primary">Start session</button></header><div class="desk-console-tabs" role="group" aria-label="Session agents"><button data-chat-agent="taper" class="selected">Taper <small>Tape & execution plan</small></button><button data-chat-agent="rider">Rider <small>Count review & paper trading</small></button></div><p id="deskSessionStatus" class="desk-small">Start session guides your setup and clocks you in. Clock out saves its score and opens Taper’s daily review.</p><div class="desk-chart-hunt-controls"><button id="deskDrawManual" type="button">Draw manual hunt line</button><button id="deskPickLines" aria-pressed="true">Pick levels on chart · ON</button><small id="deskPickHelp">Hover a liquidity line; click to select or deselect.</small><div id="deskChartHuntSelection"></div></div><section id="deskRiderAuto" class="desk-auto-panel"></section><div id="deskHuntPlans"></div><div id="deskSessionStream" class="desk-session-stream" role="log" aria-label="Taper and Rider decision chat"></div><form id="deskSessionComposer"><label class="desk-small" id="deskChatLabel" for="deskSessionMessage">Message Taper</label><textarea id="deskSessionMessage" rows="2" placeholder="Ask about a hunted level, entry, stop or target…"></textarea><footer><span id="deskChatStatus">Session notes are saved.</span><button type="submit">Send</button></footer></form>`;conversation.append(consolePanel);$('#quantCodexHost').hidden=true;
++ const sessionDialog=document.createElement('dialog');sessionDialog.className='desk-dialog desk-hunt-dialog desk-session-wizard';sessionDialog.id='deskSessionSetup';sessionDialog.innerHTML=`<header><div><small>START SESSION · PAPER ONLY</small><h2 id="deskSetupTitle">Set up your session</h2></div><button id="deskSessionSetupClose" aria-label="Close session setup">×</button></header><nav class="desk-setup-steps" aria-label="Session setup progress"><span data-setup-dot="0">1 · Session</span><span data-setup-dot="1">2 · Hunt levels</span><span data-setup-dot="2">3 · Review</span></nav><form id="deskSessionSetupForm"><section data-setup-step="0"><h3>Give this session a name</h3><label>Session name <input id="deskHuntName" maxlength="100" required></label><p id="deskHuntContext"></p><div class="desk-setup-note"><b>Your monthly paper account</b><p>$500 starting capital · +10% / $50 gross monthly goal. This session shares the monthly balance; it does not reset it.</p></div><label class="desk-check"><input id="deskSessionApi" type="checkbox">Include TypeSafe Jev reads each completed minute</label><p id="deskSetupApiHelp"></p><fieldset id="deskAutoSetup"><legend>Rider automatic paper trading</legend><label class="desk-check"><input id="deskAutoEnabled" type="checkbox">Arm Rider to enter and manage without per-trade confirmation</label><label class="desk-check"><input id="deskAutoRejection" type="checkbox" checked>Rejection and retest</label><label class="desk-check"><input id="deskAutoBreak" type="checkbox" checked>Break and retest</label><label>Direction<select id="deskAutoDirection"><option value="both">Both (spot: longs only)</option><option value="long">Long only</option><option value="short">Short only (perpetual)</option></select></label><label>Target price (optional; otherwise opposite liquidity freezes at arm)<input id="deskAutoTarget" type="number" min="0.000001" step="any"></label><label>Maximum daily entries<input id="deskAutoMaxTrades" type="number" value="4" min="1" max="4"></label><label>Session minutes<input id="deskAutoDuration" type="number" value="240" min="5" max="720"></label><label>Maximum holding minutes<input id="deskAutoHold" type="number" value="60" min="1" max="240"></label><label>Minimum Jev classification confidence<input id="deskAutoConfidence" type="number" value="0.8" min="0.5" max="1" step="0.05"></label><label>Maximum entry drift / ATR<input id="deskAutoDrift" type="number" value="0.25" min="0.01" max="1" step="0.01"></label><small>One entry attempt per level per session. Fixed stop/target and time exit. Fees/slippage and existing risk limits apply. No live orders.</small></fieldset><p>Manual mode requires the visible desk. Armed Rider paper mode runs on the server while the machine stays awake. Clock out stops new entries; existing brackets continue.</p></section><section data-setup-step="1" hidden><h3>Choose the lines Taper should watch</h3><button type="button" id="deskChooseOnChart">Choose on chart ↗</button><p>Select indicator liquidity or a MANUAL horizontal drawing. Manual lines are human test levels; their prices freeze when selected. Check its box to hunt it. Above price: watch for rejection or acceptance; below price: watch for a reclaim or breakdown. Selecting a line does not place a trade.</p><button type="button" id="deskChooseNearest">Choose nearest core levels</button><p id="deskNearestHelp">Selects one active level above and one below price from 1H, 30M or 15M. This is a convenient watchlist, not a trade recommendation.</p><div id="deskPickedLevels" class="desk-picked-levels" aria-label="Selected hunt levels"></div><div class="desk-hunt-filters" role="group" aria-label="Liquidity timeframe filter">${['All','Manual',...FRAMES].map(tf=>`<button type="button" data-hunt-filter="${tf}" class="${tf==='All'?'selected':''}">${tf.toUpperCase()}</button>`).join('')}</div><div id="deskHuntChoices"></div><p class="desk-small">Targets use the nearest active opposite liquidity, including lines you did not select.</p></section><section data-setup-step="2" hidden><h3>Check your session plan</h3><div id="deskSetupSummary"></div><p id="deskHuntGate"></p><p>Start records completed-minute checks from now onward. Your chart stays intact. Manual mode requires ticket confirmation. Armed Rider paper mode follows the reviewed playbooks and limits automatically.</p></section><p id="deskSetupError" role="alert"></p><footer><span id="deskHuntSelection">No levels selected</span><div><button type="button" id="deskSetupBack">Back</button><button type="button" id="deskSetupNext" class="desk-primary">Next · Hunt levels</button><button type="submit" id="deskSetupSubmit" class="desk-primary" hidden>Start session</button></div></footer></form>`;document.body.append(sessionDialog);
+  let setupStep=0,setupSource=null,setupBusy=false,pickEnabled=true,selectionBusy=false;
+  const draftHunts=new Map();
+  const marketKey=()=>{const src=bridge.slot()?.source;return src?src.id+':'+src.market:'';};
++ const manualLines=()=>{const slot=bridge.slot();let lines=manualHuntLevels(slot);const frozen=state?.session&&!state.session.ended&&state.session.provider===slot?.source?.id&&state?.session?.symbol===slot?.source?.market?state.session.levels.filter(p=>p.origin==='manual'):[];for(const p of frozen){if(!lines.some(x=>x.id===p.id)){slot?.chart?.drawings?.add('hline',{paneId:'price',anchors:[{time:slot.bars.at(-1).time,price:p.price}],props:{riderManualId:p.id},style:{lineColor:'#19d0e9',lineWidth:2}});}}return manualHuntLevels(slot).map(x=>{const approved=frozen.find(p=>p.id===x.id);return approved?{...x,price:approved.price,side:approved.side,label:approved.label}:x;});};
++ const allHuntLevels=()=>[...(read?.raw||[]),...manualLines()];
++ const levelLabel=p=>p.origin==='manual'?'MANUAL':FRAMES[p.tf].toUpperCase();
+  const chartHuntIds=()=>sessionMatches()?activeSession().levels.map(p=>p.id):[...(draftHunts.get(marketKey())||[])];
+  let chatAgent='taper',riderBusy=false,sessionStreamKey='',journalKey='',huntChoices=[],streamLimit=80;
+  const activeSession=()=>state?.session&&!state.session.ended?state.session:null;
+  const sessionMatches=()=>{const s=activeSession(),src=bridge.slot()?.source;return Boolean(s&&s.provider===src?.id&&s.symbol===src?.market&&s.account===bridge.accountId());};
+- function renderChartHunt(){const ids=chartHuntIds(),levels=read?.raw||[];$('#deskPickLines').textContent='Pick levels on chart · '+(pickEnabled?'ON':'OFF');$('#deskPickLines').setAttribute('aria-pressed',String(pickEnabled));$('#deskChartHuntSelection').innerHTML=ids.map(id=>{const p=levels.find(p=>p.id===id)||activeSession()?.levels.find(p=>p.id===id);return `<button data-remove-hunt="${esc(id)}" title="Stop hunting this level">${p?FRAMES[p.tf].toUpperCase()+' · '+num(p.price):'Retained level'} ×</button>`;}).join('')||'<small>No levels selected · click a chart line</small>';$('#deskChartHuntSelection').querySelectorAll('[data-remove-hunt]').forEach(b=>b.onclick=()=>void toggleChartHunt([b.dataset.removeHunt]));picker?.refresh();}
+- async function toggleChartHunt(ids){if(selectionBusy)return;const current=new Set(chartHuntIds()),remove=ids.filter(id=>current.has(id)),add=remove.length?[]:ids.filter(id=>read?.raw.some(p=>p.id===id&&!p.taken));if(activeSession()&&!sessionMatches())return report(new Error('Return to the active session market before changing hunt levels'));try{if(activeSession()){selectionBusy=true;$('#deskPickHelp').textContent='Saving hunt selection…';await api('session-levels',{session:activeSession().id,revision:activeSession().levelRevision||1,source:{provider:activeSession().provider,symbol:activeSession().symbol,timeframe:'1m'},add,remove});if(bridge.pendingDecision())$('#chartTicketClose').click();bridge.pendingDecision(null);lastModel='';await loadState();await syncSessionJournal();await loadState();}else{remove.forEach(id=>current.delete(id));add.forEach(id=>current.add(id));if(current.size>30)throw new Error('Select at most 30 hunt levels');draftHunts.set(marketKey(),current);renderChartHunt();}$('#deskPickHelp').textContent=chartHuntIds().length?(activeSession()?'Cyan lines are hunted. Click again to stop hunting.':'Cyan lines are selected. Start session to begin hunting.'):(activeSession()?'Hunting paused: no selected levels. Click a line to resume.':'No levels selected. Click a liquidity line, then Start session.');}catch(e){await loadState().catch(()=>{});$('#deskPickHelp').textContent=e.message;}finally{selectionBusy=false;}}
+- let picker=createLiquidityPicker({getSlot:()=>bridge.slot(),getRead:()=>read&&({...read,settings}),getSelected:chartHuntIds,isEnabled:()=>pickEnabled&&!selectionBusy,onToggle:ids=>void toggleChartHunt(ids),onHover:group=>{if(group.length)$('#deskPickHelp').textContent=[...new Set(group.map(p=>FRAMES[p.tf].toUpperCase()))].join('/')+' · '+num(group[0].price)+' · click to '+(group.some(p=>chartHuntIds().includes(p.id))?'deselect':'select');else $('#deskPickHelp').textContent='Hover a liquidity line; click to select or deselect.';}});
++ function renderChartHunt(){const ids=chartHuntIds(),levels=allHuntLevels();$('#deskPickLines').textContent='Pick levels on chart · '+(pickEnabled?'ON':'OFF');$('#deskPickLines').setAttribute('aria-pressed',String(pickEnabled));$('#deskChartHuntSelection').innerHTML=ids.map(id=>{const p=levels.find(p=>p.id===id)||activeSession()?.levels.find(p=>p.id===id);return `<button data-remove-hunt="${esc(id)}" title="Stop hunting this level">${p?levelLabel(p)+' · '+num(p.price):'Retained level'} ×</button>`;}).join('')||'<small>No levels selected · click a chart line</small>';$('#deskChartHuntSelection').querySelectorAll('[data-remove-hunt]').forEach(b=>b.onclick=()=>void toggleChartHunt([b.dataset.removeHunt]));picker?.refresh();}
++ async function toggleChartHunt(ids){if(selectionBusy)return;const current=new Set(chartHuntIds()),remove=ids.filter(id=>current.has(id)),add=remove.length?[]:ids.filter(id=>allHuntLevels().some(p=>p.id===id&&!p.taken));if(activeSession()&&!sessionMatches())return report(new Error('Return to the active session market before changing hunt levels'));try{if(activeSession()){selectionBusy=true;$('#deskPickHelp').textContent='Saving hunt selection…';await api('session-levels',{session:activeSession().id,revision:activeSession().levelRevision||1,source:{provider:activeSession().provider,symbol:activeSession().symbol,timeframe:'1m'},manualLevels:manualLines().filter(p=>add.includes(p.id)),add,remove});if(bridge.pendingDecision())$('#chartTicketClose').click();bridge.pendingDecision(null);lastModel='';await loadState();await syncSessionJournal();await loadState();}else{remove.forEach(id=>current.delete(id));add.forEach(id=>current.add(id));if(current.size>30)throw new Error('Select at most 30 hunt levels');draftHunts.set(marketKey(),current);renderChartHunt();}$('#deskPickHelp').textContent=chartHuntIds().length?(activeSession()?'Cyan lines are hunted. Click again to stop hunting.':'Cyan lines are selected. Start session to begin hunting.'):(activeSession()?'Hunting paused: no selected levels. Click a line to resume.':'No levels selected. Click a liquidity line, then Start session.');}catch(e){await loadState().catch(()=>{});$('#deskPickHelp').textContent=e.message;}finally{selectionBusy=false;}}
++ let picker=createLiquidityPicker({getSlot:()=>bridge.slot(),getRead:()=>read&&({...read,settings}),getManual:manualLines,getSelected:chartHuntIds,isEnabled:()=>pickEnabled&&!selectionBusy,onToggle:ids=>void toggleChartHunt(ids),onHover:group=>{if(group.length)$('#deskPickHelp').textContent=[...new Set(group.map(p=>FRAMES[p.tf].toUpperCase()))].join('/')+' · '+num(group[0].price)+' · click to '+(group.some(p=>chartHuntIds().includes(p.id))?'deselect':'select');else $('#deskPickHelp').textContent='Hover a liquidity line; click to select or deselect.';}});
++ $('#deskDrawManual').onclick=()=>{bridge.slot()?.chart?.drawings?.setStayMode(false);bridge.slot()?.chart?.drawings?.setTool('hline');$('#deskPickHelp').textContent='Click the chart to draw a horizontal test level, then select its hunt line. Manual levels are labelled MANUAL.';};
+  $('#deskPickLines').onclick=()=>{pickEnabled=!pickEnabled;renderChartHunt();};
+  $('#deskChooseOnChart').onclick=()=>{const ids=selectedHuntIds();draftHunts.set(marketKey(),new Set(ids));sessionDialog.close();pickEnabled=true;renderChartHunt();$('#deskPickHelp').textContent='Click the lines you want; then Start session to review your selection.';};
++ function autoSetupConfig(){return {enabled:$('#deskAutoEnabled').checked,playbooks:[$('#deskAutoRejection').checked?'rejection_retest':null,$('#deskAutoBreak').checked?'break_retest':null].filter(Boolean),direction:$('#deskAutoDirection').value,targetPrice:$('#deskAutoTarget').value||null,maxTrades:Number($('#deskAutoMaxTrades').value),durationMinutes:Number($('#deskAutoDuration').value),maxHoldBars:Number($('#deskAutoHold').value),minConfidence:Number($('#deskAutoConfidence').value),maxEntryATR:Number($('#deskAutoDrift').value)};}
++ function renderAuto(){const s=state?.session,a=s?.auto,worker=state?.riderAuto?.worker,panel=$('#deskRiderAuto');if(!a){panel.innerHTML='<small>Manual session · automatic paper mode is available in the next Start session.</small>';return;}panel.innerHTML=`<b>RIDER · PAPER · ${a.armed?'ARMED':'PAUSED'}</b><p>${esc(a.reason)} · worker ${esc(worker?.state||'unavailable')} ${worker?.heartbeat?'· heartbeat '+esc(clock(worker.heartbeat)):''}</p><p>${esc(worker?.error||'')} · pending ${state.riderAuto?.orders?.filter(o=>o.status==='pending').length||0} · net ${money(state.riderAuto?.netPnl||0)} after estimated fees</p><p>Objectives: ${Object.entries(a.targets||{}).map(([k,v])=>num(v)).join(' / ')} · one attempt per level · max ${a.maxTrades} daily · risk ${a.policy.riskPct}% · expires ${clock(a.expiresAt)}</p><button id="deskAutoToggle" ${s.ended?'disabled':''}>${a.armed?'Pause entries & cancel pending':'Re-arm approved paper hunt'}</button><button id="deskAutoCancel" ${s.ended?'disabled':''}>Cancel pending entries</button><small>Existing fixed brackets continue while paused. Clock out stops entries. Session expiry closes at a completed-bar price. Server restart requires re-arm.</small>`;$('#deskAutoToggle').onclick=()=>void autoControl(a.armed?'pause':'arm');$('#deskAutoCancel').onclick=()=>void autoControl('cancel');}
++ async function autoControl(action){try{const s=state.session;await api('auto-control',{session:s.id,action,config:s.auto?.approvedConfig||{}});await loadState();}catch(e){report(e);}}
+  function planCard(c){return `<article class="desk-hunt-plan"><header><span style="color:${COLORS[c.level.tf]}">${FRAMES[c.level.tf].toUpperCase()} · ${num(c.level.price)}</span><b style="color:${STAGE_COLOR[c.stage]||'#91a0b9'}">${esc(c.stage)}</b></header><p>${esc(c.reason)}</p><dl><div><dt>Bias</dt><dd>${esc(c.bias)}</dd></div><div><dt>Entry</dt><dd>${num(c.entry)}</dd></div><div><dt>Stop</dt><dd>${num(c.stop)}</dd></div><div><dt>Opposite target</dt><dd>${num(c.target)}</dd></div><div><dt>R / R</dt><dd>${c.rr?.toFixed(2)||'—'} · ${esc(c.risk?.preference||'unverified')}</dd></div><div><dt>Stop ticks</dt><dd>${c.risk?.riskTicks?.toFixed(2)||'—'} / ${c.risk?.maxStopTicks||30}</dd></div></dl><button data-plan="${c.id}" ${c.stage!=='CONFIRMED'||c.kind!=='forward_rule'||!sessionMatches()||state?.session?.ended?'disabled':''}>Review paper proposal</button></article>`;}
+- function renderSession(){if(!state)return;const s=state.session,active=activeSession();$('#deskSessionName').textContent=active?s.name:s?'Clocked out · review saved':'Clocked out · choose hunt levels';$('#deskStartSession').textContent=active?'Clock out':'Start session';$('#deskSessionStatus').textContent=s?`${s.symbol} · ${s.accountName} · ${s.levels.length} levels · ${active?'recording since':'started'} ${clock(s.started)} UTC · ${s.journalError|| (s.journalSynced?'journal synced':'journal queued')}${active&&!sessionMatches()?' · return to session market/account to monitor':''}`:'Start session guides your setup and clocks you in. Clock out saves its score and opens Taper’s daily review.';$('#deskSessionMessage').disabled=!active;$('#deskSessionComposer button').disabled=!active||riderBusy;$('#deskHuntPlans').innerHTML=(active?state.sessionCandidates||[]:[]).filter(c=>c.stage!=='WAIT'&&c.stage!=='RETIRED').sort((a,b)=>Number(b.stage==='CONFIRMED')-Number(a.stage==='CONFIRMED')||(b.rr||0)-(a.rr||0)).slice(0,3).map(planCard).join('');$('#deskHuntPlans').querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>void reviewTicket(state.sessionCandidates.find(c=>c.id===b.dataset.plan)));
++ function renderSession(){if(!state)return;renderAuto();const s=state.session,active=activeSession();$('#deskSessionName').textContent=active?s.name:s?'Clocked out · review saved':'Clocked out · choose hunt levels';$('#deskStartSession').textContent=active?'Clock out':'Start session';$('#deskSessionStatus').textContent=s?`${s.symbol} · ${s.accountName} · ${s.levels.length} levels · ${active?'recording since':'started'} ${clock(s.started)} UTC · ${s.journalError|| (s.journalSynced?'journal synced':'journal queued')}${active&&!sessionMatches()?' · return to session market/account to monitor':''}`:'Start session guides your setup and clocks you in. Clock out saves its score and opens Taper’s daily review.';$('#deskSessionMessage').disabled=!active;$('#deskSessionComposer button').disabled=!active||riderBusy;$('#deskHuntPlans').innerHTML=(active?state.sessionCandidates||[]:[]).filter(c=>c.stage!=='WAIT'&&c.stage!=='RETIRED').sort((a,b)=>Number(b.stage==='CONFIRMED')-Number(a.stage==='CONFIRMED')||(b.rr||0)-(a.rr||0)).slice(0,3).map(planCard).join('');$('#deskHuntPlans').querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>void reviewTicket(state.sessionCandidates.find(c=>c.id===b.dataset.plan)));
+  const events=state.sessionEvents||[],key=s?.id+':'+streamLimit+':'+events.map(e=>e.id).join('|');if(key===sessionStreamKey)return;sessionStreamKey=key;const stream=$('#deskSessionStream'),atBottom=stream.scrollHeight-stream.scrollTop-stream.clientHeight<80;
+  stream.innerHTML=(events.length>streamLimit?`<button id="deskEarlierEvents">Earlier decisions (${events.length-streamLimit})</button>`:'')+events.slice(-streamLimit).map(e=>{const body=e.body,record=body.record,answers=record?.answers||[];return `<article class="desk-session-message is-${esc(e.role)}" data-session-event="${esc(e.id)}"><header><b>${e.role==='human'?'You':e.role==='rider'?'Rider':'Taper'}</b><time>${clock(body.barTime?body.barTime+60000:e.created)} UTC</time><small>${e.kind==='bar'?'COMPLETED 1M · RULES':e.kind==='api'?'JEV · ANSWERS':e.kind==='api_request'?'JEV · QUESTIONS':e.kind==='api_failed'?'JEV · FAILED':esc(e.kind.toUpperCase())}</small></header><p>${esc(body.text)}</p>${e.kind==='api_request'?modelQuestionsHTML(body.questions):''}${body.candidates?`<details open><summary>${body.candidates.length} level checks · entry / stop / target</summary>${body.candidates.map(c=>`<button data-event-plan="${c.id}">${FRAMES[c.level.tf].toUpperCase()} ${num(c.level.price)} · ${esc(c.stage)} ${esc(c.bias)}<small>E ${num(c.entry)} · S ${num(c.stop)} · T ${num(c.target)} · RR ${c.rr?.toFixed(2)||'—'}</small><small>${esc(c.reason)}${c.risk?.reason&&c.risk.reason!==c.reason?' · '+esc(c.risk.reason):''}</small></button>`).join('')}</details>`:''}${geometryReadHTML(record)}${answers.map(modelAnswerHTML).join('')}${record?`<small>${record.usage?.input_tokens||0} in / ${record.usage?.output_tokens||0} out · $${record.estimatedUsd.toFixed(6)} estimated · ${record.latencyMs??'—'} ms · ${esc(record.model)}</small>`:''}</article>`;}).join('')||'<div class="desk-session-empty"><span>◈</span><strong>Your hunt starts here</strong><p>Select liquidity, start a session, and follow each completed minute with Taper. Rider reviews the higher counts without editing the chart.</p></div>';
+  if($('#deskEarlierEvents'))$('#deskEarlierEvents').onclick=()=>{streamLimit+=80;sessionStreamKey='';renderSession();};
+@@ -91,18 +100,18 @@
+  }
+  async function syncSessionJournal(){const s=state?.session;if(!s)return;const key=s.id+':'+state.sessionEvents.length+':'+s.ended;if(journalKey===key&&s.journalSynced)return;const receipt=await api('session-sync',{session:s.id});if(receipt.synced)journalKey=key;}
+  const selectedHuntIds=()=>[...$('#deskHuntChoices').querySelectorAll('input:checked')].map(i=>i.value);
+- function updateHuntSelection(){const ids=selectedHuntIds(),n=ids.length;$('#deskHuntSelection').textContent=n+' level'+(n===1?'':'s')+' selected';$('#deskPickedLevels').innerHTML=huntChoices.filter(p=>ids.includes(p.id)).map(p=>`<span><i style="background:${COLORS[p.tf]}"></i>${FRAMES[p.tf].toUpperCase()} · ${num(p.price)}</span>`).join('')||'<small>No lines chosen yet</small>';$('#deskSetupError').textContent='';}
+- function showSetupStep(step){setupStep=step;sessionDialog.querySelectorAll('[data-setup-step]').forEach(el=>el.hidden=Number(el.dataset.setupStep)!==step);sessionDialog.querySelectorAll('[data-setup-dot]').forEach(el=>{el.classList.toggle('selected',Number(el.dataset.setupDot)===step);el.setAttribute('aria-current',Number(el.dataset.setupDot)===step?'step':'false');});$('#deskSetupTitle').textContent=['Set up your session','Select your liquidity watchlist','Ready to start?'][step];$('#deskSetupBack').hidden=step===0;$('#deskSetupNext').hidden=step===2;$('#deskSetupSubmit').hidden=step!==2;$('#deskSetupNext').textContent=step===0?'Next · Hunt levels':'Next · Review';if(step===2){const ids=selectedHuntIds(),chosen=huntChoices.filter(p=>ids.includes(p.id));$('#deskSetupSummary').innerHTML=`<b>${esc($('#deskHuntName').value.trim())}</b><p>${esc(setupSource.provider)} · ${esc(setupSource.symbol)} · ${esc(setupSource.accountName)}</p><ul>${chosen.map(p=>`<li><i style="background:${COLORS[p.tf]}"></i>${FRAMES[p.tf].toUpperCase()} · ${num(p.price)} · ${p.price>=setupSource.price?'above':'below'} starting price</li>`).join('')}</ul><p>${$('#deskSessionApi').checked?'TypeSafe Jev + rule checks':'Rule checks only · no API charges'}</p>`;}}
+- function openSessionSetup(){if(!read||!state)return report(new Error('Wait for the completed liquidity snapshot'));if(activeSession())return;const src=bridge.slot().source,price=read.frames[6].barData.at(-1).close;setupSource={provider:src.id,symbol:src.market,account:bridge.accountId(),accountName:state.accounts.find(a=>a.account_id===bridge.accountId())?.name||'Choose paper account',price};huntChoices=read.raw.filter(p=>!p.taken).sort((a,b)=>Math.abs(a.price-price)-Math.abs(b.price-price));$('#deskHuntName').value=asset+' liquidity hunt';$('#deskHuntContext').textContent=src.id+' · '+src.market+' · 1M checks · '+setupSource.accountName;$('#deskHuntChoices').innerHTML=huntChoices.map(p=>`<label data-hunt-row="${FRAMES[p.tf]}"><input type="checkbox" value="${esc(p.id)}" aria-label="Hunt ${FRAMES[p.tf].toUpperCase()} ${num(p.price)}"><i style="background:${COLORS[p.tf]}"></i><strong>${num(p.price)}</strong><span>${FRAMES[p.tf].toUpperCase()} · ${p.price>=price?'above':'below'} price<br>${num(Math.abs(p.price-price))} price units away · weight ${p.weight}</span></label>`).join('')||'<p>No active levels in the current source window. Wait for a fresh snapshot.</p>';$('#deskHuntChoices').querySelectorAll('input').forEach(i=>{i.checked=chartHuntIds().includes(i.value);i.onchange=()=>{updateHuntSelection();draftHunts.set(marketKey(),new Set(selectedHuntIds()));renderChartHunt();};});$('#deskSessionApi').checked=Boolean(state.api.configured);$('#deskSessionApi').disabled=!state.api.configured;$('#deskSetupApiHelp').textContent=state.api.configured?'TypeSafe Jev uses your saved daily read and cost caps; connection is verified only by a successful read.':'API key missing. You can still start a session and record every rule check; no Jev API calls will be made.';$('#deskHuntGate').textContent=`Stop ≤${state.policy.maxStopTicks} ticks · minimum ${state.policy.minRR}R · prefer ${state.policy.preferredRR}R+. Confirmation: ${state.policy.confirmBars} closes. ${state.policy.useExchangeTicks||state.policy['riskTick'+asset]>0?'Configured risk tick scale applies.':'Risk tick scale unset: watching is available, paper entries are blocked.'} Policy freezes at session start.`;sessionDialog.querySelectorAll('[data-hunt-filter]').forEach(x=>x.classList.toggle('selected',x.dataset.huntFilter==='All'));updateHuntSelection();showSetupStep(0);sessionDialog.showModal();}
++ function updateHuntSelection(){const ids=selectedHuntIds(),n=ids.length;$('#deskHuntSelection').textContent=n+' level'+(n===1?'':'s')+' selected';$('#deskPickedLevels').innerHTML=huntChoices.filter(p=>ids.includes(p.id)).map(p=>`<span><i style="background:${COLORS[p.tf]}"></i>${levelLabel(p)} · ${num(p.price)}</span>`).join('')||'<small>No lines chosen yet</small>';$('#deskSetupError').textContent='';}
++ function showSetupStep(step){setupStep=step;sessionDialog.querySelectorAll('[data-setup-step]').forEach(el=>el.hidden=Number(el.dataset.setupStep)!==step);sessionDialog.querySelectorAll('[data-setup-dot]').forEach(el=>{el.classList.toggle('selected',Number(el.dataset.setupDot)===step);el.setAttribute('aria-current',Number(el.dataset.setupDot)===step?'step':'false');});$('#deskSetupTitle').textContent=['Set up your session','Select your liquidity watchlist','Ready to start?'][step];$('#deskSetupBack').hidden=step===0;$('#deskSetupNext').hidden=step===2;$('#deskSetupSubmit').hidden=step!==2;$('#deskSetupNext').textContent=step===0?'Next · Hunt levels':'Next · Review';if(step===2){const ids=selectedHuntIds(),chosen=huntChoices.filter(p=>ids.includes(p.id));$('#deskSetupSummary').innerHTML=`<b>${esc($('#deskHuntName').value.trim())}</b><p>${esc(setupSource.provider)} · ${esc(setupSource.symbol)} · ${esc(setupSource.accountName)}</p><ul>${chosen.map(p=>`<li><i style="background:${COLORS[p.tf]}"></i>${levelLabel(p)} · ${num(p.price)} · ${p.price>=setupSource.price?'above':'below'} starting price</li>`).join('')}</ul><p>${$('#deskSessionApi').checked?'TypeSafe Jev + rule checks':'Rule checks only · no API charges'}</p><p>${$('#deskAutoEnabled').checked?'ARMED PAPER · '+autoSetupConfig().playbooks.map(x=>x.replaceAll('_',' ')).join(' + ')+' · '+esc(autoSetupConfig().direction)+' · target '+(autoSetupConfig().targetPrice?num(autoSetupConfig().targetPrice):'opposite liquidity frozen at arm')+' · up to '+autoSetupConfig().maxTrades+' daily entries · '+autoSetupConfig().durationMinutes+' minute session · max hold '+autoSetupConfig().maxHoldBars+' minutes · confidence ≥'+autoSetupConfig().minConfidence+' · entry drift ≤'+autoSetupConfig().maxEntryATR+' ATR · risk '+state.policy.riskPct+'% per trade / daily loss '+state.policy.dailyLossPct+'%':'Manual paper tickets · no automatic entries'}</p>`;}}
++ function openSessionSetup(){if(!read||!state)return report(new Error('Wait for the completed liquidity snapshot'));if(activeSession())return;const src=bridge.slot().source,price=read.frames[6].barData.at(-1).close;setupSource={provider:src.id,symbol:src.market,account:bridge.accountId(),accountName:state.accounts.find(a=>a.account_id===bridge.accountId())?.name||'Choose paper account',price};huntChoices=allHuntLevels().filter(p=>!p.taken).sort((a,b)=>Math.abs(a.price-price)-Math.abs(b.price-price));$('#deskHuntName').value=asset+' liquidity hunt';$('#deskHuntContext').textContent=src.id+' · '+src.market+' · 1M checks · '+setupSource.accountName;$('#deskHuntChoices').innerHTML=huntChoices.map(p=>`<label data-hunt-row="${p.origin==='manual'?'Manual':FRAMES[p.tf]}"><input type="checkbox" value="${esc(p.id)}" aria-label="Hunt ${levelLabel(p)} ${num(p.price)}"><i style="background:${COLORS[p.tf]}"></i><strong>${num(p.price)}</strong><span>${levelLabel(p)} · ${p.price>=price?'above':'below'} price<br>${num(Math.abs(p.price-price))} price units away · weight ${p.weight}</span></label>`).join('')||'<p>No active levels in the current source window. Wait for a fresh snapshot.</p>';$('#deskHuntChoices').querySelectorAll('input').forEach(i=>{i.checked=chartHuntIds().includes(i.value);i.onchange=()=>{updateHuntSelection();draftHunts.set(marketKey(),new Set(selectedHuntIds()));renderChartHunt();};});$('#deskAutoEnabled').checked=false;$('#deskAutoEnabled').disabled=!state.api.configured;$('#deskSessionApi').checked=Boolean(state.api.configured);$('#deskSessionApi').disabled=!state.api.configured;$('#deskSetupApiHelp').textContent=state.api.configured?'TypeSafe Jev uses your saved daily read and cost caps; connection is verified only by a successful read.':'API key missing. You can still start a session and record every rule check; no Jev API calls will be made.';$('#deskHuntGate').textContent=`Stop ≤${state.policy.maxStopTicks} ticks · minimum ${state.policy.minRR}R · prefer ${state.policy.preferredRR}R+. Confirmation: ${state.policy.confirmBars} closes. ${state.policy.useExchangeTicks||state.policy['riskTick'+asset]>0?'Configured risk tick scale applies.':'Risk tick scale unset: watching is available, paper entries are blocked.'} Policy freezes at session start.`;sessionDialog.querySelectorAll('[data-hunt-filter]').forEach(x=>x.classList.toggle('selected',x.dataset.huntFilter==='All'));updateHuntSelection();showSetupStep(0);sessionDialog.showModal();}
+  $('#deskSessionSetupClose').onclick=()=>sessionDialog.close();
+  $('#deskSetupBack').onclick=()=>{showSetupStep(Math.max(0,setupStep-1));$('#deskSetupError').textContent='';};
+  $('#deskSetupNext').onclick=()=>{if(setupStep===0&&!$('#deskHuntName').value.trim())return $('#deskSetupError').textContent='Give your session a name.';const n=selectedHuntIds().length;if(setupStep===1&&(n<1||n>30))return $('#deskSetupError').textContent='Choose 1–30 levels. Try Choose nearest core levels, then review the checked rows.';$('#deskSetupError').textContent='';showSetupStep(setupStep+1);};
+  $('#deskChooseNearest').onclick=()=>{const chosen=nearestCoreLevels(huntChoices,setupSource.price),ids=new Set(chosen.map(p=>p.id));$('#deskHuntChoices').querySelectorAll('input').forEach(i=>i.checked=ids.has(i.value));updateHuntSelection();draftHunts.set(marketKey(),ids);renderChartHunt();$('#deskNearestHelp').textContent=chosen.length?`Selected ${chosen.length} nearest core watch levels. Review their checked rows below; you can add or remove any level.`:'No active 1H / 30M / 15M levels are available here. Select another timeframe manually.';};
+  sessionDialog.querySelectorAll('[data-hunt-filter]').forEach(b=>b.onclick=()=>{sessionDialog.querySelectorAll('[data-hunt-filter]').forEach(x=>x.classList.toggle('selected',x===b));$('#deskHuntChoices').querySelectorAll('[data-hunt-row]').forEach(row=>row.hidden=b.dataset.huntFilter!=='All'&&row.dataset.huntRow!==b.dataset.huntFilter);});
+  $('#deskStartSession').onclick=async()=>{if(activeSession()){const button=$('#deskStartSession');button.disabled=true;try{const s=activeSession(),receipt=await api('session-end',{session:s.id});lastModel='';bridge.pendingDecision(null);await loadState();await api('session-sync',{session:s.id});await loadState();renderSessionReview(s.id,receipt);review.showModal();}catch(e){report(e);}finally{button.disabled=false;}return;}openSessionSetup();};
+- $('#deskSessionSetupForm').onsubmit=async e=>{e.preventDefault();if(setupBusy)return;if(setupStep<2){$('#deskSetupNext').click();return;}try{const src=bridge.slot().source;if(src.id!==setupSource.provider||src.market!==setupSource.symbol||bridge.accountId()!==setupSource.account)throw new Error('Market or account changed. Close setup and start again.');setupBusy=true;$('#deskSetupSubmit').disabled=true;await api('session-start',{source:{provider:src.id,symbol:src.market,timeframe:'1m'},levels:selectedHuntIds(),account:setupSource.account,name:$('#deskHuntName').value.trim(),apiEnabled:$('#deskSessionApi').checked});sessionDialog.close();lastKey='';await loadState();await syncSessionJournal();await loadState();}catch(e){$('#deskSetupError').textContent=e.message;}finally{setupBusy=false;$('#deskSetupSubmit').disabled=false;}};
++ $('#deskSessionSetupForm').onsubmit=async e=>{e.preventDefault();if(setupBusy)return;if(setupStep<2){$('#deskSetupNext').click();return;}try{const src=bridge.slot().source;if(src.id!==setupSource.provider||src.market!==setupSource.symbol||bridge.accountId()!==setupSource.account)throw new Error('Market or account changed. Close setup and start again.');setupBusy=true;$('#deskSetupSubmit').disabled=true;await api('session-start',{source:{provider:src.id,symbol:src.market,timeframe:'1m'},levels:selectedHuntIds(),manualLevels:manualLines().filter(p=>selectedHuntIds().includes(p.id)),autoConfig:autoSetupConfig(),account:setupSource.account,name:$('#deskHuntName').value.trim(),apiEnabled:$('#deskSessionApi').checked});sessionDialog.close();lastKey='';await loadState();await syncSessionJournal();await loadState();}catch(e){$('#deskSetupError').textContent=e.message;}finally{setupBusy=false;$('#deskSetupSubmit').disabled=false;}};
+  consolePanel.querySelectorAll('[data-chat-agent]').forEach(b=>b.onclick=()=>{chatAgent=b.dataset.chatAgent;consolePanel.querySelectorAll('[data-chat-agent]').forEach(x=>x.classList.toggle('selected',x===b));$('#deskChatLabel').textContent='Message '+(chatAgent==='taper'?'Taper':'Rider');$('#deskSessionMessage').placeholder=chatAgent==='taper'?'Ask about a hunted level, entry, stop or target…':'Ask Rider to review the seven timeframe counts…';});
+- $('#deskSessionComposer').onsubmit=async e=>{e.preventDefault();const input=$('#deskSessionMessage'),text=input.value.trim(),s=activeSession();if(!s||!text)return;try{await api('session-chat',{session:s.id,role:'human',kind:'request',text});input.value='';await loadState();if(chatAgent==='rider'){await requestRider(text,s);}else{const candidates=state.sessionCandidates||[];const summary=candidates.length?candidates.map(c=>`${FRAMES[c.level.tf].toUpperCase()} ${num(c.level.price)}: ${c.stage} ${c.bias}. ${c.reason} Entry ${num(c.entry)}, stop ${num(c.stop)}, opposite liquidity target ${num(c.target)}, RR ${c.rr?.toFixed(2)||'—'}.`).join('\n'):'Waiting for the next completed minute after Start.';await api('session-chat',{session:s.id,role:'taper',kind:'note',text:'Current saved hunt read:\n'+summary+'\nThis response explains the saved rule evidence; it is not a new model call. Every upcoming completed minute is checked automatically while this market is open and visible.'});await loadState();}await syncSessionJournal();await loadState();}catch(e){$('#deskChatStatus').textContent=e.message;}};
++ $('#deskSessionComposer').onsubmit=async e=>{e.preventDefault();const input=$('#deskSessionMessage'),text=input.value.trim(),s=activeSession();if(!s||!text)return;try{await api('session-chat',{session:s.id,role:'human',kind:'request',text});input.value='';await loadState();if(chatAgent==='rider'){await requestRider(text,s);}else{const candidates=state.sessionCandidates||[];const summary=candidates.length?candidates.map(c=>`${FRAMES[c.level.tf].toUpperCase()} ${num(c.level.price)}: ${c.stage} ${c.bias}. ${c.reason} Entry ${num(c.entry)}, stop ${num(c.stop)}, opposite liquidity target ${num(c.target)}, RR ${c.rr?.toFixed(2)||'—'}.`).join('\n'):'Waiting for the next completed minute after Start.';await api('session-chat',{session:s.id,role:'taper',kind:'note',text:'Current saved hunt read:\n'+summary+'\nThis response explains the saved rule evidence; it is not a new model call. '+((s.auto||{}).armed?'Armed Rider checks upcoming completed minutes on the server while the machine stays awake.':'Upcoming completed minutes are checked while this market is open and visible.')+''});await loadState();}await syncSessionJournal();await loadState();}catch(e){$('#deskChatStatus').textContent=e.message;}};
+  async function requestRider(text,s=activeSession()){if(!s)return report(new Error('Start a hunt session first'));if(riderBusy)return;if(!sessionMatches())return report(new Error('Return to the hunt market/account for Rider’s source review'));riderBusy=true;$('#deskChatStatus').textContent='Rider is reviewing the supplied count evidence…';renderSession();try{await api('session-chat',{session:s.id,role:'rider',kind:'request',text:'Seven-frame count review requested. Indicator drawings are locked to Wave Court.'});const result=await bridge.rider(text);const good=result?.started&&result.status==='completed'&&result.text;await api('session-chat',{session:s.id,role:'rider',kind:good?'completed':'failed',text:good?result.text.replace(/```(?:chart-markup|json)[\s\S]*?```/g,'').trim():result?.error||'Rider did not return a completed review. No count conclusion inferred.'});$('#deskChatStatus').textContent=good?'Rider review saved · chart unchanged':'Rider review unavailable';await loadState();await syncSessionJournal();}catch(e){$('#deskChatStatus').textContent=e.message;await api('session-chat',{session:s.id,role:'rider',kind:'failed',text:e.message}).catch(()=>{});}finally{riderBusy=false;renderSession();}}
+
+  let asset='BTC';const symbols={coinbase:{BTC:'BTC-USD',ETH:'ETH-USD',SOL:'SOL-USD'},binance:{BTC:'BTCUSDT',ETH:'ETHUSDT',SOL:'SOLUSDT'},hyperliquid:{BTC:'BTC',ETH:'ETH',SOL:'SOL'}};
+@@ -168,6 +177,7 @@
+  async function team(role){const d=current();if(role==='rider'){await requestRider('Review the hunted levels against the seven timeframe count context.');return;}if(role==='taper'){showDecision(d);return;}if(!d)return report(new Error('Wait for a completed-bar record'));if(role==='human'){showDecision(d);return;}try{await api('review',{decision:d.id,role,action:'handoff',note:role==='rider'?'Requested seven-frame Elliott audit through existing Shammy / Rider workflow':'Requested Cleo market and setup review'});$('#deskHandoffState').textContent=`${role==='rider'?'Rider method / Shammy':'Cleo'} handoff starting…`;const result=await bridge.agent(role==='rider'?'shammy':'cleo');await api('review',{decision:d.id,role,action:result?'completed':'failed',note:result?'Existing Quant Lab analyst returned; review its chart-source evidence in chat':'Existing analyst route did not complete'});$('#deskHandoffState').textContent=result?'Analyst returned · inspect the chat evidence':'Analyst did not complete · inspect chat status';await loadState();}catch(e){report(e);}}
+  async function modelRead(){
+   if(!read||!state||busy||modelBusy||!activeSession())return;
++  if(activeSession()?.auto?.armed){await loadState();return;}
+   const slot=bridge.slot(),bar=read.frames[6].barData.at(-1),session=activeSession();
+   if(!bar||bar.time<=session.startCutoff||!session.levels.length||bar.time+60000<=session.levelsChangedAt)return;
+   const key=`${slot.source.id}:${slot.source.market}:${bar.time}`;if(lastModel===key)return;
+@@ -200,6 +210,7 @@
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void sync(true);});
+  window.addEventListener('pagehide',()=>{clearInterval(refreshTimer);clearInterval(sessionTicker);quoteOff?.();hoverOff?.();clickOff?.();clearDecisions();},{once:true});
+  sessionTicker=setInterval(()=>renderSessionTimer(),1000);
++ setInterval(()=>{if(!document.hidden)void loadState().catch(report);},5000);
+  refreshTimer=setInterval(()=>void sync(),10_000);const readiness=setInterval(()=>{if(bridge.slot()?.source){clearInterval(readiness);void loadState().then(()=>sync(true)).catch(report);}else if(Date.now()-startedAt>30000){$('#deskReason').textContent='Waiting for public provider chart data';}},500);
+  window.cryptoDayDesk={sync,showDecision:()=>showDecision(current()),getState:()=>state,getRead:()=>read,getVolume:()=>read?analyzeVolume(mergeVolumeHistory({provider:bridge.slot().source.id,symbol:bridge.slot().source.market,timeframe:'1m'},read.frames[6].barData,read.frames[6].cutoff),'1m',Date.now()):null};
+ }
+--- a/count-dashboard/web/crypto-liquidity-picker.mjs
++++ b/count-dashboard/web/crypto-liquidity-picker.mjs
+@@ -1,7 +1,7 @@
+ import {FRAMES,FRAME_MS} from './wave-court-port.mjs';
+ // Pixel geometry comes from the same native coordinate system as the wick drawings.
+ // This optional UI adapter never changes Wave Court calculations or source candles.
+-export function createLiquidityPicker({getSlot,getRead,getSelected,isEnabled,onToggle,onHover}){
++export function createLiquidityPicker({getSlot,getRead,getManual,getSelected,isEnabled,onToggle,onHover}){
+  let slot=null,native=null,root=null,frame=null,last='',hoverKey='',buttons=new Map();
+  const scope=(p,o)=>o.rawScope==='All seven'||o.rawScope==='Core'&&p.tf===o.core||o.rawScope==='HTF + core'&&p.tf<=o.core||o.rawScope==='1H + 30M + 15M'&&p.tf>=2&&p.tf<=4;
+  function attach(next){root?.remove();buttons.clear();last='';hoverKey='';slot=next;native=slot?.chart?.renderer?.renderer;root=null;
+@@ -11,18 +11,18 @@
+  }
+  function tick(){frame=requestAnimationFrame(tick);if(document.hidden)return;const next=getSlot();if(next!==slot||next?.chart?.renderer?.renderer!==native)attach(next);if(!root)return;
+   const read=getRead(),o=read?.settings,pane=native.scene.panes.get('price');const enabled=isEnabled()&&!slot.chart.drawings.getTool();
+-  root.hidden=!read||!pane||!o.liquidity;root.style.pointerEvents='none';if(root.hidden)return;
++  root.hidden=!read||!pane||(!o.liquidity&&!(getManual?.().length));root.style.pointerEvents='none';if(root.hidden)return;
+   const selected=getSelected(),picked=new Set(selected),end=(read.frames[6].cutoff??read.cutoff)+60000+12*FRAME_MS[o.core];
+   // Selected consumed levels remain removable over their original, ended segment.
+-  const pools=read.raw.filter(p=>(scope(p,o)||picked.has(p.id))&&(!p.taken||picked.has(p.id)));
++  const pools=[...read.raw,...(getManual?.()||[])].filter(p=>(p.origin==='manual'||scope(p,o)||picked.has(p.id))&&(!p.taken||picked.has(p.id)));
+   const groups=new Map();for(const p of pools){const key=String(p.price)+':'+(p.taken?p.takenAt:end);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);}
+-  const signature=[enabled,read.frames[6].cutoff,read.cutoff,...pools.map(p=>p.id),...selected,native.coords.width,pane.bounds.top,pane.bounds.height,pane.scale.min,pane.scale.max,pane.scale.log,pane.scale.invert,JSON.stringify(native.coords.getViewport())].join('|');if(signature===last)return;last=signature;
++  const signature=[enabled,read.frames[6].cutoff,read.cutoff,...pools.map(p=>p.id+':'+p.price),...selected,native.coords.width,pane.bounds.top,pane.bounds.height,pane.scale.min,pane.scale.max,pane.scale.log,pane.scale.invert,JSON.stringify(native.coords.getViewport())].join('|');if(signature===last)return;last=signature;
+   const retained=new Set();for(const [key,group] of groups){const p=group[0],y=native.coords.priceToY(p.price,pane.scale,pane.bounds),x0=Math.max(0,native.coords.timeToX(Math.min(...group.map(p=>p.time)))),x1=Math.min(native.coords.width,native.coords.timeToX(p.taken?p.takenAt:end));
+    if(!Number.isFinite(y)||y<pane.bounds.top+6||y>pane.bounds.top+pane.bounds.height-6||x1<=x0)continue;retained.add(key);let button=buttons.get(key);
+    if(!button){button=document.createElement('button');button.type='button';button.className='desk-liquidity-pick-line';button.dataset.huntLine=key;button.innerHTML='<i></i>';root.append(button);buttons.set(key,button);button.onpointerdown=e=>{e.stopPropagation();};button.onclick=e=>{e.stopPropagation();if(!enabled)return;const ids=group.some(p=>getSelected().includes(p.id))?group.filter(p=>getSelected().includes(p.id)).map(p=>p.id):group.filter(p=>!p.taken).map(p=>p.id);if(ids.length)onToggle(ids);};button.onpointerenter=()=>{hoverKey=key;onHover?.(group);};button.onpointerleave=()=>{if(hoverKey===key){hoverKey='';onHover?.([]);}};}
+    // Handlers must read the latest pool set after source refreshes.
+    button.onclick=e=>{e.stopPropagation();if(!isEnabled()||slot.chart.drawings.getTool())return;const ids=group.some(p=>getSelected().includes(p.id))?group.filter(p=>getSelected().includes(p.id)).map(p=>p.id):group.filter(p=>!p.taken).map(p=>p.id);if(ids.length)onToggle(ids);};button.onpointerenter=()=>onHover?.(group);
+-   const isPicked=group.some(p=>picked.has(p.id)),tf=[...new Set(group.map(p=>FRAMES[p.tf].toUpperCase()))].join('/');button.setAttribute('aria-label',`${isPicked?'Deselect':'Select'} ${tf} liquidity ${p.price}`);button.setAttribute('aria-pressed',String(isPicked));button.title=`${tf} · ${p.price} · click to ${isPicked?'stop hunting':'hunt'}`;button.classList.toggle('is-selected',isPicked);button.classList.toggle('is-enabled',enabled);Object.assign(button.style,{left:x0+'px',top:(y-6)+'px',width:(x1-x0)+'px',pointerEvents:enabled?'auto':'none'});
++   const isPicked=group.some(p=>picked.has(p.id)),tf=group.some(p=>p.origin==='manual')?'MANUAL':[...new Set(group.map(p=>FRAMES[p.tf].toUpperCase()))].join('/');button.setAttribute('aria-label',`${isPicked?'Deselect':'Select'} ${tf} liquidity ${p.price}`);button.setAttribute('aria-pressed',String(isPicked));button.title=`${tf} · ${p.price} · click to ${isPicked?'stop hunting':'hunt'}`;button.classList.toggle('is-selected',isPicked);button.classList.toggle('is-enabled',enabled);Object.assign(button.style,{left:x0+'px',top:(y-6)+'px',width:(x1-x0)+'px',pointerEvents:enabled?'auto':'none'});
+   }
+   for(const [key,button] of buttons)if(!retained.has(key)){button.remove();buttons.delete(key);}
+  }
+--- a/count-dashboard/README.md
++++ b/count-dashboard/README.md
+@@ -716,3 +716,7 @@
+ ## Dedicated Crypto Day Desk
+
+ Open [Crypto Day Desk](http://127.0.0.1:8770/crypto-day.html) for the BTC/ETH/SOL paper workspace, seven-frame Wave Court port, per-minute Taper ledger, Codex chat, policy controls and daily review. [Implementation, validation and parity boundaries](../docs/CRYPTO-DAY-DESK.md). The source Pine file is unchanged; TradingView equivalence is unverified.
++
++## Rider automatic paper hunts
++
++[Operating guide and validation](../docs/RIDER-AUTO-PAPER.md). Selected indicator liquidity and manual horizontal drawings can arm bounded, server-run Jev entry timing with automatic paper brackets.
