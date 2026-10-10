@@ -36,7 +36,7 @@ export function mountTradingChartSettings({getCharts, mount}) {
     <div class="candle-settings-columns"><span></span><span>Rising</span><span>Falling</span></div>
     ${rows.map(([label,toggle,up,down]) => `<div class="candle-settings-row"><label><input type="checkbox" data-setting="${toggle}">${label}</label>${[up,down].map((key,i)=>`<label class="candle-color"><input type="color" data-setting="${key}" aria-label="${i?'Falling':'Rising'} ${label.toLowerCase()} color"><code data-hex="${key}"></code></label>`).join('')}</div>`).join('')}
     <div class="candle-preview"><svg viewBox="0 0 340 116" role="img" aria-label="Candle style preview: rising and falling candles"></svg><small>STYLE PREVIEW</small></div>
-    <p class="candle-default-note">Default: red fills with white borders and white wicks.</p>
+    <p class="candle-default-note">Default: green rising fills, red falling fills, white borders and wicks.</p>
     <p id="tradingCandleStatus" role="status" aria-live="polite"></p></section></div>
     <footer><button type="button" data-reset>Reset to default</button><div><button type="button" data-close>Cancel</button><button type="submit" class="candle-save">OK</button></div></footer>
   </form>`;

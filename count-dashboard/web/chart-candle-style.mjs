@@ -1,6 +1,6 @@
 export const STORAGE_KEY = 'countdesk.trading-chart.candles.v1';
 export const DEFAULT_CANDLES = Object.freeze({
-  upFill: '#f23645', downFill: '#f23645',
+  upFill: '#4caf50', downFill: '#f23645',
   upBorder: '#ffffff', downBorder: '#ffffff',
   upWick: '#ffffff', downWick: '#ffffff',
   bodyVisible: true, bordersVisible: true, wicksVisible: true,
@@ -46,7 +46,18 @@ export function applyCandles(chart, settings) {
   if (!api?.applyConfig || !api?.getConfig) return false;
   const expected = candleConfig(settings);
   api.applyConfig(expected);
+  syncVolumeCandles(chart, settings);
   const actual = api.getConfig();
   return Object.entries(expected.candles).every(([k,v]) => actual?.candles?.[k] === v)
     && Object.entries(expected.chartTypes.candles).every(([k,v]) => actual?.chartTypes?.candles?.[k] === v);
+}
+
+export function syncVolumeCandles(chart, settings) {
+  const s=normalizeCandles(settings);
+  for (const handle of chart?.indicators?.() || []) {
+    if (handle.nativeType !== 'taper-volume') continue;
+    const current=handle.inputValues();
+    if (current.colorMode !== 'Signals' && (current.upColor!==s.upFill || current.downColor!==s.downFill))
+      handle.setInputs({upColor:s.upFill,downColor:s.downFill});
+  }
 }

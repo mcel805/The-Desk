@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {STORAGE_KEY,DEFAULT_CANDLES,normalizeCandles,loadCandles,saveCandles,candleConfig,applyCandles} from './chart-candle-style.mjs';
 
-test('new browsers receive red fills with white borders and wicks', () => {
+test('new browsers receive green/red fills with white borders and wicks', () => {
   const style=loadCandles({getItem:()=>null});
-  assert.equal(style.upFill,'#f23645'); assert.equal(style.downFill,'#f23645');
+  assert.equal(style.upFill,'#4caf50'); assert.equal(style.downFill,'#f23645');
   for(const k of ['upBorder','downBorder','upWick','downWick']) assert.equal(style[k],'#ffffff');
 });
 test('colors and hidden candle components survive a saved round trip', () => {
