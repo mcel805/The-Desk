@@ -1,5 +1,6 @@
 export const STORAGE_KEY = 'countdesk.trading-chart.candles.v1';
 export const DEFAULT_CANDLES = Object.freeze({
+  timezone: 'America/Los_Angeles',
   upFill: '#4caf50', downFill: '#f23645',
   upBorder: '#ffffff', downBorder: '#ffffff',
   upWick: '#ffffff', downWick: '#ffffff',
@@ -8,10 +9,16 @@ export const DEFAULT_CANDLES = Object.freeze({
 
 export function normalizeCandles(value) {
   const input = value && typeof value === 'object' ? value : {};
-  return Object.fromEntries(Object.entries(DEFAULT_CANDLES).map(([key, fallback]) => [key,
-    typeof fallback === 'boolean' ? (typeof input[key] === 'boolean' ? input[key] : fallback)
-      : (/^#[0-9a-f]{6}$/i.test(input[key]) ? input[key].toLowerCase() : fallback),
-  ]));
+  return Object.fromEntries(Object.entries(DEFAULT_CANDLES).map(([key, fallback]) => {
+    const candidate = input[key];
+    if (typeof fallback === 'boolean') return [key, typeof candidate === 'boolean' ? candidate : fallback];
+    if (key === 'timezone') {
+      if (typeof candidate !== 'string' || !candidate) return [key, fallback];
+      try { new Intl.DateTimeFormat('en-US', {timeZone:candidate}).format(); return [key, candidate]; }
+      catch { return [key, fallback]; }
+    }
+    return [key, /^#[0-9a-f]{6}$/i.test(candidate) ? candidate.toLowerCase() : fallback];
+  }));
 }
 
 export function loadCandles(storage) {
