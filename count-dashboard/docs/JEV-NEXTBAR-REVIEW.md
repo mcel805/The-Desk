@@ -12,6 +12,20 @@ Replay prices advance at actual completed candle closes. There is no invented op
 
 Forward sessions use elapsed target-market time from the first forecast, stop starting new forecasts at the selected deadline, and allow the final pending outcome to resolve after closure. Replay results restored by run URL are view-only; Reset and Load chart starts a fresh replay.
 
+## Jev high/low paper algo
+
+Enable **Simulate trades** with Jev for a real Hyperliquid BTC replay. Defaults: $10,000 hypothetical USD capital, $1,000 maximum position notional, 0.25% risk ceiling per trade, assumed 5 bps fee and 1 bp slippage per fill. Costs are configurable assumptions, not exchange fee quotes. This is an isolated USD linear BTC simulator, without broker/account/order calls. CSV, synthetic and forward modes are excluded from this algo because their contract or intrabar arrival-time evidence differs. Forecast-only modes remain available.
+
+For each timely valid forecast, buy = Jev low + 10% of range (rounded up); sell = Jev high − 10% of range (rounded down). Select LONG if the last completed close is at/below the predicted midpoint; otherwise SHORT. Side and levels are frozen before target OHLC is revealed. Target is the opposite entry boundary. Ranges smaller than four analysis ticks are skipped.
+
+Dynamic stop buffer = range width × (0.25 + 0.5 × (1 − prior score)). Prior score = (prior contained + 1)/(prior eligible samples + 2), over at most the preceding ten resolved Jev candles. With zero observations this is 0.5, explicitly a provisional prior; it is not a trade-win probability or calibrated reliability estimate. Long stop sits below the predicted low; short stop above the high. Stops are recalculated for each new one-minute setup; positions never carry into another minute. Quantity is capped by risk including estimated stop fees/slippage, notional and available paper equity; there is no leverage.
+
+Touch fills are paper assumptions. Marketable opening entries receive no favorable gap improvement. Opening beyond the protective stop cancels the entry. At most one preselected side can fill per candle. A reached stop takes precedence over target; a target touch is credited only if entry was marketable at the open or the closing price proves it was reached after entry. Otherwise close at the completed minute's close. This avoids choosing the profitable intrabar path; exact tick times, queue/liquidity evidence and intrabar drawdown remain unavailable. Negative reward after assumed costs is shown and still traded in this deliberately simple experiment, rather than presented as a profitable setup.
+
+Each receipt stores its paper settings, frozen plan and settled outcome; the model receives only its existing public candle state, never simulated capital/risk settings. Resolve is idempotent, settings cannot change mid-run, each prior paper candle must resolve before the next consecutive forecast, and finalized sessions accept no new predictions. A separate local finalization marker persists the end statement. No historical baseline-only runs are retroactively labelled as Jev trades.
+
+The session report shows gross price P&L, fees, slippage, net trading P&L, ending capital, API estimate separately, net after known API cost, return, long/short counts, net win rate, expectancy, profit factor, closed-trade drawdown, ambiguous fills, skipped candles and failed forecasts. The equity chart and ledger update after candle reveal. Download readable HTML statement, JSON audit and trades CSV; saved run URLs restore the final statement. A failed/unknown API cost is never silently treated as measured zero. Statements remain provisional until all configured candles resolve and the end marker is saved.
+
 ## Contract
 
 - Source modes: seeded synthetic demo; public Hyperliquid BTC historical replay; Hyperliquid BTC forward; user CSV replay (MES/MNQ etc require real source CSV and explicit analysis tick).
@@ -53,3 +67,9 @@ Manual acceptance: load real public replay, enable Jev, freeze/reveal three step
 - Browser layout verified with saved public receipts, synthetic bounded Run, Pacific timezone, orange/cyan segments and failure counters. A shared absolute canvas-position rule was corrected. Saved runs reopen with `?run=RUN_ID`.
 - No trading sessions, accounts or orders were started. Service health and isolated routes checked on 8770.
 - Receipt snapshots and screenshots preserved locally in `/private/tmp/jev-nextbar-*-test.json` and `/private/tmp/jev-nextbar-*-result.jpg`; runtime database remains outside Git.
+
+## First paper acceptance replay · 10 October 2026
+
+Saved run `00686cef-086a-42fb-8f68-e5ec98130db1` replayed five real Hyperliquid BTC minutes, 05:37–05:42 Pacific, at 60×. Five timely valid Jev forecasts; three contained both extremes; no failed forecasts. One LONG closed at minute close; four entries were not reached. Starting $10,000; gross price P&L $0.01207296; assumed fees $0.99940566; assumed slippage $0.19988113; net trading P&L −$1.18721384; ending balance $9,998.81278616. Separate API estimate $0.00155118. This tiny historical sample provides no evidence of a trading edge.
+
+The browser completed the run, restored the finalized ledger after a server restart and downloaded the readable HTML P&L statement. No automated test suite was run for this change. Final chart evidence, statement and notes are under the MYM chart workspace's `Charts/Analysis/1M/`.

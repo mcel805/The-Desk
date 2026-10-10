@@ -1,4 +1,5 @@
 """Isolated next-candle experiment. No desk/account/strategy/order dependencies."""
+import jev_paper_sim
 import hashlib
 import json
 import math
@@ -87,6 +88,7 @@ def connection():
     db=sqlite3.connect(DB_PATH,timeout=5)
     db.execute('PRAGMA journal_mode=WAL')
     db.execute('CREATE TABLE IF NOT EXISTS receipts(run TEXT,target INTEGER,hash TEXT,body TEXT,PRIMARY KEY(run,target))')
+    db.execute('CREATE TABLE IF NOT EXISTS paper_session_ends(run TEXT PRIMARY KEY,ended INTEGER)')
     try: yield db;db.commit()
     finally: db.close()
 
@@ -122,10 +124,17 @@ def _predict(payload):
     if a<=0: raise ValueError('ATR is zero; no usable range scale')
     close=bars[-1]['close'];use_jev=payload.get('jev') is True
     if use_jev and not configured(): raise ValueError('Configure the server-side TypeSafe key before enabling Jev')
-    fingerprint=hashlib.sha256(enc({'bars':bars,'source':{'kind':kind,'provider':provider,'symbol':symbol},'tick':tick,'atrMult':mult,'jev':use_jev}).encode()).hexdigest()
+    sim=jev_paper_sim.validate_config(payload.get('paperSim'))
+    if sim and (kind!='replay' or not use_jev): raise ValueError('Paper range algo requires Hyperliquid BTC replay with Jev enabled')
+    fingerprint_state={'bars':bars,'source':{'kind':kind,'provider':provider,'symbol':symbol},'tick':tick,'atrMult':mult,'jev':use_jev}
+    if sim: fingerprint_state['paperSim']=sim
+    fingerprint=hashlib.sha256(enc(fingerprint_state).encode()).hexdigest()
     baseline=band(close+mult*a,close-mult*a,tick)
     row={'run':run,'targetTime':target,'cutoff':cutoff,'source':{'kind':kind,'provider':provider,'symbol':symbol,'timeframe':'1m'},'method':METHOD,'createdAt':started,'tick':tick,'atrMult':mult,'atr':a,'baseline':baseline,'jevEnabled':use_jev,'stateHash':fingerprint,'status':'pending' if use_jev else 'baseline_only','actual':None,'completedInput':bars,'usage':None,'estimatedUsd':None,'latencyMs':None,'jev':None}
+    if sim: row['paperSim']=sim
+    previous=[]
     with connection() as db:
+        if db.execute('SELECT 1 FROM paper_session_ends WHERE run=?',(run,)).fetchone(): raise ValueError('Paper session finalized; reset for new requests')
         old=db.execute('SELECT hash,body FROM receipts WHERE run=? AND target=?',(run,target)).fetchone()
         if old:
             if old[0]!=fingerprint: raise ValueError('Prediction already frozen for this candle; reset for new settings')
@@ -133,9 +142,14 @@ def _predict(payload):
         recent=db.execute('SELECT body FROM receipts WHERE run=? ORDER BY target DESC LIMIT 1',(run,)).fetchone()
         if recent:
             prev=json.loads(recent[0])
-            if prev['source']!=row['source'] or prev['tick']!=tick or prev['atrMult']!=mult or prev['jevEnabled']!=use_jev: raise ValueError('Reset the run before changing settings')
+            if prev['source']!=row['source'] or prev['tick']!=tick or prev['atrMult']!=mult or prev['jevEnabled']!=use_jev or prev.get('paperSim')!=sim: raise ValueError('Reset the run before changing settings')
             if prev['targetTime']>=target: raise ValueError('Advance the completed tape; historical receipts stay frozen')
+            if sim and not prev.get('actual'): raise ValueError('Resolve the previous paper candle before arming another')
+            if sim and target!=prev['targetTime']+60000: raise ValueError('Paper replay candles must be consecutive')
         if use_jev and db.execute('SELECT count(*) FROM receipts WHERE run=?',(run,)).fetchone()[0]>=30: raise ValueError('30-read limit reached; export and reset')
+        if sim:
+            previous=[json.loads(r[0]) for r in db.execute('SELECT body FROM receipts WHERE run=? ORDER BY target',(run,))]
+            if len(previous)>=sim['sessionMinutes']: raise ValueError('Paper session length reached; finalize the statement')
         db.execute('INSERT INTO receipts VALUES(?,?,?,?)',(run,target,fingerprint,enc(row)))
     if not use_jev: return row
     criteria={f'b{i}':{'price':round(close+offset*a,10),'offsetATR':offset,'meaning':'Candidate price nearest to the predicted extreme'} for i,offset in enumerate(OFFSETS) if close+offset*a>0}
@@ -161,7 +175,9 @@ def _predict(payload):
     except Exception as exc:
         row['status']='failed';row['error']=str(exc)[:300]
     row['apiLatencyMs']=round((time.perf_counter()-begin)*1000);row['returnedAt']=now();row['latencyMs']=row['returnedAt']-started;row['slow']=row['latencyMs']>=30000;row['late']=kind=='live' and row['returnedAt']>=target+60000;row['leadSeconds']=(target+60000-row['returnedAt'])/1000 if kind=='live' else None
-    row['comparisonEligible']=row['status']=='predicted' and not row['slow'] and not row['late'];store(row);return row
+    row['comparisonEligible']=row['status']=='predicted' and not row['slow'] and not row['late']
+    if sim: row['paperPlan']=jev_paper_sim.plan(row,previous,sim)
+    store(row);return row
 
 def resolve(payload):
     run=str(payload.get('run',''));target=int(finite(payload.get('targetTime'),'targetTime'))
@@ -183,8 +199,29 @@ def resolve(payload):
         prediction=row.get(method)
         if prediction:
             prediction['result']={'highOK':actual['high']<=prediction['high'],'lowOK':actual['low']>=prediction['low'],'contained':actual['high']<=prediction['high'] and actual['low']>=prediction['low'],'highErrorTicks':abs(prediction['high']-actual['high'])/row['tick'],'lowErrorTicks':abs(prediction['low']-actual['low'])/row['tick']}
+    if row.get('paperSim'): row['paperTrade']=jev_paper_sim.settle(row['paperPlan'],actual,row['paperSim'])
     store(row);return row
 
 def run_receipts(run):
     if not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',run): raise ValueError('Invalid run ID')
     with connection() as db: return {'run':run,'receipts':[json.loads(r[0]) for r in db.execute('SELECT body FROM receipts WHERE run=? ORDER BY target',(run,))]}
+
+
+def paper_statement(run):
+    saved=run_receipts(run)
+    with connection() as db: ended=db.execute('SELECT ended FROM paper_session_ends WHERE run=?',(run,)).fetchone()
+    result=jev_paper_sim.statement(saved['receipts'],complete=bool(ended))
+    if ended: result['finalizedAt']=ended[0]
+    return result
+
+
+def finalize_paper(payload):
+    run=str(payload.get('run',''))
+    if not _CALL_LOCK.acquire(blocking=False): raise ValueError('Wait for the current forecast before finalizing')
+    try:
+        rows=run_receipts(run)['receipts']
+        if not rows or not rows[0].get('paperSim'): raise ValueError('No paper algo was configured for this run')
+        if len(rows)!=rows[0]['paperSim']['sessionMinutes'] or any(not r.get('actual') for r in rows): raise ValueError('Resolve every planned paper candle before finalizing')
+        with connection() as db: db.execute('INSERT OR IGNORE INTO paper_session_ends VALUES(?,?)',(run,now()))
+        return paper_statement(run)
+    finally: _CALL_LOCK.release()

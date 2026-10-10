@@ -2923,6 +2923,8 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send_json(jev_nextbar_review.status())
                 if parsed.path == "/api/jev-review/source":
                     return self.send_json(jev_nextbar_review.public_source(query.get("minutes", [122])[0]))
+                if parsed.path == "/api/jev-review/statement":
+                    return self.send_json(jev_nextbar_review.paper_statement(query.get("run", [""])[0]))
                 if parsed.path == "/api/jev-review/run":
                     return self.send_json(jev_nextbar_review.run_receipts(query.get("run", [""])[0]))
                 return self.send_json({"error": "Unknown chart review route"}, 404)
@@ -3267,7 +3269,7 @@ class Handler(SimpleHTTPRequestHandler):
             if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
                 return self.send_json({"error": "Chart review expects JSON."}, 415)
             try:
-                routes = {"predict": jev_nextbar_review.predict, "resolve": jev_nextbar_review.resolve}
+                routes = {"predict": jev_nextbar_review.predict, "resolve": jev_nextbar_review.resolve, "finalize": jev_nextbar_review.finalize_paper}
                 route = parsed.path.rsplit("/", 1)[-1]
                 if route not in routes:
                     return self.send_json({"error": "Unknown chart review route"}, 404)
