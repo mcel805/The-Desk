@@ -1,0 +1,29 @@
+--- a/count-dashboard/web/quant-lab.js
++++ b/count-dashboard/web/quant-lab.js
+@@ -1,3 +1,4 @@
++import {applyTradingCandles,mountTradingChartSettings} from './trading-chart-settings.js';
+ import {createQuantGame,gameMarketAllowed,gameStudyCount} from './quant-game.js?v=14';
+ import {startCryptoDesk} from './crypto-day-desk.js?v=taper-volume-2';
+ import {registerTaperVolume} from './taper-volume.mjs';
+@@ -822,6 +823,7 @@
+     try{
+       const chartInstance=new window.Vela.Vela(item.host,{symbol:loaded.params.market,timeframe, data:loaded.bars,live:false,theme:'dark',...(cryptoDeskEnabled?{upColor:'#57be76',downColor:'#ff354d',volume:false}:quantGameEnabled?{upColor:'#e1e3e8',downColor:'#e1e3e8'}:{}),drawings:true,volume:!cryptoDeskEnabled,currentPriceLine:true,timeScale:{timezone:'UTC'},nativeBackend:'canvas2d',animations:{intro:false}});
+       item.chart=chartInstance;await chartInstance.ready();
++      if(cryptoDeskEnabled)applyTradingCandles(chartInstance);
+       if(sequence!==referenceLoadSequence){chartInstance.destroy();throw new Error('Reference chart loading was superseded.');}
+       await new Promise(resolve=>requestAnimationFrame(resolve));fitReferenceHistory(item);
+     }catch(error){item.error.textContent=`${timeframe.toUpperCase()} chart unavailable · ${error.message}`;item.error.hidden=false;errors.push(`${timeframe}: ${error.message}`);}
+@@ -1028,6 +1030,7 @@
+     const nextChart=new window.Vela.Vela(slot.host,{symbol:params.market,timeframe:params.timeframe,data:nextBars,live:false,theme:'dark',...(cryptoDeskEnabled?{upColor:'#57be76',downColor:'#ff354d',volume:false}:quantGameEnabled?{upColor:'#e1e3e8',downColor:'#e1e3e8'}:{}),drawings:true,volume:!cryptoDeskEnabled,currentPriceLine:true,timeScale:{timezone:'UTC'},nativeBackend:'canvas2d',animations:{intro:false}});
+     slot.chart=nextChart;
+     await nextChart.ready();
++    if(cryptoDeskEnabled)applyTradingCandles(nextChart);
+     if(slot.sequence!==sequence || slots[index]!==slot){nextChart.destroy();return;}
+     await new Promise(resolve=>requestAnimationFrame(resolve));nextChart.resize();
+     slot.bars=nextBars;slot.source={...params,label:providerSpecs[params.id].label,type:providerSpecs[params.id].type,cutoff:nextBars.at(-1).time,snapshotAsOf,loadedAt:Date.now()};
+@@ -2391,3 +2394,5 @@
+     refresh:async()=>{const slot=slots[activeIndex],current=slot.source,seq=slot.sequence;const asof=Date.now(),next=await fetchBars(slot.params,500);if(slot.sequence!==seq||slot.source!==current||!next.length)throw new Error('Chart changed during refresh');const visible=slot.chart.getVisibleRange(),native=slot.chart.renderer?.renderer,viewport=native?.coords?.getViewport?.();await slot.chart.setMarket({data:next,...(visible?{visibleRange:visible}:{})});if(viewport&&viewport.rightOffset>=0)native.applyViewport(viewport);slot.bars=next;slot.source={...current,cutoff:next.at(-1).time,snapshotAsOf:asof,loadedAt:Date.now()};source=slot.source;bars=next;updateSlotHead(slot);$('#sourceCutoff').textContent=`COMPLETED ${utc(completedBars(next,current.timeframe,asof).at(-1)?.time||0)}`;setStatus(`Public polling · ${current.market} · ${current.timeframe} · snapshot ${utc(asof)}`);}
+   });
+ }
++
++if(cryptoDeskEnabled)mountTradingChartSettings({getCharts:()=>[...slots,...referenceCharts].map(slot=>slot.chart),mount:$('.desk-control-main')});
