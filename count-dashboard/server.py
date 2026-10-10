@@ -2922,7 +2922,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if parsed.path == "/api/jev-review/status":
                     return self.send_json(jev_nextbar_review.status())
                 if parsed.path == "/api/jev-review/source":
-                    return self.send_json(jev_nextbar_review.public_source())
+                    return self.send_json(jev_nextbar_review.public_source(query.get("minutes", [122])[0]))
                 if parsed.path == "/api/jev-review/run":
                     return self.send_json(jev_nextbar_review.run_receipts(query.get("run", [""])[0]))
                 return self.send_json({"error": "Unknown chart review route"}, 404)

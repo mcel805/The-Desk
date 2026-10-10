@@ -2,6 +2,16 @@
 
 Open `/nextbar-test.html`, or **Jev chart test** in Day Desk. This is a separate numerical chart experiment. It does not start a hunt, call Rider, read account/strategy histories, or route orders. The supplied screenshots are visual references; their orange baseline and unwired cyan Jev row are not evidence of model accuracy. The supplied scope document informs Test 1 only; setup filtering and futures execution remain outside this experiment.
 
+## Real-data replay sessions
+
+The page defaults to public Hyperliquid BTC historical replay and loads six hours of completed 1-minute candles. The first 60 candles seed the forecast; the remaining five hours can be replayed. Choose any loaded minute as the start, or import a contiguous real 1-minute CSV. Forming candles are excluded; unavailable or invalid public data is reported without a synthetic substitute.
+
+A large session board shows chart time remaining, the chart clock, elapsed chart time, active viewing time, the last completed close, and the price change since session start. Presets: 5, 15, 30, 60 and 120 chart minutes. Speeds: 1×, 10×, 30× and 60×. At 60× each recorded minute takes one viewing second, plus request processing. Start, Pause, Resume, Step and Reset preserve a pending forecast and prevent automatic requests after session completion. Long sessions require enough loaded history. Jev stays limited to 30 reads per run; choose at most 30 minutes with Jev enabled, or disable it for longer price/ATR replay.
+
+Replay prices advance at actual completed candle closes. There is no invented open-high-low-close tick path: one-minute OHLCV cannot establish the order or timing of intrabar trades. Forecasts are frozen before the target candle is revealed. API processing pauses playback; the countdown follows chart time, not wall time. CSV export downloads the loaded candle history, including the future replay candles; exported raw data is not forecast input. Receipt exports contain only recorded prior input and revealed outcomes.
+
+Forward sessions use elapsed target-market time from the first forecast, stop starting new forecasts at the selected deadline, and allow the final pending outcome to resolve after closure. Replay results restored by run URL are view-only; Reset and Load chart starts a fresh replay.
+
 ## Contract
 
 - Source modes: seeded synthetic demo; public Hyperliquid BTC historical replay; Hyperliquid BTC forward; user CSV replay (MES/MNQ etc require real source CSV and explicit analysis tick).

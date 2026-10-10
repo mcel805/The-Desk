@@ -69,9 +69,11 @@ def band(high,low,tick):
     if low<=0 or high<low: raise ValueError('Predicted prices are crossed or nonpositive')
     return {'high':high,'low':low,'widthTicks':(high-low)/tick}
 
-def public_source():
+def public_source(minutes=122):
+    minutes=finite(minutes,'Replay history minutes')
+    if not minutes.is_integer() or not 61<=minutes<=1440: raise ValueError('Replay history must be 61–1440 minutes')
     stamp=now()
-    data={'type':'candleSnapshot','req':{'coin':'BTC','interval':'1m','startTime':stamp-122*60000,'endTime':stamp}}
+    data={'type':'candleSnapshot','req':{'coin':'BTC','interval':'1m','startTime':stamp-int(minutes)*60000,'endTime':stamp}}
     with urlopen(Request('https://api.hyperliquid.xyz/info',data=enc(data).encode(),headers={'Content-Type':'application/json'}),timeout=12) as r: raw=json.load(r)
     if not isinstance(raw,list): raise RuntimeError('Public candle source unavailable')
     bars=[{'time':int(x['t']),'open':float(x['o']),'high':float(x['h']),'low':float(x['l']),'close':float(x['c']),'volume':float(x['v'])} for x in raw if int(x['t'])+60000<=stamp]
