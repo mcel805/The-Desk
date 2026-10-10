@@ -33,6 +33,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+import jev_nextbar_review
 from paper_journal_bridge import acknowledge as acknowledge_paper_journal_updates, dispatch_pending as dispatch_paper_journal, ensure_schema as ensure_paper_journal_schema, inbox as paper_journal_inbox, queue_account as queue_paper_journal_account, queue_execution as queue_paper_journal_execution
 
 from wallet_auth import (
@@ -2913,6 +2914,23 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/jev-review/"):
+            if not self.show_me_request_allowed():
+                return self.send_json({"error": "Chart review is local only."}, 403)
+            try:
+                query = parse_qs(parsed.query)
+                if parsed.path == "/api/jev-review/status":
+                    return self.send_json(jev_nextbar_review.status())
+                if parsed.path == "/api/jev-review/source":
+                    return self.send_json(jev_nextbar_review.public_source())
+                if parsed.path == "/api/jev-review/run":
+                    return self.send_json(jev_nextbar_review.run_receipts(query.get("run", [""])[0]))
+                return self.send_json({"error": "Unknown chart review route"}, 404)
+            except (ValueError, TypeError, KeyError) as exc:
+                return self.send_json({"error": str(exc)}, 400)
+            except Exception as exc:
+                return self.send_json({"error": "Chart review source unavailable: " + str(exc)[:200]}, 503)
+
         if parsed.path.startswith("/api/codex-widget/"):
             if not self.show_me_request_allowed():
                 return self.send_json({"error": "Codex chat is available only from this local Count Desk page."}, 403)
@@ -3243,6 +3261,22 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/jev-review/"):
+            if not self.show_me_request_allowed():
+                return self.send_json({"error": "Chart review is local only."}, 403)
+            if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
+                return self.send_json({"error": "Chart review expects JSON."}, 415)
+            try:
+                routes = {"predict": jev_nextbar_review.predict, "resolve": jev_nextbar_review.resolve}
+                route = parsed.path.rsplit("/", 1)[-1]
+                if route not in routes:
+                    return self.send_json({"error": "Unknown chart review route"}, 404)
+                return self.send_json(routes[route](self.read_json()))
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                return self.send_json({"error": str(exc)}, 400)
+            except Exception as exc:
+                return self.send_json({"error": "Chart review failed: " + str(exc)[:200]}, 503)
+
         if parsed.path.startswith("/api/codex-widget/"):
             if not self.show_me_request_allowed():
                 return self.send_json({"error": "Codex chat is available only from this local Count Desk page."}, 403)
