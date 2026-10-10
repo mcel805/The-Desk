@@ -1,14 +1,19 @@
 """Deterministic one-candle USD paper simulator. No broker/account/order APIs."""
 import math
 
-VERSION = 'jev.range-fade.paper.v1'
-DEFAULTS = {'capital':10000.0,'riskPct':.25,'maxNotional':1000.0,'feeBps':5.0,'slippageBps':1.0,'sessionMinutes':5}
+VERSION = 'jev.range-fade.paper.v2'
+DEFAULTS = {'capital':10000.0,'riskProfile':'balanced','riskPct':.5,'maxRiskUsd':50.0,'maxNotional':500.0,'feeBps':5.0,'slippageBps':1.0,'sessionMinutes':5}
+RISK_PROFILES = {'conservative':.25,'balanced':.5,'aggressive':1.0}
 
 def validate_config(value):
     if value is None or value is False: return None
     if not isinstance(value,dict): raise ValueError('Paper simulation settings must be an object')
     out={}
+    profile=value.get('riskProfile',DEFAULTS['riskProfile'])
+    if not isinstance(profile,str) or profile not in RISK_PROFILES: raise ValueError('Choose a supported risk profile')
+    out['riskProfile']=profile
     for key,default in DEFAULTS.items():
+        if key=='riskProfile': continue
         raw=value.get(key,default)
         if isinstance(raw,bool): raise ValueError('Invalid paper '+key)
         try: n=float(raw)
@@ -16,7 +21,9 @@ def validate_config(value):
         if not math.isfinite(n): raise ValueError('Invalid paper '+key)
         out[key]=n
     if not 100<=out['capital']<=1000000: raise ValueError('Paper capital must be $100–$1,000,000')
+    out['riskPct']=RISK_PROFILES[profile]
     if not .01<=out['riskPct']<=2: raise ValueError('Paper risk must be 0.01–2% per trade')
+    if not .01<=out['maxRiskUsd']<=out['capital']: raise ValueError('Maximum dollar risk must be between $0.01 and starting capital')
     if not 10<=out['maxNotional']<=out['capital']: raise ValueError('Paper position cap must be $10–starting capital')
     if not 0<=out['feeBps']<=100 or not 0<=out['slippageBps']<=100: raise ValueError('Fee and slippage assumptions must be 0–100 bps')
     if not out['sessionMinutes'].is_integer() or not 1<=out['sessionMinutes']<=30: raise ValueError('Paper Jev sessions must be 1–30 minutes')
@@ -45,12 +52,12 @@ def plan(row,previous,config):
     if stop<=0:p['reason']='Stop is nonpositive';return p
     slip=config['slippageBps']/10000;fee=config['feeBps']/10000
     risk_per_unit=abs(entry-stop)+(entry+stop)*slip+(entry+stop)*(1+slip)*fee
-    risk_budget=balance*config['riskPct']/100
+    risk_budget=min(balance*config['riskPct']/100,config['maxRiskUsd'])
     qty=min(risk_budget/risk_per_unit,min(config['maxNotional'],balance)/(entry*(1+slip)*(1+fee)))
     qty=math.floor(qty*1e8)/1e8
     if qty<=0:p['reason']='Position rounds to zero';return p
     cost=(entry+target)*slip+(entry+target)*(1+slip)*fee
-    p.update(status='armed',reason='Frozen before target candle reveal',side=side,buyLevel=buy,sellLevel=sell,entry=entry,target=target,stop=stop,rangeLow=low,rangeHigh=high,rangeWidth=width,quantity=qty,riskBudget=risk_budget,plannedRisk=risk_per_unit*qty,plannedNetReward=(abs(target-entry)-cost)*qty)
+    p.update(status='armed',reason='Frozen before target candle reveal',side=side,buyLevel=buy,sellLevel=sell,entry=entry,target=target,stop=stop,rangeLow=low,rangeHigh=high,rangeWidth=width,quantity=qty,riskBudget=risk_budget,maxRiskUsd=config['maxRiskUsd'],plannedRisk=risk_per_unit*qty,plannedNetReward=(abs(target-entry)-cost)*qty)
     return p
 
 def settle(p,actual,config):
@@ -83,12 +90,12 @@ def settle(p,actual,config):
 def statement(rows,complete=False):
     configured=[r for r in rows if r.get('paperSim')]
     if not configured:return {'enabled':False,'complete':False,'trades':[],'summary':None}
-    config=configured[0]['paperSim'];trades=[r['paperTrade'] for r in configured if r.get('paperTrade',{}).get('status')=='closed']
+    config=dict(configured[0]['paperSim']);config.setdefault('riskProfile','legacy');config.setdefault('riskPct',.25);config.setdefault('maxRiskUsd',config['capital']*config['riskPct']/100);trades=[r['paperTrade'] for r in configured if r.get('paperTrade',{}).get('status')=='closed']
     resolved=[r for r in configured if r.get('actual')];gross=sum(t['grossPnl'] for t in trades);fees=sum(t['fees'] for t in trades);slippage=sum(t['slippage'] for t in trades);net=sum(t['netPnl'] for t in trades)
     equity=config['capital'];peak=equity;drawdown=0;curve=[{'time':configured[0]['targetTime'],'equity':equity}]
     for r in resolved:
         equity+=r.get('paperTrade',{}).get('netPnl',0);peak=max(peak,equity);drawdown=max(drawdown,peak-equity);curve.append({'time':r['targetTime']+60000,'equity':round(equity,8)})
     gains=sum(max(t['netPnl'],0) for t in trades);losses=-sum(min(t['netPnl'],0) for t in trades);n=len(trades)
     api_cost=sum(r.get('estimatedUsd') or 0 for r in configured);known=all(r.get('estimatedUsd') is not None for r in configured)
-    summary={'startingCapital':config['capital'],'grossPnl':round(gross,8),'fees':round(fees,8),'slippage':round(slippage,8),'netPnl':round(net,8),'endingCapital':round(config['capital']+net,8),'returnPct':net/config['capital']*100,'trades':n,'longs':sum(t['side']=='LONG' for t in trades),'shorts':sum(t['side']=='SHORT' for t in trades),'wins':sum(t['netPnl']>0 for t in trades),'losses':sum(t['netPnl']<0 for t in trades),'breakeven':sum(t['netPnl']==0 for t in trades),'winRate':sum(t['netPnl']>0 for t in trades)/n if n else None,'profitFactor':gains/losses if losses else None,'noLosingTrades':bool(n and not losses),'expectancy':net/n if n else None,'maxDrawdown':round(drawdown,8),'maxDrawdownPctOfStartingCapital':drawdown/config['capital']*100,'ambiguousTrades':sum(t['ambiguous'] for t in trades),'skippedCandles':sum(r.get('paperTrade',{}).get('status')=='skipped' for r in resolved),'forecastFailures':sum(r['status']=='failed' for r in configured),'resolvedCandles':len(resolved),'plannedCandles':config['sessionMinutes'],'apiCostKnown':known,'apiCostEstimate':round(api_cost,8),'netAfterKnownApiEstimate':round(net-api_cost,8) if known else None}
+    summary={'startingCapital':config['capital'],'riskProfile':config.get('riskProfile','legacy'),'riskPct':config.get('riskPct',.25),'maxRiskUsd':config.get('maxRiskUsd',config['capital']*.25/100),'grossPnl':round(gross,8),'fees':round(fees,8),'slippage':round(slippage,8),'netPnl':round(net,8),'endingCapital':round(config['capital']+net,8),'returnPct':net/config['capital']*100,'trades':n,'longs':sum(t['side']=='LONG' for t in trades),'shorts':sum(t['side']=='SHORT' for t in trades),'wins':sum(t['netPnl']>0 for t in trades),'losses':sum(t['netPnl']<0 for t in trades),'breakeven':sum(t['netPnl']==0 for t in trades),'winRate':sum(t['netPnl']>0 for t in trades)/n if n else None,'profitFactor':gains/losses if losses else None,'noLosingTrades':bool(n and not losses),'expectancy':net/n if n else None,'maxDrawdown':round(drawdown,8),'maxDrawdownPctOfStartingCapital':drawdown/config['capital']*100,'ambiguousTrades':sum(t['ambiguous'] for t in trades),'skippedCandles':sum(r.get('paperTrade',{}).get('status')=='skipped' for r in resolved),'forecastFailures':sum(r['status']=='failed' for r in configured),'resolvedCandles':len(resolved),'plannedCandles':config['sessionMinutes'],'apiCostKnown':known,'apiCostEstimate':round(api_cost,8),'netAfterKnownApiEstimate':round(net-api_cost,8) if known else None}
     return {'enabled':True,'version':VERSION,'run':configured[0]['run'],'source':configured[0]['source'],'config':config,'complete':complete,'summary':summary,'trades':trades,'decisions':[{'targetTime':r['targetTime'],'forecastStatus':r['status'],'plan':r.get('paperPlan'),'outcome':r.get('paperTrade')} for r in configured],'equity':curve,'assumptions':['USD linear BTC units; no leverage; costs are user assumptions, not exchange quotes','Funding and borrowing costs are not modeled; fee/slippage assumptions only','One preselected side and at most one trade per candle; flat at minute close','Stop wins ambiguous stop/target bars; target before entry is not credited','No fill improvement from opening gaps; no liquidity/queue/tick evidence','Dynamic stop uses only preceding resolved Jev containment; confidence is not win probability','Closed-trade drawdown only; intrabar drawdown is not measurable']}

@@ -14,7 +14,7 @@ Forward sessions use elapsed target-market time from the first forecast, stop st
 
 ## Jev high/low paper algo
 
-Enable **Simulate trades** with Jev for a real Hyperliquid BTC replay. Defaults: $10,000 hypothetical USD capital, $1,000 maximum position notional, 0.25% risk ceiling per trade, assumed 5 bps fee and 1 bp slippage per fill. Costs are configurable assumptions, not exchange fee quotes. This is an isolated USD linear BTC simulator, without broker/account/order calls. CSV, synthetic and forward modes are excluded from this algo because their contract or intrabar arrival-time evidence differs. Forecast-only modes remain available.
+Enable **Simulate trades** with Jev for a real Hyperliquid BTC replay. Defaults: $10,000 hypothetical USD capital, $500 maximum position notional, selectable Conservative (0.25%), Balanced (0.5%) or Aggressive (1%) risk profile, an explicit dollar maximum per trade, assumed 5 bps fee and 1 bp slippage per fill. Sizing uses the lower of profile risk on current paper equity and the dollar cap, then includes modeled stop costs and notional limits. Costs are configurable assumptions, not exchange fee quotes. This is an isolated USD linear BTC simulator, without broker/account/order calls. CSV, synthetic and forward modes are excluded from this algo because their contract or intrabar arrival-time evidence differs. Forecast-only modes remain available.
 
 For each timely valid forecast, buy = Jev low + 10% of range (rounded up); sell = Jev high − 10% of range (rounded down). Select LONG if the last completed close is at/below the predicted midpoint; otherwise SHORT. Side and levels are frozen before target OHLC is revealed. Target is the opposite entry boundary. Ranges smaller than four analysis ticks are skipped.
 
@@ -73,3 +73,10 @@ Manual acceptance: load real public replay, enable Jev, freeze/reveal three step
 Saved run `00686cef-086a-42fb-8f68-e5ec98130db1` replayed five real Hyperliquid BTC minutes, 05:37–05:42 Pacific, at 60×. Five timely valid Jev forecasts; three contained both extremes; no failed forecasts. One LONG closed at minute close; four entries were not reached. Starting $10,000; gross price P&L $0.01207296; assumed fees $0.99940566; assumed slippage $0.19988113; net trading P&L −$1.18721384; ending balance $9,998.81278616. Separate API estimate $0.00155118. This tiny historical sample provides no evidence of a trading edge.
 
 The browser completed the run, restored the finalized ledger after a server restart and downloaded the readable HTML P&L statement. No automated test suite was run for this change. Final chart evidence, statement and notes are under the MYM chart workspace's `Charts/Analysis/1M/`.
+
+
+## $500 account and maximum-risk profile replay · 10 October 2026
+
+Saved run `5a13c428-a8be-46ce-8185-1bd6da3df76f` used $500 start equity, **Balanced (0.5%)**, a hard **$2.50 maximum risk per trade**, $500 maximum notional, 5 bps assumed fees and 1 bp slippage per fill. Five-minute real Hyperliquid BTC 1m replay, 06:09–06:14 Pacific, at 60×. All five forecasts were valid; Jev and ATR each contained all five bars in this short sample. The system selected LONG setups, but every entry level was missed, so it opened zero positions. Trading P&L $0.00; ending balance $500.00; max closed-trade drawdown $0.00; separate Jev API estimate $0.00155030. No failed forecasts.
+
+Risk sizing takes the lower of current equity × selected profile percentage and the dollar ceiling, then sizes for the modeled stop distance plus assumed stop costs, position notional and equity. This run's frozen planned stop risks were below the $2.50 ceiling because notional sizing also constrained quantity. The new UI shows that planned amount against the ceiling for every setup. The result demonstrates control behavior, not profitability; five bars are insufficient evidence.
