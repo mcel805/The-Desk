@@ -1,6 +1,8 @@
 export const STORAGE_KEY = 'countdesk.trading-chart.candles.v1';
 export const DEFAULT_CANDLES = Object.freeze({
   timezone: 'America/Los_Angeles',
+  chartFontSize: 12,
+  chartTextColor: '#f2f4f8',
   upFill: '#4caf50', downFill: '#f23645',
   upBorder: '#ffffff', downBorder: '#ffffff',
   upWick: '#ffffff', downWick: '#ffffff',
@@ -12,6 +14,7 @@ export function normalizeCandles(value) {
   return Object.fromEntries(Object.entries(DEFAULT_CANDLES).map(([key, fallback]) => {
     const candidate = input[key];
     if (typeof fallback === 'boolean') return [key, typeof candidate === 'boolean' ? candidate : fallback];
+    if (typeof fallback === 'number') return [key, Number.isFinite(candidate) ? Math.max(6, Math.min(32, candidate)) : fallback];
     if (key === 'timezone') {
       if (typeof candidate !== 'string' || !candidate) return [key, fallback];
       try { new Intl.DateTimeFormat('en-US', {timeZone:candidate}).format(); return [key, candidate]; }
@@ -35,6 +38,7 @@ export function saveCandles(storage, value) {
 export function candleConfig(value) {
   const s = normalizeCandles(value);
   return {
+    layout: {fontSize:s.chartFontSize,textColor:s.chartTextColor},
     candles: {
       upColor:s.upFill, downColor:s.downFill, bodyVisible:s.bodyVisible,
       borderVisible:s.bordersVisible, borderUpColor:s.upBorder, borderDownColor:s.downBorder,
@@ -56,7 +60,8 @@ export function applyCandles(chart, settings) {
   syncVolumeCandles(chart, settings);
   const actual = api.getConfig();
   return Object.entries(expected.candles).every(([k,v]) => actual?.candles?.[k] === v)
-    && Object.entries(expected.chartTypes.candles).every(([k,v]) => actual?.chartTypes?.candles?.[k] === v);
+    && Object.entries(expected.chartTypes.candles).every(([k,v]) => actual?.chartTypes?.candles?.[k] === v)
+    && Object.entries(expected.layout).every(([k,v]) => actual?.layout?.[k] === v);
 }
 
 export function syncVolumeCandles(chart, settings) {
