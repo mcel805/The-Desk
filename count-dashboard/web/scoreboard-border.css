@@ -1,0 +1,9 @@
+/* Continuous yellow frame, slightly faded, with a doubled soft highlight. */
+.crypto-day-desk .desk-session-scoreboard {
+  border: 2px solid rgba(242, 196, 0, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(242, 196, 0, 0.15),
+    0 0 14px rgba(242, 196, 0, 0.40);
+}
+.crypto-day-desk .desk-session-scoreboard::after {
+  content: none;
+}
