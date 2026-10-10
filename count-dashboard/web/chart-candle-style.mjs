@@ -57,7 +57,7 @@ export function syncVolumeCandles(chart, settings) {
   for (const handle of chart?.indicators?.() || []) {
     if (handle.nativeType !== 'taper-volume') continue;
     const current=handle.inputValues();
-    if (current.colorMode !== 'Signals' && (current.upColor!==s.upFill || current.downColor!==s.downFill))
+    if (current.colorMode === 'Candles' && (current.upColor!==s.upFill || current.downColor!==s.downFill))
       handle.setInputs({upColor:s.upFill,downColor:s.downFill});
   }
 }

@@ -1,17 +1,11 @@
-# Crypto Day Desk candle settings
+# Crypto Day Desk candle and volume defaults
 
-Open `http://127.0.0.1:8770/crypto-day.html?strategy=day` and choose **Chart settings** in the chart toolbar. The Candles screen controls rising/falling fills, borders and wicks separately, with visibility switches for each component. Default: green rising fills (#4CAF50), red falling fills (#F23645), white borders and white wicks (#FFFFFF). Volume stays visible and its bars match candle body colors. Signal colors remain optional; signal candle outlines default off.
+Open `http://127.0.0.1:8770/crypto-day.html?strategy=day` and choose Chart settings. Main-chart candle bodies default to green rising (#4CAF50), red falling (#F23645), with white wicks and outlines (#FFFFFF). Body fills, borders and wicks can be customized separately. OK saves browser-local settings; Cancel, Close and Escape restore the saved style; Reset previews the factory default.
 
-Changes preview on the chart. OK saves the style in this browser under `countdesk.trading-chart.candles.v1`. Cancel, Close and Escape restore the saved style. Reset previews the factory default; choose OK to save it. New chart instances use the current draft or saved settings. Other browsers use the factory default until customized.
+Taper’s Volume is visible in the lower panel with the Volume calculation and its own classification colors (Signals). Those colors do not recolor chart candles. Signal candle outlines default off. Changing candle settings leaves default volume colors unchanged. Candles color mode remains an explicit optional setting. An unspecified color mode uses Signals.
 
-Validation: nine executable Node tests passed (`node --test count-dashboard/web/test-chart-candle-style.mjs count-dashboard/web/test-volume-candle-colors.mjs`); syntax and whitespace checks passed. Actual browser testing verified custom white rising fills, custom wick colors, visibility changes, Cancel/Escape, save/reload, reset/default persistence and 1M/5M chart recreation. The UI checks the actual Vela root and candle-type configuration when applying a style. Local API health was ok; browser errors/warnings were empty during the check.
+The desk no longer injects candle palettes into volume creation/refresh. The removal from its existing untracked runtime is recorded in `volume-study-colors-integration.patch` and is already applied here. Earlier palette-propagation patches document superseded behavior.
 
-No-mistakes initialization failed because this repository has no origin remote. No pipeline review, push, PR or CI result is claimed.
+Validation: all nine tests passed via `node --test count-dashboard/web/test-chart-candle-style.mjs count-dashboard/web/test-volume-candle-colors.mjs`; syntax and whitespace checks passed. Tests execute registered native-indicator output, verify classification colors in the lower pane, and verify candle changes preserve default signal-colored volume. The running chart was refreshed and inspected, then regular green/red defaults were saved.
 
-## Existing working tree
-
-The desk and quant-lab.js already contained extensive uncommitted changes. The focused settings commit deliberately contains only new source files, tests, this guide, and `crypto-day-candle-settings-integration.patch`, which records the four integration additions made to that existing runtime. The current application is integrated and browser-tested; earlier uncommitted work remains in place. Applying the patch elsewhere requires that Crypto Day Desk baseline. From the repository root, `git apply --check count-dashboard/crypto-day-candle-settings-integration.patch` checks applicability. The patch is already applied in this checkout.
-
-The supplied settings screenshot, source copies, exact patch, full validation notes and runtime preview are preserved in the MYM chart workspace under Charts/Reference/Chart_Settings, Charts/Tools/Candle_Settings and Charts/Analysis/1M.
-
-Volume palette changes propagate immediately during candle previews, saves and cancellation. New study instances and subsequent refreshes take their palette from the actual chart configuration. The optional Signals mode retains classification colors. The scoped integration addition to the existing crypto-day-desk.js runtime is preserved in `crypto-day-volume-colors-integration.patch`; the application already has that patch applied.
+The earlier Crypto Day Desk and quant-lab.js baseline remains uncommitted; source changes, regression tests and exact scoped patches are committed separately to preserve that work. Full notes and updated previews are in the MYM chart workspace under Charts/Analysis/1M. No-mistakes remains unavailable because this repository has no origin remote; no push/PR/CI result is claimed.
