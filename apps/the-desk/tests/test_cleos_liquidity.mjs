@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from '../web/pine-compat/nested-security.mjs';
 import {drawingCounts,plotRows,compareReference,rowsToCsv} from '../web/pine-validation.mjs';
+import {pineState,restorePineState} from '../web/pine-state.mjs';
 installNestedSecurity();
 const minute=60000,end=Date.UTC(2026,9,9,20);
 const duration=tf=>({'D':1440,'1D':1440,'240':240,'60':60,'30':30,'15':15,'5':5,'1':1}[tf])*minute;
@@ -46,6 +47,13 @@ test('all display toggles and manual anchors execute, preserve analytical plots,
 test('manual anchors create original candidate and Fibonacci geometry',async()=>{
  const manualInputs={manualEnabled:true,showFib:true,showProjection:true,panelMode:'Expanded'};for(let i=0;i<6;i++){manualInputs['manT'+i]=end-(18-i*2)*duration('60');manualInputs['manP'+i]=[51000,51200,51100,51500,51300,51600][i];}
  const manual=await run(named,{inputs:manualInputs});assert.ok(manual.model.lines.length>0);assert.equal(manual.model.labels.filter(l=>String(l.text).startsWith('Fib ')).length,7);assert.ok(manual.model.labels.filter(l=>String(l.text).startsWith('Fib ')).every(l=>Number.isFinite(l.x)));assert.ok(manual.model.lines.every(l=>Number.isFinite(l.x1)&&Number.isFinite(l.x2)));assert.equal(manual.model.tables.length,1);assert.equal(manual.model.inputValues.manualEnabled,true);
+});
+test('Cleo persistence restores all inputs, visibility, anchors, and runtime geometry',async()=>{
+ const seed=namedResult??await run(named),inputs=Object.fromEntries(seed.prepared.inputs.map(input=>[input.key,input.defval]));assert.equal(Object.keys(inputs).length,199);
+ Object.assign(inputs,{manualEnabled:true,showFib:true,showProjection:true,panelMode:'Expanded'});for(let i=0;i<6;i++){inputs['manT'+i]=end-(18-i*2)*duration('60');inputs['manP'+i]=[51000,51200,51100,51500,51300,51600][i];}
+ const before=await run(named,{inputs}),handle={id:'desk-pine-cleo',title:"Cleo's Liquidity",source:named,visible:false,inputValues:()=>structuredClone(inputs),propValues:()=>({}),remove(){}};const payload=pineState({indicators:()=>[handle]});assert.equal(payload.length,1);assert.equal(Object.keys(payload[0].inputs).length,199);assert.equal(payload[0].hidden,true);assert.equal(payload[0].inputs.manualEnabled,true);assert.deepEqual(payload[0].inputs.manT0,inputs.manT0);assert.deepEqual(payload[0].inputs.manP5,inputs.manP5);
+ const restored=[];restorePineState(payload,{chart:{indicators:()=>[handle]},addIndicator:entry=>restored.push(entry)});assert.equal(restored.length,1);assert.deepEqual(restored[0].inputs,payload[0].inputs);assert.equal(restored[0].hidden,true);
+ const after=await run(restored[0].script,{inputs:restored[0].inputs,bars:before.bars});assert.deepEqual(after.model.inputValues,before.model.inputValues);for(const key of ['series','lines','boxes','labels','polylines','linefills','tables'])assert.deepEqual(normalize(after.model[key]),normalize(before.model[key]),key);
 });
 test('1M chart executes the canonical master directly and retains source timeframe colors and tiny merged tags',async()=>{
  const result=await run(named,{tf:'1'});assert.ok(result.model.lines.length>0);assert.ok(result.model.labels.length>0);const labels=result.model.labels.filter(l=>/^(D|240|60|30|15|5|1)(\/(D|240|60|30|15|5|1))*$/.test(String(l.text)));assert.ok(labels.length>0,'liquidity timeframe tags must render');
