@@ -9,10 +9,11 @@ function preferredSpan(item, index, count, hasChart) {
   if (hasChart && item.kind === 'chart') {
     if (count <= 4) return [8, 8];
     if (count === 5) return [7, 8];
-    if (count <= 7) return [6, 6];
-    return [6, 6];
+    if (count <= 7) return [6, 8];
+    return [6, 8];
   }
   if (hasChart) {
+    if (item.kind === 'watchlist') return [4, 8];
     if (count === 2) return [4, 8];
     if (count === 3) return [4, 4];
     if (count === 4) return [4, index === 3 ? 2 : 3];
@@ -35,13 +36,15 @@ export function packLegoGrid(items, {mobile = false} = {}) {
   if (items.length === 1) return [{id:items[0].id, x:1, y:1, columns:mobile ? 1 : 12, rows:mobile ? 1 : 8}];
   if (mobile) {
     let row = 1;
-    return items.map(item => {
+    const placements = new Map();
+    for (const item of [...items].sort((a, b) => Number(b.kind === 'chart') - Number(a.kind === 'chart'))) {
       const preferredRows = item.kind === 'chart' || item.kind === 'agents' ? 3 : 1;
       const rows = items.length === 1 ? 1 : clamp(Number(item.mobileRows) || preferredRows,1,8);
       const rect = {id:item.id, x:1, y:row, columns:1, rows};
       row += rows;
-      return rect;
-    });
+      placements.set(item.id,rect);
+    }
+    return items.map(item => placements.get(item.id));
   }
 
   const count = items.length;
@@ -77,7 +80,10 @@ export function packLegoGrid(items, {mobile = false} = {}) {
     if (Number.isInteger(x) && Number.isInteger(y) && free(x, y, columns, rows))
       occupy(item, x, y, columns, rows);
   });
-  items.forEach((item, index) => {
+  const priority = item => item.kind === 'chart' ? 2 : item.kind === 'watchlist' ? 1 : 0;
+  const packingOrder = [...items].sort((a, b) => priority(b) - priority(a));
+  packingOrder.forEach((item) => {
+    const index = items.indexOf(item);
     if (result.has(item.id)) return;
     const [columns, rows] = spanOf(item, index);
     for (let y = 1; y < 1000; y++) {

@@ -3,10 +3,12 @@ import {buildChartContract} from './chart-contract.js';
 import {liquidityConvergenceGroups} from './liquidity-convergence.js';
 import {renderBiasOverlay,renderStructureZonesOverlay} from './premium-overlays.js';
 import {selectProfileWindow,candleVolumeProfile,candleTPO,candleVWAP,executedFootprint,executedBubbles} from './order-flow-premium.mjs?v=1';
-import {createPaperChartPlanner} from './paper-chart-planner.js?v=paper-cats-20261001';
-import {createModularWorkspace} from './modular-workspace.js?v=paper-cats-20261001';
+import {createPaperChartPlanner} from './paper-chart-planner.js?v=sim-ticket-3-20261001';
+import {createModularWorkspace} from './modular-workspace.js?v=the-list-4-20261002';
 import {resetCandleSpacing,stepCandleSpacing,keepCandleSpacingReadable} from './candle-viewport.js?v=3';
 import {advanceSmartFibSwing,confirmedAlternatingSwings,smartFibSwingAtTime} from './smart-fib-engine.mjs?v=smart-fib-hover-2';
+import {smartOteStructure} from './smart-ote-engine.mjs?v=smart-ote-v1';
+import {createLivingCandleLayer} from './living-candles.js?v=liquidity-touch-1';
 let latestPaperJournalSequence = 0;
 async function refreshPaperJournalBadge() {
   const badge = $('#journalUpdateBadge');
@@ -33,6 +35,7 @@ const providerCatalogs = new Map();
 let modularWorkspace = null;
 let velaChart = null;
 let velaResizeFrame = 0;
+let stopCandleSpacingGuard = null;
 let currentContract = null;
 let liveChartBar = null;
 let offLiveChartBar = null;
@@ -40,6 +43,8 @@ let paperOrders = [];
 let paperPositions = [];
 let paperAccounts = [];
 let paperBusy = false;
+const activeSimAccountKey = 'count-desk-active-sim-account-v1';
+let activeSimAccountId = (() => { try { return localStorage.getItem(activeSimAccountKey) || ''; } catch { return ''; } })();
 let replayBounds = null;
 let replayKey = '';
 let indicatorTypeMemory = ['volume'];
@@ -102,6 +107,7 @@ const toolBeltIndicators = [
   {id:'volume-bubbles',name:'Volume Bubbles · execution levels required',version:'v1.0.0',premium:true,image:'volume-profile-sketch.png',colorImage:'volume-profile-color.png',settings:[['hideBelow','Hide below largest (%)','number',50,0,100],['maxVisible','Maximum bubbles','number',80,1,500]]},
   {id:'fibonacci',name:'Fibonacci',version:'v0.1.0',kind:'tool',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['anchor','Swing anchor','select','Last confirmed swing',['Last confirmed swing','Visible range','Manual']],['levels','Retracement levels','text','0.382, 0.5, 0.618']]},
   {id:'smart-fib',name:'Smart Fib',version:'v1.1.0',kind:'tool',image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['swingTimeframe','Swing timeframe','select','60MIN',['15M','30M','60MIN','4H','1D','1W']]]},
+  {id:'smart-ote',name:'Smart Money Fibonacci OTE',version:'v1.0.0',premium:true,image:'fibonacci-sketch.png',colorImage:'fibonacci-color.png',settings:[['pivotLength','Pivot length','number',10,1,100],['oteLow','OTE lower level','number',.618,0.001,.999,.001],['oteHigh','OTE upper level','number',.786,0.001,.999,.001]]},
   {id:'liquidity',name:'Liquidity',version:'001',latestVersion:'001',versions:[{id:'001',label:'001 · HTF convergence',state:'current',summary:'30m / 1h anchors, present internal levels, and compact convergence tags.'},{id:'000',label:'000 · Baseline',state:'archived',summary:'Original chart-timeframe pivots with wick-swept history.'}],image:'liquidity-sketch.png',colorImage:'liquidity-color.png',settings:[['externalPivot','External pivot length','number',14,1,50],['internalPivot','Internal pivot length','number',5,1,50],['showSweeps','Show broken history','checkbox',true],['convergenceAtr','Convergence range (ATR)','number',0.1,0.05,0.2],['showLocalConvergences','Show local timeframe convergences','checkbox',true]]},
   {id:'bias',name:'Bias',version:'v1.0.0',image:'bias-sketch.png',colorImage:'bias-color.png',settings:[['pivotLength','Pivot length','number',5,1,50],['sweepBufferTicks','Sweep buffer (ticks)','number',1,0,100],['acceptanceBufferTicks','Acceptance buffer (ticks)','number',1,0,100],['showSwingLabels','Show swing labels','checkbox',true],['showBreaks','Show BOS / CHOCH','checkbox',true],['priorPeriod','Include higher-timeframe context','checkbox',true]]},
   {id:'structure-zones',name:'Structure Zones',version:'v1.0.0',image:'liquidity-zones-sketch.png',colorImage:'liquidity-zones-color.png',settings:[['pivotLength','Pivot length','number',4,1,50],['originLookback','Origin search (bars)','number',8,1,50],['minDisplacementAtr','Min displacement (ATR)','number',0.8,0,10],['equalToleranceAtr','Equal-level tolerance (ATR)','number',0.12,0,2],['showBreaks','Show BOS / CHoCH','checkbox',true]]},
@@ -302,15 +308,21 @@ function bindChartCustomization() {
     quickOrderToggle.addEventListener('click',()=>setQuickOrderCollapsed(!quickOrderRail.classList.contains('is-collapsed')));
     try{setQuickOrderCollapsed(localStorage.getItem(quickOrderCollapseKey)==='yes',false);}catch{setQuickOrderCollapsed(false,false);}
   }
+  $('#velaQuickAccount').addEventListener('click',()=>paperChartPlanner.openTicket());
+  $('#velaQuickOrderViewOrders').addEventListener('click',()=>setWorkspace('paper'));
   document.querySelectorAll('[data-quick-paper-side]').forEach(button=>button.addEventListener('click',()=>{
-    const side=button.dataset.quickPaperSide, symbol=currentContract?.market?.symbol, tick=chartTickSizes[symbol];
-    if(!paperChartPlanner.canPlanAtPrice()||!currentContract){$('#velaQuickOrderStatus').textContent='Load a supported stored micro-futures chart to stage a paper limit.';return;}
-    const reference=Number(liveChartBar?.close||currentContract.analysis?.lastClose),offset=10;
-    if(!Number.isFinite(reference)||reference<=0||!tick){$('#velaQuickOrderStatus').textContent='A confirmed chart close and supported tick size are required.';return;}
-    const price=Number((reference+(side==='long'?-1:1)*tick*offset).toFixed(8));
-    if(!paperChartPlanner.planAtPrice(price,side)){ $('#velaQuickOrderStatus').textContent='Paper planning is unavailable for this chart.';return; }
-    $('#velaQuickOrderStatus').textContent=`Paper ${side==='long'?'buy':'sell'} limit staged at ${formatPrice(price)} (${offset} ticks from confirmed close ${formatPrice(reference)}). Review it in Paper Planner; nothing was sent.`;
+    const side=button.dataset.quickPaperSide;
+    if(!paperChartPlanner.canPlanAtPrice()||!currentContract){setChartTradeNotice('Load a supported stored micro-futures chart to stage a Sim order.',{error:true});return;}
+    paperChartPlanner.planFromContext(side,'market');
+    setChartTradeNotice(`Sim ${side==='long'?'buy':'sell'} market ticket opened. Review the account, quantity, and bracket before confirming.`);
   }));
+}
+
+function setChartTradeNotice(message,{showOrders=false,error=false}={}) {
+  $('#velaQuickOrderStatus').textContent=message;
+  $('#velaQuickOrderFeedback').hidden=false;
+  $('#velaQuickOrderFeedback').classList.toggle('is-error',error);
+  $('#velaQuickOrderViewOrders').hidden=!showOrders;
 }
 
 readChartCustomization();
@@ -523,12 +535,13 @@ async function premiumIndicatorReport(id, symbol, timeframe, source, bars, setti
   return report;
 }
 
-function toolDrawLine(owner,bars,startIndex,price,color,label='',style='solid',width=1,endIndex=bars.length-1,endTimeOverride=null) {
+function toolDrawLine(owner,bars,startIndex,price,color,label='',style='solid',width=1,endIndex=bars.length-1,endTimeOverride=null,startTimeOverride=null) {
   const start=Math.max(0,Math.min(bars.length-1,startIndex));
   const end=Math.max(start,Math.min(bars.length-1,endIndex));
   if (end<=start || !Number.isFinite(Number(price))) return;
+  const startTime=startTimeOverride ?? bars[start].time;
   const endTime=endTimeOverride ?? bars[end].time;
-  addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:bars[start].time,price:Number(price)},{time:endTime,price:Number(price)}],style:{lineColor:color,lineWidth:width,lineStyle:style}},owner);
+  addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:startTime,price:Number(price)},{time:endTime,price:Number(price)}],style:{lineColor:color,lineWidth:width,lineStyle:style}},owner);
   if (label) addToolBeltDrawing('text',{paneId:'price',anchors:[{time:endTime,price:Number(price)}],text:{value:label,color,size:'tiny',hAlign:'right',vAlign:'top'},style:{lineColor:color,lineWidth:1,lineStyle:'solid'}},owner);
 }
 
@@ -639,23 +652,34 @@ function averageTrueRange(bars,period=14) {
 
 const liquidityTimeframeMinutes={'1M':1,'2M':2,'3M':3,'5M':5,'15M':15,'30M':30,'45M':45,'1H':60,'2H':120,'3H':180,'4H':240,'6H':360,'8H':480,'12H':720,'1D':1440,'1W':10080,'1MO':43200};
 const liquidityContextTimeframes=['1M','5M','15M','30M','1H'];
-const liquidityProbabilityReference='50%'; // Neutral placeholder until the Lab has scored recorded outcomes.
+const liquidityMethodId='liquidity-map-v1';
+const liquidityMethodVersion='1.0.0';
 
-function liquidityLevelsForTimeframe(timeframe,bars,settings) {
+function liquidityLevelsForTimeframe(timeframe,bars,settings,symbol='') {
   const levels=[
-    ...confirmedPivots(bars,Number(settings.externalPivot || 14)).map(point=>({...point,kind:'EXT'})),
-    ...confirmedPivots(bars,Number(settings.internalPivot || 5)).map(point=>({...point,kind:'INT'})),
+    ...confirmedPivots(bars,Number(settings.externalPivot || 14)).map(point=>({...point,kind:'EXT',pivotLength:Number(settings.externalPivot || 14)})),
+    ...confirmedPivots(bars,Number(settings.internalPivot || 5)).map(point=>({...point,kind:'INT',pivotLength:Number(settings.internalPivot || 5)})),
   ].sort((a,b)=>a.index-b.index);
   const atr=bars.length>=15?averageTrueRange(bars,14):0;
-  return levels.map(point=>({
-    ...point,timeframe,bars,atr,id:`${timeframe}-${point.kind}-${point.side}-${point.time}`,
-    confirmedTime:(bars[point.index+(point.kind==='EXT'?Number(settings.externalPivot||14):Number(settings.internalPivot||5))]?.time||0)
-      +(liquidityTimeframeMinutes[timeframe]||60)*60000,
+  const duration=(liquidityTimeframeMinutes[timeframe]||60)*60000;
+  return levels.map(point=>{
+    const confirmationIndex=point.index+point.pivotLength;
+    const confirmedTime=(bars[confirmationIndex]?.time||0)+duration;
+    const laterBars=bars.slice(confirmationIndex+1);
+    const firstLaterIndex=predicate=>{const offset=laterBars.findIndex(predicate);return offset<0?-1:confirmationIndex+1+offset;};
+    const methodSide=point.side==='HIGH'?'BSL':'SSL';
+    const pivotSeconds=Math.floor(point.time/1000);
+    const levelId=`${liquidityMethodVersion}-${point.kind}-${methodSide}-${symbol}-${timeframe}-${pivotSeconds}`;
+    return {
+    ...point,timeframe,bars,atr,id:`LQ-${levelId}`,sequence:`${point.kind[0]}${methodSide[0]}-${pivotSeconds}`,
+    methodId:liquidityMethodId,methodVersion:liquidityMethodVersion,
+    confirmationIndex,confirmedTime,
     // Keep v000's wick-sweep rule as part of the archived baseline. v001 uses
     // the Pine line lifecycle: a close through the level ends the line.
+    // Version 000 keeps its original pivot-relative wick sweep calculation.
     sweepIndex:bars.slice(point.index+1).findIndex(bar=>point.side==='HIGH'?bar.high>point.price:bar.low<point.price),
-    breakIndex:bars.slice(point.index+1).findIndex(bar=>point.side==='HIGH'?bar.close>point.price:bar.close<point.price),
-  }));
+    breakIndex:firstLaterIndex(bar=>point.side==='HIGH'?bar.close>point.price:bar.close<point.price),
+  };});
 }
 
 function liquidityLineColor(level,swept) {
@@ -698,23 +722,36 @@ function boundedLiquidityLevels(levels) {
   return selected.sort((a,b)=>a.time-b.time);
 }
 
-function renderLiquidityVersion000(owner,chartTimeframe,chartBars,settings) {
-  const levels=liquidityLevelsForTimeframe(chartTimeframe,chartBars,settings);
+function renderLiquidityVersion000(owner,chartTimeframe,chartBars,settings,symbol='') {
+  const levels=liquidityLevelsForTimeframe(chartTimeframe,chartBars,settings,symbol);
+  const touchLines=[];
   for(const level of levels){
     const swept=level.sweepIndex>=0;
     if(swept&&settings.showSweeps===false) continue;
     const endIndex=swept?level.index+1+level.sweepIndex:chartBars.length-1;
     toolDrawLine(owner,chartBars,level.index,level.price,liquidityBaselineLineColor(level,swept),`${level.kind} ${level.side==='HIGH'?'BSL':'SSL'}${swept?' · swept':''}`,swept?'dashed':'solid',1,endIndex);
+    const endTime=chartBars[Math.min(endIndex,chartBars.length-1)]?.time;
+    if(Number.isFinite(endTime)&&endTime>=level.confirmedTime) touchLines.push({id:level.id,price:level.price,
+      startTime:level.confirmedTime,endTime,timeframe:chartTimeframe,side:level.side,
+      source:'Liquidity v000 · confirmed pivot',priority:level.kind==='EXT'?3:1});
   }
+  livingCandles.setLiquidityLines(touchLines);
 }
 
-function renderLiquidityVersion001(owner,chartTimeframe,chartBars,series,settings) {
+function renderLiquidityVersion001(owner,chartTimeframe,chartBars,series,settings,symbol='') {
   const chartEndTime=chartBars.at(-1)?.time;
+  const touchLines=[];
+  const recordTouchLine=(level,startTime,endTime,extra={})=>{
+    if(![level.price,startTime,endTime].every(value=>Number.isFinite(Number(value)))||endTime<startTime)return;
+    touchLines.push({id:extra.id||level.id,price:level.price,startTime,endTime,
+      timeframe:extra.timeframe||level.timeframe,side:level.side,source:extra.source||level.source||'Liquidity v001',
+      priority:extra.priority??((level.kind==='EXT'?3:1)+(level.timeframe==='1H'?4:level.timeframe==='30M'?3:0))});
+  };
   const asOf=chartEndTime+(liquidityTimeframeMinutes[chartTimeframe]||60)*60000;
   const aligned=series.map(item=>({...item,bars:item.bars.filter(bar=>
     bar.time+(liquidityTimeframeMinutes[item.timeframe]||60)*60000<=asOf)}))
     .filter(item=>item.bars.length>=8);
-  const allLevels=aligned.flatMap(({timeframe,bars,source})=>liquidityLevelsForTimeframe(timeframe,bars,settings)
+  const allLevels=aligned.flatMap(({timeframe,bars,source})=>liquidityLevelsForTimeframe(timeframe,bars,settings,symbol)
     .map(level=>({...level,source,sourceCutoff:bars.at(-1)?.time+(liquidityTimeframeMinutes[timeframe]||60)*60000})));
   const levels=boundedLiquidityLevels(presentLiquidityLevels(allLevels));
   const displayTimeframes=new Set([String(chartTimeframe).toUpperCase(),'30M','1H']);
@@ -729,12 +766,13 @@ function renderLiquidityVersion001(owner,chartTimeframe,chartBars,series,setting
     if(represented.has(level)) continue;
     const swept=level.breakIndex>=0;
     if(swept&&settings.showSweeps===false) continue;
-    const endIndex=swept?level.index+1+level.breakIndex:level.bars.length-1;
-    const endTime=swept?level.bars[endIndex]?.time:chartEndTime;
+    const endIndex=swept?level.breakIndex:level.bars.length-1;
+    const endTime=swept?level.bars[endIndex]?.time+(liquidityTimeframeMinutes[level.timeframe]||60)*60000:chartEndTime;
     const anchored=level.timeframe==='30M'||level.timeframe==='1H';
     const width=anchored?2:1;
     const style=swept?'dashed':level.kind==='INT'?'dotted':'solid';
-    toolDrawLine(owner,level.bars,level.index,level.price,liquidityLineColor(level,swept),'',style,width,endIndex,endTime);
+    toolDrawLine(owner,level.bars,level.confirmationIndex,level.price,liquidityLineColor(level,swept),'',style,width,endIndex,endTime,level.confirmedTime);
+    recordTouchLine(level,level.confirmedTime,endTime);
   }
   const recent=chartBars.slice(-150);
   const visibleSpan=Math.max(...recent.map(bar=>bar.high))-Math.min(...recent.map(bar=>bar.low));
@@ -745,13 +783,16 @@ function renderLiquidityVersion001(owner,chartTimeframe,chartBars,series,setting
     // Before the last constituent confirms, show each original level only up
     // to that moment. The C line begins when the whole cluster was knowable.
     for(const level of group.members){
-      if(!displayTimeframes.has(level.timeframe)||level.time>=group.joinTime) continue;
-      toolDrawLine(owner,level.bars,level.index,level.price,liquidityLineColor(level,false),'',
-        level.kind==='INT'?'dotted':'solid',1,level.bars.length-1,group.joinTime);
+      if(!displayTimeframes.has(level.timeframe)||level.confirmedTime>=group.joinTime) continue;
+      toolDrawLine(owner,level.bars,level.confirmationIndex,level.price,liquidityLineColor(level,false),'',
+        level.kind==='INT'?'dotted':'solid',1,level.bars.length-1,group.joinTime,level.confirmedTime);
+      recordTouchLine(level,level.confirmedTime,group.joinTime);
     }
     const color=group.contested?'#d8ae84':'#d8c5f0';
     addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:group.joinTime,price:anchor.price},{time:chartEndTime,price:anchor.price}],
       style:{lineColor:color,lineWidth:3,lineStyle:'solid'}},owner);
+    recordTouchLine(anchor,group.joinTime,chartEndTime,{id:`${group.tag}-${group.joinTime}`,
+      timeframe:group.members.map(level=>level.timeframe).join('+'),source:'Liquidity v001 convergence',priority:10});
     const closeBelow=index>0&&anchor.price-groups[index-1].anchor.price<nearLabel;
     const closeAbove=index<groups.length-1&&groups[index+1].anchor.price-anchor.price<nearLabel;
     const labelTime=closeBelow?chartBars.at(-3)?.time||chartEndTime:chartEndTime;
@@ -759,6 +800,7 @@ function renderLiquidityVersion001(owner,chartTimeframe,chartBars,series,setting
       text:{value:`${group.tag}${group.contested?'!':''}`,color,size:'small',hAlign:'right',vAlign:closeAbove?'bottom':closeBelow?'top':anchor.side==='HIGH'?'top':'bottom'},
       style:{lineColor:'transparent',lineWidth:0,lineStyle:'solid'}},owner);
   }
+  livingCandles.setLiquidityLines(touchLines);
 }
 
 function hideLiquidityPopup(force=false) {
@@ -947,7 +989,7 @@ async function renderUniversalToolBeltIndicator(id) {
     $('#indicatorTemplateStatus').textContent=`Smart Fib · hover to preview, lock to track · ${settings.swingTimeframe||'60MIN'} swing on ${symbol} ${timeframe} chart · confirmed pivots use 2 closed bars on each side · descriptive levels only.`;
   } else if (id==='liquidity') {
     const algorithmVersion=selectedToolBeltVersion(definition);
-    if(algorithmVersion==='000') { setLiquidityHoverGroups([],last.time); renderLiquidityVersion000(owner,timeframe,bars,settings); }
+    if(algorithmVersion==='000') { setLiquidityHoverGroups([],last.time); renderLiquidityVersion000(owner,timeframe,bars,settings,symbol); }
     else {
       const chartMinutes=liquidityTimeframeMinutes[String(timeframe).toUpperCase()]||60;
       const requiredTimeframes=new Set(['30M','1H',String(timeframe).toUpperCase()]);
@@ -957,12 +999,12 @@ async function renderUniversalToolBeltIndicator(id) {
       const series=settled.filter(item=>item.status==='fulfilled').map(item=>item.value);
       const available=new Set(series.map(item=>item.timeframe));
       if(!available.has('30M')&&!available.has('1H')) throw new Error('Version 001 needs 30m or 1h source bars for its anchor levels; this chart provider did not return either timeframe.');
-      renderLiquidityVersion001(owner,timeframe,bars,series,settings);
+      renderLiquidityVersion001(owner,timeframe,bars,series,settings,symbol);
       const missing=requested.filter(tf=>!available.has(tf));
       const windowPct=(Number(settings.convergenceAtr)||0.1)*100;
       const asOf=new Date(last.time).toLocaleString();
-      if(missing.length) $('#indicatorTemplateStatus').textContent=`Liquidity v001 active · ${symbol} ${timeframe} · ${source} bars · as of ${asOf} · unavailable timeframes: ${missing.join(', ')} · ${liquidityProbabilityReference} placeholder is unmeasured.`;
-      else $('#indicatorTemplateStatus').textContent=`Liquidity v001 active · ${symbol} ${timeframe} · ${source} bars · as of ${asOf} · 30m / 1h anchors · ${windowPct.toFixed(0)}% ATR convergence window · ${liquidityProbabilityReference} unmeasured placeholder, not a lab result.`;
+      if(missing.length) $('#indicatorTemplateStatus').textContent=`Liquidity v001 · ${liquidityMethodId} v${liquidityMethodVersion} · ${symbol} ${timeframe} · ${source} bars · as of ${asOf} · unavailable timeframes: ${missing.join(', ')} · event parity and outcomes unverified.`;
+      else $('#indicatorTemplateStatus').textContent=`Liquidity v001 · ${liquidityMethodId} v${liquidityMethodVersion} · ${symbol} ${timeframe} · ${source} bars · as of ${asOf} · 30m / 1h anchors · ${windowPct.toFixed(0)}% mean-TR convergence window · parity and outcomes unverified.`;
     }
   } else if (id==='bias') {
     const report=await premiumIndicatorReport(id,symbol,timeframe,source,bars,settings);
@@ -979,6 +1021,26 @@ async function renderUniversalToolBeltIndicator(id) {
     const range=hi&&lo&&hi.index!==lo.index?Math.abs(hi.price-lo.price):high-low, top=hi&&lo?(hi.index>lo.index?hi.price:lo.price):high, bottom=hi&&lo?(hi.index>lo.index?lo.price:hi.price):low;
     if (!(range>0)) throw new Error('Not enough price range to calculate retracements.');
     for(const level of String(settings.levels||'0.382, 0.5, 0.618').split(',').map(Number).filter(x=>x>0&&x<1)) toolDrawLine(owner,bars,Math.min(lo?.index??0,hi?.index??bars.length-1),bottom+range*level,'#e0bd72',`${(level*100).toFixed(1)}%`,'solid');
+  } else if (id==='smart-ote') {
+    const oteLow=Number(settings.oteLow),oteHigh=Number(settings.oteHigh);
+    if(!(oteLow>0&&oteLow<1&&oteHigh>oteLow&&oteHigh<1)) throw new Error('OTE levels must satisfy 0 < lower < upper < 1.');
+    const structure=smartOteStructure(bars,{pivotLength:Number(settings.pivotLength)||10,oteLow,oteHigh});
+    if(!structure) throw new Error(`No confirmed structure shift is available in the loaded ${timeframe} bars.`);
+    const xStart=structure.startTime,xEnd=Number(last.time),bull=structure.direction===1;
+    const swingFrom=bull?structure.low:structure.high,swingTo=bull?structure.high:structure.low;
+    const rangeTop=Math.max(structure.high.price,structure.low.price),rangeBottom=Math.min(structure.high.price,structure.low.price);
+    const levelPrice=level=>bull?structure.high.price-structure.range*level:structure.low.price+structure.range*level;
+    const upper=levelPrice(oteLow),lower=levelPrice(oteHigh),zoneTop=Math.max(upper,lower),zoneBottom=Math.min(upper,lower);
+    addToolBeltDrawing('box',{paneId:'price',anchors:[{time:xStart,price:zoneTop},{time:xEnd,price:zoneBottom}],style:{lineColor:bull?'#18c7ad99':'#ff5c79aa',lineWidth:2,lineStyle:'solid',fillColor:bull?'#14b89b38':'#f0446338'}},owner);
+    addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:swingFrom.time,price:swingFrom.price},{time:swingTo.time,price:swingTo.price}],style:{lineColor:bull?'#18c7ad':'#ff5c79',lineWidth:2,lineStyle:'dashed'}},owner);
+    for(const item of structure.levels){
+      const active=item.completed;
+      const color=active?'#f4d35e':item.level>=oteLow&&item.level<=oteHigh?(bull?'#36e2c3':'#ff718b'):'#82909d';
+      const ratio=`${(item.level*100).toFixed(1)}%`,suffix=active?' ✓':'',price=Number(item.price);
+      addToolBeltDrawing('trendline',{paneId:'price',anchors:[{time:xStart,price},{time:xEnd,price}],style:{lineColor:color,lineWidth:active?3:1,lineStyle:active?'solid':'dotted'}},owner);
+      addToolBeltDrawing('text',{paneId:'price',anchors:[{time:xEnd,price}],text:{value:`${ratio}${suffix} · ${formatPrice(price)}`,color,size:active?'small':'tiny',hAlign:'right',vAlign:'top'},style:{lineColor:color,lineWidth:active?2:1,lineStyle:'solid'}},owner);
+    }
+    $('#indicatorTemplateStatus').textContent=`Smart Money Fibonacci OTE v1.0.0 · ${structure.directionLabel} · ${symbol} ${timeframe} · ${source} · confirmed shift ${new Date(structure.confirmedAt).toLocaleString()} · latest anchor update ${new Date(structure.updatedAt).toLocaleString()} · ✓ marks retracement levels reached after that update; descriptive, unscored.`;
   } else if (id==='volume-profile') {
     $('#indicatorTemplateStatus').textContent=`${renderCandleProfile(owner,orderFlowBars,settings)} · ${symbol} ${timeframe} · ${source} · confirmed cutoff ${new Date(orderFlowBars.at(-1).time).toLocaleString()}`;
   } else if (id==='tpo') {
@@ -1012,7 +1074,7 @@ async function renderUniversalToolBeltIndicator(id) {
     toolDrawLine(owner,bars,0,eq,'#e6c879',`EQUILIBRIUM · ${settings.equilibrium||50}%`,'dashed');
   }
   const hasDrawings=(toolBeltDrawingIds[owner]||[]).length>0;
-  if(!['bias','structure-zones','smart-fib','volume-profile','tpo','vwap','footprint','volume-bubbles'].includes(id) && !(id==='liquidity'&&selectedToolBeltVersion(definition)==='001')) $('#indicatorTemplateStatus').textContent=`${definition.name} ${id==='liquidity'?`v${selectedToolBeltVersion(definition)}`:''} active on ${symbol} ${timeframe} · ${bars.length} ${source} bars · last confirmed ${new Date(last.time).toLocaleString()} · ${hasDrawings?'OHLCV-derived descriptive overlay; no predictive claim.':'no qualifying structures in this window; settings are active.'}`;
+  if(!['bias','structure-zones','smart-fib','smart-ote','volume-profile','tpo','vwap','footprint','volume-bubbles'].includes(id) && !(id==='liquidity'&&selectedToolBeltVersion(definition)==='001')) $('#indicatorTemplateStatus').textContent=`${definition.name} ${id==='liquidity'?`v${selectedToolBeltVersion(definition)}`:''} active on ${symbol} ${timeframe} · ${bars.length} ${source} bars · last confirmed ${new Date(last.time).toLocaleString()} · ${hasDrawings?'OHLCV-derived descriptive overlay; no predictive claim.':'no qualifying structures in this window; settings are active.'}`;
 }
 
 async function renderToolBeltIndicator(id) {
@@ -1022,12 +1084,13 @@ async function renderToolBeltIndicator(id) {
 async function syncToolBeltOverlays() {
   clearSmartFibHover();
   clearToolBeltDrawings();
+  livingCandles.setLiquidityLines([]);
   setLiquidityHoverGroups([],0);
   toolBeltBarsCache = {key:'',at:0,bars:[]};
   const active=storedToolBeltActive();
   for(const id of active) {
     try { await renderToolBeltIndicator(id); }
-    catch(error) { $('#indicatorTemplateStatus').textContent=`${toolBeltIndicators.find(item=>item.id===id)?.name || id} overlay unavailable: ${error.message}`; }
+    catch(error) { if(id==='liquidity')livingCandles.setLiquidityLines([]); $('#indicatorTemplateStatus').textContent=`${toolBeltIndicators.find(item=>item.id===id)?.name || id} overlay unavailable: ${error.message}`; }
   }
 }
 
@@ -1039,7 +1102,7 @@ function renderToolBeltIndicators() {
     const enabled = active.has(definition.id);
     const version=selectedToolBeltVersion(definition);
     const kind=definition.kind||'indicator';
-    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}" data-kind="${kind}"><span class="tool-card-kind">${kind==='tool'?'TOOL':'INDICATOR'}</span>${definition.premium?'<span class="tool-card-premium">PREMIUM</span>':''}<button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE · ' : ''}${definition.id==='liquidity'?`v${version}`:definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button></article>`;
+    return `<article class="tool-belt-card${enabled ? ' is-active' : ''}" data-indicator-id="${definition.id}" data-kind="${kind}"><span class="tool-card-kind">${kind==='tool'?'TOOL':'INDICATOR'}</span>${definition.premium?'<span class="tool-card-premium">PREMIUM</span>':''}<button class="tool-card-toggle" type="button" data-toggle-tool-belt="${definition.id}" aria-pressed="${enabled}" aria-label="${enabled ? 'Deactivate' : 'Activate'} ${definition.name}"><img src="./tool-belt-assets/${enabled ? definition.colorImage : definition.image}" alt=""><strong>${definition.name}</strong><small>${enabled ? 'ACTIVE · ' : ''}${definition.id==='liquidity'?`v${version}`:definition.version}</small></button><button class="tool-card-gear" type="button" data-open-tool-settings="${definition.id}" aria-label="Settings for ${definition.name}" title="Settings">⚙</button>${kind==='indicator'?`<button class="tool-card-measure" type="button" data-measure-indicator="${definition.id}" aria-label="Measure ${definition.name}">Measure ↗</button>`:''}</article>`;
   }).join('');
   document.querySelectorAll('[data-tool-belt-kind]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.toolBeltKind===toolBeltKindFilter)));
   const nativeCount = presentNativeTypes().size;
@@ -1121,19 +1184,21 @@ function openIndicatorSettings(scope, id) {
   const versionManager=scope==='toolbelt'&&definition.versions?.length
     ? `<fieldset class="indicator-version-manager"><legend>VERSION HISTORY</legend><div class="indicator-version-section-label">CURRENT · NEWEST FIRST</div>${definition.versions.filter(version=>version.state==='current').map(version=>`<label class="indicator-version-row current"><input type="radio" name="algorithmVersion" value="${version.id}" ${current.algorithmVersion===version.id?'checked':''}><span><strong>v${version.id} · ${escapeHtml(version.label.split('·').slice(1).join('·').trim())}</strong><small>${escapeHtml(version.summary)}</small></span><em>CURRENT</em></label>`).join('')}<div class="indicator-version-section-label archived">ARCHIVED VERSIONS</div>${definition.versions.filter(version=>version.state==='archived').map(version=>`<label class="indicator-version-row"><input type="radio" name="algorithmVersion" value="${version.id}" ${current.algorithmVersion===version.id?'checked':''}><span><strong>v${version.id} · ${escapeHtml(version.label.split('·').slice(1).join('·').trim())}</strong><small>${escapeHtml(version.summary)}</small></span><em>ARCHIVE</em></label>`).join('')}</fieldset>`
     : '';
-  const settingsMarkup=rows.length ? rows.map(([key,label,type,defaultValue,min,max]) => {
+  const settingsMarkup=rows.length ? rows.map(([key,label,type,defaultValue,min,max,step]) => {
     const value = current[key] ?? defaultValue;
     if (type === 'checkbox') return `<label>${label}<input type="checkbox" name="${key}" ${value ? 'checked' : ''}></label>`;
     if (type === 'select') return `<label>${label}<select name="${key}">${min.map(option => `<option ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select></label>`;
-    const attrs = type === 'number' ? ` type="number" min="${min}" max="${max}" step="${Number.isInteger(defaultValue) ? '1' : '0.01'}"` : ' type="text"';
+    const attrs = type === 'number' ? ` type="number" min="${min}" max="${max}" step="${step ?? (Number.isInteger(defaultValue) ? '1' : '0.01')}"` : ' type="text"';
     return `<label>${label}<input name="${key}"${attrs} value="${escapeHtml(value)}"></label>`;
   }).join('') : '<p class="indicator-settings-empty">This support study has no editable inputs in the current chart renderer.</p>';
   $('#indicatorSettingsFields').innerHTML = `${versionManager}${settingsMarkup}`;
   $('#indicatorSettingsNote').textContent = scope === 'toolbelt'
     ? definition.id === 'smart-fib'
       ? 'Choose the timeframe that defines swing pivots; 60 minutes is the default even when the chart uses a faster timeframe. A swing is confirmed after two bars on either side close. Hover its time range to preview the soft purple structure range and critical Fib levels. Lock pins that exact swing and follows new price extremes on the active chart. Research overlay only.'
+      : definition.id === 'smart-ote'
+      ? 'Pivot levels are confirmed only after the configured right-side bars close. A ✓ means price reached that retracement after the most recent confirmed anchor update. All output is descriptive and unscored.'
       : definition.id === 'liquidity'
-      ? 'Settings are saved in this browser. Liquidity v001 needs 30m or 1h bars; its convergence marks are descriptive and unscored.'
+      ? 'Settings are saved in this browser. Liquidity v001 needs 30m or 1h bars; convergence is descriptive and outcomes are unscored.'
       : 'Settings are saved in this browser. Confirmed chart overlays are descriptive and unscored.'
     : rows.length ? 'Period changes apply to the active native Vela study on the current chart.' : 'The study can be activated or removed; the renderer exposes no settings to change.';
   if (!dialog.open) dialog.showModal();
@@ -1291,7 +1356,6 @@ function renderIndicatorContext(contract = currentContract) {
   renderChartLegend(window.countDeskVelaContext || contract?.market);
   const labels = activeIndicatorLabels();
   $('#cleoIndicators').textContent = labels;
-  $('#velaPaperIndicators').textContent = `Studies · ${labels}`;
   window.dispatchEvent(new Event('countdesk:chart-context'));
   if (!contract) return;
   const cutoff = formatCutoff(contract);
@@ -1456,6 +1520,7 @@ function disposeActiveChartConnection() {
   clearSmartFibHover();
   offLiveChartBar?.(); offLiveChartBar = null; liveChartBar = null;
   paperChartPlanner.setChart(null, null);
+  livingCandles.clear();
   if (velaChart) { try { velaChart.destroy?.(); } catch {} velaChart = null; }
   $('#velaChart').replaceChildren();
   currentContract = null;
@@ -1519,6 +1584,7 @@ async function refreshProviderCatalog(id) {
 
 function createRegisteredProviderChart(spec, symbol, timeframe) {
   if (!window.Vela?.Vela || !window.Vela?.[spec.className]) throw new Error('The Vela chart or bundled provider is unavailable. Refresh the page and try again.');
+  livingCandles.clear();
   const velaTimeframe = providerTimeframe(timeframe);
   velaChart = new window.Vela.Vela('#velaChart', {
     symbol, timeframe:velaTimeframe, bars:500, live:true, theme:'dark', drawings:true,
@@ -1579,9 +1645,7 @@ async function connectChartProvider(id, chosenTicker = '') {
     addProviderMarketOption({...spec,id}, symbol, ticker);
     $('#velaTimeframe').value = timeframe;
     $('#cleoBriefing').hidden = true;
-    $('#velaPaperTab').disabled = true;
-    $('#velaPaperMarket').textContent = `${symbol} · ${timeframe} · ${spec.label}`;
-    $('#velaPaperSource').textContent = 'Paper simulation is disabled for direct public provider data.';
+    setPaperStatus(`SIM orders require a supported stored micro-futures chart. ${spec.label} data is display-only here.`);
     window.countDeskVelaContext = {tab:spec.label, symbol, timeframe, cutoff:null};
     window.dispatchEvent(new Event('countdesk:chart-context'));
     const chart = createRegisteredProviderChart({...spec,id}, symbol, timeframe);
@@ -1602,13 +1666,13 @@ async function connectChartProvider(id, chosenTicker = '') {
     await applyStoredIndicators();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     chart.resize();
+    applyReadableCandleViewport(chart);
     $('#velaProvenance').textContent = `${spec.label} public market data · ${symbol} · ${timeframe} · provider connection active; timestamps and history limits follow provider API.`;
     renderChartLegend(window.countDeskVelaContext);
     renderConnectionManager();
-    setStatus(`${spec.label} ${symbol} chart active · public market data · no brokerage account connected.${catalogError}`, Boolean(catalogError));
+    setStatus(`${spec.label} ${symbol} chart active · public market data · no brokerage account connected.${catalogError}` , Boolean(catalogError));
   } catch (error) {
     disposeActiveChartConnection();
-    $('#velaPaperTab').disabled = false;
     renderConnectionManager();
     setStatus(`${spec.label} connection failed: ${error.message}`, true);
   }
@@ -1768,6 +1832,7 @@ async function loadTickstreamChart() {
   button.disabled = true;
   try {
     let {state, chartPayload} = await waitForTickstreamBars(ticker, timeframe);
+    livingCandles.clear();
     setStatus(`Tickstream ${ticker} connected · seven-day history ${state.historyState || 'loading'} · loading recent candles…`);
     let data = chartPayload.bars.map(bar => ({...bar, time:Number(bar.time) * 1000}));
     let fullHistoryLoaded = chartPayload.historyState === 'complete';
@@ -1796,9 +1861,7 @@ async function loadTickstreamChart() {
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     velaChart.resize();
     applyReadableCandleViewport(velaChart);
-    $('#velaPaperTab').disabled = true;
-    $('#velaPaperMarket').textContent = `${ticker} · ${timeframe} · Tickstream`;
-    $('#velaPaperSource').textContent = `Paper simulation is disabled for the streamed ${ticker} instrument.`;
+    setPaperStatus(`SIM orders require a supported stored micro-futures chart. Tickstream ${ticker} is display-only here.`);
     renderChartLegend(window.countDeskVelaContext);
     window.dispatchEvent(new Event('countdesk:chart-context'));
     const updateState = async () => {
@@ -1839,26 +1902,47 @@ async function loadTickstreamChart() {
 
 function setPaperStatus(message, error = false) {
   const node = $('#velaPaperStatus');
-  node.textContent = message;
-  node.classList.toggle('error', error);
+  if (node) {
+    node.textContent = message;
+    node.classList.toggle('error', error);
+  }
 }
 
+const livingCandles = createLivingCandleLayer({
+  stage:$('.vela-chart-stage'), button:$('#velaLivingCandlesButton'),
+  inspectorButton:$('#velaLivingInspectButton'), readout:$('#velaLivingCandlesReadout'),
+});
 const paperChartPlanner = createPaperChartPlanner({
   stage:$('.vela-chart-stage'),
   onAccountSelect(accountId) {
-    $('#velaPaperAccount').value = accountId;
+    activeSimAccountId = accountId;
+    try { localStorage.setItem(activeSimAccountKey,accountId); } catch { /* Account selection can remain session-only. */ }
+    updateChartSimAccountLabel();
+    const account=paperAccounts.find(item=>item.account_id===accountId);
+    setChartTradeNotice(account?`Sim account selected: ${account.name}.`:'Select or create a Sim account before queueing an order.');
     void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
   },
-  onOpenAccounts() { setWorkspace('paper'); },
-  onDiscard() { $('#velaQuickOrderStatus').textContent = 'Paper plan discarded. Nothing was sent.'; },
+  onOpenAccounts() { $('#velaPaperAccountDialog').showModal(); },
+  onDiscard() { setChartTradeNotice('Sim order draft discarded. Nothing was queued.'); },
+  onQueueError(error) { setChartTradeNotice(error.message,{error:true}); },
   async onQueue(payload) {
     const response = await fetch('/api/chart-sim/open', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Paper order could not be queued.');
-    setPaperStatus('Paper order queued from chart plan. Fill depends on later confirmed stored bars.');
-    await refreshPaperPositions();
+    const message=`Sim ${payload.side==='long'?'buy':'sell'} ${payload.order_type.replace('_','-')} order queued for ${payload.symbol}. Fill depends on later confirmed stored bars.`;
+    setPaperStatus(message);
+    setChartTradeNotice(message,{showOrders:true});
+    void refreshPaperPositions().catch(error => setPaperStatus(`Order queued; positions could not refresh: ${error.message}`,true));
   },
 });
+
+function updateChartSimAccountLabel() {
+  const selected=paperAccounts.find(account=>account.account_id===activeSimAccountId);
+  const button=$('#velaQuickAccount');
+  button.textContent=selected?`SIM · ${selected.name}`:'SIM · Select account';
+  button.title=selected?`Active simulated account: ${selected.name}. Open Chart Trader to switch.`:'No active simulated account. Open Chart Trader to create or select one.';
+  button.setAttribute('aria-label',selected?`Active SIM account ${selected.name}; open Chart Trader to switch`:'Select an active simulated account');
+}
 
 $('#journalWorkspaceLink').addEventListener('click', event => {
   if (!latestPaperJournalSequence) return;
@@ -1898,11 +1982,9 @@ function renderPaperPositions() {
 }
 
 async function refreshPaperPositions() {
-  const market = selectedMarket();
-  if (!market) return;
-  const accountId = $('#velaPaperAccount').value;
+  const accountId = activeSimAccountId;
   if (!accountId) { paperOrders = []; paperPositions = []; renderPaperPositions(); return; }
-  const payload = await getJson(`/api/chart-sim/positions?symbol=${encodeURIComponent(market.symbol)}&account_id=${encodeURIComponent(accountId)}`);
+  const payload = await getJson(`/api/chart-sim/positions?account_id=${encodeURIComponent(accountId)}`);
   paperOrders = payload.orders || [];
   paperPositions = payload.positions || [];
   renderPaperPositions();
@@ -1911,22 +1993,12 @@ async function refreshPaperPositions() {
 async function refreshPaperAccounts(selectedId = '') {
   const payload = await getJson('/api/chart-sim/accounts');
   paperAccounts = payload.accounts || [];
-  const select = $('#velaPaperAccount');
-  const previous = selectedId || select.value;
-  select.innerHTML = '<option value="">Select simulated account</option>' + paperAccounts.map(account =>
-    `<option value="${escapeHtml(account.account_id)}">${escapeHtml(account.name)} · virtual $${Number(account.starting_balance).toLocaleString()}</option>`).join('');
-  if (paperAccounts.some(account => account.account_id === previous)) select.value = previous;
-  else if (paperAccounts.length) select.value = paperAccounts[0].account_id;
-  paperChartPlanner.setAccounts(paperAccounts, select.value);
+  const previous = selectedId || activeSimAccountId;
+  activeSimAccountId = paperAccounts.some(account => account.account_id === previous) ? previous : (paperAccounts[0]?.account_id || '');
+  try { localStorage.setItem(activeSimAccountKey,activeSimAccountId); } catch { /* Account selection can remain session-only. */ }
+  paperChartPlanner.setAccounts(paperAccounts, activeSimAccountId);
+  updateChartSimAccountLabel();
   await refreshPaperPositions();
-}
-
-function updatePaperOrderFields() {
-  const type = $('#velaPaperOrderType').value;
-  $('#velaPaperLimitField').hidden = !['limit','stop_limit'].includes(type);
-  $('#velaPaperTriggerField').hidden = !['stop','stop_limit'].includes(type);
-  $('#velaPaperLimit').required = ['limit','stop_limit'].includes(type);
-  $('#velaPaperTrigger').required = ['stop','stop_limit'].includes(type);
 }
 
 async function paperAction(path, body, successMessage) {
@@ -1946,19 +2018,9 @@ async function paperAction(path, body, successMessage) {
 }
 
 function setWorkspace(view) {
-  const paper = view === 'paper';
-  $('#modularWorkspace').hidden = paper;
-  $('#velaPaperWorkspace').hidden = !paper;
-  $('#velaChartTab').classList.toggle('active', !paper);
-  $('#velaPaperTab').classList.toggle('active', paper);
-  $('#velaChartTab').setAttribute('aria-selected', String(!paper));
-  $('#velaPaperTab').setAttribute('aria-selected', String(paper));
-  if (paper) {
-    if (currentContract) {
-      const market = currentContract.market;
-      $('#velaPaperMarket').textContent = `${market.symbol} · ${market.timeframe} · last close ${formatPrice(currentContract.analysis.lastClose)}`;
-      $('#velaPaperSource').textContent = `${currentContract.analysis.source} · cutoff ${formatCutoff(currentContract)} · confirmed stored bar context`;
-    }
+  $('#modularWorkspace').hidden = false;
+  if (view === 'paper') {
+    paperChartPlanner.openTicket();
     void refreshPaperAccounts().catch(error => setPaperStatus(error.message, true));
   }
 }
@@ -1991,7 +2053,6 @@ async function loadPreview() {
     renderConnectionManager();
   }
   if (streamTicker) return loadTickstreamChart();
-  $('#velaPaperTab').disabled = false;
   clearInterval(window.countDeskTickstreamStatusTimer);
   $('#cleoBriefing').hidden = true;
   if (!market) return setStatus('No Count Desk market is available.', true);
@@ -2014,6 +2075,7 @@ async function loadPreview() {
     updateReplayBounds(payload.bars);
     const effectiveCutoff = Math.min(cutoff, Number(payload.bars.at(-1)?.time || cutoff));
     const contract = buildChartContract({bars:payload.bars, result:payload, symbol:market.symbol, timeframe});
+    livingCandles.clear('Loading closed bars');
     contract.market.cutoff = effectiveCutoff;
     currentContract = contract;
     offLiveChartBar?.(); offLiveChartBar = null; liveChartBar = null;
@@ -2055,13 +2117,11 @@ async function loadPreview() {
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     velaChart?.resize();
     applyReadableCandleViewport(velaChart);
+    livingCandles.setHistoricalChart(velaChart, contract);
     const first = new Date(Number(payload.bars[0].time) * 1000).toLocaleString();
     const last = new Date(Number(payload.bars.at(-1).time) * 1000).toLocaleString();
     $('#velaProvenance').textContent = `${market.symbol} · ${timeframe} · ${contract.bars.length} stored bars · ${first} → ${last} · cutoff ${last} · source ${contract.analysis.source}`;
-    $('#velaPaperMarket').textContent = `${market.symbol} · ${timeframe} · last close ${formatPrice(contract.analysis.lastClose)}`;
-    $('#velaPaperSource').textContent = `${contract.analysis.source} · cutoff ${formatCutoff(contract)} · confirmed stored bar context`;
     renderIndicatorContext(contract);
-    if ($('#velaPaperWorkspace').hidden === false) await refreshPaperPositions();
     setStatus(`Vela preview ready · ${market.symbol} ${timeframe} · offline historical dataset`);
   } catch (error) {
     setStatus(error.message, true);
@@ -2193,6 +2253,16 @@ $('#velaIndicatorList').addEventListener('click', event => {
   void toggleIndicator(button.dataset.velaIndicator).catch(error => setStatus(error.message, true));
 });
 $('#toolBeltIndicatorGrid').addEventListener('click', async event => {
+  const measure = event.target.closest('[data-measure-indicator]');
+  if (measure) {
+    const settings=effectiveToolBeltSettings(toolBeltIndicators.find(item=>item.id===measure.dataset.measureIndicator));
+    const query = new URLSearchParams({embed:'1',setup:'1',indicator:measure.dataset.measureIndicator,
+      symbol:$('#velaSymbol').value||'',source:currentContract?.analysis?.source||currentContract?.market?.source||'',
+      external_length:settings.externalPivot||14,internal_length:settings.internalPivot||5,convergence_atr:settings.convergenceAtr||0.1});
+    $('#indicatorMeasureFrame').src=`./indicator-science.html?${query}`;
+    $('#indicatorMeasureDialog').showModal();
+    return;
+  }
   const gear = event.target.closest('[data-open-tool-settings]');
   if (gear) return openIndicatorSettings('toolbelt',gear.dataset.openToolSettings);
   const button = event.target.closest('[data-toggle-tool-belt]');
@@ -2206,7 +2276,7 @@ $('#toolBeltIndicatorGrid').addEventListener('click', async event => {
     if(id==='smart-fib'){clearSmartFibHover();smartFibLockedSwing=null;smartFibUserLocked=false;smartFibCurrentSwing=null;smartFibActiveBars=[];smartFibActiveSwings=[];$('#smartFibControls').hidden=true;}
     storeToolBeltActive(active);
     clearToolBeltDrawings(id);
-    if(id==='liquidity') setLiquidityHoverGroups([],0);
+    if(id==='liquidity') { setLiquidityHoverGroups([],0); livingCandles.setLiquidityLines([]); }
     renderToolBeltIndicators();
     renderChartLegend();
     $('#indicatorTemplateStatus').textContent = `${definition.name} deactivated and removed from the chart.`;
@@ -2221,7 +2291,17 @@ $('#toolBeltIndicatorGrid').addEventListener('click', async event => {
     renderChartLegend();
   } catch (error) {
     clearToolBeltDrawings(id);
+    if(id==='liquidity') livingCandles.setLiquidityLines([]);
     $('#indicatorTemplateStatus').textContent = `${definition.name} could not be activated: ${error.message}`;
+  }
+});
+$('#closeIndicatorMeasure').addEventListener('click',()=>$('#indicatorMeasureDialog').close());
+window.addEventListener('message',event=>{
+  if(event.origin!==location.origin||event.source!==$('#indicatorMeasureFrame').contentWindow)return;
+  if(event.data?.type==='indicator-measure-close')$('#indicatorMeasureDialog').close();
+  if(event.data?.type==='indicator-measure-created'){
+    $('#indicatorMeasureDialog').close();
+    $('#indicatorTemplateStatus').textContent=`Scientist experiment ${String(event.data.experimentId||'').slice(0,8)} frozen. Open Indicators to inspect its forward status.`;
   }
 });
 document.querySelectorAll('[data-tool-belt-kind]').forEach(button=>button.addEventListener('click',()=>{
@@ -2286,13 +2366,9 @@ document.querySelector('[data-close-tool-belt]').addEventListener('click',() => 
   document.querySelector('[data-drawer="studies"]').setAttribute('aria-expanded','false');
 });
 $('#velaChartTab').addEventListener('click', () => setWorkspace('chart'));
-$('#velaPaperTab').addEventListener('click', () => setWorkspace('paper'));
-$('#velaPaperAccount').addEventListener('change', () => {
-  paperChartPlanner.setAccounts(paperAccounts, $('#velaPaperAccount').value);
-  void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
-});
 $('#velaPaperAccountForm').addEventListener('submit', async event => {
   event.preventDefault();
+  $('#velaPaperAccountStatus').textContent = 'Creating simulated account…';
   if (paperBusy) return;
   paperBusy = true;
   try {
@@ -2301,51 +2377,29 @@ $('#velaPaperAccountForm').addEventListener('submit', async event => {
     if (!response.ok) throw new Error(account.error || 'Account creation failed');
     $('#velaPaperAccountName').value = '';
     await refreshPaperAccounts(account.account_id);
-    setPaperStatus(`${account.name} created with virtual funds. Journal connection is pending.`);
-  } catch (error) { setPaperStatus(error.message, true); }
+    $('#velaPaperAccountDialog').close();
+    paperChartPlanner.openTicket();
+    setPaperStatus(`${account.name} is active. Orders use stored-bar simulation; journal updates follow confirmed fill records.`);
+  } catch (error) { $('#velaPaperAccountStatus').textContent = error.message; }
   finally { paperBusy = false; }
 });
-$('#velaPaperOrderType').addEventListener('change', updatePaperOrderFields);
-updatePaperOrderFields();
+document.querySelectorAll('[data-close-paper-account]').forEach(button=>button.addEventListener('click',()=>$('#velaPaperAccountDialog').close()));
 window.addEventListener('hashchange', applyWorkspaceHash);
-$('#velaBackToChart').addEventListener('click', () => setWorkspace('chart'));
-$('#velaPaperPractice').addEventListener('click', () => {
-  if (!currentContract) return setPaperStatus('Load a Vela chart first.', true);
-  setPaperStatus('Paper context refreshed from the selected Vela chart.');
-  void refreshPaperPositions().catch(error => setPaperStatus(error.message, true));
-});
-$('#velaPaperTicket').addEventListener('submit', event => {
-  event.preventDefault();
-  if (!currentContract) return setPaperStatus('Load a Vela chart first.', true);
-  const barTime = currentPaperBarTime();
-  if (!barTime) return setPaperStatus('The selected chart has no confirmed stored bar.', true);
-  if (!$('#velaPaperAccount').value) return setPaperStatus('Create or select a simulated account first.', true);
-  const optional = selector => $(selector).value.trim() ? Number($(selector).value) : null;
-  void paperAction('/api/chart-sim/open', {
-    account_id:$('#velaPaperAccount').value, order_type:$('#velaPaperOrderType').value,
-    symbol:currentContract.market.symbol, timeframe:currentContract.market.timeframe, bar_time:barTime,
-    side:$('#velaPaperSide').value, quantity:$('#velaPaperQuantity').value,
-    limit_price:optional('#velaPaperLimit'), trigger_price:optional('#velaPaperTrigger'),
-    stop_price:optional('#velaPaperStop'), target_price:optional('#velaPaperTarget'),
-  }, 'Paper order queued for the next completed source bar.');
-});
 const tradeMenu = $('#velaTradeContextMenu');
 $('#velaChart').addEventListener('contextmenu', event => {
   if (!currentContract) return;
   event.preventDefault();
+  event.stopPropagation();
   tradeMenu.hidden = false;
   tradeMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 204)}px`;
   tradeMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 250)}px`;
   tradeMenu.querySelector('button')?.focus();
-});
+}, true);
 tradeMenu.addEventListener('click', event => {
   const button = event.target.closest('[data-paper-side]');
   if (!button) return;
   tradeMenu.hidden = true;
   setWorkspace('chart');
-  $('#velaPaperSide').value = button.dataset.paperSide;
-  $('#velaPaperOrderType').value = button.dataset.paperType;
-  updatePaperOrderFields();
   paperChartPlanner.planFromContext(button.dataset.paperSide, button.dataset.paperType);
 });
 document.addEventListener('click', event => { if (!tradeMenu.contains(event.target)) tradeMenu.hidden = true; });
@@ -2365,7 +2419,19 @@ modularWorkspace = createModularWorkspace({
   getSymbols:() => catalog,
   getIndicators:() => ({selected:storedIndicatorTypes(),rendered:presentNativeTypes()}),
   toggleIndicator,
-  selectSymbol:symbol => { $('#velaSymbol').value = symbol; void loadPreview(); },
+  selectSymbol:symbol => {
+    const item = catalog.find(entry => entry.symbol === symbol);
+    const timeframes = item?.timeframes?.filter(entry => entry.available && entry.bars >= 20) || [];
+    if (item?.timeframes && !timeframes.length) {
+      setStatus(`${symbol} has no stored chart history yet. The List can show it when authorized data is available.`,true);
+      return;
+    }
+    $('#velaSymbol').value = symbol;
+    if (timeframes.length && !timeframes.some(entry => entry.timeframe === $('#velaTimeframe').value)) {
+      $('#velaTimeframe').value = timeframes.find(entry => entry.timeframe === '1D')?.timeframe || timeframes[0].timeframe;
+    }
+    void loadPreview();
+  },
   capturePlatformSettings:() => ({
     provider:activeChartConnection?.id || (tickstreamTicker($('#velaSymbol').value) ? 'tickstream' : [...$('#velaSymbol').options].find(option => option.value === $('#velaSymbol').value)?.dataset.directProvider || 'historical'),
     symbol:$('#velaSymbol').value,

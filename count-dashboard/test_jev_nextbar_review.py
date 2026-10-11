@@ -20,7 +20,7 @@ class NextBarTests(unittest.TestCase):
     def tearDown(self):review.DB_PATH=self.old;self.temp.cleanup()
     def result(self,choice_high='b12',choice_low='b4',mass=1):
         def answer(choice):return {'type':'choice','choice':choice,'confidence':.9,'probabilities':{k:mass if k==choice else 0 for k in [*[f'b{i}' for i in range(17)],'UNAVAILABLE']}}
-        return {'model':review.MODEL,'answers':{'high':answer(choice_high),'low':answer(choice_low)},'usage':{'input_tokens':500,'output_tokens':100}}
+        return {'model':review.MODEL,'answers':{'high':answer(choice_high),'low':answer(choice_low),'close_up':{'type':'noul','noul':.6}},'usage':{'input_tokens':500,'output_tokens':100}}
     def model(self,result):
         self.payload['jev']=True
         return patch.object(review,'configured',return_value=True),patch.dict('os.environ',{'TYPESAFE_API_KEY':'test-only'}),patch.object(review,'urlopen',return_value=Response(result))
@@ -47,7 +47,7 @@ class NextBarTests(unittest.TestCase):
         with a,b,c as network:
             row=review.predict({**self.payload,'hunt':{'private':True},'future':self.actual});sent=json.loads(network.call_args[0][0].data)
         self.assertEqual(row['status'],'predicted');self.assertEqual(row['jev']['high'],104);self.assertEqual(row['jev']['low'],96);self.assertEqual(row['usage']['total_tokens'],600)
-        self.assertNotIn('hunt',sent['state']);self.assertNotIn('future',sent['state']);self.assertEqual(max(x['time'] for x in sent['state']['completedBars']),self.bars[-1]['time']);self.assertEqual(len(sent['questions']),2)
+        self.assertNotIn('hunt',sent['state']);self.assertNotIn('future',sent['state']);self.assertEqual(max(x['time'] for x in sent['state']['completedBars']),self.bars[-1]['time']);self.assertEqual(len(sent['questions']),3)
     def test_bad_probability_not_normalized_and_usage_preserved(self):
         a,b,c=self.model(self.result(mass=.99))
         with a,b,c:row=review.predict(self.payload)
@@ -85,15 +85,15 @@ class NextBarTests(unittest.TestCase):
         raw=[{'t':b['time'],'o':b['open'],'h':b['high'],'l':b['low'],'c':b['close'],'v':b['volume']} for b in [*self.bars,self.actual]]
         with patch.object(review,'urlopen',return_value=Response(raw)),patch.object(review,'now',return_value=self.actual['time']+1000): source=review.public_source()
         self.assertEqual(source['source']['completedCutoff'],self.bars[-1]['time']);self.assertEqual(len(source['bars']),60)
-    def test_jev_call_budget_frozen_at_thirty(self):
+    def test_jev_call_budget_frozen_at_120(self):
         a,b,c=self.model(self.result())
         with a,b,c as network:
-            for i in range(31):
+            for i in range(121):
                 bars=[{**x,'time':x['time']+i*60000} for x in self.bars];p={**self.payload,'bars':bars,'source':{**self.payload['source'],'completedCutoff':bars[-1]['time']}}
-                if i<30: review.predict(p)
+                if i<120: review.predict(p)
                 else:
-                    with self.assertRaisesRegex(ValueError,'30-read'):review.predict(p)
-            self.assertEqual(network.call_count,30)
+                    with self.assertRaisesRegex(ValueError,'120-read'):review.predict(p)
+            self.assertEqual(network.call_count,120)
     def test_source_mode_mismatch_rejected(self):
         self.payload['source']['provider']='hyperliquid'
         with self.assertRaisesRegex(ValueError,'identity'):review.predict(self.payload)

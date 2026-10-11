@@ -80,17 +80,29 @@ class RiderAutoTests(unittest.TestCase):
     def test_no_retroactive_fill_and_future_fill_is_idempotent(self):
         order=self.pending();rider.advance(self.s,self.bars,self.db,desk,server)
         self.assertEqual(0,self.db.execute('SELECT COUNT(*) FROM quant_lab_sim_positions').fetchone()[0])
-        b={'time':order['eligible'],'open':102,'high':103,'low':101,'close':102,'volume':1};self.now=b['time']+65000
+        c=json.loads(order['body'])['candidate'];entry=c['entry']
+        b={'time':order['eligible'],'open':entry,'high':entry+1,'low':entry-1,'close':entry,'volume':1};self.now=b['time']+65000
         rider.advance(self.s,self.bars+[b],self.db,desk,server);rider.advance(self.s,self.bars+[b],self.db,desk,server)
         pos=self.db.execute('SELECT * FROM quant_lab_sim_positions').fetchone()
         self.assertEqual(b['time']//1000,pos['entry_bar_time']);self.assertEqual('open',pos['status'])
         self.assertEqual(1,self.db.execute('SELECT COUNT(*) FROM quant_lab_sim_positions').fetchone()[0])
     def test_same_fill_bar_stop_first_and_net_fees(self):
         self.s['auto']['policy']['feeBps']=1
-        o=self.pending();b={'time':o['eligible'],'open':102,'high':121,'low':98,'close':100,'volume':1};self.now=b['time']+65000
+        o=self.pending();c=json.loads(o['body'])['candidate'];entry=c['entry'];b={'time':o['eligible'],'open':entry,'high':max(121,entry+1),'low':min(98,entry-1),'close':entry,'volume':1};self.now=b['time']+65000
         rider.advance(self.s,self.bars+[b],self.db,desk,server)
         pos=self.db.execute('SELECT * FROM quant_lab_sim_positions').fetchone();self.assertEqual('closed',pos['status']);self.assertEqual('rider_stop_first_ambiguous',pos['close_reason'])
         trade=json.loads(self.db.execute('SELECT body FROM rider_auto_trades').fetchone()[0]);self.assertLess(trade['netPnl'],pos['gross_pnl'])
+    def test_unreached_entry_limit_cancels_without_chasing(self):
+        order=self.pending();candidate=json.loads(order['body'])['candidate'];entry=candidate['entry']
+        opening=entry+candidate['atr']*candidate['direction']*0.1
+        if candidate['direction']==1:
+            bar={'time':order['eligible'],'open':opening,'high':opening+1,'low':entry+0.01,'close':opening,'volume':1}
+        else:
+            bar={'time':order['eligible'],'open':opening,'high':entry-0.01,'low':opening-1,'close':opening,'volume':1}
+        self.now=bar['time']+65000;rider.advance(self.s,self.bars+[bar],self.db,desk,server)
+        self.assertEqual('cancelled',self.db.execute('SELECT status FROM rider_auto_orders').fetchone()[0])
+        self.assertEqual(0,self.db.execute('SELECT COUNT(*) FROM quant_lab_sim_positions').fetchone()[0])
+
     def test_excess_entry_drift_cancels(self):
         o=self.pending();b={'time':o['eligible'],'open':110,'high':111,'low':109,'close':110,'volume':1};self.now=b['time']+65000
         rider.advance(self.s,self.bars+[b],self.db,desk,server)
@@ -147,8 +159,8 @@ class RiderAutoTests(unittest.TestCase):
         def transport(s):
             bars=self.bars.copy()
             if cycles[0]:
-                o=self.db.execute('SELECT * FROM rider_auto_orders').fetchone()
-                bars.append({'time':o['eligible'],'open':102,'high':103,'low':101,'close':102,'volume':1});self.now=bars[-1]['time']+65000
+                o=self.db.execute('SELECT * FROM rider_auto_orders').fetchone();entry=json.loads(o['body'])['candidate']['entry']
+                bars.append({'time':o['eligible'],'open':entry,'high':entry+1,'low':entry-1,'close':entry,'volume':1});self.now=bars[-1]['time']+65000
             source={'provider':'coinbase','symbol':'BTC-USD','timeframe':'1m','completedCutoff':bars[-1]['time'],'snapshotAsOf':self.now}
             return {'source':source,'bars':bars,'raw':[],'frames':[],'series':[],'indicatorSettings':{},'method':'TEST FIXTURE',
               'evidence':{'source':source,'bars':bars[-24:],'frames':[],'levels':{}}}
@@ -190,6 +202,41 @@ class RiderAutoTests(unittest.TestCase):
             with self.assertRaises(SystemExit):captured[0]()
         model.assert_not_called()
         with desk.connection() as db:self.assertTrue(hunts.unpack(db.execute('SELECT * FROM hunt_sessions').fetchone())['auto']['armed'])
+    def test_worker_temporary_jev_failure_waits_then_recovers_on_new_bar(self):
+        import taper_decisions
+        self.now=self.bars[-1]['time']+65000
+        captured=[]
+        class Thread:
+            def __init__(other,**kw):captured.append(kw['target'])
+            def start(other):pass
+            def is_alive(other):return False
+        old=rider._thread;self.addCleanup(setattr,rider,'_thread',old)
+        with patch.object(rider.threading,'Thread',Thread):rider.start_worker(server,desk,Path(self.tmp.name)/'sim.sqlite3')
+        with desk.connection() as db:rider.save_auto(db,'s',self.s['auto'],desk)
+        self.pending()
+        cycles=[0];read_times=[]
+        def snapshot(s):
+            bars=self.bars+[self.bar(24,102,103,101,102)] if cycles[0] else self.bars
+            self.now=bars[-1]['time']+65000
+            source={'provider':'coinbase','symbol':'BTC-USD','timeframe':'1m','completedCutoff':bars[-1]['time'],'snapshotAsOf':self.now}
+            return {'source':source,'bars':bars,'raw':[],'frames':[],'series':[],'indicatorSettings':{},'evidence':{'source':source,'bars':bars[-24:],'frames':[]}}
+        def inference(evidence,path):
+            read_times.append(evidence['source']['completedCutoff'])
+            if not cycles[0]:raise taper_decisions.JevResponseError('Temporary service failure')
+            return {'decisionId':'recovered','source':evidence['source'],'answers':[],'riderCandidates':[],'usage':{'input_tokens':0,'output_tokens':0},'estimatedUsd':0}
+        def sleep(seconds):
+            cycles[0]+=1
+            if cycles[0]>=2:raise SystemExit()
+        with patch.object(rider,'snapshot',side_effect=snapshot),patch.object(rider.time,'sleep',side_effect=sleep),patch.object(desk.taper_decisions,'status',return_value={'configured':True}),patch.object(desk.taper_decisions,'decide',side_effect=inference),patch.object(hunts,'sync_journal',return_value={}):
+            with self.assertRaises(SystemExit):captured[0]()
+        self.assertEqual(60000,read_times[1]-read_times[0])
+        with desk.connection() as db:
+            auto=hunts.unpack(db.execute('SELECT * FROM hunt_sessions').fetchone())['auto']
+            self.assertTrue(auto['armed']);self.assertEqual('armed',auto['state'])
+            self.assertEqual(1,db.execute("SELECT COUNT(*) FROM hunt_events WHERE kind='auto_recovered'").fetchone()[0])
+        self.assertEqual('cancelled',self.db.execute('SELECT status FROM rider_auto_orders').fetchone()[0])
+        self.assertEqual(0,self.db.execute('SELECT COUNT(*) FROM quant_lab_sim_positions').fetchone()[0])
+
     def test_clock_out_cancels_pending_before_next_session(self):
         self.pending()
         with patch.object(hunts,'sync_journal',return_value={'synced':True}):

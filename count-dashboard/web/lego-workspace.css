@@ -1,25 +1,45 @@
 /* Browser foundation for the modular block desk. The chart renderer remains Vela. */
 .modular-workspace{width:100%;max-width:none;padding:7px}
-.modular-grid{position:relative;grid-template-columns:repeat(12,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));grid-auto-rows:minmax(74px,1fr);grid-auto-flow:row dense;align-content:stretch;gap:8px;overflow:auto;padding:10px;border:1px solid #304d57;border-radius:10px;background-color:#0a141b;background-image:linear-gradient(#5ed4bc16 1px,transparent 1px),linear-gradient(90deg,#5ed4bc16 1px,transparent 1px),radial-gradient(ellipse at 50% 15%,#14303988,transparent 65%);background-size:calc(100% / 12) calc(100% / 8),calc(100% / 12) calc(100% / 8),100% 100%;box-shadow:inset 0 0 45px #020b11}
+.modular-grid{position:relative;grid-template-columns:repeat(12,minmax(0,1fr));grid-template-rows:repeat(8,minmax(74px,1fr));grid-auto-rows:minmax(74px,1fr);grid-auto-flow:row dense;align-content:stretch;gap:8px;overflow:auto;padding:10px;border:1px solid #334b51;border-radius:14px;background-color:#0a141b;background-image:linear-gradient(#a8fff30b 1px,transparent 1px),linear-gradient(90deg,#a8fff30b 1px,transparent 1px),radial-gradient(ellipse at 50% -30%,#7bbab018,transparent 70%);background-size:calc(100% / 12) calc(100% / 8),calc(100% / 12) calc(100% / 8),100% 100%;box-shadow:inset 0 2px 7px #000b,inset 0 0 45px #020b11,0 1px 0 #a3d5d422}
+.modular-grid:has(>.modular-placement-ghost:only-child){display:none}
 .modular-grid.has-one-widget{grid-template-rows:repeat(8,minmax(0,1fr));grid-auto-rows:minmax(0,1fr)}
-.modular-widget{position:relative;isolation:isolate;min-height:0;border:1px solid #47786f;border-radius:8px;background:linear-gradient(135deg,#172a32,#0c151e 60%);box-shadow:0 11px 18px #0008,0 3px 0 #254f4b,0 0 14px #65e7c424,inset 0 1px #d9fff126;transition:box-shadow .2s,border-color .2s,transform .35s cubic-bezier(.2,.8,.2,1)}
+.modular-block-tray{display:flex;align-items:center;gap:7px;flex:none;min-height:42px;margin:0 0 7px;padding:6px 10px;border:1px solid #537c73;border-radius:9px;background:linear-gradient(180deg,#20363bdb,#10232bde);box-shadow:inset 0 1px #e3fff122,0 6px 20px #0005;overflow-x:auto;scrollbar-width:thin}
+.modular-block-tray[hidden]{display:none!important}
+.modular-block-tray strong{flex:none;margin-right:3px;color:#a5e2d1;font:700 9px ui-monospace,monospace;letter-spacing:.12em}
+.modular-block-tray span{flex:none;color:#b6cbc7;font-size:10px;white-space:nowrap}
+.modular-block-tray button{flex:none;min-height:28px;padding:3px 9px;border:1px solid #648f84;border-radius:6px;background:linear-gradient(180deg,#365651,#243c3b);color:#e4fff3;font-size:10px;font-weight:700;box-shadow:inset 0 1px #ffffff2b,0 2px 0 #142925;cursor:pointer}
+.modular-block-tray button:hover,.modular-block-tray button:focus-visible{border-color:#b5ffe0;background:#386f5c;outline:2px solid #aeffe0;outline-offset:2px}
+.modular-block-tray button:disabled{opacity:.45;cursor:default;box-shadow:none}
+.modular-workspace.is-building .modular-grid{border-color:#7bb7aa;background-image:radial-gradient(circle,#83e2ca4d 2px,transparent 3px),linear-gradient(#5ed4bc20 1px,transparent 1px),linear-gradient(90deg,#5ed4bc20 1px,transparent 1px),radial-gradient(ellipse at 50% -30%,#7bbab02b,transparent 70%);background-size:calc(100% / 12) calc(100% / 8),calc(100% / 12) calc(100% / 8),calc(100% / 12) calc(100% / 8),100% 100%;background-position:center center,0 0,0 0,0 0;box-shadow:inset 0 2px 9px #000c,inset 0 0 0 1px #96d9c317,0 0 0 1px #9be9d01e,0 16px 45px #0007}
+.modular-widget{position:relative;isolation:isolate;min-height:0;border:1px solid #496761;border-radius:10px;background:linear-gradient(140deg,#1a3036,#0c171f 58%);box-shadow:0 13px 24px #0009,0 3px 0 #223f3c,0 0 0 1px #020f13,inset 0 1px #e1fff12b;transition:box-shadow .22s,border-color .22s,transform .32s cubic-bezier(.2,.8,.2,1)}
 .modular-widget::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;background:linear-gradient(120deg,#ffffff0c,transparent 27%,transparent 75%,#70dfca08)}
-.modular-widget:hover,.modular-widget:focus-within{border-color:#8ce7d5;box-shadow:0 14px 23px #0009,0 3px 0 #3a796f,0 0 21px #66edc65b,inset 0 1px #d9fff135}
+.modular-widget:hover,.modular-widget:focus-within{border-color:#8ce7d5;box-shadow:0 17px 27px #000a,0 3px 0 #3a796f,0 0 17px #66edc633,inset 0 1px #d9fff135}
 .modular-widget.is-selected{border-color:#b2ffe9;box-shadow:0 14px 23px #0009,0 3px 0 #3a796f,0 0 0 2px #b2ffe971,0 0 27px #66edc67a}
 .modular-widget.is-resizing{z-index:5;border-color:#c7fff0;box-shadow:0 20px 28px #000a,0 0 0 3px #81e8cc,0 0 30px #81e8cc91;transition:none}
 .modular-widget.just-snapped{animation:lego-settle .4s cubic-bezier(.18,.8,.2,1)}
 @keyframes lego-settle{0%{transform:translateY(-10px) scale(1.012);filter:brightness(1.25)}65%{transform:translateY(2px) scale(.997)}100%{transform:translateY(0) scale(1);filter:brightness(1)}}
-.modular-widget-head{position:relative;height:39px;padding-right:9px;border-bottom:1px solid #31504d;background:linear-gradient(180deg,#233a3e,#15262e);cursor:grab;user-select:none}
+.modular-widget-head{position:relative;height:39px;padding-right:9px;border-bottom:1px solid #31504d;background:linear-gradient(180deg,#273a3e,#17272e 72%,#102028);cursor:default;user-select:none}
+.modular-workspace.is-building .modular-widget-head{cursor:grab;touch-action:none}
+.modular-workspace.is-building .modular-widget-head:focus-visible{outline:2px solid #b1ffe1;outline-offset:-3px}
+.modular-workspace.is-building .modular-widget-head::after{content:"";position:absolute;inset:2px 42px auto 42px;height:1px;background:linear-gradient(90deg,transparent,#d5fff04a,transparent);pointer-events:none}
 .modular-widget-head:active{cursor:grabbing}
 .modular-widget-head strong{color:#e5f9f2}
 .modular-widget-drag{color:#9be2d1}
-.modular-widget-edges{position:absolute;inset:0;z-index:12;pointer-events:none}
+.modular-widget-edges{position:absolute;inset:0;z-index:12;pointer-events:none;opacity:.35;transition:opacity .2s}
+.modular-workspace.is-building .modular-widget-edges,.modular-widget:hover .modular-widget-edges,.modular-widget:focus-within .modular-widget-edges{opacity:1}
 .modular-edge-steps{position:absolute;top:50%;right:0;display:grid;gap:3px;transform:translate(2px,-50%);pointer-events:auto}
 .modular-edge-steps button,.modular-edge-grip{display:grid;place-items:center;width:24px;height:24px;padding:0;border:1px solid #69bfb0;border-radius:5px;background:#123630;color:#d0fff0;font:700 17px ui-monospace,monospace;box-shadow:0 0 12px #56d3b166;cursor:pointer}
 .modular-edge-steps button:hover,.modular-edge-grip:hover,.modular-edge-steps button:focus-visible,.modular-edge-grip:focus-visible{border-color:#caffef;background:#236a5b;box-shadow:0 0 19px #81ffe3a8;outline:2px solid #caffef;outline-offset:2px}
 .modular-edge-grip{position:absolute;right:0;bottom:0;width:29px;height:29px;pointer-events:auto;touch-action:none;font-size:15px}
 .modular-edge-steps button:disabled,.modular-edge-grip:disabled{opacity:.35;cursor:default;box-shadow:none}
 .modular-widget[hidden]{display:none!important}
+.modular-widget.is-dragging{opacity:.72;transform:translateY(-5px) scale(1.006);box-shadow:0 25px 42px #000c,0 7px 0 #3a796f,0 0 26px #8bf7d650}
+.modular-placement-ghost{position:absolute;z-index:30;display:flex;align-items:flex-start;justify-content:flex-start;box-sizing:border-box;padding:14px;border:2px solid #b6ffe4;border-radius:11px;background:linear-gradient(135deg,#b3ffe225,#61c9aa12);color:#edfff6;font:700 11px ui-monospace,monospace;letter-spacing:.05em;text-shadow:0 1px 4px #000;box-shadow:inset 0 0 0 1px #e0fff358,0 18px 35px #0009,0 0 25px #71ffcf73;pointer-events:none;backdrop-filter:blur(3px)}
+.modular-placement-ghost[hidden]{display:none!important}
+.modular-grid.is-placing{cursor:grabbing}
+.modular-tab-actions #modularBuildMode{border-color:#60837b;background:linear-gradient(180deg,#273b3d,#1b2a2e);color:#d4eee7;box-shadow:inset 0 1px #ffffff1b,0 2px 4px #0005}
+.modular-tab-actions #modularBuildMode[aria-pressed=true]{border-color:#a5ebd5;background:linear-gradient(180deg,#347d69,#1d534b);color:#f3fff9;box-shadow:inset 0 1px #e9fff356,0 0 0 1px #a9eac42e,0 0 16px #7bf1be3b}
+.modular-tab-actions #modularBuildMode:focus-visible{outline:2px solid #c4ffe9;outline-offset:2px}
 .modular-tab-actions #modularSnapSound{border-color:#4b7a70;color:#b8e9da}
 .modular-tab-actions #modularSnapSound[aria-pressed=true]{border-color:#8debd0;background:#1d5549;color:#edfff9}
 .modular-tab-actions .modular-rail-cat-toggle{flex:none;width:25px;height:25px;min-height:25px;padding:3px;border-color:#71847c;border-radius:5px;background:#cbd6d0;color:#050807}
@@ -28,7 +48,7 @@
 .modular-widget[data-kind=chart] .vela-chart-trade-layout{flex-direction:row;overflow:hidden}
 .modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-stage{flex:1;height:auto;min-width:0;min-height:220px}
 .modular-widget[data-kind=chart] .vela-chart-trade-rail{width:min(282px,35%);min-width:230px;max-width:none;max-height:none;border-top:0;border-left:1px solid #335545}
-.modular-widget[data-kind=chart] .vela-quick-order-rail{left:50px;top:66px;transform:none}
+.modular-widget[data-kind=chart] .vela-quick-order-rail{left:auto;right:12px;top:8px;transform:none}
 .vela-chart-trade-layout.is-plan-collapsed>.vela-chart-trade-rail{width:43px;min-width:43px;max-width:43px;padding:8px;overflow:hidden;transition:width .35s,min-width .35s,max-width .35s}
 .vela-chart-trade-rail.is-collapsed>*:not(.paper-rail-head){display:none!important}
 .vela-chart-trade-rail.is-collapsed .paper-rail-head{display:block;padding:0;border:0}
@@ -45,9 +65,10 @@
   .modular-edge-steps button{width:32px;height:32px;font-size:22px}
   .modular-edge-grip{width:37px;height:37px;font-size:20px}
 }
-@media(max-width:760px){
+@media(max-width:1050px){
+  .modular-tab-actions #modularBuildMode{display:none}
   .modular-grid{grid-template-columns:minmax(0,1fr);grid-template-rows:none;grid-auto-rows:minmax(180px,auto)}
-  .modular-grid:has(>.modular-widget:only-child){grid-template-rows:minmax(0,1fr)}
+  .modular-grid.has-one-widget{grid-template-rows:minmax(0,1fr);grid-auto-rows:minmax(0,1fr)}
   .modular-widget{min-height:170px}
   .modular-widget[data-kind=chart]{min-height:550px}
   .modular-widget[data-kind=chart] .vela-chart-trade-layout{flex-direction:column;overflow:auto}
@@ -57,3 +78,21 @@
   .vela-chart-trade-rail.is-collapsed .paper-rail-head #paperRailCollapse{width:25px;min-height:25px}
 }
 @media(prefers-reduced-motion:reduce){.modular-widget,.vela-chart-trade-layout.is-plan-collapsed>.vela-chart-trade-rail{animation:none!important;transition:none!important}}
+
+/* Keep the Sim ticket inside the chart block, including compact saved layouts. */
+.modular-widget[data-kind=chart] .vela-chart-trade-layout{position:relative;flex-direction:row;overflow:hidden}
+.modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-stage{flex:1;height:auto;min-height:0}
+.modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-trade-rail{box-sizing:border-box;position:absolute;z-index:30;top:6px;right:6px;bottom:6px;left:auto;width:min(340px,calc(100% - 12px));min-width:0;max-width:none;max-height:none;height:auto;align-self:auto;overflow:auto;border:1px solid #547461;border-radius:8px;background:#101e1a;box-shadow:0 14px 38px #000c}
+.modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-trade-rail.is-collapsed{top:6px;right:6px;bottom:auto;width:43px;min-width:43px;max-width:43px;height:43px;min-height:43px;max-height:43px;padding:8px;border:1px solid #547461}
+.modular-widget[data-kind=chart] .vela-chart-trade-rail:not(.is-collapsed) .paper-rail-head{position:sticky;z-index:3;top:-14px;margin-top:-14px;padding-top:14px;background:#101e1a}
+.modular-widget[data-kind=chart] .vela-chart-trade-rail .paper-rail-actions{position:sticky;z-index:2;bottom:0;padding:7px 0;background:#101e1a;box-shadow:0 -6px 12px #101e1a}
+.modular-widget[data-kind=chart] .vela-chart-trade-rail .paper-rail-form{grid-template-columns:minmax(0,1fr)}
+@media(max-width:1050px){
+  .modular-widget[data-kind=chart] .modular-widget-body{overflow:auto}
+  .modular-widget[data-kind=chart] #velaChartWorkspace{flex:none;height:auto;min-height:0;overflow:visible}
+  .modular-widget[data-kind=chart] .vela-chart-trade-layout{position:relative;flex:none;height:auto;min-height:0;flex-direction:column;overflow:visible}
+  .modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-stage{flex:none;height:52vh;min-height:300px}
+  .modular-widget[data-kind=chart] .vela-quick-order-rail{top:8px;right:12px;bottom:auto;left:auto;z-index:40}
+  .modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-trade-rail{position:relative;inset:auto;box-sizing:border-box;width:100%;min-width:0;max-width:none;max-height:350px;border:0;border-top:1px solid #547461;border-radius:0;box-shadow:none}
+  .modular-widget[data-kind=chart] .vela-chart-trade-layout>.vela-chart-trade-rail.is-collapsed{width:43px;min-width:43px;max-width:43px;height:43px;min-height:43px;max-height:43px;align-self:flex-end;border:1px solid #547461;border-radius:8px}
+}

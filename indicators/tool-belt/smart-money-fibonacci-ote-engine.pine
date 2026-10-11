@@ -1,0 +1,170 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Adapted from the user-provided Smart Money Fibonacci OTE Engine [ChartPrime], © ChartPrime.
+// Adaptation: confirmed structure-shift anchors, configurable OTE bounds, and retracement completion coloring.
+//@version=6
+indicator("Smart Money Fibonacci OTE Engine · Count Desk v1", overlay=true, max_bars_back=5000, max_lines_count=100, max_labels_count=100, max_boxes_count=10)
+
+pivotLen = input.int(10, "Pivot Length", minval=1, maxval=500, group="Structure")
+showSwingLabels = input.bool(true, "Show Swing Labels", group="Structure")
+showFibLines = input.bool(true, "Show Fib Levels", group="Fibonacci / OTE")
+showOteZone = input.bool(true, "Show OTE Zone", group="Fibonacci / OTE")
+oteLow = input.float(0.618, "OTE Lower Level", minval=0.001, maxval=0.998, step=0.001, group="Fibonacci / OTE")
+oteHigh = input.float(0.786, "OTE Upper Level", minval=0.002, maxval=0.999, step=0.001, group="Fibonacci / OTE")
+extendLevels = input.bool(true, "Extend Levels", group="Fibonacci / OTE")
+showPrevious = input.bool(false, "Keep Previous Structure", group="Fibonacci / OTE")
+bullColor = input.color(#16b99b, "Bullish OTE", group="Colors")
+bearColor = input.color(#f04f70, "Bearish OTE", group="Colors")
+pendingColor = input.color(#83909e, "Unreached Level", group="Colors")
+completeColor = input.color(#f5d45c, "Reached Level", group="Colors")
+
+if oteLow >= oteHigh
+    runtime.error("OTE Lower Level must be smaller than OTE Upper Level.")
+
+pvtHigh = ta.pivothigh(high, pivotLen, pivotLen)
+pvtLow = ta.pivotlow(low, pivotLen, pivotLen)
+var float lastHigh = na
+var float priorHigh = na
+var int lastHighBar = na
+var float lastLow = na
+var float priorLow = na
+var int lastLowBar = na
+var int trend = 0
+var float anchorHigh = na
+var float anchorLow = na
+var int anchorHighBar = na
+var int anchorLowBar = na
+var int anchorUpdateBar = na
+
+bool bullShift = false
+bool bearShift = false
+bool anchorChanged = false
+if not na(pvtHigh)
+    priorHigh := lastHigh
+    lastHigh := pvtHigh
+    lastHighBar := bar_index - pivotLen
+if not na(pvtLow)
+    priorLow := lastLow
+    lastLow := pvtLow
+    lastLowBar := bar_index - pivotLen
+
+if not na(pvtHigh) and not na(priorHigh) and pvtHigh > priorHigh and trend <= 0 and not na(lastLow)
+    bullShift := true
+    anchorChanged := true
+    trend := 1
+    anchorLow := lastLow
+    anchorLowBar := lastLowBar
+    anchorHigh := pvtHigh
+    anchorHighBar := bar_index - pivotLen
+if not na(pvtLow) and not na(priorLow) and pvtLow < priorLow and trend >= 0 and not na(lastHigh)
+    bearShift := true
+    anchorChanged := true
+    trend := -1
+    anchorHigh := lastHigh
+    anchorHighBar := lastHighBar
+    anchorLow := pvtLow
+    anchorLowBar := bar_index - pivotLen
+if trend == 1 and not bullShift and not na(pvtHigh) and pvtHigh > anchorHigh
+    anchorHigh := pvtHigh
+    anchorHighBar := bar_index - pivotLen
+    anchorChanged := true
+if trend == -1 and not bearShift and not na(pvtLow) and pvtLow < anchorLow
+    anchorLow := pvtLow
+    anchorLowBar := bar_index - pivotLen
+    anchorChanged := true
+if anchorChanged
+    anchorUpdateBar := bar_index
+
+var float[] fibLevels = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
+var line[] fibLines = array.new_line()
+var label[] fibLabels = array.new_label()
+var bool[] completed = array.new_bool()
+var box oteBox = na
+var line swingLine = na
+
+fibPrice(float level) =>
+    trend == 1 ? anchorHigh - (anchorHigh - anchorLow) * level : anchorLow + (anchorHigh - anchorLow) * level
+inOte(float level) => level >= oteLow and level <= oteHigh
+levelColor(float level, bool reached) =>
+    reached ? completeColor : inOte(level) ? (trend == 1 ? bullColor : bearColor) : pendingColor
+
+bool structureShift = bullShift or bearShift
+if structureShift and not showPrevious
+    for ln in fibLines
+        line.delete(ln)
+    for lb in fibLabels
+        label.delete(lb)
+    array.clear(fibLines)
+    array.clear(fibLabels)
+    array.clear(completed)
+    if not na(oteBox)
+        box.delete(oteBox)
+    if not na(swingLine)
+        line.delete(swingLine)
+    oteBox := na
+    swingLine := na
+if (structureShift or anchorChanged) and not na(anchorHigh) and not na(anchorLow) and not na(anchorHighBar) and not na(anchorLowBar)
+    if structureShift and showPrevious
+        for ln in fibLines
+            line.set_x2(ln, bar_index)
+        array.clear(fibLines)
+        array.clear(fibLabels)
+        array.clear(completed)
+        oteBox := na
+        swingLine := na
+    int startBar = math.min(anchorHighBar, anchorLowBar)
+    if array.size(fibLines) == 0
+        for level in fibLevels
+            array.push(fibLines, line.new(startBar, fibPrice(level), bar_index, fibPrice(level), xloc=xloc.bar_index, color=levelColor(level, false), style=line.style_dashed, width=1))
+            array.push(fibLabels, label.new(bar_index, fibPrice(level), str.tostring(level, "#.###"), xloc=xloc.bar_index, style=label.style_label_left, color=color.new(color.black, 100), textcolor=levelColor(level, false), size=size.small))
+            array.push(completed, false)
+        swingLine := line.new(anchorLowBar, anchorLow, anchorHighBar, anchorHigh, xloc=xloc.bar_index, color=trend == 1 ? bullColor : bearColor, style=line.style_dotted, width=2)
+        if showOteZone
+            float p1 = fibPrice(oteLow)
+            float p2 = fibPrice(oteHigh)
+            oteBox := box.new(startBar, math.max(p1, p2), bar_index, math.min(p1, p2), xloc=xloc.bar_index, border_color=color.new(trend == 1 ? bullColor : bearColor, 20), bgcolor=color.new(trend == 1 ? bullColor : bearColor, 82))
+    else
+        for index = 0 to array.size(fibLevels) - 1
+            float level = array.get(fibLevels, index)
+            float price = fibPrice(level)
+            line.set_xy1(array.get(fibLines, index), startBar, price)
+            line.set_xy2(array.get(fibLines, index), bar_index, price)
+            label.set_xy(array.get(fibLabels, index), bar_index, price)
+            array.set(completed, index, false)
+        if not na(swingLine)
+            line.set_xy1(swingLine, anchorLowBar, anchorLow)
+            line.set_xy2(swingLine, anchorHighBar, anchorHigh)
+        if showOteZone and not na(oteBox)
+            float p1 = fibPrice(oteLow)
+            float p2 = fibPrice(oteHigh)
+            box.set_lefttop(oteBox, startBar, math.max(p1, p2))
+            box.set_rightbottom(oteBox, bar_index, math.min(p1, p2))
+
+if array.size(fibLines) > 0 and not na(anchorUpdateBar)
+    for index = 0 to array.size(fibLevels) - 1
+        float level = array.get(fibLevels, index)
+        float price = fibPrice(level)
+        bool reachedNow = bar_index > anchorUpdateBar and (trend == 1 ? low <= price : high >= price)
+        bool reached = array.get(completed, index) or reachedNow
+        array.set(completed, index, reached)
+        line ln = array.get(fibLines, index)
+        label lb = array.get(fibLabels, index)
+        line.set_y1(ln, price)
+        line.set_y2(ln, price)
+        line.set_x2(ln, extendLevels ? bar_index : line.get_x2(ln))
+        line.set_color(ln, showFibLines ? levelColor(level, reached) : color.new(pendingColor, 100))
+        line.set_width(ln, reached ? 3 : inOte(level) ? 2 : 1)
+        label.set_x(lb, bar_index)
+        label.set_y(lb, price)
+        label.set_text(lb, str.tostring(level, "#.###") + (reached ? "  ✓" : ""))
+        label.set_textcolor(lb, levelColor(level, reached))
+    if showOteZone and not na(oteBox)
+        box.set_right(oteBox, bar_index)
+
+if showSwingLabels and not na(pvtHigh)
+    label.new(bar_index - pivotLen, pvtHigh, str.tostring(pvtHigh, format.mintick), style=label.style_label_down, color=color.new(bearColor, 85), textcolor=bearColor, size=size.tiny)
+if showSwingLabels and not na(pvtLow)
+    label.new(bar_index - pivotLen, pvtLow, str.tostring(pvtLow, format.mintick), style=label.style_label_up, color=color.new(bullColor, 85), textcolor=bullColor, size=size.tiny)
+if bullShift
+    label.new(bar_index - pivotLen, anchorHigh, "HH · confirmed", style=label.style_label_down, color=bullColor, textcolor=color.white, size=size.tiny)
+if bearShift
+    label.new(bar_index - pivotLen, anchorLow, "LL · confirmed", style=label.style_label_up, color=bearColor, textcolor=color.white, size=size.tiny)

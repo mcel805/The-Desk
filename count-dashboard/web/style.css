@@ -12,6 +12,7 @@ header { height:58px; padding:0 18px; display:flex; align-items:center; gap:24px
 .app-tab { display:inline-flex; align-items:center; height:34px; padding:0 13px; border:1px solid transparent; border-radius:5px; color:#8e99a8; font-size:.76rem; letter-spacing:.01em; text-decoration:none; white-space:nowrap; }
 .app-tab:hover { color:#e7eef6; background:#151c26; border-color:#2c3746; }
 .app-tab.active { color:#effbff; background:#12343b; border-color:#278e9a; box-shadow:inset 0 -2px #37c9d8; }
+.app-tab.desk-art-tab{justify-content:center;width:42px;min-width:42px;padding:0 4px}.desk-art-tab img{display:block;width:30px;height:30px;object-fit:contain;pointer-events:none}.desk-art-tab .liquidity-lab-icon-color{display:none;filter:none;opacity:1}.desk-art-tab:hover .liquidity-lab-icon-mono,.desk-art-tab:focus-visible .liquidity-lab-icon-mono,.desk-art-tab:active .liquidity-lab-icon-mono,.desk-art-tab[aria-busy=true] .liquidity-lab-icon-mono{display:none}.desk-art-tab:hover .liquidity-lab-icon-color,.desk-art-tab:focus-visible .liquidity-lab-icon-color,.desk-art-tab:active .liquidity-lab-icon-color,.desk-art-tab[aria-busy=true] .liquidity-lab-icon-color{display:block}
 .api-state { display:flex; align-items:center; gap:8px; font-size:.8rem; color:var(--muted); }
 .header-status { display:flex; align-items:center; gap:8px; }
 .app-logout { min-height:26px; padding:0 8px; border:1px solid #49383b; border-radius:4px; background:#171418; color:#d8a9a7; font-size:.62rem; cursor:pointer; }
@@ -749,6 +750,39 @@ body.trading-prototype .feed-summary-title { color:#9bb4c2; }
 body.trading-prototype .tool-dock { background:#0a121a; border-bottom-color:#233744; }
 body.trading-prototype .chart-shell { background:#0b121a; }
 body.trading-prototype .chart-message { color:#8fa2b2; background:#0a1118; }
+body.trading-prototype #countControls button#readMarketButton { background:linear-gradient(180deg,#3d3567,#292648); border-color:#8d79d4; color:#f1eaff; box-shadow:0 4px 15px #866be322; }
+.read-market-panel { flex:0 0 auto; padding:9px 11px 10px; border-top:1px solid #273d4b; background:linear-gradient(180deg,#0c141d,#0a1118); }
+.read-market-head,.read-market-head>div,.read-market-controls,.read-market-box>header { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; }
+.read-market-head { margin-bottom:8px; }
+.read-market-head>div:first-child { justify-content:flex-start; }
+.read-market-head small,.read-market-head strong { display:block; }
+.read-market-head small { color:#77c8c7; font-size:.57rem; letter-spacing:.1em; }
+.read-market-head strong { margin-top:2px; color:#e1eaf0; font-size:.85rem; }
+.read-market-controls { color:#8da2af; font-size:.67rem; }
+.read-market-controls button { padding:4px 9px; border:1px solid #405361; border-radius:5px; background:#15212b; color:#dbe7ed; font-size:.67rem; cursor:pointer; }
+.read-market-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.read-market-box { min-width:0; padding:8px 10px; border:1px solid #2a3e4b; border-radius:6px; background:#101923; }
+.read-market-box[data-market-analysis="sentiment_bias"] { border-left:3px solid #73cdb9; }
+.read-market-box[data-market-analysis="liquidity"] { border-left:3px solid #e9a164; }
+.read-market-box[data-market-analysis="elliott_fib"] { border-left:3px solid #ae92e8; }
+.read-market-box[data-market-analysis="volume_divergence"] { border-left:3px solid #6eafe1; }
+.read-market-box>header { align-items:flex-start; }
+.read-market-box h3 { margin:0; color:#d8e4eb; font-size:.7rem; line-height:1.35; }
+.read-market-box label { display:inline-flex; align-items:center; gap:5px; flex:0 0 auto; color:#9dafbb; font-size:.62rem; white-space:nowrap; }
+.read-market-box label input { accent-color:#75d6cc; }
+.read-market-box p { margin:6px 0 3px; color:#d0dce2; font-size:.7rem; line-height:1.4; white-space:pre-wrap; }
+.read-market-box small { color:#9caebb; font-size:.65rem; line-height:1.35; }
+.read-market-final { display:flex; gap:8px; margin:7px 0 0; padding:7px 9px; border:1px solid #635840; border-radius:5px; background:#201c15; color:#f0d18b; font-size:.7rem; line-height:1.4; }
+.read-market-final strong { flex:0 0 auto; letter-spacing:.04em; }
+.read-market-disclosure { display:block; margin-top:5px; color:#788c98; font-size:.58rem; }
+.read-market-panel.is-running .read-market-head strong::after { content:' · working'; color:#79d5d1; font-size:.68rem; font-weight:400; }
+.read-market-chat-progress { border-left:2px solid #9d8be2; }
+.read-market-chat-progress strong { color:#d8ccff; font-size:.68rem; letter-spacing:.04em; }
+.read-market-chat-progress p { margin:5px 0 3px; color:#d2e0e8; font-size:.75rem; line-height:1.4; }
+.read-market-chat-progress small { color:#8195a2; font-size:.62rem; }
+.read-market-chat-progress[data-state="complete"] { border-left-color:#65c9ac; }
+.read-market-chat-progress[data-state="failed"] { border-left-color:#d5818e; }
+@media(max-width:700px) { .read-market-grid { grid-template-columns:1fr; } .read-market-box>header { align-items:center; } .read-market-box h3 { font-size:.74rem; } }
 body.trading-prototype .batty-dock { width:auto; background:linear-gradient(180deg,#0e1721,#0b1118); border-color:#2c3f50; }
 body.trading-prototype .batty-chat-head { height:72px; min-height:72px; padding:10px 13px; background:linear-gradient(120deg,#152637,#101923 72%); border-bottom-color:#2a4050; }
 body.trading-prototype .batty-chat-icon { width:42px; height:42px; border-color:#66dedc99; background:#0f2b31; color:#9af3e9; box-shadow:inset 0 1px #ffffff12,0 0 20px #39d0cb1f; }
@@ -800,6 +834,36 @@ body.trading-prototype .batty-chat-foot { color:#728b9a; }
   body.trading-prototype .batty-chat-actions { margin-left:auto; }
 }
 @media(prefers-reduced-motion:reduce) { .batty-cleo-chip.is-working>i { animation:none; } }
+
+/* Batty file inputs, opt-in tab capture, and local support diagnostics. */
+.batty-support-panel{position:absolute;z-index:30;top:54px;right:8px;display:flex;flex-direction:column;gap:8px;width:min(420px,calc(100% - 16px));max-height:min(72vh,610px);min-width:0;padding:10px;border:1px solid #405263;border-radius:7px;background:#111923;box-shadow:0 14px 34px #000b}
+.batty-support-panel[hidden]{display:none}
+.batty-support-toolbar{display:flex;gap:6px}
+.batty-support-toolbar button,.batty-attachment-row button{min-height:25px;padding:0 8px;border:1px solid #354454;border-radius:4px;background:#121b25;color:#bfd0de;font:600 .54rem Inter,ui-sans-serif,system-ui,sans-serif;cursor:pointer}
+.batty-support-toolbar button:hover,.batty-attachment-row button:hover{border-color:#4a8992;color:#e6ffff}
+.batty-support-note,.batty-attachment-status{margin:0;color:#8194a4;font-size:.5rem;line-height:1.4}
+.batty-support-events{display:grid;gap:6px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-color:#354353 transparent;scrollbar-width:thin}
+.batty-support-event{display:grid;gap:5px;min-width:0;padding:8px;border:1px solid #293745;border-left:3px solid #6ed4a8;border-radius:5px;background:#0e151d}
+.batty-support-event.is-failed{border-left-color:#d78a70}
+.batty-support-event-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#aebdca;font-size:.53rem}
+.batty-support-event.is-complete .batty-support-event-head strong{color:#80dbb4}
+.batty-support-event.is-failed .batty-support-event-head strong{color:#e1a38d}
+.batty-support-event-head time{color:#788999;font-size:.48rem}
+.batty-support-event code{overflow-wrap:anywhere;color:#8fe0e2;font-size:.49rem}
+.batty-support-event p,.batty-support-empty{margin:0;color:#a5b2bf;font-size:.51rem;line-height:1.45;overflow-wrap:anywhere}
+.batty-support-event .batty-support-error{color:#e5a591}
+.batty-attachment-row{display:flex;align-items:center;gap:6px;padding:3px 0 6px}
+.batty-attachment-row span{min-width:0;overflow:hidden;color:#8295a5;font-size:.49rem;text-overflow:ellipsis;white-space:nowrap}
+.batty-chat-composer .batty-attachment-row button{width:auto;height:25px;display:inline-flex;place-items:initial;align-items:center;justify-content:center;font-size:.52rem;font-weight:650;line-height:1}
+.batty-chat-composer .batty-attachment-row button.is-sharing{border-color:#478668;background:#12291f;color:#9ce4ba}
+.batty-chat-composer .batty-attachment-row button:focus-visible{outline:2px solid #69d8df;outline-offset:2px}
+.batty-chat-composer.is-drop-target{border-color:#6bcbd0;background:#14242a}
+.batty-attachment-list{display:flex;flex-wrap:wrap;gap:4px;padding-bottom:5px}
+.batty-attachment-chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 5px;border:1px solid #35485a;border-radius:4px;background:#101820;color:#adc0cf;font-size:.48rem}
+.batty-attachment-chip>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.batty-chat-composer .batty-attachment-chip button{width:18px;height:18px;display:grid;place-items:center;padding:0;border:0;background:transparent;color:#d3a79b;font-size:.75rem}
+.batty-attachment-chip button:hover{color:#fff}
+@media(max-width:520px){.batty-support-panel{top:52px;right:5px;width:min(420px,calc(100% - 10px));max-height:70vh}.batty-attachment-row{flex-wrap:wrap}.batty-attachment-row span{flex-basis:100%}}
 
 /* Paper trading is a separate workspace while the chart remains the primary surface. */
 .app-tab-note{margin-left:4px;padding:2px 4px;border:1px solid #967f2d;border-radius:3px;color:#e9d477;font:700 .48rem ui-monospace,monospace;letter-spacing:.06em;vertical-align:middle}

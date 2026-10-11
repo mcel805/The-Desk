@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { accounts, db, executions, externalEventReceipts } from "@/db";
+import { accounts, db, executions, externalEventReceipts, notes } from "@/db";
 import { bad, handler, ok, requireValue } from "@/server/api";
 import { executionHash, newId, nowIso } from "@/server/ids";
 import { rebuildAccount } from "@/server/rebuild";
@@ -7,7 +7,8 @@ import { getMultipliers, setSetting } from "@/server/settings";
 
 type EventBody = {
   eventId?: string;
-  eventType?: "account" | "execution";
+  eventType?: "account" | "execution" | "session";
+  session?: { id?: string; title?: string; content?: string; startedAt?: string };
   account?: { id?: string; name?: string; currency?: string; initialBalance?: number };
   execution?: {
     id?: string; symbol?: string; side?: "buy" | "sell"; quantity?: number;
@@ -30,7 +31,12 @@ export const POST = handler(async (request: Request) => {
     const eventId = payload.eventId?.trim() ?? "";
     requireValue(externalId.length > 0 && externalId.length <= 200, "A source account ID is required.");
     requireValue(eventId.length > 0 && eventId.length <= 240, "A stable event ID is required.");
-    requireValue(["account", "execution"].includes(payload.eventType ?? ""), "Unsupported event type.");
+    requireValue(["account", "execution", "session"].includes(payload.eventType ?? ""), "Unsupported event type.");
+    if (payload.eventType === "session") {
+      requireValue(Boolean(payload.session?.id?.match(/^hunt-[a-f0-9]{32}$/)), "Session identity is invalid.");
+      requireValue(typeof payload.session?.content === "string" && payload.session.content.length <= 2000000, "Session content is too large.");
+      requireValue(Number.isFinite(Date.parse(payload.session?.startedAt ?? "")), "Session start is invalid.");
+    }
     const execution = payload.execution;
     if (payload.eventType === "execution") {
       requireValue(Boolean(execution?.id && execution.symbol && execution.executedAt), "Execution identity, symbol and timestamp are required.");
@@ -99,6 +105,16 @@ export const POST = handler(async (request: Request) => {
           source: "manual", importMetadataJson: JSON.stringify(metadata), externalEventId: eventId,
           contentHash, createdAt: nowIso(),
         }).run();
+      }
+      if (payload.eventType === "session") {
+        const session = payload.session!;
+        const id = `count-desk-session:${session.id!}`;
+        const values = { title: (session.title ?? "Wave Court hunt").slice(0, 120),
+          content: session.content!, tagsJson: JSON.stringify(["Wave Court", "paper", "hunt-session", externalId]), updatedAt: nowIso() };
+        const existing = tx.select({id: notes.id}).from(notes).where(eq(notes.id, id)).get();
+        if (existing) tx.update(notes).set(values).where(eq(notes.id, id)).run();
+        else tx.insert(notes).values({id, folderId: "my-notes", ...values,
+          dayDate: session.startedAt!.slice(0, 10), createdAt: nowIso()}).run();
       }
       tx.insert(externalEventReceipts).values({ source: "count_desk", eventId, accountId, createdAt: nowIso() }).run();
     });

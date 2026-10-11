@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 
 
-ENGINE_VERSION = "liquidity-engine-v1.0.0"
+ENGINE_VERSION = "liquidity-engine-v1.1.0"
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,9 @@ def build_liquidity_levels(
 
     The caller should supply closed bars only. Pivots are made visible at their
     confirmation bar, although their visual anchor is the original pivot bar.
-    A level is broken only by a subsequent close beyond its outer boundary.
+    External touch counts use the Pine source's delayed ``low[length]`` /
+    ``high[length]`` overlap and strict inequality semantics. Levels are
+    broken only by a subsequent close beyond their outer boundary.
     """
     external = settings.external_length
     internal = settings.internal_length
@@ -97,6 +99,13 @@ def build_liquidity_levels(
 
         for kind, side, pivot_index, top, bottom in candidates:
             pivot = bars[pivot_index]
+            if kind == "EXT":
+                # Pine keeps one rolling count per side. A new confirmed
+                # external pivot resets that count, leaving the prior box at
+                # its last width.
+                for prior in levels:
+                    if prior["kind"] == "EXT" and prior["side"] == side:
+                        prior["countActive"] = False
             level_id = _identifier(symbol, timeframe, kind, side, pivot)
             levels.append({
                 "id": f"LQ-{kind}-{side}-{level_id}",
@@ -109,20 +118,34 @@ def build_liquidity_levels(
                 "pivotTime": pivot.time,
                 "confirmedTime": confirmed_bar.time,
                 "pivotIndex": pivot_index,
+                "pivotLength": external if kind == "EXT" else internal,
                 "confirmedIndex": confirmed_index,
                 "broken": False,
                 "brokenTime": None,
                 "firstTouchTime": None,
                 "touchCount": 0,
+                "countActive": kind == "EXT",
             })
 
-        # Advance existing levels using only this confirmed bar. A fresh level
-        # cannot be broken/touched on its confirmation candle in Pine either.
+        # Pine accumulates zone count from the bar `length` bars behind the
+        # current bar, but tests a boundary break on the current close. Keep
+        # those clocks separate; a fresh level is skipped on its confirmation
+        # candle in the source as well.
         for level in levels:
-            if level["confirmedIndex"] >= confirmed_index or level["broken"]:
+            if level["confirmedIndex"] >= confirmed_index:
                 continue
-            if confirmed_bar.low <= level["top"] and confirmed_bar.high >= level["bottom"]:
+            count_index = confirmed_index - level["pivotLength"]
+            if level["countActive"] and count_index > level["pivotIndex"]:
+                count_bar = bars[count_index]
+                if count_bar.low < level["top"] and count_bar.high > level["bottom"]:
+                    level["touchCount"] += 1
+            elif level["kind"] == "INT" and confirmed_bar.low <= level["price"] <= confirmed_bar.high:
+                # Internal levels have no Pine zone box; retain a simple
+                # contact count for the research ledger and existing callers.
                 level["touchCount"] += 1
+            if level["broken"]:
+                continue
+            if confirmed_bar.low < level["top"] and confirmed_bar.high > level["bottom"]:
                 if level["firstTouchTime"] is None:
                     level["firstTouchTime"] = confirmed_bar.time
             crossed = confirmed_bar.close > level["top"] if level["side"] == "BSL" else confirmed_bar.close < level["bottom"]

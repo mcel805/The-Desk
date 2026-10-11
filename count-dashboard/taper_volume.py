@@ -4,7 +4,7 @@ import json
 import math
 
 METHOD = 'taper.volume.v1'
-PACK = 'taper.geometry-volume.questions.v1'
+PACK = 'taper.geometry-volume.questions.v2'
 DAY = 86400000
 
 
@@ -147,12 +147,12 @@ def calculate(bars):
 
 
 def questions():
-    common = 'Use `volumeEvidence` and completed context; apply its semantics. Independent question. '
+    common = 'Use `volumeEvidence` and completed context; apply its semantics. Use server-computed `marketGeometry.frames[].channels[].volumeContext` to locate volume at baseline, autoline or derived median. Raw rolling volume/density ratios are not same-time RVOL/RelativeDensity. Independent question. '
     result = {}
     def add(name, instruction, criteria):
         result[name] = {'type': 'choice', 'instructions': common + instruction, 'criteria': {**criteria, 'UNAVAILABLE': 'Required evidence missing or invalid.'}}
     add('volume_participation', 'How does recent reported volume compare with its SMA and, when adequately sampled, same-time historical RVOL? Name the available baseline; raw rolling average does not remove seasonality.', {'EXPANDING': 'Increasing participation against available baseline.', 'CONTRACTING': 'Decreasing participation against available baseline.', 'ORDINARY': 'Near baseline without clear change.', 'MIXED': 'Raw and same-time or recent comparisons disagree.'})
-    add('volume_effort_result', 'Does high measured volume produce directional price progress, or little net progress with rejection? Small candle body alone is not absorption proof.', {'PROGRESS_UP': 'Effort accompanies completed upward progress.', 'PROGRESS_DOWN': 'Effort accompanies completed downward progress.', 'POSSIBLE_ABSORPTION': 'High effort, limited progress and observed rejection at a relevant level.', 'ORDINARY': 'No qualified effort/result anomaly.', 'MIXED': 'Effort and result conflict without a resolved interpretation.'})
+    add('volume_effort_result', 'Does high measured volume produce directional price progress, or little net progress with rejection? Small candle body alone is not absorption proof. Require measured volume/range, observed line contact, a completed close away and later confirmation; missing relative history remains unknown.', {'PROGRESS_UP': 'Effort accompanies completed upward progress.', 'PROGRESS_DOWN': 'Effort accompanies completed downward progress.', 'POSSIBLE_ABSORPTION': 'High effort, limited progress and observed rejection at a relevant level.', 'ORDINARY': 'No qualified effort/result anomaly.', 'MIXED': 'Effort and result conflict without a resolved interpretation.'})
     add('volume_location', 'Where are recent climax/churn/spikes relative to selected liquidity and active channel/Fib context? Require actual contact and completed close, not merely a large colored bar.', {'UPPER_REJECTION': 'Upper hunted level contact and close away below.', 'LOWER_REJECTION': 'Lower hunted level contact and close away above.', 'BREAKOUT_ACCEPTANCE': 'Observed consecutive closes accepting through a selected level.', 'NO_OVERLAP': 'Available signal evidence is away from selected levels.', 'CONFLICTED': 'Both sides or channels give incompatible contacts.'})
     add('volume_sequence', 'Assess the observed climax then churn sequence and candle close location; do not assume every sequence causes a turn.', {'UPPER_STALL': 'Sequence with completed upper level rejection.', 'LOWER_STALL': 'Sequence with completed lower level rejection.', 'CONTINUATION': 'Sequence followed by completed acceptance in original direction.', 'NONE': 'No qualified sequence in supplied recent evidence.', 'UNRESOLVED': 'Sequence exists but subsequent evidence is inconclusive.'})
     add('volume_follow_through', 'What do timestamped followThrough states show for the most relevant recent signal? Never classify missing continuation as reversal. Use knownAt and no future bar.', {'CONTINUATION': 'Two subsequent bars include a close beyond directional extreme.', 'OPPOSITE_BREAK': 'Observed close beyond opposite extreme.', 'PENDING': 'Two subsequent completed bars are not yet available.', 'UNRESOLVED': 'No decisive close beyond either extreme, or incompatible events.', 'NONE': 'No recent signal to assess.'})

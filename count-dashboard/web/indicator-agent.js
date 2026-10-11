@@ -4,9 +4,12 @@ const state = {catalog:[], protocols:[], proposals:[], report:null};
 const metricOptions = {event:['precision','recall','f1','accuracy'],numeric:['mae','rmse']};
 const indicatorArt = {
   'volume-profile':['volume-profile-color.png','Volume Profile'],
+  'market-research':['market-research-color.svg','Market Research'],
   liquidity:['liquidity-color.png','Liquidity'],
   bias:['bias-color.png','Bias'],
+  'structure-zones':['liquidity-zones-color.png','Structure Zones'],
   fibonacci:['fibonacci-color.png','Fibonacci'],
+  'smart-ote':['fibonacci-color.png','Smart Money Fibonacci OTE'],
   'liquidity-zones':['liquidity-zones-color.png','Liquidity Zones'],
   'daily-bias':['daily-bias-color.png','Daily Bias'],
   'elliott-wave':['elliott-wave-color.png','Elliott Wave'],
@@ -60,7 +63,13 @@ function renderCatalog() {
     $('#activeIndicatorArtLabel').textContent = `${art[1].toUpperCase()} · ACTIVE`;
   }
   $('#catalogStatus').textContent = item ? `${item.protocolCount} PROTOCOL${item.protocolCount === 1 ? '' : 'S'}` : 'UNAVAILABLE';
-  $('#indicatorSummary').innerHTML = item ? `<strong>${escapeHtml(item.name)}</strong><br>Current catalog purpose: ${escapeHtml(item.provisionalPurpose)}. Scoring state: <strong>${escapeHtml(item.scoringState)}</strong>. A Scientist must define a single measurable job and independent outcome before a performance claim.` : 'Catalog unavailable.';
+  const marketConditionsNote = item?.id === 'market-research'
+    ? ' Approved feeds can supply a headline review queue; humans classify transmission and conditional product impact. The indicator remains descriptive until a Scientist freezes an independent product/session outcome and the Lab evaluates it.'
+    : '';
+  const methodNote = item?.id === 'liquidity'
+    ? ` Shared method: ${escapeHtml(item.methodId)} v${escapeHtml(item.methodVersion)}. Learning gate: ${escapeHtml(item.learningEligibility)}.`
+    : '';
+  $('#indicatorSummary').innerHTML = item ? `<strong>${escapeHtml(item.name)}</strong><br>Current catalog purpose: ${escapeHtml(item.provisionalPurpose)}. Scoring state: <strong>${escapeHtml(item.scoringState)}</strong>. A Scientist must define a single measurable job and independent outcome before a performance claim.${escapeHtml(methodNote)}${escapeHtml(marketConditionsNote)}` : 'Catalog unavailable.';
   renderProtocolSelect();
   renderProposals();
 }

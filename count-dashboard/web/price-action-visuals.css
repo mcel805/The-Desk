@@ -1,0 +1,15 @@
+/* Completed-bar price action: tags and paper-plan motion live above the Vela canvas. */
+.chart-host{position:relative}
+.price-action-layer{position:absolute;inset:0;z-index:12;pointer-events:none;overflow:hidden}
+.price-action-tag{position:absolute;min-width:86px;padding:5px 7px;transform:translate(-50%,-50%);border:1px solid currentColor;border-radius:999px;background:#09121be8;box-shadow:0 4px 13px #0008,0 0 14px color-mix(in srgb,currentColor 28%,transparent);color:#d9f8f5;font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;white-space:nowrap;pointer-events:auto;cursor:pointer;animation:price-action-arrive .42s cubic-bezier(.2,.8,.25,1) both}
+.price-action-tag::before{content:'';position:absolute;inset:-5px;border:1px solid currentColor;border-radius:inherit;opacity:0;animation:price-action-pulse 1.8s ease-out .12s 1 both}
+.price-action-tag:hover,.price-action-tag:focus-visible{z-index:2;filter:brightness(1.25);outline:2px solid #e9fffb;outline-offset:2px}
+.price-action-tag.is-touch{color:#55e2d8}.price-action-tag.is-rejection{color:#ffc866}.price-action-tag.is-break{color:#a78bfa}.price-action-tag.is-confirmed{color:#83f0b0;box-shadow:0 0 22px #58e5a64d}
+.price-action-line{position:absolute;height:2px;transform-origin:0 50%;border-radius:2px;pointer-events:none;opacity:.76;border-top:2px dashed currentColor}
+.price-action-line.is-entry{color:#7dd3fc}.price-action-line.is-stop{color:#ff6c86}.price-action-line.is-target{color:#83f0b0;border-top-style:solid}
+.price-action-line-label{position:absolute;right:0;top:-13px;padding:2px 4px;border-radius:3px;background:#09121bd9;color:inherit;font:700 8px ui-monospace,monospace;letter-spacing:.04em}
+.price-action-runner{position:absolute;width:7px;height:7px;transform:translate(-50%,-50%);border-radius:50%;background:#e6fff8;box-shadow:0 0 7px #d8fff0,0 0 16px #5eecc1;animation:price-action-travel 1.7s ease-out .15s 1 both;pointer-events:none}
+@keyframes price-action-arrive{from{opacity:0;transform:translate(-50%,-50%) scale(.72)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes price-action-pulse{0%{opacity:.72;transform:scale(.65)}75%{opacity:0;transform:scale(1.45)}100%{opacity:0;transform:scale(1.45)}}
+@keyframes price-action-travel{0%{opacity:0;transform:translate(-50%,-50%) translateX(0)}18%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) translateX(var(--runner-distance))}}
+@media(prefers-reduced-motion:reduce){.price-action-tag,.price-action-tag::before,.price-action-runner{animation:none}.price-action-tag::before{opacity:.35}}

@@ -29,11 +29,16 @@ collapse.addEventListener('click', () => {
 });
 const drawers = {studies:'#deskStudies', replay:'#deskReplay', connections:'#deskConnections', context:'#cleoBriefing'};
 function closeDrawers() {
-  for (const selector of Object.values(drawers)) document.querySelector(selector).hidden = true;
+  for (const selector of Object.values(drawers)) {
+    const drawer = document.querySelector(selector);
+    if (drawer) drawer.hidden = true;
+  }
   document.querySelectorAll('[data-drawer]').forEach(button => button.setAttribute('aria-expanded','false'));
 }
 document.querySelectorAll('[data-drawer]').forEach(button => button.addEventListener('click', () => {
-  const drawer = document.querySelector(drawers[button.dataset.drawer]);
+  const drawerSelector = drawers[button.dataset.drawer];
+  const drawer = drawerSelector ? document.querySelector(drawerSelector) : null;
+  if (!drawer) return;
   const opening = drawer.hidden;
   closeDrawers();
   drawer.hidden = !opening;

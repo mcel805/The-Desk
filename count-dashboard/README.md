@@ -195,6 +195,55 @@ conversations and message timestamps in this browser's local storage; entries
 show in the device's local timezone and do not sync between devices. Older chat
 turns that predate timestamps are preserved with their dates marked unknown.
 
+The composer accepts up to eight common document, data, source, and image files
+(8 MB each; 12 MB total). Files are staged under `count-dashboard/data/` for
+the single Codex turn and removed when it finishes. Images use Codex's image
+input; other files are referenced by temporary path in the read-only workspace.
+Uploaded content is untrusted input and does not grant shell access. While the
+user explicitly shares a browser surface with **Share tab**, Batty attaches one
+JPEG frame to each submitted question. The browser requires a user gesture and
+lets the user choose what to share; the composer shows a LIVE state and a Stop
+button. Captured frames are temporary and are not stored in chat history.
+
+### Show Me screen clips
+
+In the Vela chart header, **Show Me** opens a small recorder. Name the clip,
+optionally enable microphone audio, press **Start recording**, and choose a tab,
+window, or screen in the browser picker. **Stop** ends it early; recording also
+stops automatically at 30 seconds. The local server stores a WebM or MP4 clip,
+up to 16 timed JPEG samples (about every two seconds), and `metadata.json` under
+`count-dashboard/output/show-me/recent/clip-NNNNNN/`. A persistent, increasing
+version number identifies each clip. The oldest folder is deleted when a 26th
+clip is saved; only the newest 25 are retained. The folder is Git ignored.
+The recorder limits a clip to 30 MB and the server validates its format and
+duration. The panel previews the latest clip and offers a download link.
+
+The camera button in the chart chat opens Recent clips. Choose one, preview or
+download it, and write a request. **Send** uses the read-only review chat.
+**Build with Codex** starts a separate, explicit local Codex coding run in the
+repository. Its status and result appear below the selected clip and can be
+reopened after a page refresh. Only one build runs at a time; each has a
+15-minute limit. The build report is stored under ignored
+`count-dashboard/output/show-me/builds/`.
+
+Both paths attach the clip's sampled frames in time order as image inputs.
+The full video is saved locally for playback and is copied into the coding
+run's temporary working area, but the current Codex CLI does not directly
+attach video or microphone audio as model inputs. The build prompt identifies
+the sample times and audio limit. The saved local clip retains video and
+optional microphone audio. Clip selection clears after a successful read-only
+chat turn. The clip file stays in Recent until its retention slot expires.
+
+The **Support** panel shows recent local API route/status events and correlated
+chat-turn records with request ID, duration, model/effort, active view, attachment
+types, provider-tool names, and sanitized errors. Export writes a redacted JSON
+file to the browser's download location. The JSONL source is
+`count-dashboard/data/support-events.jsonl`; it rotates around 5 MB and keeps
+bounded history. Prompt text, credentials, screenshots, attachment contents,
+and account identifiers are excluded. Batty can read the same bounded events
+through the read-only `recent_support_events` tool when troubleshooting. Access
+is restricted to the local Count Desk service.
+
 This local Codex subagent handoff is not a durable Firstmate crew task: it does
 not create a Firstmate task ID, support follow-up/stop operations, or record a
 Firstmate lifecycle status. Role cards remain definitions unless the chat
@@ -232,7 +281,25 @@ This forward tracker is separate from broker execution records.
 
 ### Trading Journal
 
-Open <http://127.0.0.1:8770/trade-journal.html> to create local teams, traders,
+**Selected journal (2026-09-29):** the self-hosted LuxAlgo Trade Journal at
+<http://127.0.0.1:3000/>. The Count Desk launcher starts it locally; the old
+`/trade-journal.html` entry point redirects there. Its trade detail and optional
+candle replay already use Vela. The LuxAlgo journal starts with its own empty
+SQLite database; Count Desk has not imported the prior Robinhood summaries as
+execution fills. No broker source or Clipper schedule is configured yet.
+
+The former Count Desk execution journal is archived. Its old write routes and
+`GET /api/trade-journal` return 410; a local-only read-only snapshot remains at
+`GET /api/legacy-trade-journal` for migration review. A private SQLite backup
+was saved under `count-dashboard/data/` before cutover. Count Desk chart-level
+plans and the separate paper chart simulator remain research records, not
+broker executions in the LuxAlgo journal.
+
+**Archived implementation:** the following describes the former Count Desk
+journal retained in source and private storage for reconciliation. It is not
+the selected journal interface.
+
+It allowed users to create local teams, traders,
 and broker accounts, then import trade executions from CSV. CSV upload is a
 permanent journal workflow and can be used account-by-account even after a
 broker connector is added. The import screen previews headers, suggests field
@@ -300,16 +367,8 @@ timeframe, side, bias, session, divergence, and retracement bucket.
 - `GET /api/drawings?symbol=COINBASE%3ABTCUSD&timeframe=1D`
 - `POST /api/drawings`
 - `DELETE /api/drawings?id=<drawing-id>`
-- `GET /api/trade-journal?team_id=<id>&member_id=<id>&account_id=<id>` (loopback only)
-- `POST /api/trade-journal/teams`
-- `POST /api/trade-journal/members`
-- `POST /api/trade-journal/accounts`
-- `POST /api/trade-journal/robinhood-mcp/import` (loopback only; on-demand Codex MCP snapshot)
-- `POST /api/trade-journal/paper-trades`
-- `POST /api/trade-journal/paper-trades/close`
-- `POST /api/trade-journal/preview`
-- `POST /api/trade-journal/import`
-- `POST /api/trade-journal/reviews`
+- `GET /api/trade-journal` and `POST /api/trade-journal/*` return 410 (archived)
+- `GET /api/legacy-trade-journal?team_id=<id>&member_id=<id>&account_id=<id>` (loopback-only archive snapshot)
 
 ## Delayed or real-time feed bridge
 
@@ -366,14 +425,15 @@ The small runtime workspace at `integrations/luxalgo/` is the tested local
 sidecar while the source snapshots are adapted component by component. Count
 Desk starts the sidecar only for a local Cleo chat turn when
 `BATTY_LUXALGO_MCP_ENABLED=1` is set; its allowlist includes library,
-journal-read, broker-read, Edge Stats, tracker, and prop-firm research tools.
+broker-read, Edge Stats, tracker, and prop-firm research tools. Hosted LuxAlgo
+journal MCP tools are excluded and do not connect to the self-hosted app.
 Journal writes, broker account changes, the experimental orders module, and
 Trade Relay are disabled. Credentials never enter browser code or chat
 prompts.
 
 `GET /api/integrations/luxalgo` exposes a credential-free capability report,
 including the vendored source presence, installed broker catalog, MCP
-enablement, Count Desk journal boundary, Edge Stats requirements, and
+enablement, self-hosted LuxAlgo journal availability, Edge Stats requirements, and
 optional-module gates. The Resources page renders that report so a disabled or
 rights-gated source is visible rather than implied to be connected. Edge Stats
 remains limited to authorized bars or paper/shadow fills and must retain its
@@ -422,11 +482,11 @@ Massive account and update it after expiry. Massive serves the selected interval
 directly, including 1m, 2m, 3m, 5m, 15m, and 30m; a 1m sync can also create the
 larger intraday intervals. Automatic cadence is five minutes.
 
-### Tickstream NQ chart feed
+### Tickstream MYM and NQ chart feeds
 
-Count Desk connects to the Tickstream `NQ` account stream through the official
+Count Desk connects to the Tickstream `NQ` and `MYM` account streams through the official
 `tickstream[stream]` Python SDK. It loads the recent one-hour window first, then
-pages the `/v1/ticks` endpoint with `start` and `end` through the free tier's
+pages the `/v1/ticks` endpoint with `start` and `end` through the account's
 seven-day range. It aggregates ticks into one-minute OHLCV candles and sends
 stream updates to Vela through its custom feed interface. Free-tier ticks are
 delayed by about 15 minutes; the UI reports observed lag from source timestamps.
@@ -439,10 +499,10 @@ source bars. Higher intervals are aggregated in Count Desk on CME session
 boundaries at 17:00 America/Chicago; the selected interval is included in Cleo's
 chart context. This does not add a second provider or imply real-time data.
 
-The account's `/v1/symbols` catalog lists NQ as subscribed and streamable, and
-the NQ WebSocket handshake plus tick frames were verified. The app displays
-source timestamps for freshness; it does not infer an exact delay when the
-provider's tick payload omits one. To connect another local installation, add
+The account's `/v1/symbols` catalog lists MYM and NQ as subscribed and
+streamable. Vela opens on the MYM Tickstream chart by default; select NQ from
+the instrument list to switch symbols. The app displays source timestamps for
+freshness and keeps MYM/NQ bars in separate buffers. To connect another local installation, add
 the credential to the ignored `count-dashboard/.env` file:
 
 ```sh
@@ -450,13 +510,20 @@ BATTY_TICKSTREAM_API_KEY='your-tickstream-api-key'
 ```
 
 Launch or restart Count Desk, open the Vela chart's **Connections** drawer, and
-choose **NQ · Tickstream Free Feed** in the instrument menu. The NQ 1-minute
-chart then loads the warm-up window and receives stream updates. `/api/tickstream/status`
-reports connection and latest source time; `/api/tickstream/bars?symbol=NQ`
-serves the in-memory chart bars on loopback only.
+choose **MYM · Tickstream Feed** or **NQ · Tickstream Feed** in the instrument
+menu. The selected 1-minute chart loads the warm-up window and receives stream
+updates. `/api/tickstream/status` reports connection and source timestamps;
+`/api/tickstream/bars?symbol=MYM` and `/api/tickstream/bars?symbol=NQ` serve
+the respective in-memory chart bars on loopback only. Tickstream remains a
+delayed, memory-only Vela feed; it is not written into the Count Desk database
+or paper ledger.
 
-Tickstream's account API decides the subscribed symbols. NQ is enabled for
-this account; MNQ is a separate symbol and is not part of this connection.
+Massive is disabled in Count Desk. Its stored bars remain historical, but
+automatic Massive sync is blocked and it is not selected as a default source.
+
+Tickstream's account API decides the subscribed symbols. The catalog currently
+confirms MYM and NQ as subscribed and streamable; confirm that catalog again if
+the provider account's entitlements change.
 chart feed, market-data entitlement determination, or executable price.
 
 The collapsed **Indicators · native Vela studies** registry now mounts the
@@ -641,3 +708,15 @@ gates. The focused scorer tests run with:
 cd count-dashboard
 python3 -B -m unittest -v test_indicator_lab
 ```
+
+## Taper and Wave Court in Quant Lab
+
+The Quant Lab BTC/ETH/SOL day game starts with Wave Court on the 1-minute chart and offers Taper Decisions reads against the matching frozen 15-minute field. The hourly research workspace also offers both tools. See [the implementation and boundaries](../docs/TAPER-WAVE-COURT-QUANT-LAB-v0.1.md) and [Taper role](../agents/intellect/taper.md). Taper is paper research only and requires server-side `OPENAI_API_KEY`; it does not submit orders.
+
+## Dedicated Crypto Day Desk
+
+Open [Crypto Day Desk](http://127.0.0.1:8770/crypto-day.html) for the BTC/ETH/SOL paper workspace, seven-frame Wave Court port, per-minute Taper ledger, Codex chat, policy controls and daily review. [Implementation, validation and parity boundaries](../docs/CRYPTO-DAY-DESK.md). The source Pine file is unchanged; TradingView equivalence is unverified.
+
+## Rider automatic paper hunts
+
+[Operating guide and validation](../docs/RIDER-AUTO-PAPER.md). Selected indicator liquidity and manual horizontal drawings can arm bounded, server-run Jev entry timing with automatic paper brackets.

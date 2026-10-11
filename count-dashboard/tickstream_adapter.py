@@ -17,11 +17,11 @@ from zoneinfo import ZoneInfo
 
 
 API_KEY_ENV = "BATTY_TICKSTREAM_API_KEY"
-SYMBOLS = ("NQ",)
+SYMBOLS = ("NQ", "MYM")
 MAX_BARS = 7 * 24 * 60
 HISTORY_PAGE_SIZE = 10_000
 MAX_HISTORY_PAGES = 2_048
-TIMEFRAME_MINUTES = {"1M": 1, "1H": 60, "4H": 240, "1D": 1_440}
+TIMEFRAME_MINUTES = {"1M": 1, "5M": 5, "15M": 15, "30M": 30, "1H": 60, "4H": 240, "1D": 1_440}
 FUTURES_TIMEZONE = ZoneInfo("America/Chicago")
 
 
@@ -75,7 +75,7 @@ def aggregate_bars(bars: list[dict[str, Any]], timeframe: str) -> list[dict[str,
     """Aggregate 1m bars on CME session boundaries (17:00 America/Chicago)."""
     interval = timeframe.upper()
     if interval not in TIMEFRAME_MINUTES:
-        raise ValueError("Tickstream timeframe must be 1M, 1H, 4H, or 1D.")
+        raise ValueError("Tickstream timeframe must be 1M, 5M, 15M, 30M, 1H, 4H, or 1D.")
     duration = TIMEFRAME_MINUTES[interval]
     if duration == 1:
         return bars
@@ -106,7 +106,7 @@ class TickstreamFeed:
             "state": "not_connected", "symbols": [], "lastTickAt": None,
             "lastSourceTime": None, "receivedTicks": 0, "message": "Set the server-side Tickstream key.",
         }
-        self._latest_source_seconds = 0.0
+        self._latest_source_seconds: dict[str, float] = {symbol: 0.0 for symbol in SYMBOLS}
         self._bars: dict[str, dict[int, dict[str, Any]]] = {symbol: {} for symbol in SYMBOLS}
         self._recent_keys: set[tuple[Any, ...]] = set()
         self._recent_key_order: deque[tuple[Any, ...]] = deque()
@@ -136,25 +136,33 @@ class TickstreamFeed:
                 self._status.update(state="error", message="Install the Tickstream stream dependency and restart Count Desk.")
             return
 
-        client = Tickstream(api_key=os.environ[API_KEY_ENV].strip(), timeout=30, retries=2)
-        with self._lock:
-            self._status.update(state="connecting", symbols=list(SYMBOLS), message="Connecting to the Tickstream NQ feed.")
         try:
-            # Warm the chart immediately, then fill up to seven days in the background.
-            recent = client.ticks("NQ", limit=HISTORY_PAGE_SIZE)
-            for row in _ticks(recent):
-                self._push(row, "NQ")
+            with self._lock:
+                self._status.update(
+                    state="connecting", symbols=list(SYMBOLS),
+                    message=f"Connecting to the Tickstream {' and '.join(SYMBOLS)} feeds.",
+                )
+            client = Tickstream(api_key=os.environ[API_KEY_ENV].strip(), timeout=30, retries=2)
+            # Warm both chart symbols immediately, then fill up to seven days in the background.
+            for symbol in SYMBOLS:
+                recent = client.ticks(symbol, limit=HISTORY_PAGE_SIZE)
+                for row in _ticks(recent):
+                    self._push(row, symbol)
             with self._lock:
                 self._history_state = "loading"
             threading.Thread(
                 target=self._load_history, args=(client,), name="countdesk-tickstream-history", daemon=True
             ).start()
-            for frame in client.stream("NQ", reconnect=True, control=True):
+            for frame in client.stream(*SYMBOLS, reconnect=True, control=True):
                 kind = frame.get("type")
                 if kind == "welcome":
                     subscribed = [str(item).upper() for item in frame.get("subscribed", [])]
-                    state = "connected" if "NQ" in subscribed else "error"
-                    message = "NQ stream connected." if state == "connected" else "Tickstream did not confirm the NQ subscription."
+                    missing = [symbol for symbol in SYMBOLS if symbol not in subscribed]
+                    state = "connected" if not missing else "error"
+                    message = (
+                        f"Tickstream {' and '.join(symbol for symbol in SYMBOLS if symbol in subscribed)} stream connected."
+                        if not missing else f"Tickstream did not confirm the {' and '.join(missing)} subscription."
+                    )
                     with self._lock:
                         self._status.update(state=state, symbols=subscribed, message=message)
                 elif kind == "error":
@@ -163,48 +171,55 @@ class TickstreamFeed:
                         warning = f"Tickstream reported stream warning ({code})."
                         self._status["streamWarning"] = warning
                         if self._status.get("lastTickAt"):
-                            self._status.update(state="connected", message=f"Receiving NQ ticks; {warning}")
+                            received = [symbol for symbol in SYMBOLS if self._latest_source_seconds[symbol] > 0]
+                            self._status.update(
+                                state="connected",
+                                message=f"Receiving {' and '.join(received)} ticks; {warning}",
+                            )
                         else:
                             self._status.update(state="connecting", message=warning)
                 else:
-                    self._push(frame, "NQ")
+                    symbol = str(frame.get("symbol", "")).upper()
+                    if symbol in SYMBOLS:
+                        self._push(frame, symbol)
         except Exception as exc:  # sanitize SDK/network exceptions before status exposure
             with self._lock:
                 self._status.update(state="error", message=f"Tickstream connection failed ({type(exc).__name__}).")
 
     def _load_history(self, client: Any) -> None:
         end = int(time.time())
-        start = end - 7 * 24 * 60 * 60
-        pending = [(start, end)]
         pages = 0
         capped = False
         try:
-            while pending and pages < MAX_HISTORY_PAGES:
-                lower, upper = pending.pop(0)
-                for attempt in range(4):
-                    try:
-                        payload = client.ticks("NQ", start=lower, end=upper, limit=HISTORY_PAGE_SIZE)
-                        break
-                    except Exception:
-                        if attempt == 3:
-                            raise
-                        time.sleep(min(2 ** attempt, 8))
-                rows = _ticks(payload)
-                for row in rows:
-                    self._push(row, "NQ", history=True)
-                pages += 1
-                with self._lock:
-                    self._history_pages = pages
-                if isinstance(payload, dict) and payload.get("truncated"):
-                    if upper - lower <= 1:
-                        capped = True
-                        continue
-                    middle = (lower + upper) // 2
-                    # The shared boundary second is intentional; _history_keys
-                    # removes duplicate prints if the API treats both ends inclusive.
-                    pending[0:0] = [(lower, middle), (middle, upper)]
-            if pending:
-                capped = True
+            for symbol in SYMBOLS:
+                start = end - 7 * 24 * 60 * 60
+                pending = [(start, end)]
+                while pending and pages < MAX_HISTORY_PAGES:
+                    lower, upper = pending.pop(0)
+                    for attempt in range(4):
+                        try:
+                            payload = client.ticks(symbol, start=lower, end=upper, limit=HISTORY_PAGE_SIZE)
+                            break
+                        except Exception:
+                            if attempt == 3:
+                                raise
+                            time.sleep(min(2 ** attempt, 8))
+                    rows = _ticks(payload)
+                    for row in rows:
+                        self._push(row, symbol, history=True)
+                    pages += 1
+                    with self._lock:
+                        self._history_pages = pages
+                    if isinstance(payload, dict) and payload.get("truncated"):
+                        if upper - lower <= 1:
+                            capped = True
+                            continue
+                        middle = (lower + upper) // 2
+                        # The shared boundary second is intentional; _history_keys
+                        # removes duplicate prints if the API treats both ends inclusive.
+                        pending[0:0] = [(lower, middle), (middle, upper)]
+                if pending:
+                    capped = True
             with self._lock:
                 self._history_state = "capped" if capped else "complete"
         except Exception as exc:
@@ -218,10 +233,11 @@ class TickstreamFeed:
         tick = normalize_tick(row, symbol)
         if not tick:
             return
+        ticker = tick["symbol"]
         bucket = int(tick["time"] // 60) * 60
         bars = self._bars[symbol]
         with self._lock:
-            key = (round(tick["time"] * 1_000_000), tick["price"], tick["size"], str(row.get("side", "")))
+            key = (ticker, round(tick["time"] * 1_000_000), tick["price"], tick["size"], str(row.get("side", "")))
             if history:
                 if key in self._history_keys:
                     return
@@ -250,9 +266,14 @@ class TickstreamFeed:
                 del bars[old]
             self._status["lastTickAt"] = datetime.now(timezone.utc).isoformat()
             self._status["receivedTicks"] = int(self._status.get("receivedTicks", 0)) + 1
-            if tick["time"] >= self._latest_source_seconds:
-                self._latest_source_seconds = tick["time"]
-                self._status["lastSourceTime"] = datetime.fromtimestamp(tick["time"], timezone.utc).isoformat()
+            if tick["time"] >= self._latest_source_seconds[ticker]:
+                self._latest_source_seconds[ticker] = tick["time"]
+                source_time = datetime.fromtimestamp(tick["time"], timezone.utc).isoformat()
+                self._status.setdefault("lastSourceTimeBySymbol", {})[ticker] = source_time
+                self._status["lastSourceTime"] = max(
+                    (value for value in self._status["lastSourceTimeBySymbol"].values() if value),
+                    default=source_time,
+                )
             if self._status.get("state") in ("connecting", "error"):
                 warning = self._status.get("streamWarning")
                 suffix = f"; {warning}" if warning else ""
@@ -269,10 +290,10 @@ class TickstreamFeed:
     def bars(self, symbol: str, timeframe: str = "1M") -> dict[str, Any]:
         ticker = symbol.strip().upper()
         if ticker not in SYMBOLS:
-            raise ValueError("Tickstream chart supports the subscribed NQ symbol.")
+            raise ValueError("Tickstream chart supports the subscribed MYM and NQ symbols.")
         interval = timeframe.upper()
         if interval not in TIMEFRAME_MINUTES:
-            raise ValueError("Tickstream timeframe must be 1M, 1H, 4H, or 1D.")
+            raise ValueError("Tickstream timeframe must be 1M, 5M, 15M, 30M, 1H, 4H, or 1D.")
         self.start()
         with self._lock:
             one_minute = [dict(self._bars[ticker][stamp]) for stamp in sorted(self._bars[ticker])]
@@ -281,7 +302,8 @@ class TickstreamFeed:
         result = aggregate_bars(one_minute, interval)
         return {
             "symbol": ticker, "provider": "Tickstream", "timeframe": interval, "state": state["state"],
-            "message": state["message"], "lastSourceTime": state["lastSourceTime"],
+            "message": state["message"],
+            "lastSourceTime": state.get("lastSourceTimeBySymbol", {}).get(ticker),
             "historyState": history_state, "bars": result,
         }
 
@@ -298,8 +320,13 @@ def fetch_quote(symbol: str) -> dict[str, Any]:
     if not result["bars"]:
         raise TickstreamError("Tickstream has not delivered a tick for this symbol yet.")
     bar = result["bars"][-1]
+    source_time = result["lastSourceTime"]
+    lag_minutes = None
+    if source_time:
+        lag_minutes = max(0, round((datetime.now(timezone.utc) - datetime.fromisoformat(source_time)).total_seconds() / 60))
     return {
         "provider": "Tickstream", "source": "tick-stream.xyz", "symbol": symbol.upper(),
-        "mode": result["state"], "price": bar["close"], "sourceTimestamp": result["lastSourceTime"],
+        "mode": result["state"], "price": bar["close"], "sourceTimestamp": source_time,
+        "delayMinutes": lag_minutes,
         "retrievedAt": datetime.now(timezone.utc).isoformat(),
     }

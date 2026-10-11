@@ -45,7 +45,7 @@ const money = value => value == null ? '—' : new Intl.NumberFormat('en-US', {s
 const priceText = value => value == null ? '—' : Number(value).toLocaleString('en-US', {maximumFractionDigits:4});
 const field = (label, id, body) => `<label>${label}${body.replace('ID', id)}</label>`;
 
-export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpenAccounts, onDiscard}) {
+export function createPaperChartPlanner({stage, onQueue, onQueueError, onAccountSelect, onOpenAccounts, onDiscard}) {
   const layout = document.createElement('div');
   layout.className = 'vela-chart-trade-layout';
   stage.before(layout);
@@ -54,9 +54,9 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
   rail.id = 'paperRailPanel';
   rail.className = 'vela-chart-trade-rail';
   rail.setAttribute('aria-label','Paper trade planner');
-  rail.innerHTML = `<div class="paper-rail-head"><small>PAPER · TRADE MANAGER</small><strong>Paper plan</strong><span id="paperRailMarket">Load a stored micro-futures chart.</span><button id="paperRailCollapse" class="cat-rail-toggle" type="button" aria-expanded="true" aria-controls="paperRailPanel" aria-label="Collapse Trade Manager" title="Collapse Trade Manager"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button></div>
-    <label class="paper-rail-account">Simulation account<select id="paperRailAccount"><option value="">Create an account first</option></select></label>
-    <button id="paperRailOpenAccounts" class="paper-rail-link" type="button">Manage simulation accounts</button>
+  rail.innerHTML = `<div class="paper-rail-head"><small>SIM · PAPER ACCOUNT</small><strong>Chart Trader</strong><span id="paperRailMarket">Load a supported stored micro-futures chart.</span><button id="paperRailCollapse" class="cat-rail-toggle" type="button" aria-expanded="true" aria-controls="paperRailPanel" aria-label="Collapse Chart Trader" title="Collapse Chart Trader"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button></div>
+    <label class="paper-rail-account">Active account<select id="paperRailAccount"><option value="">Create an account first</option></select></label>
+    <button id="paperRailOpenAccounts" class="paper-rail-link" type="button">Create Sim account · Live unavailable</button>
     <form id="paperRailForm" class="paper-rail-form">
       <div class="paper-rail-pair">${field('Direction','paperRailSide','<select id="ID"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select>')}${field('Order type','paperRailType','<select id="ID"><option value="market">Market</option><option value="limit">Limit</option><option value="stop">Stop</option><option value="stop_limit">Stop-limit</option></select>')}</div>
       <div class="paper-rail-pair">${field('Contracts','paperRailQuantity','<input id="ID" type="number" min="1" max="100" step="1" value="1" required>')}${field('Entry / limit','paperRailEntry','<input id="ID" type="number" min="0" step="any" inputmode="decimal">')}</div>
@@ -66,18 +66,19 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       <div class="paper-rail-metrics"><div><span>Risk at stop</span><strong id="paperRailRisk">—</strong></div><div><span>Reward at target</span><strong id="paperRailReward">—</strong></div><div><span>Reward / risk</span><strong id="paperRailRatio">—</strong></div><div><span>Scenario P&amp;L</span><strong id="paperRailScenario">—</strong></div></div>
       <p id="paperRailReference" class="paper-rail-reference">No stored price reference.</p>
       <p id="paperRailValidation" class="paper-rail-validation" role="status">Set entry, stop, and target on the chart or here.</p>
-      <div class="paper-rail-actions"><button id="paperRailQueue" type="submit">Review paper order</button><button id="paperRailDiscard" type="button">Discard plan</button></div>
-    </form><p class="paper-rail-note">The reference is the latest stored chart close; fills wait for later completed bars. Dollar amounts are hypothetical gross figures before fees and slippage. Drag colored chart lines or edit prices here.</p>`;
+      <div class="paper-rail-actions"><button id="paperRailQueue" type="submit">Review Sim order</button><button id="paperRailDiscard" type="button">Discard plan</button></div>
+    </form><div class="paper-rail-positions-head"><strong>Orders &amp; positions</strong><span id="velaPaperPositionCount">0 queued · 0 open</span></div><p id="velaPaperStatus" class="vela-paper-status" role="status" aria-live="polite">SIM · Waiting for chart and account.</p><div id="velaPaperPositions" class="vela-paper-positions">Select a Sim account to see its orders and positions.</div><p class="paper-rail-note">Historical stored-bar simulation only. The displayed source and cutoff determine what the simulator can know. Gross results exclude fees and slippage.</p>`;
   layout.append(rail);
   const get = id => rail.querySelector('#' + id);
   const collapseKey = 'count-desk-paper-plan-collapsed-v1';
   const collapseButton = get('paperRailCollapse');
   const setCollapsed = (collapsed, save = true) => {
     layout.classList.toggle('is-plan-collapsed',collapsed);
+    layout.classList.toggle('is-ticket-open',!collapsed);
     rail.classList.toggle('is-collapsed',collapsed);
     collapseButton.setAttribute('aria-expanded',String(!collapsed));
-    collapseButton.setAttribute('aria-label',collapsed ? 'Expand Trade Manager' : 'Collapse Trade Manager');
-    collapseButton.title = collapsed ? 'Expand Trade Manager' : 'Collapse Trade Manager';
+      collapseButton.setAttribute('aria-label',collapsed ? 'Expand Chart Trader' : 'Collapse Chart Trader');
+      collapseButton.title = collapsed ? 'Expand Chart Trader' : 'Collapse Chart Trader';
     if (save) try { localStorage.setItem(collapseKey,collapsed ? 'yes' : 'no'); } catch { /* Local preferences are optional. */ }
     requestAnimationFrame(() => window.countDeskVelaChart?.resize?.());
   };
@@ -98,6 +99,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
   let enabled = false;
   let hasDraft = false;
   let reviewOpen = false;
+  let queueError = '';
   let committedEntry = null;
 
   const readPlan = () => ({
@@ -153,18 +155,18 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     const entryReady = !pendingType || plan.order_type === 'stop' || Number.isFinite(Number(inputs.entry.value)) && Number(inputs.entry.value) > 0;
     const triggerReady = !['stop','stop_limit'].includes(plan.order_type) || Number.isFinite(plan.trigger_price) && plan.trigger_price > 0;
     const valid = enabled && hasDraft && metrics.valid && entryReady && triggerReady && accountReady && Boolean(contract);
-    const message = !enabled ? 'Load a stored micro-futures chart to plan.' :
+    const message = queueError || (!enabled ? 'Load a stored micro-futures chart to plan.' :
       !hasDraft ? 'Right-click the chart or edit this ticket to start a plan.' :
       !accountReady ? 'Create or select a simulation account.' :
       !entryReady ? 'Set an entry price on the chart or here.' :
       !triggerReady ? 'Set a stop trigger price.' :
       !metrics.valid ? metrics.reason : reviewOpen ?
         `Confirm ${plan.side} ${plan.quantity} ${plan.order_type.replace('_','-')} · planned entry ${priceText(plan.entry)} · stop ${priceText(plan.stop_price)} · target ${priceText(plan.target_price)}.` :
-        'Draft only. Review before queueing a simulated order.';
+        'Draft only. Review before queueing a simulated order.');
     get('paperRailValidation').textContent = message;
-    get('paperRailValidation').classList.toggle('is-invalid',!valid);
+    get('paperRailValidation').classList.toggle('is-invalid',!valid || Boolean(queueError));
     get('paperRailQueue').disabled = !valid;
-    get('paperRailQueue').textContent = reviewOpen ? 'Confirm & queue paper order' : 'Review paper order';
+    get('paperRailQueue').textContent = reviewOpen ? 'Confirm & queue Sim order' : 'Review Sim order';
     inputs.entry.disabled = plan.order_type === 'market';
     inputs.entry.closest('label').hidden = plan.order_type === 'stop';
     inputs.trigger.closest('label').hidden = !['stop','stop_limit'].includes(plan.order_type);
@@ -174,10 +176,12 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
   const discard = () => {
     hasDraft = false;
     reviewOpen = false;
+    queueError = '';
     removeLines();
     for (const key of ['entry','trigger','stop','target']) inputs[key].value = '';
     committedEntry = null;
     render();
+    rail.scrollTop = 0;
   };
   const commitEntryEdit = () => {
     const next = readPlan().entry;
@@ -188,18 +192,19 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
     }
     committedEntry = Number.isFinite(next) && next > 0 ? next : null;
   };
-  rail.addEventListener('input', event => { if (event.target !== get('paperRailAccount')) hasDraft = true; reviewOpen = false; render(); });
+  rail.addEventListener('input', event => { if (event.target !== get('paperRailAccount')) hasDraft = true; reviewOpen = false; queueError = ''; render(); });
   rail.addEventListener('change', event => {
     if (event.target === get('paperRailAccount')) return;
     if (event.target === inputs.entry || event.target === inputs.trigger && inputs.type.value === 'stop') commitEntryEdit();
     else if (event.target === inputs.type) committedEntry = readPlan().entry;
-    hasDraft = true; reviewOpen = false; render();
+    hasDraft = true; reviewOpen = false; queueError = ''; render();
   });
-  get('paperRailAccount').addEventListener('change', event => { reviewOpen = false; onAccountSelect(event.target.value); });
+  get('paperRailAccount').addEventListener('change', event => { reviewOpen = false; queueError = ''; onAccountSelect(event.target.value); });
   get('paperRailOpenAccounts').addEventListener('click', onOpenAccounts);
   get('paperRailDiscard').addEventListener('click', () => { discard(); onDiscard?.(); });
   get('paperRailForm').addEventListener('submit', async event => {
     event.preventDefault();
+    queueError = '';
     render();
     if (get('paperRailQueue').disabled) return;
     if (!reviewOpen) { reviewOpen = true; render(); return; }
@@ -212,11 +217,17 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
         limit_price:plan.limit_price,trigger_price:plan.trigger_price,
         stop_price:plan.stop_price,target_price:plan.target_price});
       discard();
-    } catch (error) { get('paperRailValidation').textContent = error.message; }
+      setCollapsed(true);
+    } catch (error) { queueError = error.message; onQueueError?.(error); }
     finally { render(); }
   });
   return {
     canPlanAtPrice:() => enabled,
+    openTicket() {
+      setCollapsed(false);
+      rail.scrollTop = 0;
+      get('paperRailAccount').focus({preventScroll:true});
+    },
     setChart(nextChart, nextContract) {
       const sameMarket = contract && nextContract && contract.market.symbol === nextContract.market.symbol
         && contract.market.timeframe === nextContract.market.timeframe;
@@ -256,6 +267,7 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
           else inputs[kind].value = String(price);
           if (kind === 'entry') commitEntryEdit();
           reviewOpen = false;
+          queueError = '';
           render();
         });
       }
@@ -268,11 +280,13 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       select.value = selectedId || '';
       render();
     },
+    accountId() { return get('paperRailAccount').value; },
     planFromContext(side, type) {
       if (!enabled) return;
       setCollapsed(false);
       hasDraft = true;
       reviewOpen = false;
+      queueError = '';
       inputs.side.value = side;
       inputs.type.value = type;
       const picked = hoverPrice ?? reference;
@@ -282,8 +296,8 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       }
       committedEntry = readPlan().entry;
       render();
-      rail.scrollIntoView({block:'nearest'});
-      inputs[type === 'market' ? 'quantity' : 'entry'].focus();
+      rail.scrollTop = 0;
+      inputs[type === 'market' ? 'quantity' : 'entry'].focus({preventScroll:true});
     },
     planAtPrice(price, side = 'long') {
       const selected = Number(price);
@@ -291,13 +305,14 @@ export function createPaperChartPlanner({stage, onQueue, onAccountSelect, onOpen
       setCollapsed(false);
       hasDraft = true;
       reviewOpen = false;
+      queueError = '';
       inputs.side.value = side === 'short' ? 'short' : 'long';
       inputs.type.value = 'limit';
       inputs.entry.value = String(selected);
       committedEntry = selected;
       render();
-      rail.scrollIntoView({block:'nearest'});
-      inputs.entry.focus();
+      rail.scrollTop = 0;
+      inputs.entry.focus({preventScroll:true});
       return true;
     },
     updateReference(nextContract) {

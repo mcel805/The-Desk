@@ -27,7 +27,7 @@
         <span class="belt-kicker">COUNT DESK / BUILT IN STUDIES</span>
         <h1>The Tool Belt</h1>
         <p>One place for indicators built into this application. Each tool gets a version, a clear purpose, and a measured evidence record as the framework grows.</p>
-        <div class="belt-hero-actions"><a href="./vela-preview.html">Open Chart Workspace <span aria-hidden="true">↗</span></a><a href="./indicator-agent.html">Open Indicator Agent <span aria-hidden="true">↗</span></a><span>15 studies cataloged · research only</span></div>
+        <div class="belt-hero-actions"><a href="./vela-preview.html">Open Chart Workspace <span aria-hidden="true">↗</span></a><a href="./indicator-science.html">Open Indicator Science <span aria-hidden="true">↗</span></a><span>17 studies cataloged · research only</span></div>
       </div>
       <img class="belt-hero-image" src="./tool-belt-assets/tool-belt-color.png" alt="Colored pencil illustration of a dimensional work tool belt filled with chart research tools">
     </section>
@@ -53,20 +53,21 @@
     </section>
 
     <section id="liquidityWorkbench" class="belt-workbench liquidity-workbench" aria-labelledby="liquidityHeading" hidden>
-      <div class="belt-workbench-head"><div><span class="belt-kicker">PREMIUM INDICATOR / LEVEL ENGINE</span><h2 id="liquidityHeading">Liquidity · v1.0.0</h2><p>Confirmed external swing zones and internal swing levels only. Each level has a stable identifier, confirmation time, touch history, and broken state. No bias, trade setup, probability, or order-book claim.</p></div><button id="closeLiquidityWorkbench" type="button" aria-label="Close Liquidity workbench">Close ✕</button></div>
+      <div class="belt-workbench-head"><div><span class="belt-kicker">PREMIUM INDICATOR / VERSIONED STUDY</span><h2 id="liquidityHeading">Liquidity Map · v1.0.0</h2><p>Confirmed external and internal swing-price levels. Each level records pivot and confirmation times, and ends on a later close through. Source snapshots are unscored until rights and an outcome protocol are approved. No trade instruction or order-book claim.</p></div><button id="closeLiquidityWorkbench" type="button" aria-label="Close Liquidity workbench">Close ✕</button></div>
       <form id="liquidityForm" class="belt-profile-form">
         <label>Stored symbol<select id="liquiditySymbol" required><option value="">Loading stored symbols…</option></select></label>
         <label>Timeframe<select id="liquidityTimeframe" required><option value="">Choose a symbol</option></select></label>
         <label>External pivot<input id="liquidityExternalLength" type="number" min="1" max="100" value="14" required></label>
         <label>Internal pivot<input id="liquidityInternalLength" type="number" min="1" max="100" value="5" required></label>
+        <label>Convergence range (ATR)<input id="liquidityConvergenceAtr" type="number" min="0.01" max="2" step="0.01" value="0.1" required></label>
         <button type="submit">Map stored levels</button>
       </form>
       <p id="liquidityRunStatus" class="belt-run-status" role="status" aria-live="polite">Choose stored bars to build a confirmed level map. Probability is unscored.</p>
       <div id="liquidityReport" hidden>
         <div id="liquidityMeta" class="belt-profile-meta"></div>
-        <div class="liquidity-chart-head"><span>PRICE / CONFIRMED LEVELS</span><button id="replayLiquidityBreak" type="button" disabled>Replay last stored break</button></div>
+        <div class="liquidity-chart-head"><span>PRICE / CONFIRMED LEVELS</span><div><button id="copyLiquiditySnapshot" type="button">Copy study reference</button> <a class="button-link" href="./indicator-science.html?indicator=liquidity&amp;setup=1">Measure this indicator ↗</a> <button id="replayLiquidityBreak" type="button" disabled>Replay last stored break</button></div></div>
         <svg id="liquidityChart" class="liquidity-chart" viewBox="0 0 1200 500" role="img" aria-label="Stored price bars with confirmed external and internal liquidity levels"></svg>
-        <p class="liquidity-legend"><span class="ext-swatch">━</span> External zone <span class="int-swatch">┄</span> Internal level <span class="broken-swatch">┄</span> Broken on close</p>
+        <p class="liquidity-legend"><span class="ext-swatch">━</span> External level <span class="int-swatch">┄</span> Internal level <span class="broken-swatch">┄</span> Broken on close</p>
         <div id="liquidityLevels" class="liquidity-levels"></div>
       </div>
       <p class="liquidity-guide-link"><a href="./index.html?guide=liquidity#chartWorkspace">Open the Liquidity user guide in Count Desk ↗</a></p>

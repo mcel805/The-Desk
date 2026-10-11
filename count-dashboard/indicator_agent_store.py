@@ -15,12 +15,16 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from liquidity_map import METHOD_ID as LIQUIDITY_METHOD_ID, METHOD_VERSION as LIQUIDITY_METHOD_VERSION
 
 CATALOG = (
     ("volume-profile", "Volume Profile", "Historical volume distribution", "descriptive"),
     ("liquidity", "Liquidity", "Confirmed external and internal liquidity levels", "unscored"),
     ("bias", "Bias", "Confirmed swing structure with prior-period liquidity context", "unscored"),
+    ("structure-zones", "Structure Zones", "Confirmed structure breaks, displacement origin zones, and swing-pool states", "unscored"),
+    ("market-research", "Market Research", "Source-linked external event pressure by product and session; descriptive and unscored", "descriptive"),
     ("fibonacci", "Fibonacci", "Retracement levels from selected swings", "unscored"),
+    ("smart-ote", "Smart Money Fibonacci OTE", "Confirmed structure shifts and completed Fibonacci retracement levels", "unscored"),
     ("liquidity-zones", "Liquidity Zones", "Research zones around swept levels", "unscored"),
     ("daily-bias", "Daily Bias", "Provisional context from prior sweeps", "unscored"),
     ("elliott-wave", "Elliott Wave", "Provisional counts and path structure", "unscored"),
@@ -111,10 +115,16 @@ def connect(path: Path):
 def catalog(db):
     counts = {row["indicator_id"]: row["n"] for row in db.execute(
         "SELECT indicator_id,COUNT(*) AS n FROM protocols GROUP BY indicator_id")}
-    return {"mode": "local_paper_research", "agentRuntime": "not_dispatched", "indicators": [
+    indicators = [
         {"id": ident, "name": name, "provisionalPurpose": purpose,
          "scoringState": status, "protocolCount": counts.get(ident, 0)}
-        for ident, name, purpose, status in CATALOG]}
+        for ident, name, purpose, status in CATALOG]
+    for item in indicators:
+        if item["id"] == "liquidity":
+            item["methodId"] = LIQUIDITY_METHOD_ID
+            item["methodVersion"] = LIQUIDITY_METHOD_VERSION
+            item["learningEligibility"] = "source rights and outcome protocol required"
+    return {"mode": "local_paper_research", "agentRuntime": "not_dispatched", "indicators": indicators}
 
 
 def create_protocol(db, payload):

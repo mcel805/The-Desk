@@ -33,7 +33,7 @@ async function refreshLedger() {
     const params = new URLSearchParams(Object.entries(selectedFilters()).filter(([,value])=>value));
     const payload = await request(`/api/trade-journal${params.size?`?${params}`:''}`);
     workspace = payload.workspace; ledger = payload.ledger;
-    renderWorkspace(); renderLedger(); renderReportedTrades(); renderPaperTrades(); renderImports(); stateMessage('Journal is current');
+    renderWorkspace(); renderLedger(); renderReportedTrades(); renderPaperTrades(); renderImports(); stateMessage('Local journal loaded');
   } catch (error) { stateMessage(error.message,true); }
 }
 function optionsFor(select, entries, valueKey, labelFn, firstLabel, selectedValue = '') {

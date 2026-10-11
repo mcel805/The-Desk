@@ -87,6 +87,10 @@ function Dashboard() {
   return (
     <>
       <FilterBar title="Dashboard" actions={<AddTradeDialog onSaved={refresh} />} />
+      <div className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-teal-800/60 bg-teal-950/30 px-4 py-3 text-sm">
+        <div><strong>Clipper · standby</strong><span className="ml-2 text-muted-foreground">Three daily account audits are planned. No reconciliation schedule or account source is connected yet.</span></div>
+        <Link href="/accounts" className="text-teal-300 underline underline-offset-2">Review accounts</Link>
+      </div>
       <DashboardContent
         data={data}
         loading={loading}
@@ -742,7 +746,7 @@ function EmptyState() {
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-24 text-center">
         <h2 className="text-xl font-semibold">Your journal is empty</h2>
         <p className="max-w-md text-sm text-muted-foreground">
-          Connect a broker for automatic sync, upload a statement from 10+ platforms (including your
+          Connect a broker for on-demand sync, upload a statement from 10+ platforms (including your
           TradeZella export), or add trades manually.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">

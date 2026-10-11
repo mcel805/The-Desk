@@ -59,10 +59,11 @@ function renderChart(data) {
   if (!bars.length) { chart.innerHTML = '<text x="40" y="60" fill="#b9c7cf">No closed bars available.</text>'; return; }
   const visible = bars.slice(-420);
   const firstTime = visible[0].time, lastTime = visible.at(-1).time;
-  const visibleLevels = (data.levels || []).filter(level => (level.brokenTime == null || level.brokenTime >= firstTime) && level.pivotTime <= lastTime);
+  const closedCutoff = lastTime + Number(data.barDurationSeconds || 0);
+  const visibleLevels = (data.levels || []).filter(level => (level.brokenTime == null || level.brokenTime >= firstTime) && level.confirmedTime <= closedCutoff);
   const recent = visibleLevels.slice(-48);
   const rawPrices = visible.flatMap(bar => [bar.high,bar.low]);
-  recent.forEach(level => rawPrices.push(level.top,level.bottom));
+  recent.forEach(level => rawPrices.push(level.price));
   let min = Math.min(...rawPrices), max = Math.max(...rawPrices);
   const padding = (max-min || Math.abs(max)*0.002 || 1) * 0.06;
   min -= padding; max += padding;
@@ -78,16 +79,11 @@ function renderChart(data) {
   }
 
   for (const level of recent) {
-    const x1=xForTime(level.pivotTime), x2=level.broken ? xForTime(level.brokenTime) : left+plotW;
+    const x1=xForTime(level.confirmedTime), x2=level.broken ? xForTime(level.brokenTime) : left+plotW;
     if (x2 <= x1) continue;
     const y=yForPrice(level.price), broken=level.broken;
     const kind=level.kind.toLowerCase(), side=level.side.toLowerCase();
     const className=`liquidity-level ${kind} ${side} ${broken?'broken':'active'}`;
-    if (level.kind === 'EXT' && level.top > level.bottom) {
-      const zoneY=Math.min(yForPrice(level.top),yForPrice(level.bottom));
-      const zoneH=Math.max(1,Math.abs(yForPrice(level.top)-yForPrice(level.bottom)));
-      out.push(`<rect class="liquidity-zone-band ${side} ${broken?'broken':''}" x="${x1}" y="${zoneY}" width="${Math.max(1,x2-x1)}" height="${zoneH}"/>`);
-    }
     out.push(`<g class="${className}" data-level-id="${esc(level.id)}"><line class="liquidity-edge" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}"/><title>${esc(level.id)} · ${esc(level.side)} ${esc(level.kind)} · ${broken?'broken':'active'} · ${esc(number(level.price))}</title></g>`);
   }
 
@@ -118,15 +114,15 @@ function renderLedger(data) {
   const rows=[...all].sort((a,b)=>b.confirmedTime-a.confirmedTime).slice(0,36);
   const active=all.filter(level=>!level.broken).length, broken=all.length-active;
   levelsView.innerHTML=`<div class="liquidity-ledger-head"><strong>LEVEL LEDGER</strong><span>${active} active · ${broken} broken · ${all.length} mapped</span></div>
-    <div class="liquidity-level-list">${rows.map(level=>`<article class="liquidity-level-row ${level.broken?'is-broken':''}"><span class="level-stamp ${level.kind.toLowerCase()} ${level.side.toLowerCase()}">${level.sequence}</span><strong>${level.side} ${level.kind}</strong><span>${esc(level.kind==='EXT'?`${number(level.bottom)} – ${number(level.top)}`:number(level.price))}</span><span class="level-state">${level.broken?'BROKEN':level.touchCount?'TOUCHED':'NEW'}</span><small>${esc(level.id)} · pivot ${esc(timestamp(level.pivotTime))} · confirmed ${esc(timestamp(level.confirmedTime))}${level.brokenTime?` · broken ${esc(timestamp(level.brokenTime))}`:''} · touches ${level.touchCount}</small></article>`).join('')||'<p class="liquidity-empty">No confirmed levels in this window.</p>'}</div>`;
+    <div class="liquidity-level-list">${rows.map(level=>`<article class="liquidity-level-row ${level.broken?'is-broken':''}"><span class="level-stamp ${level.kind.toLowerCase()} ${level.side.toLowerCase()}">${level.sequence}</span><strong>${level.side} ${level.kind}</strong><span>${esc(number(level.price))}</span><span class="level-state">${level.broken?'BROKEN':'ACTIVE'}</span><small>${esc(level.id)} · pivot ${esc(timestamp(level.pivotTime))} · confirmed ${esc(timestamp(level.confirmedTime))}${level.brokenTime?` · broken ${esc(timestamp(level.brokenTime))}`:''}</small></article>`).join('')||'<p class="liquidity-empty">No confirmed levels in this window.</p>'}</div>`;
 }
 
 function renderResult(data) {
   lastReport=data;
   const sources=data.sources?.length ? data.sources.map(source=>`${esc(source.source)} · ${esc(source.dataset_id)} · ${source.derived?'derived timeframe':'native timeframe'} · retrieved ${esc(source.retrieved_at||'unknown')} · SHA-256 ${esc(source.source_sha256||'unavailable')}`).join('<br>') : 'No source record found';
-  document.querySelector('#liquidityMeta').innerHTML=`<strong>Instrument / timeframe:</strong> ${esc(data.symbol)} / ${esc(data.timeframe)} · <strong>Closed-bar cutoff:</strong> ${esc(timestamp(data.confirmedCutoff))} · latest stored bar excluded: ${esc(timestamp(data.excludedLatestStoredBar))} · times shown in browser timezone<br><strong>Settings:</strong> external ${data.settings.external_length} bars each side · internal ${data.settings.internal_length} bars each side · <strong>Engine:</strong> ${esc(data.engineVersion)}<br><strong>Sources:</strong> ${sources}<br><strong>Input SHA-256:</strong> ${esc(data.inputHash)} · <strong>Rights:</strong> ${esc(data.sourceRights)} · <strong>Probability:</strong> unscored`;
+  document.querySelector('#liquidityMeta').innerHTML=`<strong>Instrument / timeframe:</strong> ${esc(data.symbol)} / ${esc(data.timeframe)} · <strong>Closed-bar cutoff:</strong> ${esc(timestamp(data.confirmedCutoff))} · latest stored bar excluded: ${esc(timestamp(data.excludedLatestStoredBar))} · times shown in browser timezone<br><strong>Settings:</strong> external ${data.settings.external_length} bars each side · internal ${data.settings.internal_length} bars each side · convergence ${data.settings.convergence_atr} × mean TR(14) · <strong>Method:</strong> ${esc(data.methodId)} v${esc(data.methodVersion)}<br><strong>Sources:</strong> ${sources}<br><strong>Input SHA-256:</strong> ${esc(data.inputHash)} · <strong>Rights:</strong> ${esc(data.sourceRights)} · <strong>Learning eligibility:</strong> ${data.learningEligible?'eligible':'not approved'} · <strong>Outcomes:</strong> unscored`;
   renderChart(data); renderLedger(data); report.hidden=false;
-  status.textContent=data.status==='insufficient_history'?'Not enough confirmed history to map external swings.':`${data.levels.length} levels mapped from ${data.barsUsed} closed stored bars. Chart image is historical research, not a live feed.`;
+  status.textContent=data.status==='insufficient_history'?'Not enough confirmed history to map swing levels.':`${data.levels.length} ${data.methodId} levels mapped from ${data.barsUsed} closed stored bars. Historical research only; outcomes are unscored.`;
   status.classList.toggle('error',data.status!=='ready');
   document.querySelector('#replayLiquidityBreak').disabled=!data.levels.some(level=>level.broken);
 }
@@ -146,12 +142,36 @@ document.querySelector('#liquidityForm')?.addEventListener('submit',async event=
   status.textContent='Mapping confirmed swing levels from stored bars…';status.classList.remove('error');report.hidden=true;
   const params=new URLSearchParams({symbol:symbolSelect.value,timeframe:timeframeSelect.value,
     external_length:document.querySelector('#liquidityExternalLength').value,
-    internal_length:document.querySelector('#liquidityInternalLength').value});
+    internal_length:document.querySelector('#liquidityInternalLength').value,
+    convergence_atr:document.querySelector('#liquidityConvergenceAtr').value});
   try{
     const response=await fetch(`./api/tool-belt/liquidity?${params}`),data=await response.json();
     if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
     renderResult(data);
   }catch(error){status.textContent=`Liquidity map unavailable: ${error.message}`;status.classList.add('error');}
+});
+
+document.querySelector('#copyLiquiditySnapshot')?.addEventListener('click',async()=>{
+  if(!lastReport)return;
+  const reference={
+    indicator_id:lastReport.indicatorId,
+    method_id:lastReport.methodId,
+    method_version:lastReport.methodVersion,
+    symbol:lastReport.symbol,
+    timeframe:lastReport.timeframe,
+    source_id:`${lastReport.methodId}:${lastReport.symbol}:${lastReport.timeframe}:${String(lastReport.inputHash||'').slice(0,16)}`,
+    source_asof:new Date(Number(lastReport.confirmedCutoff)*1000).toISOString(),
+    input_hash:lastReport.inputHash,
+    source_datasets:lastReport.sources||[],
+    source_rights:lastReport.sourceRights,
+    learning_eligible:lastReport.learningEligible,
+    note:'Study reference only. Add to a frozen Indicator Agent protocol only after source rights and the independent outcome definition are approved.'
+  };
+  try{
+    await navigator.clipboard.writeText(JSON.stringify(reference,null,2));
+    status.textContent='Study reference copied. It records method, cutoff, source datasets, and input hash; it contains no scored outcome.';
+    status.classList.remove('error');
+  }catch(error){status.textContent=`Could not copy study reference: ${error.message}`;status.classList.add('error');}
 });
 
 document.querySelector('#replayLiquidityBreak')?.addEventListener('click',()=>{

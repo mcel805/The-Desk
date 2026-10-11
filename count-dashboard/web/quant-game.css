@@ -1,0 +1,72 @@
+body.quant-game .workspace{background:#131722}body.quant-game #traderScoreboard,body.quant-game #referenceLayoutButton,body.quant-game .layout-control,body.quant-game #strategyButton,body.quant-game #libraryButton,body.quant-game #savedCleoReads,body.quant-game .shammy-actions,body.quant-game .legacy-quant-chat,body.quant-game .quant-agent-roster{display:none!important}body.quant-game .shell{grid-template-columns:minmax(260px,300px) minmax(0,1fr)}body.quant-game .toolbar{background:#0f0f10;min-height:44px}body.quant-game .market-picker>label:nth-child(2){display:none}body.quant-game .source-line{background:#131722;font-size:9px}body.quant-game #timeframe{pointer-events:none;opacity:.8}body.quant-game .side-panel{position:absolute;right:12px;top:130px;bottom:18px;width:min(350px,calc(100% - 30px));z-index:20;box-shadow:0 10px 40px #0008}body.quant-game .chart-host{background:#131722}.quant-game-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:#101113;border-bottom:1px solid #2a2e39}.quant-game-bar label{display:grid;gap:3px;font-size:8px;color:#9598a1}.quant-game-bar select,.quant-game-bar button{font-size:10px;color:#d1d4dc;background:#1e222d;border:1px solid #363a45;border-radius:4px;padding:6px}.game-title{margin-right:auto;display:grid;gap:4px}.game-title small{color:#b8a5ec;font:700 8px ui-monospace,monospace}.game-title strong{font-size:15px}.quant-game-bar a{font-size:9px;color:#9598a1}.quant-game-status{display:flex;justify-content:space-between;gap:7px;flex-wrap:wrap;padding:7px 12px;font:9px ui-monospace,monospace;color:#a9aeb8;border-bottom:1px solid #2a2e39;background:#171b26}.quant-game-footer{display:flex;align-items:center;gap:12px;padding:8px 12px;background:#101113;border-top:1px solid #2a2e39;min-height:38px}.quant-game-footer span{flex:1;font-size:9px;color:#9598a1}.quant-game-footer button{font-size:9px;color:#d1d4dc;background:#1e222d;border:1px solid #363a45;border-radius:4px;padding:6px}.quant-game-dialog{width:min(520px,calc(100vw - 30px));max-height:85vh;overflow:auto;background:#1e222d;color:#d1d4dc;border:1px solid #434651;border-radius:8px;padding:20px}.quant-game-dialog::backdrop{background:#0008}.quant-game-dialog header{display:flex;align-items:center;justify-content:space-between}.quant-game-dialog header small{font:9px ui-monospace,monospace;color:#b8a5ec}.quant-game-dialog h2{font-size:20px;margin:7px 0}.quant-game-dialog p,.quant-game-dialog small{font-size:11px;line-height:1.5;color:#9598a1;overflow-wrap:anywhere}.quant-game-dialog form{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}.quant-game-dialog form>small,.quant-game-dialog form>button{grid-column:1/-1}.quant-game-dialog label{display:grid;gap:7px;font-size:11px}.quant-game-dialog input,.quant-game-dialog select,.quant-game-dialog button{color:#d1d4dc;background:#131722;border:1px solid #434651;border-radius:4px;padding:8px;min-width:0}.game-quotes{font:10px ui-monospace,monospace;line-height:1.6;overflow-wrap:anywhere}.game-broker-note{border-left:2px solid #9f82f2;padding-left:12px}#gameDrafts article{padding:9px 0;border-top:1px solid #363a45}[hidden]{display:none!important}@media(max-width:850px){body.quant-game .shell{grid-template-columns:250px minmax(0,1fr)}.quant-game-bar{gap:5px}.quant-game-status span:last-child{flex-basis:100%}}@media(max-width:600px){body.quant-game .shell{grid-template-columns:1fr;grid-template-rows:180px minmax(0,1fr)}body.quant-game .conversation{border-bottom:1px solid #363a45}.quant-game-footer{flex-wrap:wrap}.quant-game-dialog form{grid-template-columns:1fr}}
+
+body.quant-game #assetProfileOpen,body.quant-game #replayButton{display:none!important}#gameDrafts pre{white-space:pre-wrap;overflow-wrap:anywhere;font:10px ui-monospace,monospace;max-height:260px;overflow:auto;background:#131722;padding:12px}#gameDrafts article>button{margin-right:6px;margin-bottom:5px}
+
+.quant-game-bar .game-overlay-control{grid-template-columns:1fr auto;align-items:center;font-size:9px;padding:6px;background:#1e222d;border:1px solid #363a45;border-radius:4px}.game-overlay-control input{accent-color:#26c6da;width:15px;height:15px;margin:0}#gamePaperOrders article{border-top:1px solid #363a45;padding:8px 0}#gamePaperPrice{color:#80cbc4}
+
+/* TradingView-inspired chart chrome for the personal Range Trader view. */
+body.quant-game .toolbar,body.quant-game .source-line{display:none!important}
+body.quant-game .quant-game-bar.tv-chart-toolbar{height:48px;min-height:48px;flex:none;flex-wrap:nowrap;justify-content:space-between;gap:8px;padding:0 10px;background:#131313;border-bottom:1px solid #292929;color:#d1d4dc;overflow-x:auto;scrollbar-width:none}
+body.quant-game .tv-chart-toolbar::-webkit-scrollbar{display:none}
+.tv-tool-left,.tv-tool-right{display:flex;align-items:center;gap:5px;min-width:max-content;height:100%}
+.tv-chart-mark{display:grid;place-items:center;width:29px;height:29px;border-radius:50%;background:#272b38;color:#b5a1ff;font:800 15px Arial,sans-serif}
+.tv-symbol-picker{display:flex!important;grid-template-columns:none!important;align-items:center;gap:3px!important;height:34px;padding:0 8px;border:1px solid #363636;border-radius:18px;background:#202020;color:#e0e3eb!important;font:700 13px Arial,sans-serif!important;letter-spacing:0!important}
+.tv-symbol-picker select,.tv-compact-select select{appearance:none;background:transparent!important;border:0!important;color:#e1e3eb!important;font:600 12px Arial,sans-serif!important;padding:0 2px!important;outline:none;cursor:pointer}
+.tv-symbol-picker select{width:42px;font-size:13px!important}.tv-symbol-picker span{color:#9699a3}
+.tv-add-symbol,.tv-chart-toolbar button{height:30px;padding:0 8px!important;border:0!important;border-radius:5px!important;background:transparent!important;color:#d1d4dc!important;font:12px Arial,sans-serif!important;white-space:nowrap}
+.tv-chart-toolbar button:hover,.tv-chart-toolbar select:hover{background:#2b2b2b!important}
+.tv-chart-toolbar .tv-add-symbol{width:31px;border:1px solid #424242!important;border-radius:50%!important;font-size:20px!important}
+.tv-intervals{display:flex;align-items:center;gap:1px}
+.tv-intervals button{min-width:31px;padding:0 5px!important;font-size:12px!important}
+.tv-intervals button:disabled{opacity:.72;cursor:default}
+.tv-intervals button.is-selected{background:#363636!important;color:#fff!important}
+.tv-divider{height:27px;border-left:1px solid #424242;margin:0 4px}
+.tv-chart-type{font-size:18px!important}
+.tv-chart-toolbar .tv-tool-right{gap:3px}
+.tv-chart-toolbar .tv-compact-select{display:block!important;margin:0!important;padding:6px 7px!important;border:1px solid #363636;border-radius:5px;background:#1b1b1b;color:#aeb2bd!important;font:11px Arial,sans-serif!important;letter-spacing:0!important}
+.tv-source-select select{max-width:94px;font-size:10px!important}
+.tv-compact-select select{font-size:11px!important}
+.tv-chart-toolbar #quickBuy,.tv-chart-toolbar #quickSell{height:34px;padding:0 10px!important;border:1px solid #555!important;border-radius:5px!important;font-weight:700!important}
+.tv-chart-toolbar #quickBuy{background:#1e4c3b!important;color:#56c99d!important}.tv-chart-toolbar #quickSell{background:#552e34!important;color:#f17c86!important}
+.tv-chart-toolbar #indicatorButton{border:1px solid #3b3b3b!important;background:#202020!important}
+.tv-chart-toolbar #chartTraderButton{display:inline-flex!important;align-items:center;border:1px solid #3b3b3b!important;background:#202020!important}
+.tv-chart-toolbar .active-sim-account{display:block!important;min-width:120px}
+.tv-chart-toolbar .active-sim-account select{max-width:145px}
+.tv-chart-toolbar #connectionsButton{border:1px solid #3b3b3b!important;background:#202020!important;font-size:10px!important}
+body.quant-game .tv-chart-toolbar .active-sim-account{display:block!important}
+body.quant-game .tv-chart-toolbar .active-sim-account[hidden]{display:none!important}
+.indicator-search{display:grid;gap:6px;margin:10px 0;font-size:11px;color:#aeb2bd}
+.indicator-search input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #363a45;border-radius:5px;background:#131722;color:#d1d4dc;font:12px Arial,sans-serif}
+.indicator-search input:focus{outline:1px solid #5794f7;border-color:#5794f7}
+.panel-list>[hidden]{display:none!important}
+.strategy-mode-picker{display:flex;align-items:center;gap:7px;padding:5px 8px;border:1px solid #383a43;border-radius:6px;background:#1a1c22;color:#a8aab3;font:700 8px ui-monospace,monospace;letter-spacing:.08em;white-space:nowrap}
+.strategy-mode-picker select{height:28px;border:0;background:transparent;color:#e8e8ec;font:600 11px Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;cursor:pointer}
+.strategy-mode-picker select:focus-visible{outline:2px solid #9f82f2;outline-offset:2px}
+.strategy-agent-scope{margin:8px 12px;padding:8px 10px;border-left:2px solid #8c76d0;background:#1a1921;color:#c4c0d1;font:9px/1.5 ui-monospace,monospace;letter-spacing:.02em}
+body.quant-game .strategy-agent-scope{border-left-color:#26a69a;background:#171e21;color:#a9c6c2}
+@media(max-width:720px){.strategy-mode-picker>span{display:none}.strategy-mode-picker{gap:2px;padding:4px}.strategy-mode-picker select{max-width:116px}}
+.tv-chart-toolbar .tv-liquidity-control{display:flex!important;align-items:center;gap:4px!important;height:30px;margin:0!important;padding:0 7px!important;border:1px solid #363636;border-radius:5px;background:#1b1b1b;color:#b7bbc5!important;font:10px Arial,sans-serif!important;letter-spacing:0!important;white-space:nowrap}
+.tv-liquidity-control input{width:14px;height:14px;margin:0;accent-color:#26a69a}
+.tv-chart-toolbar .tv-research-link{padding:7px;color:#aeb2bd;font-size:12px}
+.quant-game-status{height:27px;min-height:27px;flex:none;flex-wrap:nowrap;justify-content:flex-start;gap:12px;padding:0 12px;background:#131722;border-bottom:1px solid #232632;color:#9da1aa;font:10px Arial,sans-serif;overflow:hidden;white-space:nowrap}
+.quant-game-status span{overflow:hidden;text-overflow:ellipsis}.quant-game-status #gameAccountState{margin-left:auto}
+.tv-chart-head{min-height:60px;flex:none;display:flex;align-items:flex-start;align-content:center;flex-wrap:wrap;gap:4px 14px;padding:8px 12px 5px;background:#131722;color:#d1d4dc;font:12px Arial,sans-serif}
+.tv-market-title{display:flex;align-items:center;gap:8px;min-width:260px}
+.tv-market-dot{width:12px;height:12px;border-radius:50%;background:#26a69a;box-shadow:0 0 0 4px #26a69a24}
+.tv-market-title>div{display:grid;gap:3px}.tv-market-title strong{font-size:14px;font-weight:500}.tv-market-title small{font-size:10px;color:#8b8e98}
+.tv-ohlc{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#c4c7d0;font-size:11px;font-variant-numeric:tabular-nums}
+.tv-ohlc span{white-space:nowrap}.tv-ohlc span:nth-child(1) b,.tv-ohlc span:nth-child(2) b{color:#26a69a}.tv-ohlc span:nth-child(3) b{color:#ef5350}.tv-ohlc span:nth-child(4) b{color:#d1d4dc}.tv-ohlc strong{font-weight:600}.tv-ohlc .tv-up{color:#26a69a}.tv-ohlc .tv-down{color:#ef5350}
+.tv-field-badge{margin-left:auto;padding:5px 8px;border-radius:3px;background:#272a33;color:#c6c8d0;font-size:10px;white-space:nowrap}
+body.quant-game .chart-area{display:flex;flex-direction:column;min-height:0;background:#131722}
+body.quant-game #chartGrid{height:auto;flex:1;min-height:0;padding:0 0 0 0;background:#131722}
+body.quant-game .chart-cell{border:0;background:#131722}
+body.quant-game .chart-cell.active{border:0;box-shadow:none}
+body.quant-game .chart-cell-head{height:0;min-height:0;padding:0;border:0;overflow:hidden;opacity:0}
+.tv-range-nav{height:30px;min-height:30px;display:flex;align-items:center;gap:14px;padding:0 12px;border-top:1px solid #2a2d35;background:#131722;color:#d1d4dc}
+.tv-range-shortcuts{display:flex;align-items:center;gap:13px}.tv-range-shortcuts button{padding:2px 0;border:0;background:transparent;color:#b7bac3;font:12px Arial,sans-serif;cursor:pointer}.tv-range-shortcuts button:hover{color:#fff}
+.tv-range-note{margin-left:auto;color:#90939d;font:10px Arial,sans-serif}
+body.quant-game .bottom-bar{height:27px;min-height:27px;background:#0e0e0e;border-top-color:#292929;font:10px Arial,sans-serif}
+body.quant-game .quant-game-footer{height:36px;min-height:36px;padding:4px 12px;background:#101010;border-top-color:#292929}
+body.quant-game .quant-game-footer button{background:#1e222d}
+@media(max-width:1220px){.tv-intervals button:nth-child(n+7){display:none}.tv-source-select select{max-width:70px}.tv-chart-head{gap:3px 9px}.tv-market-title{min-width:220px}}
+@media(max-width:860px){.tv-intervals button:nth-child(n+5){display:none}.tv-chart-toolbar .tv-account-select{display:none!important}.tv-market-title{min-width:185px}.tv-ohlc{gap:6px;font-size:10px}}

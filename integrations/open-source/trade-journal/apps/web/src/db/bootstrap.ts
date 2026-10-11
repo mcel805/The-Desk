@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS accounts (
   archived_at TEXT,
   created_at TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS executions (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,

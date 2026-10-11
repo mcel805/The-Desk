@@ -1,0 +1,49 @@
+.vela-preview-controls #velaLivingCandlesButton{border-color:#37575b;color:#a7d9d3;white-space:nowrap}
+.vela-preview-controls #velaLivingCandlesButton.is-active{border-color:#448e81;background:linear-gradient(145deg,#173b3a,#102728);color:#c6fff0;box-shadow:inset 0 1px 0 #a2ffdf24,0 0 12px #57d6b31b}
+.vela-preview-controls #velaLivingInspectButton{min-width:30px;padding-inline:7px;border-color:#37575b;color:#a7d9d3;font-size:17px;line-height:1}
+.vela-preview-controls #velaLivingInspectButton[aria-expanded=true]{border-color:#6bc8b8;background:#1d4341;color:#e2fff4}
+.vela-preview-controls #velaLivingInspectButton:disabled{opacity:.48;cursor:not-allowed}
+.living-candle-layer{position:absolute;inset:0;z-index:7;pointer-events:none;overflow:hidden}
+.living-candle-effect{position:absolute;display:block;width:26px;height:26px;padding:0;transform:translate(-50%,-50%);border:0;border-radius:50%;background:transparent;pointer-events:auto;cursor:pointer;color:#ffd18b}
+.living-candle-effect::after{content:"";position:absolute;top:10px;left:10px;width:6px;height:6px;border-radius:50%;background:#fff1c8;box-shadow:0 0 8px #ffc365,0 0 16px #ffad4a;animation:candle-touch-core .85s ease-out 1 both}
+.living-candle-effect::before{content:"";position:absolute;inset:5px;border:2px solid currentColor;border-radius:50%;opacity:0;animation:candle-touch-burst .9s cubic-bezier(.12,.6,.2,1) 1 both}
+.living-candle-effect:hover::before,.living-candle-effect:focus-visible::before,.living-candle-effect.is-selected::before{opacity:.9;box-shadow:0 0 12px currentColor}
+.living-candle-effect:focus-visible{outline:2px solid #e7fdf8;outline-offset:1px}
+.living-candle-focus{position:absolute;width:1px;border-left:1px dashed #9bf9d0a8;transform:translateX(-.5px);pointer-events:none;box-shadow:0 0 8px #5bf3bd88}
+.living-candle-focus span{position:absolute;left:0;width:10px;height:10px;transform:translate(-50%,-50%);border:2px solid #c9ffe8;border-radius:50%;background:#3ae0aa66;box-shadow:0 0 14px #3ae0aa}
+.living-candle-readout{position:absolute;z-index:8;left:58px;bottom:31px;max-width:min(360px,calc(100% - 145px));padding:7px 10px;border:1px solid #315258a8;border-radius:7px;background:#0a151cd9;box-shadow:0 5px 18px #0007;pointer-events:none;backdrop-filter:blur(9px)}
+.living-candle-readout strong{display:block;color:#d9f2e9;font-size:10px;line-height:1.2}
+.living-candle-readout small{display:block;margin-top:3px;color:#98b0af;font-size:9px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.living-candle-readout[hidden]{display:none}
+.living-candle-inspector{position:absolute;z-index:24;top:10px;right:70px;width:min(340px,calc(100% - 125px));max-height:calc(100% - 20px);overflow:auto;border:1px solid #47736e;border-radius:12px;background:linear-gradient(145deg,#172830f5,#0b151cf7 72%);box-shadow:0 18px 45px #000a,inset 0 1px 0 #ddfff51d;color:#d8eae7;backdrop-filter:blur(18px);font-size:10px}
+.living-candle-inspector[hidden]{display:none}
+.living-candle-inspector header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 12px 8px;border-bottom:1px solid #31504d;background:#14262de8;backdrop-filter:blur(16px)}
+.living-candle-inspector header small{display:block;color:#78c7b6;font:700 8px ui-monospace,monospace;letter-spacing:.13em}
+.living-candle-inspector h2{margin:2px 0 0;color:#f0fff8;font-size:15px;letter-spacing:-.02em}
+.living-candle-inspector button{border:1px solid #42635e;border-radius:6px;background:#19322f;color:#dcf8ec;cursor:pointer}
+.living-candle-inspector button:hover{border-color:#73d5bd;background:#24443e}
+.living-candle-inspector button:focus-visible,.living-candle-inspector input:focus-visible{outline:2px solid #88f1d1;outline-offset:2px}
+.living-candle-inspector header button{width:23px;height:23px;padding:0;font-size:17px}
+.living-inspector-transport{display:grid;grid-template-columns:25px minmax(0,1fr) 25px auto;align-items:center;gap:5px;padding:10px 12px 5px}
+.living-inspector-transport button{height:26px;min-width:25px;padding:0 6px}
+.living-inspector-transport input{width:100%;min-width:0;accent-color:#6de0bb;cursor:ew-resize}
+.living-inspector-jumps{display:flex;justify-content:space-between;gap:5px;padding:0 12px 7px}
+.living-inspector-jumps button{min-height:23px;padding:2px 6px;font-size:9px}
+.living-candle-inspector button:disabled{opacity:.42;cursor:not-allowed}
+.living-inspector-position{padding:2px 12px 8px;color:#8fb8af;font:700 9px ui-monospace,monospace;letter-spacing:.04em}
+.living-inspector-event{margin:0 12px 8px;padding:10px;border:1px solid #365750;border-radius:8px;background:linear-gradient(145deg,#183d36,#102527)}
+.living-inspector-event small{display:block;color:#79deb9;font:700 9px ui-monospace,monospace;letter-spacing:.09em}
+.living-inspector-event small[data-kind="liquidity-touch"]{color:#ffd18b}
+.living-inspector-event strong{display:block;margin-top:5px;color:#f2fbf8;font:700 11px ui-monospace,monospace}
+.living-inspector-event p{margin:6px 0 0;color:#b5d2c8;font-size:10px;line-height:1.4}
+.living-inspector-ohlc{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0 12px 9px}
+.living-inspector-ohlc div{min-width:0;padding:6px 5px;border:1px solid #2c4846;border-radius:6px;background:#0c2020}
+.living-inspector-ohlc small{display:block;color:#7ea9a0;font-size:8px;letter-spacing:.08em}
+.living-inspector-ohlc strong{display:block;margin-top:2px;color:#e4f4ee;font:700 10px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis}
+.living-inspector-meta{display:grid;grid-template-columns:85px minmax(0,1fr);gap:5px 9px;margin:0;padding:8px 12px 11px;border-top:1px solid #2b4644}
+.living-inspector-meta dt{color:#87aaa1}.living-inspector-meta dd{min-width:0;margin:0;color:#dcebe6;overflow-wrap:anywhere}
+.living-inspector-note{margin:0;padding:8px 12px 11px;border-top:1px solid #294541;color:#8daaa2;font-size:9px;line-height:1.4}
+@keyframes candle-touch-burst{0%{transform:scale(.35);opacity:.95}55%{opacity:.75}100%{transform:scale(2);opacity:0}}
+@keyframes candle-touch-core{0%{transform:scale(.55);opacity:.4}45%{transform:scale(1.7);opacity:1}100%{transform:scale(1);opacity:.9}}
+@media(prefers-reduced-motion:reduce){.living-candle-effect::before,.living-candle-effect::after{animation:none}.living-candle-effect::before{opacity:.75}}
+@media(max-width:760px){.living-candle-readout{left:46px;bottom:25px;max-width:calc(100% - 115px);padding:5px 7px}.living-candle-readout small{display:none}.living-candle-inspector{top:7px;right:7px;width:min(330px,calc(100% - 52px));max-height:calc(100% - 14px)}}

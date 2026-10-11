@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 300" role="img" aria-label="Monochrome market conditions event profile illustration">
+  <rect width="420" height="300" rx="14" fill="#101820"/>
+  <g fill="none" stroke="#d7e2e4" stroke-width="2" opacity=".82">
+    <path d="M45 244h330M58 218h304M58 191h304M58 164h304M58 137h304M58 110h304" stroke-dasharray="3 8" opacity=".3"/>
+    <path d="M72 241V80m54 161V118m54 123V58m54 183V138m54 103V91m54 150V122"/>
+    <path d="M59 243 94 229 129 236 164 207 199 218 234 182 269 195 304 157 339 165 375 130" stroke-width="3"/>
+    <circle cx="164" cy="207" r="7" fill="#101820"/><circle cx="304" cy="157" r="7" fill="#101820"/>
+    <path d="m194 50 6-11 6 11zM299 82l6-11 6 11z" fill="#101820"/>
+  </g>
+  <g fill="#bbc8cb" font-family="ui-monospace,monospace" font-size="9" letter-spacing="1.5">
+    <text x="45" y="274">EVENT PRESSURE / SESSION TIME</text><text x="56" y="67">MIXED INPUTS</text>
+  </g>
+</svg>

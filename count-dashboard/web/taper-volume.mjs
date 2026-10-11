@@ -67,16 +67,37 @@ export function volumeBarColor(bar,inputs={}) {
  return /^#[0-9a-f]{6}$/i.test(inputs[palette])?inputs[palette]:(palette==='upColor'?DEFAULT_CANDLES.upFill:DEFAULT_CANDLES.downFill);
 }
 
+const DEFAULT_INPUTS_KEY='taper.volume.defaultInputs.v1';
+const PROVIDERS=['coinbase','binance','hyperliquid'];
+const COLOR_MODES=['Candles','Signals'];
+function volumeDefaults(storage) {
+ const candles=loadCandles(storage);
+ return {mode:'Volume',provider:'coinbase',ticker:'BTC-USD',colorMode:'Signals',upColor:candles.upFill,downColor:candles.downFill,showLow:false,outlines:false,spikes:true,bands:false};
+}
+function normalizeVolumeInputs(value,storage) {
+ const defaults=volumeDefaults(storage),inputs=value&&typeof value==='object'?value:{};
+ return {mode:MODES.includes(inputs.mode)?inputs.mode:defaults.mode,provider:PROVIDERS.includes(inputs.provider)?inputs.provider:defaults.provider,ticker:typeof inputs.ticker==='string'&&inputs.ticker.trim()&&inputs.ticker.length<=64?inputs.ticker.trim():defaults.ticker,colorMode:COLOR_MODES.includes(inputs.colorMode)?inputs.colorMode:defaults.colorMode,upColor:/^#[0-9a-f]{6}$/i.test(inputs.upColor||'')?inputs.upColor:defaults.upColor,downColor:/^#[0-9a-f]{6}$/i.test(inputs.downColor||'')?inputs.downColor:defaults.downColor,showLow:typeof inputs.showLow==='boolean'?inputs.showLow:defaults.showLow,outlines:typeof inputs.outlines==='boolean'?inputs.outlines:defaults.outlines,spikes:typeof inputs.spikes==='boolean'?inputs.spikes:defaults.spikes,bands:typeof inputs.bands==='boolean'?inputs.bands:defaults.bands};
+}
+function loadVolumeInputs(storage=globalThis.localStorage) {
+ try { return normalizeVolumeInputs(JSON.parse(storage?.getItem(DEFAULT_INPUTS_KEY)||'{}'),storage); }
+ catch { return volumeDefaults(storage); }
+}
+function saveVolumeInputs(storage,inputs) {
+ const normalized=normalizeVolumeInputs(inputs,storage);
+ try { storage?.setItem(DEFAULT_INPUTS_KEY,JSON.stringify(normalized)); } catch { /* Keep the active chart usable if browser storage is unavailable. */ }
+ return normalized;
+}
+
 export function registerTaperVolume(){
  const api=window.Vela;if(api.nativeIndicatorTypes().includes('taper-volume'))return;
  api.registerNativeIndicator({type:'taper-volume',title:"Taper's Volume",shortTitle:"Taper's Volume",paneHint:'new',overlay:false,
-  inputsSchema:()=>[{key:'mode',title:'Calculation mode',type:'string',defval:'Volume',options:MODES},{key:'provider',title:'Volume source',type:'string',defval:'coinbase',options:['coinbase','binance','hyperliquid']},{key:'ticker',title:'Volume symbol',type:'string',defval:'BTC-USD'},{key:'colorMode',title:'Volume bar colors',type:'string',defval:'Signals',options:['Candles','Signals']},{key:'upColor',title:'Rising candle body color',type:'color',defval:DEFAULT_CANDLES.upFill},{key:'downColor',title:'Falling candle body color',type:'color',defval:DEFAULT_CANDLES.downFill},{key:'showLow',title:'Color low volume',type:'bool',defval:false},{key:'outlines',title:'Signal candle outlines',type:'bool',defval:false},{key:'spikes',title:'Spike markers and current extreme lines',type:'bool',defval:true},{key:'bands',title:'SMA and standard deviation bands',type:'bool',defval:true}],defaultInputs:()=>{const s=loadCandles(globalThis.localStorage);return {mode:'Volume',provider:'coinbase',ticker:'BTC-USD',colorMode:'Signals',upColor:s.upFill,downColor:s.downFill,showLow:false,outlines:false,spikes:true,bands:true};},
-  create:()=>({ctx:null,inputs:{},start(ctx,inputs){this.ctx=ctx;this.inputs=inputs;this.compute();},onBars(){this.compute();},onViewport(){},setInputs(inputs){this.inputs=inputs;this.compute();},suspend(){},resume(){this.compute();},stop(){this.ctx=null;},compute(){
+  inputsSchema:()=>{const d=loadVolumeInputs();return [{key:'mode',title:'Calculation mode',type:'string',defval:d.mode,options:MODES},{key:'provider',title:'Volume source',type:'string',defval:d.provider,options:PROVIDERS},{key:'ticker',title:'Volume symbol',type:'string',defval:d.ticker},{key:'colorMode',title:'Volume bar colors',type:'string',defval:d.colorMode,options:COLOR_MODES},{key:'upColor',title:'Rising candle body color',type:'color',defval:d.upColor},{key:'downColor',title:'Falling candle body color',type:'color',defval:d.downColor},{key:'showLow',title:'Color low volume',type:'bool',defval:d.showLow},{key:'outlines',title:'Signal candle outlines',type:'bool',defval:d.outlines},{key:'spikes',title:'Spike markers and current extreme lines',type:'bool',defval:d.spikes},{key:'bands',title:'SMA and standard deviation bands',type:'bool',defval:d.bands}];},defaultInputs:()=>loadVolumeInputs(),
+  create:()=>({ctx:null,inputs:{},start(ctx,inputs){this.ctx=ctx;this.inputs=inputs;this.compute();},onBars(){this.compute();},onViewport(){},setInputs(inputs){this.inputs=saveVolumeInputs(globalThis.localStorage,{...this.inputs,...inputs});this.compute();},suspend(){},resume(){this.compute();},stop(){this.ctx=null;},compute(){
    const ctx=this.ctx;if(!ctx)return;const source={provider:this.inputs.provider,symbol:this.inputs.ticker,timeframe:ctx.timeframe},visible=ctx.bars(),cutoff=visible.at(-1)?.time;if(cutoff==null)return;const r=analyzeVolume(mergeVolumeHistory(source,visible,cutoff),ctx.timeframe,Date.now(),this.inputs),visibleTimes=new Set(visible.map(b=>b.time)),rows=r.rows.filter(b=>visibleTimes.has(b.time)),transparent='rgba(0,0,0,0)',p=k=>rows.map(b=>({time:b.time,value:b[k]}));
    const series=[{id:'tv-volume',title:MODES.includes(this.inputs.mode)?this.inputs.mode:'Volume',kind:'columns',paneId:'',points:rows.map(b=>({time:b.time,value:b.value,color:volumeBarColor(b,this.inputs)})),style:{color:'#777',width:1,base:0,lineStyle:'solid'}},{id:'tv-density',title:'Density · normalized backdrop',kind:'line',paneId:'',points:rows.map(b=>({time:b.time,value:b.density!==null&&b.volume!==null&&b.range>0?b.density*b.range:null})),visible:false,style:{color:'#777',width:1,lineStyle:'solid'}}];
    // Density is available as its own mode; do not rescale it into a false volume backdrop.
    series.pop();
-   if(this.inputs.bands!==false){series.push({id:'tv-sma',title:'SMA 20',kind:'line',paneId:'',points:p('sma'),style:{color:'#fff',width:1,lineStyle:'dotted'}});for(let n=0;n<3;n++)series.push({id:'tv-sd-'+n,title:'SMA + '+(n+1)+'σ',kind:'line',paneId:'',points:rows.map(b=>({time:b.time,value:b.bands?.[n]??null})),style:{color:'#7b6a96',width:1,lineStyle:'dotted'}});}
+   if(this.inputs.bands===true){series.push({id:'tv-sma',title:'SMA 20',kind:'line',paneId:'',points:p('sma'),style:{color:'#fff',width:1,lineStyle:'dotted'}});for(let n=0;n<3;n++)series.push({id:'tv-sd-'+n,title:'SMA + '+(n+1)+'σ',kind:'line',paneId:'',points:rows.map(b=>({time:b.time,value:b.bands?.[n]??null})),style:{color:'#7b6a96',width:1,lineStyle:'dotted'}});}
    if((this.inputs.mode||'Volume').startsWith('Relative'))series.push({id:'tv-100',title:'100% reference',kind:'line',paneId:'',points:rows.map(b=>({time:b.time,value:b.value===null?null:100})),style:{color:'#4b0082',width:1,lineStyle:'solid'}});
    if(this.inputs.outlines===true)series.push({id:'tv-outlines',title:'Volume signal outlines',kind:'candle',paneId:'',overlay:true,bars:rows,style:{up:transparent,down:transparent,wickUp:transparent,wickDown:transparent,borderUp:transparent,borderDown:transparent},barColors:rows.map(b=>b.kind.startsWith('strong')||b.kind.startsWith('weak')?{color:transparent,wickColor:transparent,borderColor:b.color}:null)});
    const lines=[];if(this.inputs.spikes!==false){series.push({id:'tv-spikes',title:'Volume spikes',kind:'markers',paneId:'',overlay:true,markers:rows.filter(b=>b.spike).map(b=>({time:b.time,position:b.spikeSide==='high'?'aboveBar':'belowBar',shape:b.spike==='extreme'?'diamond':b.spike==='major'?(b.spikeSide==='high'?'triangleDown':'triangleUp'):'cross',color:COLORS[b.spike],size:'tiny'}))});for(const side of ['high','low']){const l=r.extremeLines[side];if(l)lines.push({id:'tv-extreme-'+side,paneId:'',xloc:'bar_time',x1:l.time,y1:l.price,x2:r.cutoff,y2:l.price,extend:'right',color:side==='high'?'#00ff00':'#ff0000',invisible:false,width:1,style:'solid',arrowLeft:false,arrowRight:false,overlay:true});}}

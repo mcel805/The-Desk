@@ -1,0 +1,35 @@
+.chart-context-menu{position:fixed!important;z-index:1000!important;width:360px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;padding:7px 0!important;background:#202127!important;border-color:#44474e!important;border-radius:7px!important}
+.chart-context-menu button{display:flex!important;align-items:center;gap:12px;font:13px/1.35 system-ui!important;padding:10px 14px!important;border-radius:0!important;min-height:36px}
+.chart-context-menu .ct-menu-separator{border-top:1px solid #44474e!important;margin-top:3px;padding-top:12px!important}
+.ct-menu-icon{display:inline-block;width:20px;font-size:19px;text-align:center;color:#b8bdc8;flex:none}
+.ct-menu-heading{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;color:#a5abb9;font:10px system-ui;letter-spacing:.08em;gap:8px}
+.ct-menu-heading label{display:flex;align-items:center;gap:5px;letter-spacing:0}
+.ct-menu-heading input{width:80px;border:1px solid #515663;border-radius:4px;background:#111820;color:#fff;padding:4px;font:12px system-ui}
+.ct-overlay{position:absolute;inset:0;pointer-events:none;z-index:30;overflow:hidden}
+.ct-level{position:absolute;left:0;height:0;color:#58bdf9;pointer-events:none}
+.ct-level[hidden]{display:none}
+.ct-level-track{position:absolute;left:0;right:0;top:-5px;height:10px;cursor:ns-resize;pointer-events:auto}
+.ct-level-track:after{content:'';position:absolute;top:5px;left:0;right:0;border-top:1px dashed currentColor}
+.ct-level-leader{position:absolute;right:20px;width:0;border-left:1px solid currentColor;pointer-events:none}
+.ct-pill{position:absolute;right:10px;top:-13px;display:flex;align-items:stretch;max-width:calc(100% - 20px);height:26px;border:1px solid currentColor;border-radius:5px;background:#102531;box-shadow:0 2px 6px #0008;pointer-events:auto;overflow:hidden}
+.ct-pill button{border:0;background:none;color:inherit;cursor:pointer;font:600 11px/24px system-ui;white-space:nowrap;padding:0 8px;min-height:24px;margin:0}
+.ct-pill .ct-drag{cursor:ns-resize;overflow:hidden;text-overflow:ellipsis;touch-action:none}
+.ct-pill button:focus-visible{outline:2px solid #fff;outline-offset:-3px}
+.ct-actions{display:flex;border-left:1px solid currentColor}
+.ct-actions button:hover{background:#ffffff20}
+.ct-level.is-stop{color:#ff7386}.ct-level.is-stop .ct-pill{background:#341b27}
+.ct-level.is-target{color:#5bdaa2}.ct-level.is-target .ct-pill{background:#123528}
+.ct-level.is-ghost{opacity:.8}.ct-level.is-ghost .ct-pill{border-style:dashed}
+.ct-level.is-dragging{z-index:5}.ct-level.is-dragging .ct-pill{box-shadow:0 0 0 3px #ffffff30}
+.ct-time-lock{position:absolute;width:0;border-left:1px dashed #d6af67;pointer-events:none}
+.ct-dialog{width:min(760px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid #566074;border-radius:10px;background:#171e2a;color:#e9edf5;padding:20px;box-shadow:0 20px 80px #000a}
+.ct-dialog::backdrop{background:#06091190}.ct-dialog header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.ct-dialog h2{font:600 20px system-ui;margin:0}
+.ct-dialog p{font:13px/1.5 system-ui;color:#bbc3d1}.ct-dialog label{display:grid;gap:7px;margin:12px 0;font:13px system-ui;color:#d9e0ec}
+.ct-dialog input,.ct-dialog select,.ct-dialog textarea{padding:9px;background:#0e1420;color:#f2f5fa;border:1px solid #47536a;border-radius:5px;min-width:0;font:14px system-ui}
+.ct-dialog button{border:1px solid #4a566c;border-radius:5px;background:#253248;color:#e6edf9;padding:8px 12px;cursor:pointer;font:13px system-ui}.ct-dialog header button{font-size:19px;padding:3px 10px}
+.ct-dialog .ct-primary{background:#174938;border-color:#3b9d77;color:#d8ffed;margin-top:12px}
+.ct-fields{display:grid;grid-template-columns:1fr 1fr;gap:0 15px}.ct-notice{color:#ffabaf!important}.ct-table{overflow:auto;max-height:55vh}
+.ct-table table{width:100%;border-collapse:collapse;font:12px ui-monospace,monospace}.ct-table th{position:sticky;top:0;background:#243046;text-align:left}.ct-table td,.ct-table th{padding:8px;border-bottom:1px solid #303b4e;white-space:nowrap}
+.ct-object-list{max-height:50vh;overflow:auto}.ct-object-list>div{display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #303b4e;font:13px system-ui}.ct-object-list span{flex:1;overflow-wrap:anywhere}
+.ct-dialog .ct-check{display:flex;align-items:center;gap:8px}
+@media(max-width:600px){.ct-fields{grid-template-columns:1fr}.ct-pill{right:4px}.ct-pill button{font-size:10px;padding:0 5px}}

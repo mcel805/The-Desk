@@ -199,6 +199,45 @@ def read_liquidity_lab(arguments: dict) -> dict:
     return {"available": True, "readOnly": True, "section": section, "data": result}
 
 
+def recent_support_events(arguments: dict) -> dict:
+    """Read redacted, bounded chat diagnostics; never exposes prompts or files."""
+    limit = max(1, min(int(arguments.get("limit", 20)), 100))
+    result = get_json(COUNT_DESK_API, "/api/chat/support-log", {"limit": limit})
+    return {
+        "readOnly": True,
+        "privacy": "Prompts, credentials, screenshots, and file contents are excluded.",
+        "events": result.get("events", []),
+    }
+
+
+def read_market_research(arguments: dict) -> dict:
+    """Read bounded Market Research indicator events, editions, and source status."""
+    raw = get_json(COUNT_DESK_API, "/api/market-research/state")
+    product = str(arguments.get("product") or "ALL FUTURES").upper()[:100]
+    events = raw.get("events", [])
+    if not isinstance(events, list):
+        events = []
+    relevant = [item for item in events
+                if item.get("rights_status") == "approved_internal" and item.get("source_enabled")
+                and (product == "ALL FUTURES" or product in item.get("products", []))]
+    discoveries = [item for item in (raw.get("discoveries", []) or [])
+                   if item.get("rights_status") == "approved_internal"]
+    return {
+        "readOnly": True,
+        "indicator": "market-research",
+        "product": product,
+        "schedule": raw.get("schedule", {}),
+        "sources": (raw.get("sources", []) or [])[:30],
+        "reviewedEvents": relevant[:30],
+        "recentHeadlineMetadata": discoveries[:30],
+        "briefs": (raw.get("briefs", []) or [])[:10],
+        "editorialFeedback": (raw.get("editorialFeedback", []) or [])[:50],
+        "coverage": "Research registry snapshot; not an exhaustive scan of the financial industry.",
+        "rightsRule": "Only sources marked approved_internal may be scanned or used in generated editions.",
+        "limits": "Read-only. Headlines are metadata unless separately reviewed. No prices, live order access, or trading authority are provided.",
+    }
+
+
 TOOLS = [
     {
         "name": "dashboard_overview",
@@ -252,6 +291,25 @@ TOOLS = [
         },
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     },
+    {
+        "name": "recent_support_events",
+        "description": "Read recent sanitized Batty chat request diagnostics, including status, latency, model, active dashboard view, attachment type/count, and provider tool names. Does not return user prompts, credentials, screenshots, or file contents. Read-only.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "description": "Number of recent events; maximum 100, default 20."}},
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+    },
+    {
+        "name": "read_market_research",
+        "description": "Read the bounded Market Research indicator context: source rights and freshness, reviewed events, headline metadata, saved three-clip editions, and configured briefing schedule. Read-only; coverage is not exhaustive.",
+        "inputSchema": {"type": "object", "properties": {
+            "product": {"type": "string", "description": "Product name or ALL FUTURES."},
+            "limit": {"type": "integer", "description": "Reserved for bounded response sizing; maximum 30."}},
+            "additionalProperties": False},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+    },
 ]
 
 
@@ -264,6 +322,10 @@ def call_tool(name: str, arguments: dict) -> Any:
         return read_trading_journal(arguments)
     if name == "read_liquidity_lab":
         return read_liquidity_lab(arguments)
+    if name == "recent_support_events":
+        return recent_support_events(arguments)
+    if name == "read_market_research":
+        return read_market_research(arguments)
     raise ValueError(f"Unknown dashboard tool: {name}")
 
 

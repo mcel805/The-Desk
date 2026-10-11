@@ -76,10 +76,12 @@ def queue_execution(db: sqlite3.Connection, position: sqlite3.Row | dict, leg: s
         "execution": {"id": event_id, "symbol": symbol, "side": side,
                       "quantity": row["quantity"], "price": price, "fee": 0,
                       "executedAt": executed_at, "multiplier": row["multiplier"],
-                      "assetClass": "futures"},
+                      "assetClass": row.get("asset_class", "crypto" if row.get("provider") else "futures")},
         "provenance": {"positionId": row["position_id"], "source": source,
-                       "timeframe": row["timeframe"], "entryDatasetId": row["entry_dataset_id"],
-                       "exitDatasetId": row.get("exit_dataset_id"), "simulation": True},
+                       "timeframe": row["timeframe"], "entryDatasetId": row.get("entry_dataset_id", ""),
+                       "exitDatasetId": row.get("exit_dataset_id"), "provider": row.get("provider"),
+                       "entryBarTime": row.get("entry_bar_time"), "exitBarTime": row.get("exit_bar_time"),
+                       "simulation": True},
     }
     enqueue(db, event_id, "trade_opened" if is_entry else "trade_closed", payload)
     if not is_entry:

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Market Data Access · Count Desk</title>
+  <link rel="stylesheet" href="./style.css?v=liquidity-mansion-tab-20260930">
+  <link rel="stylesheet" href="./market-data.css?v=market-access-20260930">
+</head>
+<body class="market-data-page">
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./trading-landing.html">Home</a>
+      <a class="app-tab" href="./index.html">Count Desk</a>
+      <a class="app-tab active" href="./market-data.html" aria-current="page">Market Data</a>
+      <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
+      <a class="app-tab" href="./resources.html">Resources</a>
+    </nav>
+    <div class="api-state">DATA ACCESS · SETUP</div>
+  </header>
+
+  <main class="market-data-main">
+    <section class="market-data-hero">
+      <div>
+        <div class="market-data-kicker">COUNT DESK · DATA ACCESS</div>
+        <h1>Use your market subscription in your chart</h1>
+        <p>Your AMP exchange subscription and permission for Count Desk to read that feed are separate gates. This page shows what is connected and what still needs approval.</p>
+      </div>
+      <a class="market-data-back" href="./index.html">← Back to chart</a>
+    </section>
+
+    <section class="market-data-path" aria-label="Data access steps">
+      <article><span>01</span><div><strong>Subscribe with AMP</strong><p>Choose the exchange and data depth on your AMP account.</p></div></article>
+      <i aria-hidden="true">→</i>
+      <article><span>02</span><div><strong>Get app/API permission</strong><p>AMP/CQG must approve the app and the way it uses the data.</p></div></article>
+      <i aria-hidden="true">→</i>
+      <article><span>03</span><div><strong>Connect a provider</strong><p>An approved adapter brings authorized bars into Vela and Count Desk.</p></div></article>
+    </section>
+
+    <section class="market-data-columns">
+      <article class="market-data-card market-data-amp">
+        <div class="market-data-card-head"><div><small>YOUR BROKER PLAN</small><h2>AMP Futures · CQG</h2></div><span class="gate-pill" id="ampState">Checking…</span></div>
+        <p class="market-data-lead">A paid CQG data plan can cover your personal exchange entitlement. It does not by itself authorize a separate app to receive or retain the feed.</p>
+        <div class="market-data-facts">
+          <div><span>What the plan covers</span><strong>Exchange entitlement for your AMP/CQG login</strong></div>
+          <div><span>What Count Desk still needs</span><strong>CQG app/API approval and permitted data use</strong></div>
+          <div><span>Current connector</span><strong id="ampConnectorState">Loading local status…</strong></div>
+        </div>
+        <p class="market-data-note">For a personal setup, ask AMP/CQG about the individual Client API path and whether it can feed Count Desk. CQG lists Client APIs for individual users and WebAPI under Enterprise APIs for multi-user systems. Confirm compatibility, total API and exchange fees, concurrent-session limits, history/streaming access, and permission for local charting, analysis, and storage.</p>
+        <a class="market-data-link" href="https://www.ampfutures.com/trading-info/exchange-data-fees" target="_blank" rel="noopener">AMP exchange data fees ↗</a>
+        <a class="market-data-link" href="https://www.cqg.com/products/cqg-apis/client-apis" target="_blank" rel="noopener">CQG individual Client APIs ↗</a>
+      </article>
+
+      <article class="market-data-card market-data-tv">
+        <div class="market-data-card-head"><div><small>REFERENCE FLOW</small><h2>TradingView broker verification</h2></div><span class="gate-pill gate-info">Broker integration</span></div>
+        <p class="market-data-lead">TradingView can verify certain brokers' exchange subscriptions because it has a broker connection and agreements for that flow.</p>
+        <ol class="market-data-list">
+          <li>Sign in to TradingView and connect AMP from its Trading Panel.</li>
+          <li>TradingView checks eligible subscriptions on the connected account.</li>
+          <li>The verified entitlement applies inside TradingView for supported exchanges.</li>
+        </ol>
+        <p class="market-data-note">That verification does not pass the feed or a reusable data license to Vela. Count Desk needs its own approved source connection. Do not enter TradingView or AMP passwords on this page.</p>
+        <a class="market-data-link" href="https://www.tradingview.com/support/solutions/43000479666-how-can-i-get-real-time-data-from-exchanges-that-i-have-already-purchased-with-my-broker/" target="_blank" rel="noopener">TradingView broker verification details ↗</a>
+      </article>
+    </section>
+
+    <section class="market-data-status-card" aria-labelledby="marketSourceTitle">
+      <div class="market-data-status-head"><div><small>LIVE LOCAL CONFIGURATION</small><h2 id="marketSourceTitle">Available data sources</h2></div><button id="refreshSources" type="button">Refresh status</button></div>
+      <p id="sourceStatusSummary" role="status" aria-live="polite">Reading the local feed configuration…</p>
+      <div id="marketSourceList" class="market-source-list"></div>
+      <p class="market-data-disclaimer">A configured adapter means local settings are present; it does not independently verify your exchange rights or contract terms. Status comes from this Count Desk instance.</p>
+    </section>
+
+    <section class="market-data-enterprise">
+      <div><small>IF THIS BECOMES A MULTI-USER PLATFORM</small><h2>Customer data access is a different agreement</h2></div>
+      <p>If Count Desk serves other traders, each customer's AMP login cannot simply be reused as a platform-wide data plan. The company would need a CQG/vendor agreement that covers customer-facing API use, exchange permissions, user counts, display, non-display analysis, derived data, storage, and redistribution. CQG describes WebAPI as an enterprise API; get written scope and pricing before designing a hosted relay.</p>
+      <a href="https://www.cqg.com/products/cqg-apis/cqg-enterprise-api-questionnaire" target="_blank" rel="noopener">CQG enterprise API questionnaire ↗</a>
+    </section>
+
+    <footer class="market-data-footer"><span>Research and paper/shadow only · no order routing</span><a href="./index.html">Open Count Desk</a></footer>
+  </main>
+  <script src="./market-data.js?v=market-access-20260930"></script>
+</body>
+</html>

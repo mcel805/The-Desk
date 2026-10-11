@@ -68,4 +68,28 @@ if ! curl -fsS http://127.0.0.1:8041/api/health >/dev/null 2>&1; then
   exit 1
 fi
 
+JOURNAL_DIR="$PWD/integrations/open-source/trade-journal"
+if ! curl -fsS http://127.0.0.1:3000/api/accounts >/dev/null 2>&1; then
+  if ! command -v node >/dev/null 2>&1 || ! command -v pnpm >/dev/null 2>&1; then
+    print -u2 "LuxAlgo Trade Journal needs Node 22+ and pnpm 11.0.8 on PATH."
+    exit 1
+  fi
+  if [[ ! -d "$JOURNAL_DIR/node_modules" ]]; then
+    (cd "$JOURNAL_DIR" && pnpm install --frozen-lockfile)
+  fi
+  if [[ ! -f "$JOURNAL_DIR/apps/web/.next/BUILD_ID" ]]; then
+    (cd "$JOURNAL_DIR" && pnpm build)
+  fi
+  mkdir -p "$JOURNAL_DIR/apps/web/data"
+  (cd "$JOURNAL_DIR" && nohup pnpm --filter web exec next start -H 127.0.0.1 -p 3000 > "$JOURNAL_DIR/apps/web/data/server.log" 2>&1 &)
+  for attempt in {1..80}; do
+    curl -fsS http://127.0.0.1:3000/api/accounts >/dev/null 2>&1 && break
+    sleep 0.25
+  done
+fi
+if ! curl -fsS http://127.0.0.1:3000/api/accounts >/dev/null 2>&1; then
+  print -u2 "LuxAlgo Trade Journal failed to start. See integrations/open-source/trade-journal/apps/web/data/server.log."
+  exit 1
+fi
+
 open http://127.0.0.1:8770/

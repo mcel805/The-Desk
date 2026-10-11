@@ -13,10 +13,13 @@
   </script>
   <title>Count Desk · Chart Workspace</title>
   <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
-    <link rel="stylesheet" href="./vela-preview.css?v=paper-cats-candles-20261001">
-  <link rel="stylesheet" href="./paper-chart-planner.css?v=paper-cats-20261001">
-  <link rel="stylesheet" href="./lego-workspace.css?v=paper-cats-20261001">
-  <link rel="stylesheet" href="./codex-widget.css?v=3">
+    <link rel="stylesheet" href="./vela-preview.css?v=chart-trader-3-20261002">
+    <link rel="stylesheet" href="./show-me.css?v=2">
+  <link rel="stylesheet" href="./paper-chart-planner.css?v=chart-trader-1-20261002">
+  <link rel="stylesheet" href="./lego-workspace.css?v=chart-trader-4-20261002">
+  <link rel="stylesheet" href="./list-widget.css?v=2">
+  <link rel="stylesheet" href="./living-candles.css?v=liquidity-touch-1">
+  <link rel="stylesheet" href="./codex-widget.css?v=5">
 </head>
 <body class="trading-prototype vela-preview-page">
   <aside class="desk-sidebar" aria-label="Workspace navigation">
@@ -31,6 +34,7 @@
         <a href="./trading-landing.html" aria-label="Home" title="Home">⌂ <span>Home</span></a>
         <a class="active" href="./vela-preview.html" aria-label="Chart workspace" title="Chart workspace">▥ <span>Chart workspace</span></a>
         <a href="./quant-lab.html" aria-label="Quant Lab" title="Quant Lab">✦ <span>Quant Lab</span></a>
+        <a href="./indicator-science.html" aria-label="Indicators" title="Indicators">◈ <span>Indicators</span></a>
         <a href="./resources.html" aria-label="Resources" title="Resources">ⓘ <span>Resources</span></a>
       </div>
     </nav>
@@ -50,7 +54,6 @@
   <main class="vela-preview-main">
     <nav class="vela-workspace-tabs" aria-label="Vela workspace views" role="tablist">
       <button id="velaChartTab" class="vela-workspace-tab active" type="button" role="tab" aria-selected="true">Workspace</button>
-      <button id="velaPaperTab" class="vela-workspace-tab" type="button" role="tab" aria-selected="false">Paper Trading <span>SIM ONLY</span></button>
       <a class="vela-workspace-tab" href="./quant-lab.html" style="text-decoration:none" aria-label="Open independent Quant Lab">✦ Quant Lab ↗</a>
       <div class="modular-tab-actions"><input id="modularLayoutName" aria-label="Workspace name" value="Standard desk" maxlength="40"><small id="modularSaveStatus" aria-live="polite">Saved in this browser</small><button id="modularConnectData" type="button">Connect data</button><button id="modularToggleLeft" class="cat-rail-toggle modular-rail-cat-toggle" type="button" aria-controls="modularGrid" aria-expanded="true" aria-label="Collapse left container" title="Collapse left container"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button><button id="modularManageTemplates" type="button">Templates</button><button id="modularSaveTemplate" type="button" title="Save this workspace as a template">Save as</button><button id="modularNewLayout" type="button" title="Start a blank scratch workspace">＋ Scratch</button><button id="modularAddWidget" type="button">＋ Add widget</button><button id="modularSelectCodex" type="button" aria-pressed="false" title="Add or focus the Codex widget">› Codex</button><button id="modularToggleRight" class="cat-rail-toggle modular-rail-cat-toggle" type="button" aria-controls="modularGrid" aria-expanded="true" aria-label="Collapse right container" title="Collapse right container"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button></div>
     <div class="desk-text-sizes" role="group" aria-label="Text size">
@@ -71,12 +74,12 @@
       <div id="modularWidgetParking" hidden><div id="modularAgentsParking"></div></div>
     </section>
     <dialog id="modularWidgetDialog" class="modular-widget-dialog" aria-labelledby="modularGalleryTitle">
-      <form method="dialog" class="modular-gallery-shell"><header><div><small>COUNT DESK · WORKSPACE</small><h2 id="modularGalleryTitle">Add a widget</h2><p>Auto-fit finds a balanced place as the desk grows. Drag a panel by its header to reorder, or cycle its size with ↔.</p></div><button value="cancel" aria-label="Close widget gallery">×</button></header><div class="modular-widget-catalog">
+      <form method="dialog" class="modular-gallery-shell"><header><div><small>COUNT DESK · WORKSPACE</small><h2 id="modularGalleryTitle">Add a widget</h2><p>Blocks auto-fit as the desk grows. Enter Build mode to drag a header onto the grid, or resize from its glowing edge.</p></div><button value="cancel" aria-label="Close widget gallery">×</button></header><div class="modular-widget-catalog">
         <button type="button" data-modular-add="chart"><span>⌁</span><strong>Chart</strong><small>Source-aware Vela chart with paper planning and indicator cubes.</small></button>
         <button type="button" data-modular-add="agents"><span>✦</span><strong>Agents</strong><small>Chat with Cleo and coordinate chart research.</small></button>
         <button type="button" data-modular-add="codex"><span>›</span><strong>Codex</strong><small>Persistent Codex chat using ChatGPT sign-in, with Cleo subagent handoffs.</small></button>
         <button type="button" data-modular-add="ladder"><span>⇅</span><strong>Ladder</strong><small>Stored bar OHLC levels with Buy / Sell paper-plan staging.</small></button>
-        <button type="button" data-modular-add="watchlist"><span>☷</span><strong>List</strong><small>Build a personal instrument list from the Count Desk catalog.</small></button>
+        <button type="button" data-modular-add="watchlist"><span>☷</span><strong>The List</strong><small>Watchlist and asset detail from stored Count Desk bars.</small></button>
         <button type="button" data-modular-add="indicators"><span>▦</span><strong>Indicator cubes</strong><small>Toggle native chart studies through the Vela renderer.</small></button>
         <button type="button" data-modular-add="notes"><span>✎</span><strong>Desk notes</strong><small>Keep local research notes beside your chart.</small></button>
         <button type="button" data-modular-add="context"><span>◷</span><strong>Data context</strong><small>Keep instrument, timeframe, source, and cutoff visible beside the chart.</small></button>
@@ -97,11 +100,22 @@
         </div>
         <button id="velaCandleSkinsButton" type="button" aria-haspopup="dialog" aria-controls="velaCandleSkinsDialog"><svg class="candle-skin-icon" viewBox="0 0 28 24" aria-hidden="true"><path d="M7 2v20M20 2v20"/><rect x="4" y="6" width="6" height="8" rx="1" class="bull"/><rect x="17" y="10" width="6" height="8" rx="1" class="bear"/></svg><span>Candle Skins</span></button>
         <button id="velaChartSettingsButton" type="button" aria-haspopup="dialog" aria-controls="velaChartSettingsDialog">Chart settings</button>
+        <button id="velaLivingCandlesButton" type="button" aria-pressed="false" aria-label="Candle Life visual study off" title="One burst at a plotted Liquidity line touch">✦ Life OFF</button>
+        <button id="velaLivingInspectButton" type="button" aria-label="Open Candle Life replay inspector" aria-controls="velaLivingInspector" aria-expanded="false" disabled title="Load stored historical bars first">⌕</button>
         <button data-drawer="replay" aria-expanded="false">Replay</button>
         <button id="velaConnectionsButton" class="connection-status-button is-checking" data-drawer="connections" aria-expanded="false" aria-label="Connections status: checking" title="Checking active data connections"><span>Connections</span><i class="connection-status-dot" aria-hidden="true"></i></button>
+        <button id="showMeButton" class="show-me-trigger" type="button" aria-haspopup="dialog" aria-controls="showMePanel" aria-expanded="false"><span aria-hidden="true">◉</span> Show Me</button>
         <button data-drawer="context" aria-expanded="false">Chart context</button>
+        <button id="marketResearchNewsButton" class="market-news-button" type="button" aria-expanded="false" aria-controls="marketResearchNewsDrawer" title="Open Market Research news channel" aria-label="Open Market Research news channel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5h14a1.5 1.5 0 0 1 1.5 1.5v15.5H6.75A2.75 2.75 0 0 1 4 17.75V4.5A1 1 0 0 1 5 3.5Z"/><path d="M4 17.5a2.5 2.5 0 0 0 2.5 2.5M8 7h9M8 10.5h9M8 14h5"/></svg><span>News</span></button>
         <button id="cleoReportAlarm" class="cleo-report-alarm" type="button" aria-label="Open latest Cleo report" title="No new Cleo report"><img src="./cleo-report-lamp.png" alt=""><span class="cleo-report-signal" aria-hidden="true"></span></button>
       </div>
+      <section id="marketResearchNewsDrawer" class="market-news-drawer desk-drawer" hidden aria-label="Market Research finance news channel">
+        <header class="market-news-head"><div><small>COUNT DESK · FINANCE NEWS CHANNEL</small><h2>Market Research</h2><p>Market Research Reporter · sourced developments with conditional futures context</p></div><button id="marketResearchNewsClose" type="button" aria-label="Close Market Research">×</button></header>
+        <div class="market-news-controls"><label>Product <input id="marketNewsProduct" value="ALL FUTURES" maxlength="100"></label><label>Session label <input id="marketNewsSession" value="US equity-index RTH proxy" maxlength="120"></label><label>Timezone <input id="marketNewsTimezone" value="America/Chicago" maxlength="80"></label><label>Open <input id="marketNewsOpen" type="time" value="08:30"></label><label>Close <input id="marketNewsClose" type="time" value="15:00"></label><button id="marketNewsScheduleSave" type="button">Save schedule</button><button id="marketNewsMorning" type="button">Create morning edition</button><button id="marketNewsCloseEdition" type="button">Create close edition</button><button id="marketNewsAskReporter" type="button">Ask Reporter</button></div>
+        <p id="marketNewsStatus" class="market-news-status" role="status" aria-live="polite">Loading indicator coverage…</p>
+        <div id="marketNewsEditions" class="market-news-editions" aria-live="polite"></div>
+        <footer><a href="./market-research.html">Open source registry &amp; indicator ledger →</a><span>Local editions cap at three clips and three paragraphs per clip. Chat marks Reporter delegation only when the specialist run is confirmed.</span></footer>
+      </section>
       <section class="desk-drawer" id="deskReplay" hidden aria-label="Replay controls"><label>Replay cutoff <input id="velaReplayCutoff" type="datetime-local" aria-label="Vela replay cutoff"></label><button id="velaReplayLatest" type="button">Latest stored</button><p>Select a cutoff, then press Refresh. Uses stored historical bars.</p></section>
       <div id="velaStatus" class="vela-status" role="status" aria-live="polite">Loading Count Desk catalog…</div>
       <section id="cleoBriefing" hidden class="cleo-briefing desk-drawer" aria-label="Structural chart context">
@@ -126,14 +140,6 @@
         </div>
         <p class="vela-connection-note">A provider connection supplies chart market data only. It does not connect a brokerage account, enable orders, or establish redistribution rights. Historical Count Desk and the existing Tickstream service are shown separately from these three direct chart feeds.</p>
         <div class="vela-connection-legacy"><span>Tickstream server stream</span><strong id="velaTickstreamReadiness">Checking…</strong><small id="velaTickstreamReadinessMeta">Existing server-side connection status</small><button id="velaTickstreamProbe" type="button">Open NQ chart</button></div>
-        <span id="velaTickstreamStatus" class="sr-only" role="status" aria-live="polite">Checking Tickstream…</span>
-      </section>
-      <dialog id="velaConnectionSwitchDialog" class="vela-connection-switch-dialog" aria-labelledby="velaConnectionSwitchTitle">
-        <form method="dialog"><small>CONNECTION SWITCH</small><h2 id="velaConnectionSwitchTitle">Replace active connection?</h2><p id="velaConnectionSwitchMessage"></p><div><button value="cancel">Keep current</button><button id="velaConnectionSwitchConfirm" value="confirm">Disconnect and connect</button></div></form>
-      </dialog>
-      <section id="deskStudies" hidden class="vela-indicator-panel desk-drawer tool-belt-menu" aria-label="Tool Belt indicator manager">
-        <div class="tool-belt-menu-head"><img src="./tool-belt-assets/tool-belt-color.png" alt=""><div><small>COUNT DESK · INDICATOR MANAGER</small><strong>Tool Belt</strong><span>Ten dedicated indicators · select to activate · gear for settings</span></div><b id="toolBeltIndicatorSummary">Loading chart studies…</b><button type="button" data-close-tool-belt aria-label="Close Tool Belt">×</button></div>
-        <div class="tool-template-bar"><label>Saved templates<select id="indicatorTemplateSelect"><option value="">Choose a saved template</option></select></label><label class="template-name-label">Template name<input id="indicatorTemplateName" type="text" maxlength="60" placeholder="Name this setup"></label><button id="saveIndicatorTemplate" type="button">Save template</button><button id="loadIndicatorTemplate" type="button" disabled>Load</button><button id="restoreIndicatorDefaults" type="button" title="Restore the default indicator and support-tool setup">Default</button></div>
         <section class="vela-mcp-register" aria-labelledby="velaMcpRegisterTitle">
           <div class="vela-mcp-register-head"><div><small>AGENT CONTEXT · MCP</small><h2 id="velaMcpRegisterTitle">MCP reference</h2></div><span>Separate from chart feeds</span></div>
           <p>MCP tools can provide research or account context. A listed server does not imply an active session, chart feed, data license, or order permission in Count Desk.</p>
@@ -144,6 +150,14 @@
             <article class="vela-mcp-item"><div><strong>Edge Stats MCP</strong><span>Vendored · local research</span></div><p>Read-only queries over a local, authorized historical store with sample sizes and uncertainty. The standalone MCP package is present in source; no active server is implied.</p><a href="https://github.com/LuxAlgo/edge-stats#readme" target="_blank" rel="noopener noreferrer">Upstream source ↗</a></article>
           </div>
         </section>
+        <span id="velaTickstreamStatus" class="sr-only" role="status" aria-live="polite">Checking Tickstream…</span>
+      </section>
+      <dialog id="velaConnectionSwitchDialog" class="vela-connection-switch-dialog" aria-labelledby="velaConnectionSwitchTitle">
+        <form method="dialog"><small>CONNECTION SWITCH</small><h2 id="velaConnectionSwitchTitle">Replace active connection?</h2><p id="velaConnectionSwitchMessage"></p><div><button value="cancel">Keep current</button><button id="velaConnectionSwitchConfirm" value="confirm">Disconnect and connect</button></div></form>
+      </dialog>
+      <section id="deskStudies" hidden class="vela-indicator-panel desk-drawer tool-belt-menu" aria-label="Tool Belt">
+        <div class="tool-belt-menu-head"><img src="./tool-belt-assets/tool-belt-color.png" alt=""><div><small>COUNT DESK · CHART TOOL BELT</small><strong>Tool Belt</strong><span>Indicators add chart studies · Tools add interactive chart aids</span></div><b id="toolBeltIndicatorSummary">Loading chart studies…</b><button type="button" data-close-tool-belt aria-label="Close Tool Belt">×</button></div>
+        <div class="tool-template-bar"><label>Saved templates<select id="indicatorTemplateSelect"><option value="">Choose a saved template</option></select></label><label class="template-name-label">Template name<input id="indicatorTemplateName" type="text" maxlength="60" placeholder="Name this setup"></label><button id="saveIndicatorTemplate" type="button">Save template</button><button id="loadIndicatorTemplate" type="button" disabled>Load</button><button id="restoreIndicatorDefaults" type="button" title="Restore the default indicator and support-tool setup">Default</button></div>
         <div id="indicatorTemplateStatus" class="tool-template-status" role="status" aria-live="polite">Templates and indicator settings are saved in this browser.</div>
         <nav class="tool-belt-kind-tabs" aria-label="Filter Tool Belt cards">
           <button type="button" data-tool-belt-kind="all" aria-pressed="true">All</button>
@@ -159,16 +173,18 @@
       <dialog id="indicatorSettingsDialog" class="indicator-settings-dialog" aria-labelledby="indicatorSettingsTitle">
         <form id="indicatorSettingsForm" method="dialog"><div class="indicator-settings-head"><div><small id="indicatorSettingsKind">INDICATOR SETTINGS</small><h2 id="indicatorSettingsTitle">Indicator settings</h2></div><button type="button" data-close-settings aria-label="Close settings">×</button></div><div id="indicatorSettingsFields" class="indicator-settings-fields"></div><p id="indicatorSettingsNote" class="indicator-settings-note"></p><div class="indicator-settings-actions"><button id="resetIndicatorSettings" type="button">Default</button><span></span><button value="cancel" type="button" data-close-settings>Cancel</button><button id="saveIndicatorSettings" type="submit">Save</button></div></form>
       </dialog>
+      <dialog id="indicatorMeasureDialog" class="indicator-measure-dialog" aria-label="Set up an indicator experiment"><div class="indicator-measure-shell"><button id="closeIndicatorMeasure" type="button" aria-label="Close measurement setup">×</button><iframe id="indicatorMeasureFrame" title="Scientist experiment setup" loading="lazy"></iframe></div></dialog>
       <div class="vela-chart-stage">
         <div id="velaChart" class="vela-chart" aria-label="Vela historical chart preview"></div>
+        <aside id="velaLivingCandlesReadout" class="living-candle-readout"><strong>Waiting for stored bars</strong><small>Visual study uses closed historical candles.</small></aside>
         <section id="smartFibControls" class="smart-fib-controls" aria-label="Smart Fib swing preview controls" hidden>
           <span id="smartFibModeReadout">Hover preview · confirmed swing</span>
           <button id="smartFibLock" type="button">Lock swing</button>
         </section>
         <aside id="velaQuickOrderRail" class="vela-quick-order-rail" aria-label="Paper trade shortcuts">
           <button id="velaQuickOrderToggle" class="cat-rail-toggle" type="button" aria-expanded="true" aria-controls="velaQuickOrderActions" aria-label="Collapse paper trade buttons" title="Collapse paper trade buttons"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 12 4 4l8 4a13 13 0 0 1 8 0l8-4-2 8a12 12 0 0 1 3 8c0 6-5 10-15 10S1 26 1 20a12 12 0 0 1 5-8Z"/><path d="M11 19h.1M21 19h.1M13 24q3 3 6 0"/></svg></button>
-          <div id="velaQuickOrderActions" class="vela-quick-order-actions"><button type="button" data-quick-paper-side="long" aria-label="Stage paper buy limit 10 ticks below the confirmed close">Buy</button><button type="button" data-quick-paper-side="short" aria-label="Stage paper sell limit 10 ticks above the confirmed close">Sell</button></div>
-          <p id="velaQuickOrderStatus" class="sr-only" role="status" aria-live="polite">Uses latest confirmed chart close. Review in Paper Planner.</p>
+          <div id="velaQuickOrderActions" class="vela-quick-order-actions"><button type="button" data-quick-paper-side="long" aria-label="Open a Sim buy market ticket for review">Buy</button><button type="button" data-quick-paper-side="short" aria-label="Open a Sim sell market ticket for review">Sell</button><button id="velaQuickAccount" type="button" aria-label="Open Chart Trader and switch simulated account">SIM · Select account</button></div>
+          <div id="velaQuickOrderFeedback" class="vela-quick-order-feedback" hidden><p id="velaQuickOrderStatus" role="status" aria-live="polite"></p><button id="velaQuickOrderViewOrders" type="button" hidden>View Sim orders</button></div>
         </aside>
         <div id="velaChartLegend" class="vela-chart-legend" aria-live="polite" aria-label="Chart asset, timeframe, and active indicators"></div>
         <button id="liquidityConvergenceSummary" class="liquidity-convergence-summary" type="button" aria-label="Show Liquidity convergence details; C IDs are ordered by price, not strength" hidden></button>
@@ -202,32 +218,29 @@
         </div><div class="vela-chart-settings-actions"><button id="velaOpenCandleStyle" type="button">Candle style &amp; skins…</button><button id="velaChartSettingsReset" type="button">Reset chart settings</button><span></span><button value="close">Done</button></div><p id="velaChartSettingsStatus" role="status" aria-live="polite"></p>
       </form>
     </dialog>
-    <section id="velaPaperWorkspace" class="vela-paper-card" hidden aria-label="Vela paper trading workspace">
-      <div class="vela-paper-head"><div><small>PAPER LABORATORY · VELA CONTEXT</small><h1>Paper Trading</h1><p>Orders use the selected Vela chart’s last confirmed stored bar. This is a local simulation with no broker connection or live order route.</p></div><button id="velaBackToChart" type="button">Back to chart</button></div>
-      <div class="vela-paper-context"><span id="velaPaperMarket">No chart selected</span><span id="velaPaperSource">Load a chart first.</span><span id="velaPaperIndicators">Studies · Volume</span></div>
-      <div class="vela-paper-account"><label>Simulated account<select id="velaPaperAccount" aria-label="Simulated account"><option value="">Create an account first</option></select></label><form id="velaPaperAccountForm"><label>Account name<input id="velaPaperAccountName" maxlength="120" placeholder="Practice futures" required></label><label>Starting virtual USD<input id="velaPaperStartingBalance" type="number" min="1" max="1000000000" step="0.01" value="100000" required></label><button type="submit">Create simulation account</button></form></div>
-      <form id="velaPaperTicket" class="vela-paper-ticket">
-        <label>Direction<select id="velaPaperSide"><option value="long">Buy / Long</option><option value="short">Sell / Short</option></select></label>
-        <label>Order type<select id="velaPaperOrderType"><option value="market">Market</option><option value="limit">Limit</option><option value="stop">Stop</option><option value="stop_limit">Stop-limit</option></select></label>
-        <label>Micro contracts<input id="velaPaperQuantity" type="number" min="1" max="100" step="1" value="1" required></label>
-        <label id="velaPaperLimitField" hidden>Limit price<input id="velaPaperLimit" type="number" min="0" step="any"></label>
-        <label id="velaPaperTriggerField" hidden>Stop trigger<input id="velaPaperTrigger" type="number" min="0" step="any"></label>
-        <label>Paper stop<input id="velaPaperStop" type="number" min="0" step="any" placeholder="Optional"></label>
-        <label>Paper target<input id="velaPaperTarget" type="number" min="0" step="any" placeholder="Optional"></label>
-        <button id="velaPaperOpen" type="submit">Queue paper order</button>
+    <dialog id="velaPaperAccountDialog" class="vela-chart-settings-dialog" aria-labelledby="velaPaperAccountTitle">
+      <form id="velaPaperAccountForm" method="dialog"><header><div><small>SIM ACCOUNT</small><h2 id="velaPaperAccountTitle">Create a simulated account</h2><p>Virtual funds only. This account has no broker connection or order-routing capability.</p></div><button type="button" data-close-paper-account aria-label="Close account setup">×</button></header>
+        <div class="vela-chart-settings-grid"><label>Account name<input id="velaPaperAccountName" maxlength="120" placeholder="Practice futures" required></label><label>Starting virtual USD<input id="velaPaperStartingBalance" type="number" min="1" max="1000000000" step="0.01" value="100000" required></label></div>
+        <div class="vela-chart-settings-actions"><span></span><button type="button" data-close-paper-account>Cancel</button><button id="velaPaperCreateAccount" type="submit">Create Sim account</button></div><p id="velaPaperAccountStatus" class="vela-paper-status" role="status" aria-live="polite">Live accounts are unavailable until a broker connection is approved and verified.</p>
       </form>
-      <p class="vela-paper-limits">Confirmed stored bars drive fills. Stop-limit orders begin checking the limit on the bar after the trigger. Gross results exclude fees and slippage. New accounts and fills are not yet in the LuxAlgo journal.</p>
-      <button id="velaPaperPractice" class="vela-paper-practice" type="button">Refresh selected chart context</button>
-      <p id="velaPaperStatus" class="vela-paper-status" role="status" aria-live="polite">Local simulation · no broker connection.</p>
-      <div class="vela-paper-positions-head"><strong>Positions</strong><span id="velaPaperPositionCount">0 queued · 0 open</span></div>
-      <div id="velaPaperPositions" class="vela-paper-positions">Load a chart to see paper positions.</div>
-    </section>
+    </dialog>
   </main>
   <div id="velaTradeContextMenu" class="vela-trade-context-menu" role="menu" aria-label="Paper trade options" hidden><button type="button" role="menuitem" data-paper-side="long" data-paper-type="market">Paper buy at market</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="market">Paper sell at market</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="limit">Paper buy limit…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="limit">Paper sell limit…</button><button type="button" role="menuitem" data-paper-side="long" data-paper-type="stop">Paper buy stop…</button><button type="button" role="menuitem" data-paper-side="short" data-paper-type="stop">Paper sell stop…</button></div>
   <div id="deskChatMount"></div>
+  <section id="showMePanel" class="show-me-panel" role="dialog" aria-modal="false" aria-labelledby="showMeTitle" hidden>
+    <header><div><small>COUNT DESK · SCREEN CLIPS</small><h2 id="showMeTitle">Show Me <span>30s max</span></h2></div><button id="showMeClose" type="button" aria-label="Close Show Me">×</button></header>
+    <p>Choose a tab, window, or screen when prompted. Clips stay on this device. Recent keeps the last 25.</p>
+    <label class="show-me-title">Clip name <input id="showMeName" maxlength="100" placeholder="What should Codex look at?"></label>
+    <label class="show-me-audio"><input id="showMeAudio" type="checkbox"> Include microphone audio <small>(off by default)</small></label>
+    <div class="show-me-controls"><button id="showMeStart" type="button">● Start recording</button><button id="showMeStop" type="button" disabled>■ Stop</button><strong id="showMeTimer" role="timer">00:30</strong></div>
+    <p id="showMeStatus" class="show-me-status" role="status" aria-live="polite">Ready to record.</p>
+    <div class="show-me-latest" id="showMeLatest" hidden><video id="showMePreview" controls playsinline preload="metadata"></video><div><strong id="showMeLatestTitle"></strong><span id="showMeLatestMeta"></span></div><div class="show-me-latest-actions"><button id="showMeUseInChat" type="button">Use in chat ↗</button><a id="showMeDownload" download>Download clip ↓</a></div></div>
+  </section>
   <script src="./vendor/vela.global.min.js?v=vela-0.8.0"></script>
-  <script type="module" src="./vela-preview.js?v=order-flow-premium-20261003"></script>
-  <script type="module" src="./batty-agent.js?v=agents-widget-1-20261001"></script>
+  <script type="module" src="./vela-preview.js?v=chart-trader-1-20261002"></script>
+  <script type="module" src="./batty-agent.js?v=market-research-reporter-2-20261001"></script>
+  <script type="module" src="./show-me.js?v=1"></script>
+  <script type="module" src="./market-research-feed.js?v=reporter-feed-2-20261001"></script>
   <script type="module" src="./desk-shell.js?v=toolbelt-manager-20260930"></script>
   <script src="./sidebar-themes.js?v=screen-paint-3-20260929"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>

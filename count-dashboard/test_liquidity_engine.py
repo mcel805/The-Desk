@@ -75,7 +75,7 @@ class LiquidityEngineTest(unittest.TestCase):
         self.assertEqual(sample[-1].time, report["excludedLatestStoredBar"])
         self.assertEqual("Synthetic test fixture", report["sources"][0]["source"])
         self.assertIsNone(report["levels"][0].get("probability"))
-        self.assertEqual("liquidity-engine-v1.0.0", report["engineVersion"])
+        self.assertEqual("liquidity-engine-v1.1.0", report["engineVersion"])
 
     def test_short_history_is_reported_without_invented_levels(self):
         result = engine.build_liquidity_levels(fixture_bars(8), "TEST", "1M", engine.LiquiditySettings(4, 2))

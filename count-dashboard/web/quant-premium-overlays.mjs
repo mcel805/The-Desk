@@ -1,8 +1,10 @@
 import {liquidityConvergenceGroups} from './liquidity-convergence.js';
 import {advanceSmartFibSwing,confirmedAlternatingSwings,smartFibSwingAtTime} from './smart-fib-engine.mjs';
 
-const intervalMs={"1m":60_000,"5m":300_000,"15m":900_000,"30m":1_800_000,"1h":3_600_000,"4h":14_400_000,"1d":86_400_000};
+const intervalMs={"1m":60_000,"2m":120_000,"3m":180_000,"5m":300_000,"15m":900_000,"30m":1_800_000,"1h":3_600_000,"2h":7_200_000,"4h":14_400_000,"1d":86_400_000,"1w":604_800_000};
 export const quantPremiumItems={
+  'wave-court':{name:'Wave Court',kind:'indicator',image:'elliott-wave-color.png',description:'Seven-frame sourced Elliott candidates with three confirmed chart degrees. Hard impulse rules gate labels; missing higher counts stay unresolved. Independent Quant Lab method, not Pine parity.'},
+  'liquidity-force':{name:'Liquidity Force',kind:'indicator',image:'liquidity-color.png',description:'Raw or converged chart / 30m / 1h Liquidity levels with up to three matched Liquid Gravity ranks per side and an optional selectable-timeframe cluster volume profile. Gravity is relative, not probability.'},
   liquidity:{name:'Liquidity',kind:'indicator',image:'liquidity-color.png',description:'Confirmed swing-price levels with 30m / 1h context and descriptive convergence.'},
   'volume-profile':{name:'Volume Profile',kind:'indicator',image:'volume-profile-color.png',description:'Reported candle volume allocated across price rows. POC and 70% value area are range estimates.'},
   tpo:{name:'TPO',kind:'indicator',image:'volume-profile-color.png',description:'UTC session letters show which price rows each completed time block touched. No volume claim.'},
@@ -10,7 +12,9 @@ export const quantPremiumItems={
   footprint:{name:'Footprint',kind:'indicator',image:'volume-profile-color.png',description:'Executed bid and ask volume at price on the latest complete Coinbase Exchange bar. Maker side is inverted to aggressor.',requiresExecutionFeed:true},
   'volume-bubbles':{name:'Volume Bubbles',kind:'indicator',image:'volume-profile-color.png',description:'Executed size clusters on the latest complete Coinbase Exchange bar. Availability requires full trade pagination and volume reconciliation.',requiresExecutionFeed:true},
   'ttp-volume-analyst':{name:'TTP RelativeVolume',kind:'indicator',image:'volume-profile-color.png',description:'Lower indicator pane with relative-volume columns, same-time average, and optional colored bars or price symbols. Loads supplemental public history. Descriptive only.'},
+  'liquid-gravity':{name:'Liquid Gravity',kind:'indicator',image:'liquidity-color.png',description:'Ranks OHLC-inferred liquidity pools by structure, distance, freshness, trend, and regime. Relative attraction score; not an order-book feed or probability.'},
   'smart-fib':{name:'Smart Fib',kind:'tool',image:'fibonacci-color.png',description:'Hover a confirmed 1h swing to preview retracements; lock it to track the latest extreme.'},
+  'smart-ote':{name:'Smart Money Fibonacci OTE',kind:'indicator',image:'fibonacci-color.png',description:'Confirmed structure shifts, colored retracement levels, and a directional OTE zone. Descriptive only.'},
 };
 
 export function completedBars(bars,timeframe,asOf=Date.now()) {

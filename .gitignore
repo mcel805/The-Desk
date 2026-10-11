@@ -18,5 +18,9 @@ docs/elliott-indicator/MYM_*-AUDIT*.md
 **/.env.*
 *.sqlite
 *.sqlite3
+count-dashboard/data/quant-game-mcp/
 *.db
 *.log
+count-dashboard/data/support-events.jsonl
+count-dashboard/data/batty-turn-*/
+count-dashboard/data/show-me-turn-*/

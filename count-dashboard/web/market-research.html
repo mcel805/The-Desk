@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Market Research · Count Desk</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./market-research.css">
+</head>
+<body class="market-research-page">
+  <header>
+    <div class="brand"><span>B</span><div><strong>BATTY</strong><small>COUNT DESK</small></div></div>
+    <nav class="app-tabs" aria-label="Batty workspaces">
+      <a class="app-tab" href="./trading-landing.html">Home</a>
+      <a class="app-tab" href="./vela-preview.html">Chart Workspace</a>
+      <a class="app-tab active" href="./tool-belt.html">Tool Belt</a>
+      <a class="app-tab" href="./resources.html">Resources</a>
+    </nav>
+    <div class="header-status"><span class="api-state">LOCAL RESEARCH</span><button id="appLogout" class="app-logout" type="button">Log out</button></div>
+  </header>
+  <main class="mc-main">
+    <section class="mc-hero">
+      <div class="mc-kicker">TOOL BELT / MARKET RESEARCH · V0.2.0</div>
+      <h1>Morning context,<br>with receipts.</h1>
+      <p>Scan approved primary-source feeds, review cross-market catalysts, map conditional transmission to futures products, and freeze a timestamped pre-open research report.</p>
+      <div class="mc-actions"><a href="./tool-belt.html">← Tool Belt</a><a href="./indicator-agent.html?indicator=market-research">Indicator learning loop →</a><span id="mcStorageStatus">Loading local research ledger…</span></div>
+    </section>
+    <div class="mc-notice" role="note"><strong>Coverage is broad, not exhaustive.</strong> The registry spans rates, bonds, macro and household conditions, energy and geopolitics, earnings and AI concentration, credit, regulation, positioning, and global policy. Only approved HTTPS RSS/Atom feeds are polled. Licensed news and unrestricted web crawling are excluded. Headlines are leads for review, not trade instructions.</div>
+    <section class="mc-layout">
+      <div class="mc-main-column">
+        <section class="mc-panel" aria-labelledby="reportHeading">
+          <div class="mc-section-head"><div><span class="mc-kicker">01 / PRE-OPEN SNAPSHOT</span><h2 id="reportHeading">Build a session report</h2></div><span class="mc-status">DESCRIPTIVE / UNSCORED</span></div>
+          <form id="reportForm" class="mc-form mc-report-form">
+            <label>Session date<input id="reportDate" type="date" required></label>
+            <label>Session label<input id="reportSession" maxlength="100" placeholder="CME pre-open" required></label>
+            <label>Timezone<input id="reportTimezone" maxlength="80" required></label>
+            <label>Futures product<input id="reportProduct" maxlength="100" placeholder="For example, MYM or MCL" required></label>
+            <label>Information cutoff (device time)<input id="reportCutoff" type="datetime-local" required></label>
+            <div class="mc-span"><div class="mc-label">Events included</div><div id="reportEventChoices" class="mc-event-choices"><p class="mc-muted">Save an event and approve its source's internal use before including it.</p></div></div>
+            <button class="mc-button" type="submit">Freeze report snapshot</button>
+          </form>
+          <p id="reportMessage" class="mc-message" role="status" aria-live="polite"></p>
+          <div id="reportView" hidden></div>
+        </section>
+        <section class="mc-panel" aria-labelledby="eventsHeading">
+          <div class="mc-section-head"><div><span class="mc-kicker">02 / EVENT LEDGER</span><h2 id="eventsHeading">Record a market influence</h2></div><span class="mc-muted">Append-only evidence</span></div>
+          <form id="eventForm" class="mc-form">
+            <label>Source<select id="eventSource" required><option value="">Choose source</option></select></label>
+            <label>Influence category<select id="eventCategory" required><option value="rates">Central banks, rates, bonds & sovereign funding</option><option value="economy">Inflation, labor, growth, households & K-shaped conditions</option><option value="energy">Geopolitics, oil, gas, power, agriculture & supply chains</option><option value="earnings">Earnings, index concentration, AI & sector leadership</option><option value="credit">Credit, banks, liquidity, defaults & financial stability</option><option value="regulation">Regulation, fiscal policy, trade & legal decisions</option><option value="positioning">Volatility, positioning, flows & market plumbing</option><option value="calendar">Data releases, auctions, weather & contract mechanics</option><option value="international">Foreign policy, global growth, FX & cross-border risk</option></select></label>
+            <label class="mc-span">Short event title<input id="eventTitle" maxlength="240" placeholder="Use a neutral, verifiable description" required></label>
+            <label class="mc-span">Exact source item URL<input id="eventSourceUrl" type="url" maxlength="1000" placeholder="Link directly to this release, filing, or article" required></label>
+            <label>Event / catalyst time (device time)<input id="eventAt" type="datetime-local" required></label>
+            <label>Observed in source at (device time)<input id="eventObserved" type="datetime-local" required></label>
+            <label>Published time (device time), if known<input id="eventPublished" type="datetime-local"></label>
+            <label>Evidence type<select id="eventEvidence" required><option value="official_fact">Official fact / primary record</option><option value="reported_claim">Reported claim (attributed)</option><option value="analysis">Analysis / interpretation</option><option value="rumor">Rumor (exclude from report)</option></select></label>
+            <label>Conditional product tilt<select id="eventDirection" required><option value="unknown">Unknown / not signed</option><option value="mixed">Mixed / two-way</option><option value="up">Could support higher prices</option><option value="down">Could pressure prices lower</option></select></label>
+            <label>Human impact assessment<select id="eventImpact"><option value="1">1 · Low</option><option value="2" selected>2 · Material</option><option value="3">3 · High</option></select></label>
+            <label>Evidence confidence<select id="eventConfidence"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label>
+            <label class="mc-span">Affected futures products<input id="eventProducts" maxlength="400" placeholder="Comma-separated, e.g. MYM, MCL" required><small>Map relevance product by product; a macro event may have opposing channels.</small></label>
+            <label class="mc-span">Conditional transmission path<textarea id="eventTransmission" maxlength="1500" rows="3" placeholder="If this event is confirmed, what channel could affect this product? State the horizon and why." required></textarea></label>
+            <label class="mc-span">Strongest counterpath / what would weaken the read<textarea id="eventCounterpath" maxlength="1000" rows="2" placeholder="Optional. Keep the opposing interpretation visible."></textarea></label>
+            <label>Expires after<input id="eventExpiryHours" type="number" min="1" max="720" value="24" required><small>Hours from observation. Stale items remain visible but are excluded from active context.</small></label>
+            <button class="mc-button" type="submit">Add event record</button>
+          </form>
+          <p id="eventMessage" class="mc-message" role="status" aria-live="polite"></p>
+          <div class="mc-table-wrap"><table class="mc-table"><thead><tr><th>Event / event time</th><th>Channel</th><th>Product link</th><th>Evidence</th></tr></thead><tbody id="eventRows"><tr><td colspan="4" class="mc-muted">No events recorded. No current news has been fetched.</td></tr></tbody></table></div>
+        </section>
+      </div>
+      <aside class="mc-side-column">
+        <section class="mc-panel" aria-labelledby="profileHeading">
+          <div class="mc-kicker">03 / SESSION PROFILE</div><h2 id="profileHeading">Event map</h2>
+          <p class="mc-muted">Markers use human-entered event times and impact classes. No total pressure score is calculated.</p>
+          <div id="eventProfile" class="mc-profile"><div class="mc-empty">Report events will appear here by category and event time.</div></div>
+          <div class="mc-legend"><span><i class="up"></i>Conditional higher-price channel</span><span><i class="down"></i>Conditional lower-price channel</span><span><i class="mixed"></i>Mixed / unsigned</span></div>
+        </section>
+        <section class="mc-panel" aria-labelledby="sourcesHeading">
+          <div class="mc-section-head"><div><span class="mc-kicker">04 / SOURCE REGISTRY</span><h2 id="sourcesHeading">Rights and coverage</h2></div></div>
+          <p class="mc-muted">Registry status is a local human assertion. Confirm each source's rights, retention, attribution and derived-use terms before selecting “Approved internal.”</p>
+          <form id="sourceForm" class="mc-form mc-source-form">
+            <label>Source record<select id="sourceEdit" required></select></label>
+            <label>Source name<input id="sourceName" maxlength="160" required></label>
+            <label>Source type<input id="sourceType" maxlength="40" placeholder="official, exchange, licensed news" required></label>
+            <label class="mc-span">Source or feed homepage<input id="sourceUrl" type="url" maxlength="1000" required></label>
+            <label class="mc-span">RSS / Atom URL (HTTPS)<input id="sourceFeedUrl" type="url" maxlength="1000" placeholder="Optional; scanned only after rights approval"></label>
+            <label>Influence category<select id="sourceCategory"><option value="rates">Rates / bonds</option><option value="economy">Macro / households</option><option value="energy">Energy / supply</option><option value="earnings">Earnings / AI</option><option value="credit">Credit / banks</option><option value="regulation">Regulation / trade</option><option value="positioning">Positioning / flows</option><option value="calendar">Calendar / contracts</option><option value="international">International</option></select></label>
+            <label>Usage status<select id="sourceRights"><option value="review">Review required</option><option value="approved_internal">Approved for internal use</option><option value="restricted">Restricted / do not use</option></select></label>
+            <label class="mc-span">Rights note<textarea id="sourceRightsNote" maxlength="1000" rows="3" placeholder="Who approved what use, under which terms, and when?" required></textarea></label>
+            <button class="mc-button secondary" type="submit">Save rights status</button>
+          </form>
+          <button id="scanFeeds" class="mc-button" type="button">Scan approved feeds now</button><p id="scanMessage" class="mc-message" role="status" aria-live="polite"></p>
+          <p id="sourceMessage" class="mc-message" role="status" aria-live="polite"></p>
+          <div id="sourceRows" class="mc-source-list"></div>
+          <p class="mc-mini">Weekday editions target 30 minutes before the configured session open and 30 minutes after its close, in the session timezone. Defaults: US equity-index RTH proxy at 08:00 and 15:30 CT. Exchange holidays and early closes need manual schedule adjustment; no official calendar is connected. The Count Desk service must be running. Only feeds explicitly marked approved for internal use are scanned; article bodies are not retained.</p>
+        </section>
+        <section class="mc-panel" aria-labelledby="discoveryHeading"><div class="mc-section-head"><div><span class="mc-kicker">05 / SCAN QUEUE</span><h2 id="discoveryHeading">New source headlines</h2></div></div><p class="mc-muted">Headlines remain unclassified until a human records relevance, evidence type, affected contract, conditional transmission, and counterpath.</p><div id="discoveryRows" class="mc-source-list"><div class="mc-empty">No feed headlines scanned.</div></div></section>
+        <section class="mc-panel" aria-labelledby="historyHeading"><div class="mc-kicker">06 / IMMUTABLE SNAPSHOTS</div><h2 id="historyHeading">Saved reports</h2><div id="reportHistory" class="mc-history"><p class="mc-muted">No session reports saved.</p></div></section>
+      </aside>
+    </section>
+    <footer class="mc-footer">Market Research v0.2.0 · descriptive and unscored · paper/shadow research only · feed rights and event interpretations remain human-reviewed · no price feed is connected</footer>
+  </main>
+  <script type="module" src="./market-research.js"></script>
+</body>
+</html>

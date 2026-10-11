@@ -48,9 +48,9 @@ def config(request,session,snapshot,desk):
     crypto_risk.tick(p,session['provider'],session['symbol'],snapshot['lastPrice'])
     enabled=request.get('playbooks',list(PLAYBOOKS))
     if not isinstance(enabled,list) or not enabled or len(set(enabled))!=len(enabled) or any(x not in PLAYBOOKS for x in enabled):raise ValueError('Choose rejection/retest, break/retest, or both')
-    direction=request.get('direction','both')
+    direction=request.get('direction','both' if session['provider']=='hyperliquid' else 'long')
     if direction not in ('both','long','short'):raise ValueError('Choose permitted direction')
-    if direction=='short' and session['provider']!='hyperliquid':raise ValueError('Spot paper sources support automatic longs only')
+    if direction in ('both','short') and session['provider']!='hyperliquid':raise ValueError('Long and short paper entries require Hyperliquid perpetual data. Switch to Hyperliquid or explicitly choose Long only.')
     targets={}
     explicit=request.get('targetPrice')
     if explicit not in (None,''):explicit=number(explicit,'Target price',.000001,1e9)
@@ -70,7 +70,7 @@ def config(request,session,snapshot,desk):
       'maxEntryATR':number(request.get('maxEntryATR',.25),'Maximum entry drift / ATR',.01,1),
       'maxHoldBars':int(number(request.get('maxHoldBars',60),'Maximum holding minutes',1,240)),
       'policy':p,'state':'armed','reason':'Session-approved automatic paper entries',
-      'fillModel':'First eligible future completed minute open; adverse slippage, fixed bracket, stop first on ambiguity',
+      'fillModel':'First eligible future completed minute limit touch; fill at limit or better, no chase, fixed bracket',
       'approvedConfig':{k:v for k,v in request.items() if k!='enabled'},
       'reentry':'One entry attempt per selected level per session; cancelled attempts remain consumed'}
     return result
@@ -172,13 +172,13 @@ def queue_signal(record,session,trading_db,desk):
         if c.get('stage')!='READY' or not c.get('fresh') or c['barTime']!=cutoff or not c.get('risk',{}).get('qualified'):continue
         if not any(x['id']==c['level']['id'] for x in session['levels']):continue
         if trading_db.execute('SELECT 1 FROM rider_auto_orders WHERE session=? AND level=?',(session['id'],c['level']['id'])).fetchone():continue
-        entry_gate(trading_db,session,auto,c,c['entry']*(1+c['direction']*auto['policy']['slippageBps']/10000))
+        entry_gate(trading_db,session,auto,c,c['entry'])
         created=desk.now();eligible=(created//60000+1)*60000
         ident='rider-'+desk.digest({'session':session['id'],'attempt':c['attemptId']})[:24]
         body={'candidate':c,'auto':auto,'receipt':record['decisionId'],'decision':record['decisionId']+':entry:'+str(i),'confidence':a['confidence'],'levelRevision':session.get('levelRevision',1),'lastManaged':None}
         trading_db.execute('INSERT INTO rider_auto_orders VALUES(?,?,?,?,?,?,?,?,?,?)',(ident,session['id'],session['account'],session['provider'],session['symbol'],c['level']['id'],created,eligible,'pending',desk.encode(body)))
         trading_db.commit()
-        with desk.connection() as ledger:desk.hunts.event(ledger,session['id'],'rider','auto_pending',{'text':f"PAPER entry queued · {c['playbook']} · {c['level']['price']} · future minute open, with risk recheck",'order':ident,'candidate':c},ident+':pending')
+        with desk.connection() as ledger:desk.hunts.event(ledger,session['id'],'rider','auto_pending',{'text':f"PAPER limit queued · {c['playbook']} · {c['entry']} · first eligible minute only; limit or better, otherwise cancel without chasing",'order':ident,'candidate':c},ident+':pending')
         return
 
 
@@ -194,7 +194,11 @@ def advance(session,bars,trading_db,desk,server):
             if body['levelRevision']!=session.get('levelRevision',1):raise ValueError('Hunt selection changed')
             if target['time']!=row['eligible'] or desk.now()-target['time']-60000>90000:raise ValueError('Missing or stale first eligible fill bar')
             if abs(target['open']-c['entry'])>c['atr']*auto['maxEntryATR']:raise ValueError('Entry drift exceeds approved range')
-            entry=target['open']*(1+c['direction']*auto['policy']['slippageBps']/10000)
+            limit=float(c['entry'])
+            touched=target['low']<=limit if c['direction']==1 else target['high']>=limit
+            if not touched:raise ValueError('Limit was not touched on the first eligible bar; canceled without chasing')
+            # A resting limit may improve at an opening price through the level; it never pays beyond its limit.
+            entry=min(limit,float(target['open'])) if c['direction']==1 else max(limit,float(target['open']))
             qty=entry_gate(trading_db,session,auto,c,entry)
             pos=server.open_quant_lab_sim_position(trading_db,{'account_id':session['account'],'provider':session['provider'],'symbol':session['symbol'],'timeframe':'1m',
               'side':'long' if c['direction']==1 else 'short','quantity':qty,'entry_price':entry,'bar_time':target['time']//1000,
@@ -304,15 +308,22 @@ def start_worker(server,desk,db_path):
                         with desk.LOCK,desk.connection() as db,server.connect(db_path) as trading_db:
                             current=desk.hunts.unpack(db.execute('SELECT * FROM hunt_sessions WHERE id=?',(s['id'],)).fetchone())
                             receipt=db.execute("SELECT body FROM api_attempts WHERE key=? AND state='completed'",(key,)).fetchone()
-                            if receipt:queue_signal(json.loads(receipt['body']),current,trading_db,desk)
+                            if receipt:
+                                queue_signal(json.loads(receipt['body']),current,trading_db,desk)
+                                if current['auto'].get('state')=='waiting_jev':
+                                    recovered={**current['auto'],'state':'armed','reason':'Fresh Jev read validated; paper hunt resumed'}
+                                    save_auto(db,current['id'],recovered,desk)
+                                    desk.hunts.event(db,current['id'],'rider','auto_recovered',{'text':'Rider PAPER · fresh Jev read validated; hunt resumed'})
                     desk.hunts.sync_journal({'session':s['id']},desk)
             except Exception as exc:
                 STATUS.update(state='blocked',error=str(exc)[:300])
                 if 's' in locals() and (s.get('auto') or {}).get('armed'):
                     with desk.LOCK,desk.connection() as db,server.connect(db_path) as trading_db:
-                        auto={**s['auto'],'armed':False,'state':'paused','reason':'Worker or Jev failure; review and re-arm'}
+                        recoverable=bool(getattr(exc,'retryable',False))
+                        auto={**s['auto'],'armed':recoverable,'state':'waiting_jev' if recoverable else 'paused',
+                              'reason':'Jev unavailable for this minute; waiting for a fresh completed read' if recoverable else 'Worker or Jev failure; review and re-arm'}
                         save_auto(db,s['id'],auto,desk);schema(trading_db)
                         trading_db.execute("UPDATE rider_auto_orders SET status='cancelled' WHERE session=? AND status='pending'",(s['id'],))
-                        desk.hunts.event(db,s['id'],'rider','auto_error',{'text':'Rider PAPER paused · '+str(exc)[:250]})
+                        desk.hunts.event(db,s['id'],'rider','auto_error',{'text':('Rider PAPER waiting for fresh Jev evidence · ' if recoverable else 'Rider PAPER paused · ')+str(exc)[:250],'retryable':recoverable})
             time.sleep(10)
     _thread=threading.Thread(target=run,name='rider-auto-paper',daemon=True);_thread.start()

@@ -31,6 +31,13 @@ open-source license in its repository metadata. It is not a runtime dependency.
 
 ### Current checkpoint
 
+On 2026-09-29 the journal decision was resolved: the pinned self-hosted
+LuxAlgo Trade Journal is the selected execution journal. Its local app builds,
+passes 532 source tests, and runs on loopback port 3000. It already uses Vela
+for recorded-fill trade charts and optional candle replay. Count Desk's former
+execution journal is archived; its local records are preserved for reviewed
+migration. The LuxAlgo app has no imported account fills or Clipper schedule yet.
+
 The Vela fork is cloned under `integrations/vela/`, builds successfully, and
 passes its upstream test suite. Count Desk now exposes a **Vela Preview** tab
 that feeds its stored bars into Vela offline with timestamp conversion and
@@ -45,14 +52,17 @@ work, not a gate for the first Vela release.
    indicator registry and settings surface before considering Count Desk
    overlay parity. Keep the current chart available as a rollback path until
    the Vela screen passes visual, indicator, and data checks.
-2. **Local MCP boundary:** run the forked MCP server through stdio. Add a
-   narrow Cleo tool allowlist for library lookups, journal reads, Edge Stats
-   reads, and public tracker reads. Do not enable broker writes or execution
-   relay tools.
-3. **Journal boundary:** choose the journal core/service integration after a
-   schema mapping from Count Desk's existing `paper_trades`, `trade_journal`,
-   and account tables. Import/export must retain source, account, fill, and
-   paper/shadow status.
+2. **Local MCP boundary:** run the forked MCP server through stdio with a
+   narrow Cleo allowlist for library lookups, broker reads, Edge Stats reads,
+   and public tracker reads. The hosted journal MCP tools are excluded; build
+   a separate local read bridge to the self-hosted app. Do not enable broker
+   writes or execution relay tools.
+3. **Journal boundary:** use the self-hosted LuxAlgo journal app as the canonical
+   execution ledger. Map only qualified fill records from the archived Count
+   Desk account tables after review; Robinhood summaries, paper trades, and
+   chart plans remain separately classified. Import/export must retain source,
+   account, fill, and paper/shadow status. A Count Desk data bridge and Clipper
+   audit runner remain to be built.
 4. **Statistics boundary:** feed Edge Stats only bars and paper/shadow fills
    whose source and rights are recorded. Reports must retain sample size,
    confidence interval, stability, and small-sample warnings.

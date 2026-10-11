@@ -16,9 +16,10 @@ from urllib.error import HTTPError
 DB_PATH = Path(__file__).resolve().parent / 'data' / 'jev-nextbar-review.sqlite3'
 _CALL_LOCK = threading.Lock()
 OFFSETS = (-4,-3,-2,-1.5,-1,-.75,-.5,-.25,0,.25,.5,.75,1,1.5,2,3,4)
-METHOD = 'jev.nextbar.choice-grid.v1'
+METHOD = 'jev.nextbar.choice-grid-close-direction.v1'
 MODEL = 'jev-1.13.0'
 API_URL = 'https://api.typesafe.ai/v1/systemone'
+MAX_JEV_READS = 120
 INPUT_USD_PER_MILLION = .042  # Official model docs checked 2026-10-10.
 def configured(): return bool(os.environ.get('TYPESAFE_API_KEY','').strip())
 
@@ -32,6 +33,12 @@ def validate_answers(raw,questions):
     out=[]
     for name,q in questions.items():
         a=raw[name]
+        if q['type']=='noul':
+            if not isinstance(a,dict) or a.get('type')!='noul': raise ValueError('Invalid typed Noul answer for '+name)
+            probability=finite(a.get('noul'),'Noul probability')
+            if not 0<=probability<=1: raise ValueError('Noul probability outside 0–1')
+            out.append({'name':name,'type':'noul','noul':probability})
+            continue
         if not isinstance(a,dict) or a.get('type')!='choice' or a.get('choice') not in q['criteria']: raise ValueError('Invalid typed choice for '+name)
         confidence=finite(a.get('confidence'),'confidence')
         if not 0<=confidence<=1: raise ValueError('Confidence outside 0–1')
@@ -96,11 +103,15 @@ def store(row):
     with connection() as db: db.execute('UPDATE receipts SET body=? WHERE run=? AND target=?',(enc(row),row['run'],row['targetTime']))
 
 def status():
-    return {'configured':configured(),'model':MODEL,'method':METHOD,'destination':API_URL,'inputUsdPerMillion':INPUT_USD_PER_MILLION,'mode':'Chart experiment only','maxJevReadsPerRun':30}
+    return {'configured':configured(),'model':MODEL,'method':METHOD,'destination':API_URL,'inputUsdPerMillion':INPUT_USD_PER_MILLION,'mode':'Chart experiment only','maxJevReadsPerRun':MAX_JEV_READS}
 
 def predict(payload):
     if not _CALL_LOCK.acquire(blocking=False): raise ValueError('A chart review is still processing; wait for its receipt')
-    try: return _predict(payload)
+    try:
+        if isinstance(payload.get('paperSim'),dict) and payload['paperSim'].get('strategy')=='five-minute':
+            from jev_five_minute import predict as five_predict
+            return five_predict(payload)
+        return _predict(payload)
     finally: _CALL_LOCK.release()
 
 def _predict(payload):
@@ -135,18 +146,25 @@ def _predict(payload):
     previous=[]
     with connection() as db:
         if db.execute('SELECT 1 FROM paper_session_ends WHERE run=?',(run,)).fetchone(): raise ValueError('Paper session finalized; reset for new requests')
+        recent=db.execute('SELECT body FROM receipts WHERE run=? ORDER BY target DESC LIMIT 1',(run,)).fetchone()
+        prev=json.loads(recent[0]) if recent else None
+        if prev and sim and prev.get('paperSim',{}).get('version')==jev_paper_sim.LEGACY_QUICK_EXIT_VERSION:
+            prior_sim=prev['paperSim']
+            if {k:v for k,v in prior_sim.items() if k!='version'}=={k:v for k,v in sim.items() if k!='version'}:
+                # Preserve the original exit rule for sessions already in progress.
+                sim=prior_sim;fingerprint_state['paperSim']=sim
+                fingerprint=hashlib.sha256(enc(fingerprint_state).encode()).hexdigest()
+                row['stateHash']=fingerprint;row['paperSim']=sim
         old=db.execute('SELECT hash,body FROM receipts WHERE run=? AND target=?',(run,target)).fetchone()
         if old:
             if old[0]!=fingerprint: raise ValueError('Prediction already frozen for this candle; reset for new settings')
             return json.loads(old[1])
-        recent=db.execute('SELECT body FROM receipts WHERE run=? ORDER BY target DESC LIMIT 1',(run,)).fetchone()
-        if recent:
-            prev=json.loads(recent[0])
+        if prev:
             if prev['source']!=row['source'] or prev['tick']!=tick or prev['atrMult']!=mult or prev['jevEnabled']!=use_jev or prev.get('paperSim')!=sim: raise ValueError('Reset the run before changing settings')
             if prev['targetTime']>=target: raise ValueError('Advance the completed tape; historical receipts stay frozen')
             if sim and not prev.get('actual'): raise ValueError('Resolve the previous paper candle before arming another')
             if sim and target!=prev['targetTime']+60000: raise ValueError('Paper replay candles must be consecutive')
-        if use_jev and db.execute('SELECT count(*) FROM receipts WHERE run=?',(run,)).fetchone()[0]>=30: raise ValueError('30-read limit reached; export and reset')
+        if use_jev and db.execute('SELECT count(*) FROM receipts WHERE run=?',(run,)).fetchone()[0]>=MAX_JEV_READS: raise ValueError(str(MAX_JEV_READS)+'-read limit reached; export and reset')
         if sim:
             previous=[json.loads(r[0]) for r in db.execute('SELECT body FROM receipts WHERE run=? ORDER BY target',(run,))]
             if len(previous)>=sim['sessionMinutes']: raise ValueError('Paper session length reached; finalize the statement')
@@ -155,6 +173,7 @@ def _predict(payload):
     criteria={f'b{i}':{'price':round(close+offset*a,10),'offsetATR':offset,'meaning':'Candidate price nearest to the predicted extreme'} for i,offset in enumerate(OFFSETS) if close+offset*a>0}
     criteria['UNAVAILABLE']='Outside the candidate grid or insufficient evidence for a prediction'
     questions={side:{'type':'choice','instructions':f'Using ONLY the completed OHLCV in state, forecast the {side} of the immediately next one-minute candle. Select the candidate price nearest to that extreme. This is an experimental numerical forecast; no next candle has been supplied. Choose UNAVAILABLE if the grid cannot express the forecast. Do not classify trading actions.','criteria':criteria} for side in ('high','low')}
+    questions['close_up']={'type':'noul','instructions':'Using only completed OHLCV in state, will the immediately next one-minute candle close strictly higher than the last completed candle close? Judge this price-direction condition only; do not advise a trade or infer its profitability.','criteria':{'true':'The next candle close is strictly greater than state.lastClose.','false':'The next candle close is equal to or below state.lastClose.'}}
     state={'source':{'provider':provider,'symbol':symbol,'timeframe':'1m','completedCutoff':cutoff},'completedBars':bars,'lastClose':close,'atr14SMA':a,'targetTime':target,'features':{'closeChange5ATR':(close-bars[-6]['close'])/a,'closeChange20ATR':(close-bars[-21]['close'])/a if len(bars)>20 else None,'latestVolumeToPrior20':bars[-1]['volume']/(sum(b['volume'] for b in bars[-21:-1])/len(bars[-21:-1])) if sum(b['volume'] for b in bars[-21:-1]) else None},'scope':'Historical or synthetic causal replay' if kind!='live' else 'Forward public completed-bar experiment'}
     wire={'model':MODEL,'state':state,'questions':questions};row['requestBytes']=len(enc(wire).encode());row['questions']=questions
     begin=time.perf_counter()
@@ -166,10 +185,14 @@ def _predict(payload):
         if result.get('model')!=MODEL: raise ValueError('Unexpected Jev model version')
         answers=validate_answers(result.get('answers'),questions)
         for answer in answers:
-            if answer['probabilities'][answer['choice']]+1e-9<max(answer['probabilities'].values()): raise ValueError('Jev choice does not match its largest probability')
-        if any(x['choice']=='UNAVAILABLE' for x in answers): row['status']='abstained'
+            if answer['type']=='choice' and answer['probabilities'][answer['choice']]+1e-9<max(answer['probabilities'].values()): raise ValueError('Jev choice does not match its largest probability')
+        by_name={x['name']:x for x in answers}
+        close_up=by_name['close_up']['noul']
+        row['closeDirection']={'probabilityCloseUp':close_up,'judgment':'UP' if close_up>=.5 else 'NOT_UP','referenceClose':close}
+        channel_answers=[by_name['high'],by_name['low']]
+        if any(x['choice']=='UNAVAILABLE' for x in channel_answers): row['status']='abstained'
         else:
-            choices={x['name']:x['choice'] for x in answers};row['jev']=band(criteria[choices['high']]['price'],criteria[choices['low']]['price'],tick);row['confidence']={x['name']:x['confidence'] for x in answers};row['status']='predicted'
+            choices={x['name']:x['choice'] for x in channel_answers};row['jev']=band(criteria[choices['high']]['price'],criteria[choices['low']]['price'],tick);row['confidence']={x['name']:x['confidence'] for x in channel_answers};row['status']='predicted'
     except HTTPError as exc:
         row['status']='failed';row['error']='TypeSafe HTTP '+str(exc.code)+': '+exc.read().decode('utf-8',errors='replace')[:250]
     except Exception as exc:
@@ -185,6 +208,9 @@ def resolve(payload):
         saved=db.execute('SELECT body FROM receipts WHERE run=? AND target=?',(run,target)).fetchone()
     if not saved: raise ValueError('Freeze a prediction before revealing the next candle')
     row=json.loads(saved[0])
+    if row.get('forecastMinutes')==5:
+        from jev_five_minute import resolve as five_resolve
+        return five_resolve(row,payload)
     if row['status']=='pending': raise ValueError('Prediction is still pending')
     if row['source']['kind']=='live':
         fresh=public_source();actual=next((b for b in fresh['bars'] if b['time']==target),None)
@@ -199,6 +225,9 @@ def resolve(payload):
         prediction=row.get(method)
         if prediction:
             prediction['result']={'highOK':actual['high']<=prediction['high'],'lowOK':actual['low']>=prediction['low'],'contained':actual['high']<=prediction['high'] and actual['low']>=prediction['low'],'highErrorTicks':abs(prediction['high']-actual['high'])/row['tick'],'lowErrorTicks':abs(prediction['low']-actual['low'])/row['tick']}
+    if row.get('closeDirection'):
+        prior_close=row['completedInput'][-1]['close'];actual_up=actual['close']>prior_close
+        row['closeDirection']['actual']='UP' if actual_up else 'NOT_UP';row['closeDirection']['matched']=(row['closeDirection']['judgment']=='UP')==actual_up
     if row.get('paperSim'): row['paperTrade']=jev_paper_sim.settle(row['paperPlan'],actual,row['paperSim'])
     store(row);return row
 

@@ -14,6 +14,7 @@ export function normalizeBarsForChart(bars = []) {
       low: Number(bar.low),
       close: Number(bar.close),
       volume: Number(bar.volume || 0),
+      reportedVolume: bar.volume == null ? null : Number(bar.volume),
     }))
     .filter(bar => Number.isFinite(bar.time) && [bar.open, bar.high, bar.low, bar.close].every(Number.isFinite))
     .sort((a, b) => a.time - b.time);

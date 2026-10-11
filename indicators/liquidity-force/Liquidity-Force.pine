@@ -1,0 +1,446 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+// Liquidity Force candidate v0.2. Adapted composite; preserve the attribution and license terms.
+// Profile module retained from user-provided Clusters Volume Profile [LuxAlgo].
+// Gravity model source: Market Gravity [YinYangAlgorithms], Mozilla Public License 2.0.
+// Research overlay only. No probability or execution claim.
+//@version=6
+indicator("Liquidity Force v0.2", "Liquidity Force", overlay = true, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+
+// Liquidity display
+const string GRP_LIQ = "Liquidity Force · Liquidity"
+liqView = input.string("Raw Levels", "Liquidity View", options = ["Raw Levels", "Convergence"], group = GRP_LIQ)
+externalLength = input.int(14, "External Pivot Lookback", minval = 1, maxval = 100, group = GRP_LIQ)
+internalLength = input.int(5, "Internal Pivot Lookback", minval = 1, maxval = 100, group = GRP_LIQ)
+convergenceAtr = input.float(0.10, "Convergence range (ATR)", minval = 0.01, maxval = 2.0, step = 0.01, group = GRP_LIQ)
+showInternal = input.bool(true, "Show internal levels", group = GRP_LIQ)
+maxStored = input.int(80, "Maximum active levels per side", minval = 6, maxval = 120, group = GRP_LIQ)
+
+// Gravity measurements retain the ported model's score factors and ranking labels.
+const string GRP_GRAV = "Liquidity Force · Gravity"
+showGravity = input.bool(true, "Show Gravity ranks", group = GRP_GRAV)
+maxDistanceAtr = input.float(12.0, "Maximum candidate distance (ATR)", minval = 0.5, maxval = 50, step = 0.5, group = GRP_GRAV)
+fastLength = input.int(21, "Fast EMA", minval = 2, group = GRP_GRAV)
+slowLength = input.int(55, "Slow EMA", minval = 3, group = GRP_GRAV)
+
+// Profile controls are wrappers; the source algorithm below is preserved.
+const string GRP_PROFILE = "Liquidity Force · Cluster Volume Profile"
+showProfile = input.bool(true, "Show profile", group = GRP_PROFILE)
+profileTimeframe = input.timeframe("60", "Profile timeframe", group = GRP_PROFILE)
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Constants & Palettes — retained from the supplied source
+//---------------------------------------------------------------------------------------------------------------------{
+var color[] PALETTE = array.from(
+     #2196f3, #f44336, #4caf50, #ff9800, #9c27b0,
+     #00bcd4, #ffeb3b, #e91e63, #795548, #607d8b)
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Inputs — supplied profile defaults retained
+//---------------------------------------------------------------------------------------------------------------------{
+grp_main = "Clustering Settings"
+lookback = input.int(200, "Lookback Period", minval = 10, group = grp_main)
+kInput = input.int(5, "Number of Clusters", minval = 2, maxval = 10, group = grp_main)
+iters = input.int(50, "K-Means Iterations", minval = 5, maxval = 50, group = grp_main)
+grp_vp = "Volume Profile Settings"
+rowsInput = input.int(20, "Rows per Cluster VP", minval = 2, group = grp_vp)
+vpWidth = input.int(40, "Max VP Width (Bars)", minval = 5, group = grp_vp)
+vpOffset = input.int(10, "VP Offset", group = grp_vp)
+showDots = input.bool(true, "Highlight Price Dots", group = grp_vp)
+dotSizeInput = input.string(size.small, "Dot Size", options = [size.tiny, size.small, size.normal, size.large, size.huge], group = grp_vp)
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Supplied profile calculation, with its source timeframe selected in the wrapper
+//---------------------------------------------------------------------------------------------------------------------{
+f_kmeans(float[] prices, float[] volumes, int k, int iterations) =>
+    int n = prices.size()
+    float minP = 1e10
+    float maxP = -1e10
+    for i = 0 to n - 1
+        float p = prices.get(i)
+        minP := math.min(minP, p)
+        maxP := math.max(maxP, p)
+    float[] centroids = array.new_float(k)
+    float step = (maxP - minP) / (k + 1)
+    for i = 0 to k - 1
+        centroids.set(i, minP + (i + 1) * step)
+    int[] assignments = array.new_int(n)
+    for iter = 1 to iterations
+        for i = 0 to n - 1
+            float p = prices.get(i)
+            int bestK = 0
+            float minDist = 1e10
+            for j = 0 to k - 1
+                float dist = math.abs(p - centroids.get(j))
+                if dist < minDist
+                    minDist := dist
+                    bestK := j
+            assignments.set(i, bestK)
+        float[] sumPV = array.new_float(k, 0.0)
+        float[] sumV = array.new_float(k, 0.0)
+        for i = 0 to n - 1
+            int cluster = assignments.get(i)
+            sumPV.set(cluster, sumPV.get(cluster) + prices.get(i) * volumes.get(i))
+            sumV.set(cluster, sumV.get(cluster) + volumes.get(i))
+        for j = 0 to k - 1
+            if sumV.get(j) > 0
+                centroids.set(j, sumPV.get(j) / sumV.get(j))
+    [assignments, centroids]
+
+var box[] allBoxes = array.new_box()
+var label[] allLabels = array.new_label()
+var line[] allLines = array.new_line()
+
+// Selected profile-timeframe bars; the [1] offsets keep the profile closed-bar only.
+[profileBarTime, profileBarHL2, profileBarHigh, profileBarLow, profileBarVolume] = request.security(syminfo.tickerid, profileTimeframe, [time[1], hl2[1], high[1], low[1], volume[1]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+var int[] profileTimes = array.new_int()
+var float[] profilePrices = array.new_float()
+var float[] profileHighs = array.new_float()
+var float[] profileLows = array.new_float()
+var float[] profileVolumes = array.new_float()
+bool newProfileBar = not na(profileBarTime) and (array.size(profileTimes) == 0 or array.get(profileTimes, array.size(profileTimes) - 1) != profileBarTime)
+if newProfileBar
+    array.push(profileTimes, profileBarTime)
+    array.unshift(profilePrices, profileBarHL2)
+    array.unshift(profileHighs, profileBarHigh)
+    array.unshift(profileLows, profileBarLow)
+    array.unshift(profileVolumes, nz(profileBarVolume, 0.0))
+    while array.size(profileTimes) > lookback
+        array.shift(profileTimes)
+    while array.size(profilePrices) > lookback
+        array.pop(profilePrices), array.pop(profileHighs), array.pop(profileLows), array.pop(profileVolumes)
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Liquidity map strict pivots (chart, 30m and 1h); confirmed source bars only.
+//---------------------------------------------------------------------------------------------------------------------{
+var float[] lvlPrice = array.new_float()
+var float[] lvlSwing = array.new_float()
+var float[] lvlVolume = array.new_float()
+var int[] lvlSide = array.new_int() // 1 = BSL, -1 = SSL
+var int[] lvlKind = array.new_int() // 1 = external, 0 = internal
+var int[] lvlTfSec = array.new_int()
+var int[] lvlOrigin = array.new_int()
+var int[] lvlBorn = array.new_int()
+var int[] lvlTouches = array.new_int()
+var bool[] lvlActive = array.new_bool()
+var float[] lvlAtr = array.new_float()
+
+// The dashboard method uses strict high/low comparisons, so equal highs/lows
+// do not create pivots. This payload reports only pivots confirmed on a closed
+// source bar and carries the source bar's price and time anchors.
+f_map_payload(int width) =>
+    float hiPivot = ta.pivothigh(high, width, width)
+    float loPivot = ta.pivotlow(low, width, width)
+    float strictHi = not na(hiPivot) and high[width] > ta.highest(high[width + 1], width) and high[width] > ta.highest(high, width)[1] ? high[width] : na
+    float strictLo = not na(loPivot) and low[width] < ta.lowest(low[width + 1], width) and low[width] < ta.lowest(low, width)[1] ? low[width] : na
+    float swingPromHi = (high[width] - ta.lowest(low, width * 2 + 1)[width]) / math.max(ta.atr(14)[width] * 4, syminfo.mintick)
+    float swingPromLo = (ta.highest(high, width * 2 + 1)[width] - low[width]) / math.max(ta.atr(14)[width] * 4, syminfo.mintick)
+    float volBase = ta.sma(volume, 50)[width]
+    [strictHi[1], strictLo[1], time[width + 1], time_close[1], nz(ta.sma(ta.tr(true), 14)[1], 0.0), close[1], math.min(1.0, math.max(0.0, swingPromHi[1])), math.min(1.0, math.max(0.0, swingPromLo[1])), volBase > 0 ? math.min(1.0, volume[width] / volBase / 2)[1] : 0.5, time_close[1]]
+
+f_add_level(float price, int side, int kind, int tfSec, int pivotTime, int confirmTime, float sourceAtr, float prominence, float volumeStrength) =>
+    bool exists = false
+    if lvlPrice.size() > 0
+        for j = 0 to lvlPrice.size() - 1
+            if lvlSide.get(j) == side and lvlTfSec.get(j) == tfSec and lvlPrice.get(j) == price and lvlOrigin.get(j) == pivotTime
+                exists := true
+    if not exists and not na(price) and not na(sourceAtr)
+        lvlPrice.push(price), lvlSide.push(side), lvlKind.push(kind), lvlTfSec.push(tfSec)
+        lvlOrigin.push(pivotTime), lvlBorn.push(confirmTime), lvlTouches.push(1), lvlActive.push(true)
+        lvlAtr.push(sourceAtr), lvlSwing.push(prominence), lvlVolume.push(volumeStrength)
+
+atr = ta.atr(14)
+mapAtr = ta.sma(ta.tr(true), 14)
+int chartSecSource = timeframe.in_seconds()
+float chartHiExt = ta.pivothigh(high, externalLength, externalLength)
+float chartLoExt = ta.pivotlow(low, externalLength, externalLength)
+float chartHiInt = showInternal ? ta.pivothigh(high, internalLength, internalLength) : na
+float chartLoInt = showInternal ? ta.pivotlow(low, internalLength, internalLength) : na
+float chartAvgVol = ta.sma(volume, 50)
+if barstate.isconfirmed and not na(chartHiExt) and high[externalLength] > ta.highest(high[externalLength + 1], externalLength) and high[externalLength] > ta.highest(high, externalLength)[1]
+    f_add_level(high[externalLength], 1, 1, chartSecSource, time[externalLength], time_close, nz(mapAtr[externalLength], 0.0), math.min(1.0, math.max(0.0, (high[externalLength] - ta.lowest(low, externalLength * 2 + 1)[externalLength]) / math.max(atr[externalLength] * 4, syminfo.mintick))), chartAvgVol[externalLength] > 0 ? math.min(1.0, volume[externalLength] / chartAvgVol[externalLength] / 2) : 0.5)
+if barstate.isconfirmed and not na(chartLoExt) and low[externalLength] < ta.lowest(low[externalLength + 1], externalLength) and low[externalLength] < ta.lowest(low, externalLength)[1]
+    f_add_level(low[externalLength], -1, 1, chartSecSource, time[externalLength], time_close, nz(mapAtr[externalLength], 0.0), math.min(1.0, math.max(0.0, (ta.highest(high, externalLength * 2 + 1)[externalLength] - low[externalLength]) / math.max(atr[externalLength] * 4, syminfo.mintick))), chartAvgVol[externalLength] > 0 ? math.min(1.0, volume[externalLength] / chartAvgVol[externalLength] / 2) : 0.5)
+if barstate.isconfirmed and showInternal and not na(chartHiInt) and high[internalLength] > ta.highest(high[internalLength + 1], internalLength) and high[internalLength] > ta.highest(high, internalLength)[1]
+    f_add_level(high[internalLength], 1, 0, chartSecSource, time[internalLength], time_close, nz(mapAtr[internalLength], 0.0), math.min(1.0, math.max(0.0, (high[internalLength] - ta.lowest(low, internalLength * 2 + 1)[internalLength]) / math.max(atr[internalLength] * 4, syminfo.mintick))), chartAvgVol[internalLength] > 0 ? math.min(1.0, volume[internalLength] / chartAvgVol[internalLength] / 2) : 0.5)
+if barstate.isconfirmed and showInternal and not na(chartLoInt) and low[internalLength] < ta.lowest(low[internalLength + 1], internalLength) and low[internalLength] < ta.lowest(low, internalLength)[1]
+    f_add_level(low[internalLength], -1, 0, chartSecSource, time[internalLength], time_close, nz(mapAtr[internalLength], 0.0), math.min(1.0, math.max(0.0, (ta.highest(high, internalLength * 2 + 1)[internalLength] - low[internalLength]) / math.max(atr[internalLength] * 4, syminfo.mintick))), chartAvgVol[internalLength] > 0 ? math.min(1.0, volume[internalLength] / chartAvgVol[internalLength] / 2) : 0.5)
+
+// Higher timeframe pivot events are sampled from the last fully closed bar.
+[h30Ext, l30Ext, t30Pivot, t30Confirm, a30, c30, p30Hi, p30Lo, v30, tc30] = request.security(syminfo.tickerid, "30", f_map_payload(externalLength), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h30Int, l30Int, ti30Pivot, ti30Confirm, ai30, ci30, pi30Hi, pi30Lo, vi30, tci30] = request.security(syminfo.tickerid, "30", f_map_payload(internalLength), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h60Ext, l60Ext, t60Pivot, t60Confirm, a60, c60, p60Hi, p60Lo, v60, tc60] = request.security(syminfo.tickerid, "60", f_map_payload(externalLength), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h60Int, l60Int, ti60Pivot, ti60Confirm, ai60, ci60, pi60Hi, pi60Lo, vi60, tci60] = request.security(syminfo.tickerid, "60", f_map_payload(internalLength), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+var int last30ExtHiPivot = na
+var int last30ExtLoPivot = na
+var int last30IntHiPivot = na
+var int last30IntLoPivot = na
+var int last60ExtHiPivot = na
+var int last60ExtLoPivot = na
+var int last60IntHiPivot = na
+var int last60IntLoPivot = na
+bool use30 = chartSecSource < 1800
+bool use60 = chartSecSource < 3600
+if use30 and not na(h30Ext) and t30Pivot != last30ExtHiPivot
+    f_add_level(h30Ext, 1, 1, 1800, t30Pivot, t30Confirm, a30, p30Hi, v30), last30ExtHiPivot := t30Pivot
+if use30 and not na(l30Ext) and t30Pivot != last30ExtLoPivot
+    f_add_level(l30Ext, -1, 1, 1800, t30Pivot, t30Confirm, a30, p30Lo, v30), last30ExtLoPivot := t30Pivot
+if use30 and showInternal and not na(h30Int) and ti30Pivot != last30IntHiPivot
+    f_add_level(h30Int, 1, 0, 1800, ti30Pivot, ti30Confirm, ai30, pi30Hi, vi30), last30IntHiPivot := ti30Pivot
+if use30 and showInternal and not na(l30Int) and ti30Pivot != last30IntLoPivot
+    f_add_level(l30Int, -1, 0, 1800, ti30Pivot, ti30Confirm, ai30, pi30Lo, vi30), last30IntLoPivot := ti30Pivot
+if use60 and not na(h60Ext) and t60Pivot != last60ExtHiPivot
+    f_add_level(h60Ext, 1, 1, 3600, t60Pivot, t60Confirm, a60, p60Hi, v60), last60ExtHiPivot := t60Pivot
+if use60 and not na(l60Ext) and t60Pivot != last60ExtLoPivot
+    f_add_level(l60Ext, -1, 1, 3600, t60Pivot, t60Confirm, a60, p60Lo, v60), last60ExtLoPivot := t60Pivot
+if use60 and showInternal and not na(h60Int) and ti60Pivot != last60IntHiPivot
+    f_add_level(h60Int, 1, 0, 3600, ti60Pivot, ti60Confirm, ai60, pi60Hi, vi60), last60IntHiPivot := ti60Pivot
+if use60 and showInternal and not na(l60Int) and ti60Pivot != last60IntLoPivot
+    f_add_level(l60Int, -1, 0, 3600, ti60Pivot, ti60Confirm, ai60, pi60Lo, vi60), last60IntLoPivot := ti60Pivot
+
+if lvlSide.size() > 0
+    for i = lvlSide.size() - 1 to 0
+        int side = lvlSide.get(i)
+        float price = lvlPrice.get(i)
+        bool sourceClosed = lvlTfSec.get(i) == chartSecSource ? barstate.isconfirmed : (lvlTfSec.get(i) == 1800 ? ta.change(tc30) != 0 : ta.change(tc60) != 0)
+        float sourceClose = lvlTfSec.get(i) == chartSecSource ? close : (lvlTfSec.get(i) == 1800 ? c30 : c60)
+        if sourceClosed and time_close > lvlBorn.get(i)
+            bool broken = side == 1 ? sourceClose > price : sourceClose < price
+            if broken
+                lvlActive.set(i, false)
+    while lvlSide.size() > maxStored * 4
+        lvlPrice.shift(), lvlSide.shift(), lvlKind.shift(), lvlTfSec.shift(), lvlOrigin.shift(), lvlBorn.shift()
+        lvlTouches.shift(), lvlActive.shift(), lvlAtr.shift(), lvlSwing.shift(), lvlVolume.shift()
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Gravity score: existing structural-strength and attraction factors applied only to Liquidity levels
+//---------------------------------------------------------------------------------------------------------------------{
+f_clamp(float x, float lo, float hi) => math.max(lo, math.min(hi, x))
+f_trend_scale(int seconds) =>
+    seconds <= 300 ? 2.0 : seconds < 900 ? 2.0 + 0.5 * math.log(seconds / 300.0) / math.log(3.0) : seconds <= 14400 ? 2.5 : seconds < 86400 ? 2.5 - 1.5 * math.log(seconds / 14400.0) / math.log(6.0) : 1.0
+f_strength(int i) =>
+    float density = 0.2
+    float prominence = array.get(lvlSwing, i)
+    int touches = array.get(lvlTouches, i)
+    float touch = 0.2 + 0.8 * (1 - math.exp(-0.8 * math.max(touches - 1, 0)))
+    float timeframeWeight = 0.35
+    float formationVolume = array.get(lvlVolume, i)
+    100 * (density * 0.30 + prominence * 0.25 + touch * 0.20 + timeframeWeight * 0.15 + formationVolume * 0.10)
+
+//---------------------------------------------------------------------------------------------------------------------}
+// Supplied Clusters Volume Profile visual renderer begins below
+//---------------------------------------------------------------------------------------------------------------------{
+var line[] gravityLines = array.new_line()
+var label[] gravityLabels = array.new_label()
+var box[] liquidityBoxes = array.new_box()
+var line[] liquidityLines = array.new_line()
+
+if barstate.islast
+    if allBoxes.size() > 0
+        for b in allBoxes
+            b.delete()
+        allBoxes.clear()
+    if allLabels.size() > 0
+        for l in allLabels
+            l.delete()
+        allLabels.clear()
+    if allLines.size() > 0
+        for ln in allLines
+            ln.delete()
+        allLines.clear()
+    if gravityLines.size() > 0
+        for ln in gravityLines
+            ln.delete()
+        gravityLines.clear()
+    if gravityLabels.size() > 0
+        for lb in gravityLabels
+            lb.delete()
+        gravityLabels.clear()
+    if liquidityBoxes.size() > 0
+        for bx in liquidityBoxes
+            bx.delete()
+        liquidityBoxes.clear()
+    if liquidityLines.size() > 0
+        for ln in liquidityLines
+            ln.delete()
+        liquidityLines.clear()
+
+    int profileCount = profileTimes.size()
+    int chartSec = timeframe.in_seconds()
+    int profileSec = timeframe.in_seconds(profileTimeframe)
+    bool profileTfSupported = not na(chartSec) and not na(profileSec) and profileSec >= chartSec
+    if showProfile and profileTfSupported and profileCount >= lookback
+        [assignments, centroids] = f_kmeans(profilePrices, profileVolumes, kInput, iters)
+        int ratio = math.max(1, int(math.round(profileSec / chartSec)))
+        int profileStartX = math.max(0, bar_index - lookback * ratio)
+        int vpStartX = bar_index + vpOffset
+        int reservedForMetrics = 40
+        int labelsUsed = 0
+        for cId = 0 to kInput - 1
+            color clusterColor = PALETTE.get(cId % PALETTE.size())
+            float[] cPrices = array.new_float()
+            float[] cVolumes = array.new_float()
+            float[] cHighs = array.new_float()
+            float[] cLows = array.new_float()
+            float cMin = 1e10
+            float cMax = -1e10
+            float cTotalVol = 0.0
+            for i = 0 to lookback - 1
+                if assignments.get(i) == cId
+                    float p = profilePrices.get(i)
+                    float v = profileVolumes.get(i)
+                    float h = profileHighs.get(i)
+                    float l = profileLows.get(i)
+                    cPrices.push(p), cVolumes.push(v), cHighs.push(h), cLows.push(l)
+                    cMin := math.min(cMin, l), cMax := math.max(cMax, h)
+                    cTotalVol += v
+                    if showDots and labelsUsed < (500 - reservedForMetrics)
+                        int dotX = math.max(0, bar_index - i * ratio)
+                        allLabels.push(label.new(dotX, p, "•", color = #00000000, textcolor = clusterColor, style = label.style_label_center, size = dotSizeInput))
+                        labelsUsed += 1
+            if cPrices.size() > 0
+                float[] binVols = array.new_float(rowsInput, 0.0)
+                float binSize = (cMax - cMin) / rowsInput
+                if binSize == 0
+                    binSize := syminfo.mintick
+                for i = 0 to cPrices.size() - 1
+                    float bH = cHighs.get(i), bL = cLows.get(i), bV = cVolumes.get(i)
+                    float wickRange = math.max(bH - bL, syminfo.mintick)
+                    for bIdx = 0 to rowsInput - 1
+                        float binB = cMin + bIdx * binSize
+                        float binT = binB + binSize
+                        float intersectL = math.max(bL, binB)
+                        float intersectH = math.min(bH, binT)
+                        if intersectH > intersectL
+                            binVols.set(bIdx, binVols.get(bIdx) + bV * (intersectH - intersectL) / wickRange)
+                float maxBinVol = binVols.max()
+                int pocBinIdx = binVols.indexof(maxBinVol)
+                for bIdx = 0 to rowsInput - 1
+                    if allBoxes.size() >= 440
+                        break
+                    float vol = binVols.get(bIdx)
+                    if vol == 0
+                        continue
+                    float bBottom = cMin + bIdx * binSize
+                    float bTop = bBottom + binSize
+                    int bWidth = int((vol / maxBinVol) * vpWidth)
+                    int endX = vpStartX + bWidth
+                    bool isPoc = bIdx == pocBinIdx
+                    color bColor = isPoc ? clusterColor : color.new(clusterColor, 75)
+                    allBoxes.push(box.new(vpStartX, bTop, endX, bBottom, bgcolor = bColor, border_color = isPoc ? clusterColor : #00000000))
+                    if isPoc
+                        float pocY = (bTop + bBottom) / 2
+                        allLines.push(line.new(profileStartX, pocY, vpStartX, pocY, color = clusterColor, width = 1, style = line.style_dashed))
+                        allLabels.push(label.new(profileStartX, pocY, str.tostring(vol, format.volume), color = #00000000, textcolor = clusterColor, style = label.style_label_right, size = size.small))
+                        allLabels.push(label.new(endX, pocY, "Total: " + str.tostring(cTotalVol, format.volume), color = #00000000, textcolor = clusterColor, style = label.style_label_left, size = size.small))
+    else if showProfile
+        string profileState = not profileTfSupported ? "Profile timeframe must be >= chart timeframe" : "Waiting for " + str.tostring(lookback) + " completed profile bars"
+        allLabels.push(label.new(bar_index + 2, close, profileState, style = label.style_label_left, color = color.new(color.black, 15), textcolor = color.white, size = size.small))
+
+    // Gravity score for Liquidity-active candidates. Structural strength and attraction
+    // modifiers follow the existing model; ranks are relative scores, not probability.
+    float currentAtr = ta.atr(14)
+    float trendValue = currentAtr > 0 ? f_clamp((ta.ema(close, fastLength) - ta.ema(close, slowLength)) / (currentAtr * 2), -1, 1) : 0
+    [diPlus, diMinus, adxValue] = ta.dmi(14, 14)
+    float atrAverage = ta.sma(ta.atr(14), 50)
+    string regime = adxValue >= 25 and ta.atr(14) > atrAverage * 1.05 ? "Trend Expansion" : adxValue >= 25 ? "Trend" : ta.atr(14) < atrAverage * 0.85 ? "Compression" : "Range"
+    int[] rankedUpper = array.new_int()
+    int[] rankedLower = array.new_int()
+    float[] scoreByIndex = array.new_float()
+    int levelCount = lvlSide.size()
+    for i = 0 to levelCount - 1
+        float price = lvlPrice.get(i)
+        int side = lvlSide.get(i)
+        float zoneHalfWidth = currentAtr * 0.05
+        float distance = side == 1 ? math.max(price - zoneHalfWidth - close, 0) / math.max(currentAtr, syminfo.mintick) : math.max(close - (price + zoneHalfWidth), 0) / math.max(currentAtr, syminfo.mintick)
+        float density = 0.2
+        float prominence = lvlSwing.get(i)
+        float touch = 0.2 + 0.8 * (1 - math.exp(-0.8 * math.max(lvlTouches.get(i) - 1, 0)))
+        float timeframeWeight = 0.35
+        float formationVolume = lvlVolume.get(i)
+        float strength = 100 * (density * 0.30 + prominence * 0.25 + touch * 0.20 + timeframeWeight * 0.15 + formationVolume * 0.10)
+        float age = math.max(time_close - lvlBorn.get(i), 0) / math.max(chartSecSource * 1000, 1)
+        float freshness = math.exp(-0.6931471805599453 * age / (150 * (0.75 + 0.75 * strength / 100)))
+        float accessibility = 1 / (1 + math.pow(distance / 2, 2))
+        float distanceMod = 0.55 + 0.45 * accessibility
+        float freshMod = 0.7 + 0.3 * freshness
+        float direction = side == 1 ? 1 : -1
+        float trendMod = f_clamp(1 + 0.1 * f_trend_scale(timeframe.in_seconds()) * direction * trendValue, 0.75, 1.25)
+        float rawRegime = regime == "Trend Expansion" ? 1 + 0.1 * direction * trendValue : regime == "Trend" ? 1 + 0.05 * direction * trendValue : regime == "Compression" ? 0.92 : 1
+        float regimeMod = f_clamp(1 + (f_clamp(rawRegime, 0.9, 1.1) - 1) * 2, 0.8, 1.2)
+        float score = f_clamp(strength * distanceMod * freshMod * trendMod * regimeMod, 0, 100)
+        scoreByIndex.push(score)
+        bool gravityStateEligible = strength >= 40
+        bool eligible = lvlActive.get(i) and gravityStateEligible and distance <= maxDistanceAtr and (side == 1 ? price + zoneHalfWidth >= close : price - zoneHalfWidth <= close)
+        if eligible
+            if side == 1
+                rankedUpper.push(i)
+            else
+                rankedLower.push(i)
+    if showGravity and levelCount > 0
+        for sidePass = 0 to 1
+            int[] candidates = sidePass == 0 ? rankedUpper : rankedLower
+            int rankMax = math.min(2, candidates.size() - 1)
+            if rankMax >= 0
+                for rank = 0 to rankMax
+                    int bestPos = -1
+                    float bestScore = -1
+                    for j = 0 to candidates.size() - 1
+                        float candidateScore = scoreByIndex.get(candidates.get(j))
+                        if candidateScore > bestScore
+                            bestScore := candidateScore
+                            bestPos := j
+                    if bestPos >= 0
+                        int idx = candidates.remove(bestPos)
+                        int side = lvlSide.get(idx)
+                        float price = lvlPrice.get(idx)
+                        color c = side == 1 ? color.rgb(0, 229, 168) : color.rgb(255, 70, 100)
+                        string rankName = rank == 0 ? "Primary" : rank == 1 ? "Secondary" : "Tertiary"
+                        gravityLines.push(line.new(lvlOrigin.get(idx), price, time_close + chartSecSource * 1000 * 25, price, xloc = xloc.bar_time, color = c, width = rank == 0 ? 2 : 1, style = line.style_dashed))
+                        gravityLabels.push(label.new(bar_index + 25, price, rankName + " · G" + str.tostring(math.round(bestScore)), color = color.new(c, 12), textcolor = color.white, style = side == 1 ? label.style_label_down : label.style_label_up, size = size.small))
+
+    if liqView == "Raw Levels" and levelCount > 0
+        for i = 0 to levelCount - 1
+            if lvlActive.get(i)
+                float price = lvlPrice.get(i)
+                color c = lvlSide.get(i) == 1 ? color.new(color.red, 20) : color.new(color.teal, 15)
+                liquidityLines.push(line.new(lvlOrigin.get(i), price, time_close + chartSecSource * 1000 * 8, price, xloc = xloc.bar_time, color = c, width = 1, style = lvlKind.get(i) == 1 ? line.style_solid : line.style_dotted))
+    else if liqView == "Convergence" and levelCount > 0
+        bool[] assigned = array.new_bool(levelCount, false)
+        for i = 0 to levelCount - 1
+            if lvlActive.get(i) and not assigned.get(i)
+                int side = lvlSide.get(i)
+                float anchor = lvlPrice.get(i)
+                float tolerance = lvlAtr.get(i) * convergenceAtr
+                bool hasHigherTimeframeAnchor = false
+                for h = 0 to levelCount - 1
+                    if lvlActive.get(h) and lvlSide.get(h) == side and lvlTfSec.get(h) > lvlTfSec.get(i) and math.abs(lvlPrice.get(h) - anchor) <= tolerance
+                        hasHigherTimeframeAnchor := true
+                if hasHigherTimeframeAnchor
+                    continue
+                float groupLow = anchor
+                float groupHigh = anchor
+                int members = 1
+                int leftAnchor = lvlOrigin.get(i)
+                bool contested = false
+                for j = 0 to levelCount - 1
+                    if j != i and lvlActive.get(j) and not assigned.get(j) and lvlSide.get(j) == side
+                        float candidate = lvlPrice.get(j)
+                        float nextLow = math.min(groupLow, candidate)
+                        float nextHigh = math.max(groupHigh, candidate)
+                        if math.abs(candidate - anchor) <= tolerance and nextHigh - nextLow <= tolerance
+                            groupLow := nextLow
+                            groupHigh := nextHigh
+                            leftAnchor := math.min(leftAnchor, lvlOrigin.get(j))
+                            members += 1
+                            assigned.set(j, true)
+                    else if j != i and lvlActive.get(j) and lvlSide.get(j) != side and math.abs(lvlPrice.get(j) - anchor) <= tolerance
+                        contested := true
+                if members > 1
+                    float drawPrice = anchor
+                    color drawColor = side == 1 ? color.new(color.red, 20) : color.new(color.teal, 15)
+                    line drawn = line.new(leftAnchor, drawPrice, time_close + chartSecSource * 1000 * 8, drawPrice, xloc = xloc.bar_time, color = drawColor, width = 2, style = line.style_solid)
+                    allLines.push(drawn)
+                    string groupLabel = "C · " + str.tostring(members) + (contested ? " · Contested" : "")
+                    if allLabels.size() < 489
+                        allLabels.push(label.new(bar_index + 8, drawPrice, groupLabel, color = drawColor, textcolor = color.white, style = side == 1 ? label.style_label_down : label.style_label_up, size = size.tiny))

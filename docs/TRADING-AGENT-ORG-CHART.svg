@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="1180" viewBox="0 0 1920 1180" role="img" aria-labelledby="title desc">
-<title id="title">The Trader agent organization chart</title><desc id="desc">Mark directs Batty Firstmate. Batty coordinates a CFO-led research branch and separate independent review and paper-trading roles.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1920" height="1310" viewBox="0 0 1920 1310" role="img" aria-labelledby="title desc">
+<title id="title">The Trader agent organization chart</title><desc id="desc">Mark directs Batty Firstmate. Batty coordinates a CFO-led research branch and separate independent review, paper-trading, and proposed Clipper journal-audit roles.</desc>
 <defs><marker id="mainArrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#5cccd5"/></marker><marker id="indArrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#d6ae6c"/></marker><marker id="supportArrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#72869a"/></marker><style>text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a:hover rect{stroke:#8be8ee;stroke-width:3}</style></defs>
-<rect width="1920" height="1180" fill="#0a0d12"/>
-<rect x="32" y="30" width="1856" height="1080" rx="25" fill="#0e141d" stroke="#283747" stroke-width="2"/>
+<rect width="1920" height="1310" fill="#0a0d12"/>
+<rect x="32" y="30" width="1856" height="1210" rx="25" fill="#0e141d" stroke="#283747" stroke-width="2"/>
 <text x="75" y="83" fill="#5cccd5" font-size="20" font-weight="800" text-anchor="start">THE TRADER</text>
 <text x="75" y="115" fill="#f4f7fa" font-size="39" font-weight="750" text-anchor="start">Agent organization</text>
 <text x="75" y="145" fill="#96a8ba" font-size="18" font-weight="400" text-anchor="start">Authority and responsibility · current role model · Sep 29, 2026</text>
-<rect x="55" y="390" width="1205" height="675" rx="22" fill="#101a24" stroke="#263e4c" stroke-width="2"/>
-<rect x="1290" y="390" width="550" height="675" rx="22" fill="#171a23" stroke="#4c4035" stroke-width="2"/>
+<rect x="55" y="390" width="1205" height="805" rx="22" fill="#101a24" stroke="#263e4c" stroke-width="2"/>
+<rect x="1290" y="390" width="550" height="805" rx="22" fill="#171a23" stroke="#4c4035" stroke-width="2"/>
 <text x="85" y="432" fill="#5cccd5" font-size="20" font-weight="800" text-anchor="start">RESEARCH AND CHART WORK</text>
 <text x="1320" y="432" fill="#d6ae6c" font-size="20" font-weight="800" text-anchor="start">INDEPENDENT GATES AND PAPER</text>
 <path d="M935 245 V265" fill="none" stroke="#5cccd5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#mainArrow)"/>
@@ -18,11 +18,12 @@
 <path d="M765 747 H807 V785" fill="none" stroke="#5cccd5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#mainArrow)"/>
 <path d="M765 747 H1107 V785" fill="none" stroke="#5cccd5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#mainArrow)"/>
 <path d="M207 900 V945" fill="none" stroke="#72869a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#supportArrow)"/>
-<path d="M1110 310 H1332 V1008" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round"/>
+<path d="M1110 310 H1332 V1138" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round"/>
 <path d="M1332 527 H1365" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#indArrow)"/>
 <path d="M1332 663 H1365" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#indArrow)"/>
 <path d="M1332 799 H1365" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#indArrow)"/>
 <path d="M1332 935 H1365" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#indArrow)"/>
+<path d="M1332 1071 H1365" fill="none" stroke="#d6ae6c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#indArrow)"/>
 <rect x="785" y="135" width="300" height="110" rx="18" fill="#131d29" stroke="#34495c" stroke-width="2"/>
 <rect x="785" y="135" width="6" height="110" rx="3" fill="#e2b755"/>
 <text x="807" y="162" fill="#e2b755" font-size="14" font-weight="700" text-anchor="start">HUMAN</text>
@@ -124,6 +125,14 @@
 <text x="1387" y="967" fill="#a9bacb" font-size="17" font-weight="400" text-anchor="start">Measure results and lessons</text>
 <text x="1785" y="907" fill="#93d9df" font-size="13" font-weight="700" text-anchor="end">PROFILE  ↗</text>
 </a>
-<text x="75" y="1136" fill="#a9bacb" font-size="18" font-weight="400" text-anchor="start">Profiles describe intended roles. Cleo dispatch is configured; portraits alone do not dispatch agents. Firstmate crew tracking is not connected.</text>
-<text x="1845" y="1136" fill="#5cccd5" font-size="16" font-weight="750" text-anchor="end">COUNT DESK / CLEO</text>
+<a href="../agents/intellect/clipper.md" target="_blank">
+<rect x="1365" y="1016" width="440" height="110" rx="18" fill="#131d29" stroke="#3f6b62" stroke-width="2"/>
+<rect x="1365" y="1016" width="6" height="110" rx="3" fill="#5bc9b0"/>
+<text x="1387" y="1043" fill="#5bc9b0" font-size="14" font-weight="700" text-anchor="start">JOURNAL AUDIT · PROPOSED</text>
+<text x="1387" y="1077" fill="#f4f7fa" font-size="25" font-weight="750" text-anchor="start">Clipper</text>
+<text x="1387" y="1103" fill="#a9bacb" font-size="17" font-weight="400" text-anchor="start">Account reconciliation · 3 daily passes</text>
+<text x="1785" y="1043" fill="#93d9df" font-size="13" font-weight="700" text-anchor="end">PROFILE  ↗</text>
+</a>
+<text x="75" y="1266" fill="#a9bacb" font-size="18" font-weight="400" text-anchor="start">Profiles describe intended roles. Cleo dispatch is configured; Clipper is a design only. Firstmate crew tracking is not connected.</text>
+<text x="1845" y="1266" fill="#5cccd5" font-size="16" font-weight="750" text-anchor="end">COUNT DESK / CLEO / CLIPPER</text>
 </svg>

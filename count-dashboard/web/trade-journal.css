@@ -1,4 +1,9 @@
 .trade-journal-page { background:radial-gradient(circle at 56% -25%,#182535 0,#090d13 44%); }
+.tj-clipper { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; border-color:#355d5b; background:linear-gradient(100deg,#102126,#111720); }
+.tj-clipper h2 { margin:4px 0; color:#e4f8f4; font-size:1rem; }
+.tj-clipper p { margin:0; max-width:760px; color:#a8c2c2; font-size:.7rem; line-height:1.5; }
+.tj-clipper a { flex:0 0 auto; color:#82e3d3; font-size:.68rem; }
+@media(max-width:650px) { .tj-clipper { align-items:flex-start; flex-direction:column; } }
 .trade-journal-main { width:min(1500px,calc(100% - 36px)); margin:28px auto 50px; display:grid; gap:14px; }
 .tj-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; padding:9px 2px 8px; }
 .tj-kicker { color:#42d2dc; font-size:.62rem; font-weight:750; letter-spacing:.15em; }

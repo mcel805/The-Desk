@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Count Desk · Batty + Cleo</title>
-  <link rel="stylesheet" href="./style.css?v=paper-workspace-20260928">
+  <link rel="stylesheet" href="./style.css?v=quant-lab-market-read-20261003">
   <link rel="stylesheet" href="./account-selector.css?v=20260930">
 </head>
 <body class="trading-prototype">
@@ -14,12 +14,14 @@
       <a class="app-tab" href="./trading-landing.html">Home</a>
       <a class="app-tab" href="./cleo/index.html">CLEO</a>
       <a id="countDeskTab" class="app-tab active" href="./">Count Desk</a>
+      <a class="app-tab" href="./market-data.html">Market Data</a>
       <a id="paperTradingTab" class="app-tab" href="#paperWorkspace" aria-selected="false">Paper Trading <span class="app-tab-note">SIM</span></a>
       <a class="app-tab" href="./vela-preview.html">Vela Preview</a>
       <a class="app-tab" href="./quant-lab.html">Quant Lab</a>
       <a class="app-tab" href="./tool-belt.html">Tool Belt</a>
+      <a class="app-tab" href="./indicator-science.html">Indicators</a>
       <a class="app-tab" href="./trade-journal.html">Trading Journal</a>
-      <a id="liquidityLabLink" class="app-tab" href="http://127.0.0.1:8041/">Liquidity Lab</a>
+      <a id="liquidityLabLink" class="app-tab desk-art-tab" href="http://127.0.0.1:8041/" aria-label="Liquidity Lab" title="Liquidity Lab"><img class="liquidity-lab-icon-mono" src="./tool-belt-assets/liquidity-lab-mansion-mono.png" alt=""><img class="liquidity-lab-icon-color" src="./tool-belt-assets/liquidity-lab-mansion-color.png" alt=""></a>
       <a class="app-tab" href="./resources.html">Resources</a>
     </nav>
     <div class="header-status"><div id="apiState" class="api-state">Connecting…</div><button id="appLogout" class="app-logout" type="button">Log out</button></div>
@@ -90,7 +92,7 @@
             <section class="feed-strip" aria-label="Market data feed controls">
               <div class="feed-copy"><strong id="feedState">Historical only</strong><span id="feedMeta">No licensed market-data adapter is connected.</span><span id="syncSchedule">Last sync: never · Next sync: after first connection · 5 min cadence</span><span id="providerConnections">Checking data and broker connections…</span></div>
               <label class="follow-control"><input id="followLive" type="checkbox"> Follow incoming bars</label>
-              <label class="sync-provider">Sync source<select id="syncProvider"><option value="massive">Massive Futures Basic</option><option value="openstock">OpenStock / Finnhub</option><option value="licensed">Licensed market-data adapter</option><option value="yahoo" disabled>Yahoo Finance (unavailable)</option></select></label>
+              <label class="sync-provider">Sync source<select id="syncProvider"><option value="licensed">Licensed market-data adapter</option><option value="openstock">OpenStock / Finnhub</option><option value="yahoo" disabled>Yahoo Finance (unavailable)</option></select></label>
               <button id="refreshFeed" type="button">Sync now</button>
               <button id="tickstreamQuoteProbe" type="button">Probe delayed quote</button>
               <span id="tickstreamQuoteStatus" class="feed-quote-status" role="status" aria-live="polite">Tickstream quote not tested.</span>
@@ -278,7 +280,7 @@
         <section class="inspector-panel" id="panel-indicatorguide" role="tabpanel" aria-labelledby="tab-indicatorguide" hidden>
           <div class="panel-kicker">PREMIUM INDICATOR / v1.0.0</div>
           <h2>Liquidity · User guide</h2>
-          <div class="guide-content liquidity-user-guide">
+          <div id="liquidityGuide" class="guide-content liquidity-user-guide">
             <svg class="guide-diagram" viewBox="0 0 300 190" role="img" aria-label="External liquidity bands and internal swing levels between them">
               <rect x="26" y="31" width="240" height="28" fill="#ed737a" fill-opacity=".13" stroke="#ed737a" stroke-opacity=".6"/><text x="34" y="49">LQ-… BSL EXT · wick to body</text>
               <line x1="26" y1="92" x2="266" y2="92" stroke="#70bba9" stroke-width="2" stroke-dasharray="3 5"/><text x="34" y="86">LQ-… SSL INT · swing price</text>
@@ -332,6 +334,36 @@
             </ul>
             <p class="guide-note">Source: existing Bias / Draw Panel logic in the user-provided TradingView Pine v5 script and the Count Desk’s confirmed swing conventions. This build omits the script’s DRAW target selection, premium/discount choices, sweep-counting, ATR line, alerts, and measured zone-probability system. A close-through definition and HH/HL structure sequence are explicit v1 rules, not a claim of validated predictive edge.</p>
           </div>
+          <div id="structureZonesGuide" class="guide-content structure-zones-user-guide">
+            <div class="panel-kicker">PREMIUM INDICATOR / v1.0.0</div>
+            <h2>Structure Zones · User guide</h2>
+            <p>Structure Zones is an original, deterministic OHLC study. It maps confirmed structure breaks, displacement-qualified origin zones, and clusters of nearby confirmed swing prices. It does not read order books or identify institutional participants.</p>
+            <h3>Structure events</h3>
+            <ul>
+              <li>A swing high/low needs the configured number of bars on both sides. It becomes usable only after all right-side bars are present; the chart marks its origin and records its later confirmation time.</li>
+              <li>A structure event requires a closed bar to cross a previously confirmed swing price. A wick-only breach does not count. The first directional event is labelled <code>BREAK</code>; a later break in the same direction is <code>BOS</code>; a break in the opposite direction is <code>CHoCH</code>.</li>
+              <li>The event record includes the crossed price, pivot time, break time, true-range-to-ATR ratio, and any origin zone linked to that break.</li>
+            </ul>
+            <h3>Origin zones and lifecycle</h3>
+            <ul>
+              <li>For a bullish break, the engine searches backward for the most recent bearish candle body; for a bearish break, it searches for the most recent bullish body. The body range is the candidate zone.</li>
+              <li>A zone is created only if the break bar’s true range meets the configured ATR displacement threshold. The threshold is a filter, not a performance score.</li>
+              <li>Zones begin <code>FRESH</code>, become <code>TOUCHED</code> when a later bar overlaps, become <code>DEFENDED</code> when that touch bar closes back beyond the near edge, and become <code>INVALIDATED</code> when a close passes the far edge. Zones age out as <code>EXPIRED</code> after the configured bar limit.</li>
+            </ul>
+            <h3>Nearby swing pools</h3>
+            <ul>
+              <li>Two confirmed pivots on the same side form a pool when their prices are within the configured fraction of ATR at confirmation. Additional matching pivots join the cluster.</li>
+              <li>A pool can be <code>OPEN</code>, <code>TESTED</code>, <code>RECLAIMED</code> after a wick through followed by a close back across the level, <code>ACCEPTED</code> after a close beyond its tolerance, or <code>EXPIRED</code>.</li>
+              <li>These are price-derived clusters. They are not proof of resting stop orders or actual market liquidity.</li>
+            </ul>
+            <h3>Data, timing, and limits</h3>
+            <ul>
+              <li>The latest stored bar is excluded; the prior bar is considered closed because a later bar exists. Each run displays its symbol, timeframe, cutoff, source rows, settings, and input hash.</li>
+              <li>Pivot marks appear historically at their origin only after confirmation. This avoids using future bars in the decision state, at the cost of a visible confirmation delay.</li>
+              <li>The Tool Belt coin remains a 50/50 placeholder. There is no calibrated probability, measured hit rate, automated rule learning, or trade instruction in this version. Candidate changes require a new version and a separately reviewed test.</li>
+            </ul>
+            <p class="guide-note">This implementation was written independently from general market-structure concepts; it does not port the LuxAlgo script. Data rights are not recorded by this tool, and mapped structures are research hypotheses.</p>
+          </div>
         </section>
         <section class="inspector-panel journal-inspector-panel" id="panel-journal" role="tabpanel" aria-labelledby="tab-journal" hidden>
           <div class="journal-panel-head"><div><div class="panel-kicker">HYPOTHETICAL CHART IDEAS</div><h2>Level forward tracker</h2></div><button id="refreshJournal" type="button" class="journal-refresh">Refresh</button></div>
@@ -378,10 +410,10 @@
     </form>
   </dialog>
   <script src="./vendor/lightweight-charts.standalone.production.js"></script>
-  <script type="module" src="./app.js?v=indicator-guide-20260929"></script>
+  <script type="module" src="./app.js?v=quant-lab-market-read-20261003"></script>
   <script type="module" src="./account-selector.js?v=20260930"></script>
   <script type="module" src="./trading-terminal.js?v=paper-workspace-2-20260928"></script>
-  <script type="module" src="./batty-agent.js?v=cleo-handoff-20260930"></script>
+  <script type="module" src="./batty-agent.js?v=quant-lab-market-read-20261003"></script>
   <script src="./session-shell.js?v=landing-20260930"></script>
   <script>
     (() => {

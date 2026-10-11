@@ -29,11 +29,13 @@ const state = {
   positionStep:null, positionDraft:null, journal:[],
   mtfZoneBars:[], mtfZoneKey:null, mtfZoneRequestId:0,
   biasContext:{daily:[],weekly:[],key:null,available:false,series:null},
+  readMarket:{source:null,sections:null,marks:[],framesMeta:[],finalRecommendation:'',visibility:{sentiment_bias:true,liquidity:true,elliott_fib:true,volume_divergence:true},running:false},
   liquidityLineWidth:Number.isFinite(savedLiquidityLineWidth)&&savedLiquidityLineWidth>=1&&savedLiquidityLineWidth<=4?savedLiquidityLineWidth:1,
   visibility: {price:true, counts:true, countPaths:true, swings:true, profile:true, fibs:true, confluence:true, projections:true, bias:false, liquidityZones:true, drawings:true, mtfPremiumDiscount:savedMtfVisible, ...(activeToolTemplate ? activeToolTemplate.visibility : {})},
   toolTemplates: savedToolTemplateStore.templates,
   activeToolTemplateId: savedToolTemplateStore.activeId,
 };
+let overlayFrame = 0;
 
 const fmt = (value, digits = 2) => new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value);
 const dateTime = (unix) => new Date(unix * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -437,25 +439,28 @@ async function loadCatalog() {
 async function refreshFeedStatus() {
   const symbol = $('#symbol').value;
   const timeframe = $('#timeframe').value;
-  const [feed, sources] = await Promise.all([
+  const [feed, sources, tickstream] = await Promise.all([
     json(`/api/feed/status?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`),
     json(`/api/feed/sources?symbol=${encodeURIComponent(symbol)}`),
+    json('/api/tickstream/status'),
   ]);
   state.feed = feed;
   state.feedSources = sources;
   const providerSelect = $('#syncProvider');
-  const selectedBeforeRefresh = providerSelect.value || localStorage.getItem('batty-feed-provider') || 'massive';
+  const selectedBeforeRefresh = providerSelect.value || localStorage.getItem('batty-feed-provider') || 'licensed';
   providerSelect.innerHTML = sources.sources.map(source => {
     const stateLabel = source.status === 'adapter_configured' ? 'configured' :
+      source.status === 'disabled' ? 'disabled' :
+      source.status === 'stream_configured' ? 'stream only · Vela' :
       source.status === 'quote_only' ? 'quote probe only' :
       source.status === 'unavailable' ? 'unavailable' :
       source.status === 'access_required' ? 'API access required' :
       source.status === 'rights_confirmation_required' ? 'rights confirmation required' : 'not connected';
-    const disabled = ['unavailable', 'access_required', 'rights_confirmation_required', 'quote_only'].includes(source.status) ? 'disabled' : '';
+    const disabled = ['disabled', 'stream_configured', 'unavailable', 'access_required', 'rights_confirmation_required', 'quote_only'].includes(source.status) ? 'disabled' : '';
     return `<option value="${esc(source.id)}" ${disabled}>${esc(source.name)} · ${stateLabel}</option>`;
   }).join('');
-  providerSelect.value = sources.sources.some(source => source.id === selectedBeforeRefresh && !['unavailable', 'access_required', 'rights_confirmation_required', 'quote_only'].includes(source.status))
-    ? selectedBeforeRefresh : (sources.sources.find(source => source.id === 'massive')?.id || 'licensed');
+  providerSelect.value = sources.sources.some(source => source.id === selectedBeforeRefresh && !['disabled', 'unavailable', 'access_required', 'rights_confirmation_required', 'quote_only'].includes(source.status))
+    ? selectedBeforeRefresh : 'licensed';
   const active = feed.status === 'receiving';
   const statusDot = $('.status-dot');
   statusDot.classList.toggle('live', active && feed.mode === 'REALTIME');
@@ -472,11 +477,14 @@ async function refreshFeedStatus() {
   const sourceState = id => {
     const source = sources.sources.find(item => item.id === id);
     return source?.status === 'adapter_configured' ? 'configured' :
+      source?.status === 'stream_configured' ? 'configured · memory-only' :
+      source?.status === 'disabled' ? 'disabled' :
       source?.status === 'unavailable' ? 'unavailable' :
       source?.status === 'access_required' ? 'API access required' :
       source?.status === 'rights_confirmation_required' ? 'rights confirmation required' : 'not connected';
   };
-  $('#providerConnections').textContent = `Live MYM: ${active && feed.mode === 'REALTIME' ? 'receiving' : 'not connected'} · Massive historical: ${sourceState('massive')} · AMP/CQG: ${sourceState('amp_cqg')} · Broker orders: disabled`;
+  const tickstreamMym = tickstream?.state === 'connected' && tickstream.symbols?.includes('MYM') ? 'connected · memory-only' : tickstream?.state || 'unknown';
+  $('#providerConnections').textContent = `Tickstream MYM: ${tickstreamMym} · Massive historical: ${sourceState('massive')} · AMP/CQG: ${sourceState('amp_cqg')} · Broker orders: disabled`;
   if($('#liquidityDataStatus')) $('#liquidityDataStatus').textContent=active?`${feed.mode==='REALTIME'?'Real-time':'Delayed'} bars · automatic outcomes enabled`:'Historical bars only · add a licensed feed for automatic outcomes';
   const selectedProvider = providerSelect.value;
   const selectedSource = sources.sources.find(item => item.id === selectedProvider);
@@ -484,7 +492,8 @@ async function refreshFeedStatus() {
   const flag = $('#feedConnectionFlag');
   const shortProviderName = (selectedSource?.name || 'Data feed').replace(' Futures Basic', '');
   const flagState = adapterConfigured ? (active && feed.mode === 'REALTIME' ? 'connected' : 'attention') : selectedSource?.status === 'rights_confirmation_required' ? 'attention' : 'disconnected';
-  const flagText = adapterConfigured ? `${shortProviderName} configured${active ? ` · ${feed.mode === 'REALTIME' ? 'real-time' : 'historical, not live'} bars` : ' · no fresh bars'}`
+  const flagText = selectedSource?.status === 'disabled' ? `${shortProviderName} disabled`
+    : adapterConfigured ? `${shortProviderName} configured${active ? ` · ${feed.mode === 'REALTIME' ? 'real-time' : 'historical, not live'} bars` : ' · no fresh bars'}`
     : selectedSource?.status === 'rights_confirmation_required' ? 'Rights check required'
     : selectedSource?.status === 'unavailable' ? 'Feed unavailable' : `${shortProviderName} not connected`;
   flag.className = `feed-flag ${flagState}`;
@@ -592,6 +601,7 @@ function applyDefaultChartView(result = state.result) {
 }
 
 function renderChart(result) {
+  if(state.readMarket.source&&(state.readMarket.source.symbol!==result.run.symbol||state.readMarket.source.timeframe!==result.run.timeframe||Number(state.readMarket.source.cutoff)!==Number(result.run.cutoff)))clearReadMarketReadout('Chart source/cutoff changed · previous Cleo marks retired.');
   const chartViewKey = `${result.run.symbol}:${result.run.timeframe}`;
   const shouldFit = state.chartViewKey !== chartViewKey;
   const futureTimes = result.analytics.projections.flatMap(p => p.points.slice(1).map(x => x.time));
@@ -807,6 +817,39 @@ function renderOneDrawing(layer, drawing) {
   if (node) layer.append(attachIdentity(node, drawing));
 }
 
+const READ_MARKET_COLORS={sentiment_bias:'#74d3bd',liquidity:'#e9a164',elliott_fib:'#ae92e8',volume_divergence:'#6eafe1'};
+function clearReadMarketReadout(message=''){
+  state.readMarket.source=null;state.readMarket.sections=null;state.readMarket.marks=[];state.readMarket.framesMeta=[];state.readMarket.finalRecommendation='';state.readMarket.running=false;
+  if(message)$('#chartMessage').textContent=message;
+}
+function renderReadMarketLayers(layer){
+  const current=state.readMarket.source;
+  if(!current||!state.result||current.symbol!==state.result.run.symbol||current.timeframe!==state.result.run.timeframe||Number(current.cutoff)!==Number(state.result.run.cutoff))return;
+  const barsByTime=new Map(state.result.bars.map(bar=>[Number(bar.time),bar]));
+  for(const mark of state.readMarket.marks){
+    if(!state.readMarket.visibility[mark.section])continue;
+    const color=READ_MARKET_COLORS[mark.section];
+    const points=mark.anchors.map(anchor=>{const bar=barsByTime.get(Number(anchor.time));const x=state.chart.timeScale().timeToCoordinate(Number(anchor.time));const y=state.candles.priceToCoordinate(Number(anchor.price));return bar&&x!=null&&y!=null?{x,y,bar,price:Number(anchor.price),time:Number(anchor.time)}:null;});
+    if(points.some(point=>!point))continue;
+    const group=svgNode('g',{class:`read-market-drawing read-market-${mark.section}`, 'data-mark-id':mark.id});
+    const title=svgNode('title');title.textContent=[mark.label,mark.timeframe&&`${mark.timeframe} source`,mark.evidence].filter(Boolean).join(' · ');group.append(title);
+    if(mark.geometry==='level'){
+      group.append(svgNode('line',{x1:0,y1:points[0].y,x2:layer.clientWidth,y2:points[0].y,stroke:color,'stroke-width':1.6,'stroke-dasharray':'8 5','vector-effect':'non-scaling-stroke'}));
+      const label=svgNode('text',{x:layer.clientWidth-7,y:points[0].y-5,fill:color,'text-anchor':'end',class:'read-market-label'});label.textContent=mark.label;group.append(label);
+    }else if(mark.geometry==='trend'){
+      group.append(svgNode('line',{x1:points[0].x,y1:points[0].y,x2:points[1].x,y2:points[1].y,stroke:color,'stroke-width':1.8,'stroke-dasharray':'7 4','vector-effect':'non-scaling-stroke'}));
+      const label=svgNode('text',{x:points[1].x+5,y:points[1].y-6,fill:color,class:'read-market-label'});label.textContent=mark.label;group.append(label);
+    }else if(mark.geometry==='zone'){
+      const left=Math.min(points[0].x,points[1].x),top=Math.min(points[0].y,points[1].y),width=Math.max(2,Math.abs(points[1].x-points[0].x)),height=Math.max(2,Math.abs(points[1].y-points[0].y));
+      group.append(svgNode('rect',{x:left,y:top,width,height,fill:color,'fill-opacity':'.07',stroke:color,'stroke-opacity':'.78','stroke-width':1.4,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke'}));
+      const label=svgNode('text',{x:left+4,y:top-5,fill:color,class:'read-market-label'});label.textContent=mark.label;group.append(label);
+    }else if(mark.geometry==='text'){
+      const label=svgNode('text',{x:points[0].x+5,y:points[0].y-6,fill:color,class:'read-market-label'});label.textContent=mark.label;group.append(label);
+    }
+    layer.append(group);
+  }
+}
+
 function renderBattyPaths(layer) {
   if (!state.result || !state.visibility.countPaths) return;
   for (const degree of state.result.layers) {
@@ -1014,6 +1057,14 @@ function renderDraft(layer) {
 }
 
 function renderOverlay() {
+  if (overlayFrame) return;
+  overlayFrame = requestAnimationFrame(() => {
+    overlayFrame = 0;
+    drawOverlay();
+  });
+}
+
+function drawOverlay() {
   const layer = $('#drawingLayer');
   layer.replaceChildren();
   renderBattyPaths(layer);
@@ -1543,14 +1594,25 @@ async function build() {
   try {
     const cutoff = Math.floor(new Date($('#cutoff').value).getTime() / 1000);
     const url = `/api/counts?symbol=${encodeURIComponent($('#symbol').value)}&timeframe=${encodeURIComponent($('#timeframe').value)}&cutoff=${cutoff}`;
-    state.result = await json(url);
-    await loadBiasContext(state.result);
+    const result = await json(url);
+    state.result = result;
     state.smartHover = null;
-    await loadDrawings();
-    await refreshMtfZoneData();
-    renderLedger(state.result);
-    renderChart(state.result);
-    await loadJournal();
+    state.drawings = [];
+    state.selectedId = null;
+    renderLedger(result);
+    renderChart(result);
+
+    // Candles are the critical path. Load overlays and journal details in
+    // parallel after the chart is already visible.
+    const ancillary = await Promise.allSettled([
+      loadBiasContext(result),
+      loadDrawings(),
+      refreshMtfZoneData(),
+      loadJournal(),
+    ]);
+    const failed = ancillary.find(item => item.status === 'rejected');
+    if (failed) showError(failed.reason);
+    renderOverlay();
   } catch (error) {
     $('#chartMessage').textContent = error.message;
     $('#apiState').textContent = 'Count request failed';
@@ -1727,8 +1789,10 @@ const INTELLECT_SEATS = [
   {id:'cfo',name:'CFO',tag:'EXEC LEAD',tone:'#c2a8ff',step:'Research agenda',lead:'Coordinates the trading research agenda and synthesizes accepted lab outputs.',skill:'Trading CFO role brief',source:'Firstmate workflow · CFO seat',about:'The CFO tracks the parent mission, separate market labs, child task IDs, artifacts, and blockers. Synthesis uses only accepted lab outputs and preserves unresolved decisions.',owns:['Records mission scope and child task IDs in the ledger','Keeps MES, BTC, and ETH work separated by task','Synthesizes accepted research with unresolved decisions visible'],handoff:'Receives the mandate from Firstmate; returns the synthesis to Firstmate.'},
   {id:'scientist',name:'Scientist',tag:'DAILY FORECAST',tone:'#6db6ff',step:'Forecast & method',lead:'Publishes immutable daily level predictions and reviews next-day outcomes.',skill:'Chief Scientist role brief',source:'agents/intellect/chief-scientist.md',about:'The Chief Scientist ranks active liquidity levels on 60m, 30m, 15m, 5m, and 1m, freezes risk-bounded daily forecasts, and measures the next-day results. The 75% objective is a target, not a current performance claim.',owns:['Freeze each daily forecast before the forward window','Record probability, trigger, stop, target, horizon, evidence, and version','Report resolved accuracy and uncertainty separately by timeframe','Propose method changes only as new prospective versions'],handoff:'Receives cited research from the Lead Researcher; sends frozen forecasts for independent review.'},
   {id:'lead-researcher',name:'Lead Researcher',tag:'GLOBAL RESEARCH',tone:'#83c7a7',step:'Research & sourcing',lead:'Finds and evaluates current research across authorized public internet sources and dashboard tools.',skill:'Lead Researcher role brief',source:'agents/intellect/lead-researcher.md',about:'The Lead Researcher searches broadly across public and otherwise authorized sources, follows primary citations, and investigates the dashboard indicators and analysis tools relevant to the Scientist’s frozen question.',owns:['Return direct source links, dates, evidence, limitations, and conflicts','Separate verified facts, source claims, inference, and unknowns','Record indicator definitions, inputs, timeframe behavior, and repaint risks','Flag licensing and retention boundaries before data collection'],handoff:'Delivers a cited evidence packet to the Chief Scientist before the daily forecast cutoff.',fileRole:'lead-researcher'},
+  {id:'market_research_reporter',name:'Market Research Reporter',tag:'FINANCE NEWS',tone:'#c58af0',step:'Market reporting & sentiment',lead:'Reports sourced financial developments and conditional cross-asset transmission for the selected futures session.',skill:'Market Research Reporter',source:'count-dashboard/web/agent-skills/market-research-reporter.md',about:'The Reporter covers rates, macro, energy and geopolitics, earnings and AI concentration, credit and funding, policy, market structure, positioning, and international transmission. Clips are concise, product-scoped, cited, and include a counterpath. This is a research channel, not a trade signal.',owns:['Read the Market Research indicator ledger and report its cutoff and coverage','Use only rights-cleared collection sources and cite current primary evidence','Keep each clip to at most three paragraphs and separate fact from inference','Leave sentiment unsigned when coverage or evidence is inadequate','Propose learning changes for Lab review without changing frozen indicators'],handoff:'Batty may request a chat handoff; Count Desk confirms dispatch only when the runtime returns a Reporter result.',fileRole:'market-research-reporter'},
   {id:'analyst',name:'Analyst',tag:'EVIDENCE',tone:'#7fe2b1',step:'Evidence packet',lead:'Builds the source-bounded evidence packet from permitted data.',skill:'Trading Analyst role brief',source:'Firstmate workflow · lab seat',about:'The Analyst assembles the input record from approved charts or data. Every observation retains its source, timeframe, and limitation; unavailable facts stay unknown.',owns:['Preserve source identity and evidence timestamps','Separate observations, inferences, and unknowns','Stop if scope or data authority is unclear'],handoff:'Passes the evidence packet to Cleo.'},
   {id:'cleo',name:'Cleo',tag:'CHART ANALYST',tone:'#f0b55b',step:'Chart analysis & coaching',lead:'Reads charts, prepares conditional scenarios, and coaches Mark through trade review.',skill:'Cleo · Chart Analysis & Trading Mentor',source:'The Trader · .agents/skills/cleo/SKILL.md',about:'Cleo reviews charts and conditional trade ideas, teaches Mark’s HTF-level/1m-confirmation approach, journals reported trades from approved evidence, and keeps Elliott Wave analysis provisional. The local specialist handoff does not create a durable Firstmate crew task or provide broker control.',owns:['Read charts from higher timeframe to execution timeframe','Explain Elliott Wave, liquidity, Fibonacci, divergence, S/R and SMC with method limits','Provide wait/conditional scenarios with triggers, invalidations and room checks','Journal each distinct trade while separating verified fills from reported facts','Keep reflection and learning proposals evidence-based and human-reviewed','No live order routing or unverified market/account access'],handoff:'Returns the technical read or journal draft to Batty for attributed delivery.',fileRole:'cleo'},
+  {id:'clipper',name:'Clipper',tag:'JOURNAL · PROPOSED',tone:'#5bc9b0',step:'Account reconciliation',lead:'Audits each enrolled account and paper/shadow agent ledger three times daily once configured.',skill:'Clipper · Journal Reconciliation Steward',source:'agents/intellect/clipper.md',about:'Clipper is a proposed journal accuracy role. It is not scheduled or connected to a broker. Its future audit receipts will show coverage, source cutoff, counts, differences, freshness, and unresolved exceptions for each account.',owns:['Inventory approved accounts and paper/shadow agent ledgers','Compare authoritative source records with journal fills, positions, cash and supported statistics','Keep raw evidence and an immutable audit receipt for every pass','Escalate missing sources, discrepancies and stale runs to Firstmate','Never change orders, account settings or source records'],handoff:'Sends account audit receipts and exceptions to Firstmate; Cleo can use verified facts for reflection.',fileRole:'clipper'},
   {id:'reviewer',name:'Reviewer',tag:'INDEPENDENT',tone:'#f08d9e',step:'Accept / return / block',lead:'Independently checks the evidence, method, rules, and acceptance criteria.',skill:'Independent Reviewer role brief',source:'Firstmate workflow · lab seat',about:'The reviewer evaluates the frozen work independently. The disposition is explicit: accept, return, reject, or block, with evidence tied to the stated acceptance criteria.',owns:['Check source provenance and criteria coverage','Challenge broken Elliott rules or unsupported claims','Record a reasoned disposition and any required return work'],handoff:'Only accepted lab outputs are eligible for CFO synthesis.'},
   {id:'paper',name:'Paper Trader',tag:'PAPER ONLY',tone:'#f2d65d',step:'Hypothetical record',lead:'Records a paper simulation of accepted scenarios.',skill:'Trader / execution role brief',source:'agents/intellect/paper-trader.md',about:'This seat is bounded to paper simulation and hypothetical records. It does not connect to a broker or submit orders.',owns:['Use only scenarios accepted by review','Keep hypothetical triggers and outcomes separate from live markets','Do not place, modify, or cancel any order'],handoff:'Passes paper records to Outcome and Method Review.',fileRole:'paper-trader'},
   {id:'outcome',name:'Outcome',tag:'METHOD REVIEW',tone:'#72c4c8',step:'Measure & learn',lead:'Measures frozen scenarios and reviews method quality after the window closes.',skill:'Outcome and Method Review role brief',source:'Firstmate workflow · lab seat',about:'Outcome review measures the declared scenario window and reports supported, contradicted, unresolved, or not measurable. Candidate lessons require evidence and remain unpromoted until Firstmate review.',owns:['Keep price-action outcomes separate from execution results','Name the first unsupported assumption or rule failure','Return candidate lessons for controlled Firstmate evaluation'],handoff:'Returns artifacts and disposition to the CFO run ledger.'},
@@ -1756,7 +1820,7 @@ function initIntellectRibbon() {
     if(!seat)return;
     $('#agentSkillGroup').textContent=`${seat.step.toUpperCase()} · WORKFLOW SEAT`;
     $('#agentSkillTitle').textContent=seat.skill;
-    content.innerHTML=`<p>${seat.about}</p><div class="skill-source"><strong>Source file</strong><code>${esc(seat.source)}</code></div><p>${esc(seat.lead)}</p><h3>Seat responsibilities</h3><ul>${seat.owns.map(item=>`<li>${esc(item)}</li>`).join('')}</ul><p class="skill-boundary"><strong>Handoff:</strong> ${esc(seat.handoff)}<br><br><strong>Runtime:</strong> This seat is defined in the workflow. No agent has been dispatched from Count Desk; the loop is on standby.</p><details class="skill-file-details" open><summary>Skill file text</summary><pre class="skill-file-text">Loading skill file…</pre></details>`;
+    content.innerHTML=`<p>${seat.about}</p><div class="skill-source"><strong>Source file</strong><code>${esc(seat.source)}</code></div><p>${esc(seat.lead)}</p><h3>Seat responsibilities</h3><ul>${seat.owns.map(item=>`<li>${esc(item)}</li>`).join('')}</ul><p class="skill-boundary"><strong>Handoff:</strong> ${esc(seat.handoff)}<br><br><strong>Runtime:</strong> A role card is not proof of dispatch. For Market Research, the chat shows a completed handoff only after the local runtime confirms the Reporter spawn and returns findings. This is a project-scoped chat specialist, not a durable Firstmate crew task.</p><details class="skill-file-details" open><summary>Skill file text</summary><pre class="skill-file-text">Loading skill file…</pre></details>`;
     const skillText=content.querySelector('.skill-file-text');
     fetch(`./agent-skills/${encodeURIComponent(seat.fileRole||seat.id)}.md`).then(async response=>{
       if(!response.ok)throw new Error('Skill file unavailable');
@@ -1773,8 +1837,8 @@ $('#liquidityLabLink').addEventListener('click', async event => {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   const link = event.currentTarget;
-  const originalText = link.textContent;
-  link.textContent = 'Starting Lab…';
+  const originalTitle = link.title;
+  link.title = 'Starting Liquidity Lab…';
   link.setAttribute('aria-busy', 'true');
   try {
     const result = await json('/api/liquidity-lab/start', {method:'POST'});
@@ -1782,8 +1846,7 @@ $('#liquidityLabLink').addEventListener('click', async event => {
   } catch (error) {
     $('#apiState').textContent = `Liquidity Lab unavailable: ${error.message}`;
     $('#apiState').className = 'api-state bad';
-    link.title = error.message;
-    link.textContent = originalText;
+    link.title = error.message || originalTitle;
     link.removeAttribute('aria-busy');
   }
 });
@@ -1806,16 +1869,17 @@ try {
   initChart();
   initToolTemplates();
   await loadCatalog();
-  await refreshFeedStatus();
+  refreshFeedStatus().catch(error => { $('#feedMeta').textContent = error.message; });
   window.setInterval(() => refreshFeedStatus().catch(error => { $('#feedMeta').textContent = error.message; }), 15000);
   $('#guidePattern').innerHTML = Object.entries(GUIDE_PATTERNS).map(([key,pattern]) => `<option value="${key}">${esc(pattern.name)}</option>`).join('');
   $('#guidePattern').addEventListener('change', renderWaveGuide);
   renderWaveGuide();
   const indicatorGuide = new URLSearchParams(location.search).get('guide');
-  if (['liquidity', 'bias'].includes(indicatorGuide)) {
+  if (['liquidity', 'bias', 'structure-zones'].includes(indicatorGuide)) {
     setInspectorVisibility(true);
     setInspectorTab('indicatorguide');
-    if (indicatorGuide === 'bias') requestAnimationFrame(() => $('#biasGuide')?.scrollIntoView({block:'start'}));
+    const guideId = {'liquidity':'liquidityGuide','bias':'biasGuide','structure-zones':'structureZonesGuide'}[indicatorGuide];
+    requestAnimationFrame(() => $(`#${guideId}`)?.scrollIntoView({block:'start'}));
   }
   await build();
 } catch (error) {

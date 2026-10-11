@@ -1,5 +1,6 @@
-import {DESK_GRID, packLegoGrid} from './lego-grid-core.js';
-import {createCodexWidget} from './codex-widget.js?v=4';
+import {DESK_GRID, packLegoGrid} from './lego-grid-core.js?v=the-list-1-20261002';
+import {createCodexWidget} from './codex-widget.js?v=6';
+import {createListWidget} from './list-widget.js?v=3';
 
 const storageKey = 'count-desk-modular-workspace-v1';
 const templatesKey = 'count-desk-modular-workspace-templates-v1';
@@ -10,7 +11,7 @@ const widgetCatalog = {
   agents:{title:'Agents',icon:'✦',size:'medium'},
   codex:{title:'Codex',icon:'›',size:'medium'},
   ladder:{title:'Ladder',icon:'⇅',size:'medium'},
-  watchlist:{title:'List',icon:'☷',size:'small'},
+  watchlist:{title:'The List',icon:'☷',size:'small'},
   indicators:{title:'Indicator cubes',icon:'▦',size:'medium'},
   notes:{title:'Desk notes',icon:'✎',size:'small'},
   context:{title:'Data context',icon:'◷',size:'small'},
@@ -39,11 +40,23 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   const templateName = $('#modularTemplateName');
   const templateStatus = $('#modularTemplateStatus');
   const widgets = new Map();
+  let listWidget = null;
   let state = readState();
   let templates = readTemplates();
-  let draggedWidget = null;
+  let pointerPlacement = null;
+  let buildMode = false;
+  let previousLayout = null;
   let resizeTimer = null;
   let restoringLayout = false;
+  const placementGhost = document.createElement('div');
+  placementGhost.className = 'modular-placement-ghost';
+  placementGhost.setAttribute('aria-hidden','true');
+  placementGhost.hidden = true;
+  grid.append(placementGhost);
+  const blockTray = document.createElement('div');
+  blockTray.className = 'modular-block-tray';
+  blockTray.hidden = true;
+  workspace.insertBefore(blockTray,blank);
 
   parking.append(chartElement);
   chartElement.hidden = true;
@@ -69,11 +82,13 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
           positions:saved.positions && typeof saved.positions === 'object' ? saved.positions : {},
           notes:typeof saved.notes === 'string' ? saved.notes : '',
           listSymbols:Array.isArray(saved.listSymbols) ? [...new Set(saved.listSymbols.filter(value => typeof value === 'string'))] : [],
+          listInitialized:Boolean(saved.listInitialized || saved.listSymbols?.length),
+          listSelectedSymbol:typeof saved.listSelectedSymbol === 'string' ? saved.listSelectedSymbol : '',
           platformSettings:saved.platformSettings && typeof saved.platformSettings === 'object' ? saved.platformSettings : null,
         };
       }
     } catch { /* A fresh layout is the safe fallback when local preferences cannot be read. */ }
-    return {name:'Standard desk',order:[...standardOrder],layoutMode:'standard',sizes:{},spans:{},mobileRows:{},positions:{},notes:'',listSymbols:[],platformSettings:null};
+    return {name:'Standard desk',order:[...standardOrder],layoutMode:'standard',sizes:{},spans:{},mobileRows:{},positions:{},notes:'',listSymbols:[],listInitialized:false,listSelectedSymbol:'',platformSettings:null};
   }
 
   function readTemplates() {
@@ -89,19 +104,19 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   }
 
   function snapshotLayout(name = state.name) {
-    const order = [...grid.children].map(widget => widget.dataset.kind);
-    const sizes = Object.fromEntries([...grid.children].filter(widget => ['small','medium','wide','full'].includes(widget.dataset.size)).map(widget => [widget.dataset.kind, widget.dataset.size]));
+    const order = [...grid.children].filter(widget => widget.dataset.kind).map(widget => widget.dataset.kind);
+    const sizes = Object.fromEntries([...grid.children].filter(widget => widget.dataset.kind && ['small','medium','wide','full'].includes(widget.dataset.size)).map(widget => [widget.dataset.kind, widget.dataset.size]));
     const notes = grid.querySelector('[data-notes]');
     const capturedSettings = capturePlatformSettings ? capturePlatformSettings() : null;
     const platformSettings = capturedSettings && capturedSettings.symbol ? capturedSettings : state.platformSettings || capturedSettings || null;
     return {name:name.trim().slice(0,40) || 'Standard desk',order,layoutMode:state.layoutMode || 'custom',sizes,
       spans:state.spans || {},mobileRows:state.mobileRows || {},positions:state.positions || {},notes:notes ? notes.value : state.notes,
-      listSymbols:state.listSymbols || [],platformSettings};
+      listSymbols:state.listSymbols || [],listInitialized:state.listInitialized,listSelectedSymbol:state.listSelectedSymbol,platformSettings};
   }
 
   function persist() {
-    state.order = [...grid.children].map(widget => widget.dataset.kind);
-    state.sizes = Object.fromEntries([...grid.children].filter(widget => ['small','medium','wide','full'].includes(widget.dataset.size)).map(widget => [widget.dataset.kind, widget.dataset.size]));
+    state.order = [...grid.children].filter(widget => widget.dataset.kind).map(widget => widget.dataset.kind);
+    state.sizes = Object.fromEntries([...grid.children].filter(widget => widget.dataset.kind && ['small','medium','wide','full'].includes(widget.dataset.size)).map(widget => [widget.dataset.kind, widget.dataset.size]));
     state.name = nameInput.value.trim().slice(0,40) || 'Untitled layout';
     state = snapshotLayout(state.name);
     try {
@@ -112,7 +127,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       $('#modularSaveStatus').textContent = 'Save unavailable';
       setStatus('This browser could not save the workspace layout.', true);
     }
-    blank.hidden = grid.children.length > 0;
+    blank.hidden = !!grid.querySelector('.modular-widget');
   }
 
   function setStatus(message, error = false) {
@@ -120,6 +135,24 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     if (!status || status.textContent === 'Loading Count Desk catalog…') return;
     status.textContent = message;
     status.classList.toggle('error', error);
+  }
+
+  function rememberLayout() {
+    previousLayout = {
+      sizes:{...state.sizes},
+      spans:Object.fromEntries(Object.entries(state.spans).map(([kind,span]) => [kind,[...span]])),
+      positions:Object.fromEntries(Object.entries(state.positions).map(([kind,position]) => [kind,{...position}])),
+      mobileRows:{...state.mobileRows},
+    };
+    renderBlockTray();
+  }
+
+  function undoLayout() {
+    if (!previousLayout) return;
+    Object.assign(state,previousLayout);
+    previousLayout = null;
+    applyAdaptiveLayout(); persist(); renderBlockTray();
+    setStatus('Previous block placement restored.');
   }
 
   const snapSoundKey = 'count-desk-lego-snap-sound-v1';
@@ -136,23 +169,35 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
+      const noise = audioContext.createBufferSource();
+      const noiseGain = audioContext.createGain();
+      const buffer = audioContext.createBuffer(1,Math.ceil(audioContext.sampleRate * .035),audioContext.sampleRate);
+      const samples = buffer.getChannelData(0);
+      for (let index = 0; index < samples.length; index++) samples[index] = (Math.random() * 2 - 1) * (1 - index / samples.length);
+      noise.buffer = buffer;
       oscillator.type = 'triangle';
-      oscillator.frequency.setValueAtTime(460,audioContext.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(220,audioContext.currentTime + .09);
+      oscillator.frequency.setValueAtTime(310,audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(130,audioContext.currentTime + .055);
       gain.gain.setValueAtTime(.0001,audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(.06,audioContext.currentTime + .007);
-      gain.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime + .12);
+      gain.gain.exponentialRampToValueAtTime(.045,audioContext.currentTime + .004);
+      gain.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime + .07);
+      noiseGain.gain.setValueAtTime(.0001,audioContext.currentTime);
+      noiseGain.gain.exponentialRampToValueAtTime(.018,audioContext.currentTime + .002);
+      noiseGain.gain.exponentialRampToValueAtTime(.0001,audioContext.currentTime + .035);
       oscillator.connect(gain); gain.connect(audioContext.destination);
-      oscillator.start(); oscillator.stop(audioContext.currentTime + .12);
+      noise.connect(noiseGain); noiseGain.connect(audioContext.destination);
+      oscillator.start(); oscillator.stop(audioContext.currentTime + .07);
+      noise.start(); noise.stop(audioContext.currentTime + .035);
     } catch { /* The visible snap remains available when audio cannot play. */ }
   }
 
   function changeSpan(article, direction, axis = 'both') {
-    if ([...grid.children].filter(widget => !widget.hidden).length === 1) return;
+    if ([...grid.children].filter(widget => widget.dataset.kind && !widget.hidden).length === 1) return;
     const kind = article.dataset.kind;
-    if (window.matchMedia('(max-width:760px)').matches) {
+    if (window.matchMedia('(max-width:1050px)').matches) {
       const rows = Math.max(1,Math.min(8,Number(article.dataset.layoutRows) + direction));
       if (rows === Number(article.dataset.layoutRows)) return;
+      rememberLayout();
       state.mobileRows[kind] = rows;
       applyAdaptiveLayout(); persist(); snap(article);
       return;
@@ -162,6 +207,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     const columns = axis === 'vertical' ? currentColumns : Math.max(kind === 'chart' ? 4 : 2,Math.min(12,currentColumns + direction));
     const rows = axis === 'horizontal' ? currentRows : Math.max(kind === 'chart' ? 3 : 1,Math.min(8,currentRows + direction));
     if (columns === currentColumns && rows === currentRows) return;
+    rememberLayout();
     state.spans[kind] = [columns,rows];
     delete state.sizes[kind];
     delete state.positions[kind];
@@ -169,10 +215,10 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   }
 
   function startEdgeResize(article, event) {
-    if (event.button !== 0 || [...grid.children].filter(widget => !widget.hidden).length === 1) return;
+    if (event.button !== 0 || [...grid.children].filter(widget => widget.dataset.kind && !widget.hidden).length === 1) return;
     event.preventDefault(); event.stopPropagation();
     const kind = article.dataset.kind;
-    const mobile = window.matchMedia('(max-width:760px)').matches;
+    const mobile = window.matchMedia('(max-width:1050px)').matches;
     const origin = [Number(article.dataset.layoutCols),Number(article.dataset.layoutRows)];
     const start = [event.clientX,event.clientY];
     const style = getComputedStyle(grid);
@@ -182,28 +228,49 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     const innerHeight = grid.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0);
     const cellX = (innerWidth - gapX * 11) / 12 + gapX;
     const cellY = (innerHeight - gapY * 7) / 8 + gapY;
+    const position = {x:Number(article.style.gridColumn.split(' ')[0]),y:Number(article.style.gridRow.split(' ')[0])};
+    let proposed = [...origin];
     let changed = false;
     const move = next => {
       if (mobile) {
         const rows = Math.max(1,Math.min(8,origin[1] + Math.round((next.clientY - start[1]) / 188)));
         if (rows === Number(article.dataset.layoutRows)) return;
+        if (!changed) rememberLayout();
         state.mobileRows[kind] = rows;
         changed = true; applyAdaptiveLayout();
         return;
       }
-      const columns = Math.max(kind === 'chart' ? 4 : 2,Math.min(12,origin[0] + Math.round((next.clientX - start[0]) / cellX)));
-      const rows = Math.max(kind === 'chart' ? 3 : 1,Math.min(8,origin[1] + Math.round((next.clientY - start[1]) / cellY)));
-      if (columns === Number(article.dataset.layoutCols) && rows === Number(article.dataset.layoutRows)) return;
-      state.spans[kind] = [columns,rows];
-      delete state.sizes[kind]; delete state.positions[kind];
-      changed = true; applyAdaptiveLayout();
+      const columns = Math.max(kind === 'chart' ? 4 : 2,Math.min(13 - position.x,origin[0] + Math.round((next.clientX - start[0]) / cellX)));
+      const rows = Math.max(kind === 'chart' ? 3 : 1,Math.min(9 - position.y,origin[1] + Math.round((next.clientY - start[1]) / cellY)));
+      if (columns === proposed[0] && rows === proposed[1]) return;
+      proposed = [columns,rows];
+      changed = columns !== origin[0] || rows !== origin[1];
+      if (changed) showPlacementGhost(article,position.x,position.y,columns,rows);
+      else placementGhost.hidden = true;
     };
-    const end = () => {
+    const end = last => {
       window.removeEventListener('pointermove',move);
       window.removeEventListener('pointerup',end);
       window.removeEventListener('pointercancel',end);
       article.classList.remove('is-resizing');
-      if (changed) { persist(); snap(article); }
+      placementGhost.hidden = true;
+      if (last.type === 'pointercancel') {
+        if (mobile && changed) undoLayout();
+        return;
+      }
+      if (!changed) return;
+      if (mobile) { persist(); snap(article); return; }
+      if (!mobile) rememberLayout();
+      state.spans[kind] = proposed;
+      delete state.sizes[kind];
+      const visible = [...grid.querySelectorAll('.modular-widget')].filter(widget => !widget.hidden);
+      const items = [article,...visible.filter(widget => widget !== article)].map(widget => ({
+        id:widget.dataset.kind,kind:widget.dataset.kind,size:state.sizes[widget.dataset.kind],
+        span:state.spans[widget.dataset.kind],position:widget === article ? position :
+          {x:Number(widget.style.gridColumn.split(' ')[0]),y:Number(widget.style.gridRow.split(' ')[0])},
+      }));
+      for (const item of packLegoGrid(items)) state.positions[item.id] = {x:item.x,y:item.y};
+      applyAdaptiveLayout(); persist(); snap(article);
     };
     article.classList.add('is-resizing');
     window.addEventListener('pointermove',move);
@@ -212,31 +279,17 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   }
 
   function applyAdaptiveLayout() {
-    const children = [...grid.children].filter(widget => !widget.hidden);
+    const children = [...grid.children].filter(widget => widget.dataset.kind && !widget.hidden);
+    $('#modularSelectCodex')?.setAttribute('aria-pressed',String(widgets.get('codex')?.parentElement === grid));
+    grid.classList.toggle('has-one-widget',children.length === 1);
     if (!children.length) return;
-    const mobile = window.matchMedia('(max-width:760px)').matches;
+    const mobile = window.matchMedia('(max-width:1050px)').matches;
     const placements = packLegoGrid(children.map(widget => ({id:widget.dataset.kind,kind:widget.dataset.kind,
-      size:state.sizes[widget.dataset.kind],span:state.spans[widget.dataset.kind],mobileRows:state.mobileRows[widget.dataset.kind],
+      size:state.sizes[widget.dataset.kind],
+      span:state.spans[widget.dataset.kind] || (widget.dataset.kind === 'codex' ? [3,6] : undefined),
+      mobileRows:state.mobileRows[widget.dataset.kind] || (widget.dataset.kind === 'codex' ? 3 : undefined),
       position:state.positions[widget.dataset.kind]})),{mobile});
-    const railColumns = workspace.classList.contains('is-left-collapsed')
-      ? workspace.classList.contains('is-right-collapsed') ? '0px minmax(0,1fr) 0px' : '0px minmax(460px,2.6fr) minmax(230px,1.1fr)'
-      : workspace.classList.contains('is-right-collapsed') ? 'minmax(170px,.8fr) minmax(460px,2.6fr) 0px'
-        : 'minmax(170px,.8fr) minmax(460px,2.6fr) minmax(230px,1.1fr)';
-    if (!mobile) grid.style.gridTemplateColumns = railColumns;
-    const desktopRailRows = new Map();
-    if (!mobile) {
-      for (const region of ['left','right']) {
-        const items = placements.filter(item => item.id !== 'chart' && (region === 'left'
-          ? ['agents','codex','watchlist'].includes(item.id)
-          : !['agents','codex','watchlist'].includes(item.id)));
-        let cursor = 1;
-        items.forEach((item,index) => {
-          const span = Math.max(1,Math.floor(8 / items.length) + (index < 8 % items.length ? 1 : 0));
-          desktopRailRows.set(item.id,`${cursor} / span ${span}`);
-          cursor += span;
-        });
-      }
-    }
+    grid.style.gridTemplateColumns = mobile ? 'minmax(0,1fr)' : 'repeat(12,minmax(0,1fr))';
     for (const placement of placements) {
       const widget = widgets.get(placement.id);
       const region = placement.id === 'chart' ? 'center'
@@ -248,13 +301,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       widget.style.setProperty('--zone-row-span',String(Math.max(2,Math.min(4,placement.rows))));
       widget.classList.remove('size-small','size-medium','size-wide','size-full','size-auto');
       if (widget.dataset.size !== 'custom') widget.classList.add(`size-${widget.dataset.size}`);
-      if (!mobile) {
-        widget.style.gridColumn = placement.id === 'chart' ? '2' : region === 'left' ? '1' : '3';
-        widget.style.gridRow = placement.id === 'chart' ? '1 / span 8' : desktopRailRows.get(placement.id) || 'auto';
-      } else {
-        widget.style.gridColumn = `${placement.x} / span ${placement.columns}`;
-        widget.style.gridRow = `${placement.y} / span ${placement.rows}`;
-      }
+      widget.style.gridColumn = `${placement.x} / span ${placement.columns}`;
+      widget.style.gridRow = `${placement.y} / span ${placement.rows}`;
       const button = widget.querySelector('[data-size]');
       button.title = mobile ? `Current height: ${placement.rows} rows. Select to cycle height.`
         : `Current size: ${widget.dataset.layoutCols} × ${widget.dataset.layoutRows} grid units. Select to cycle presets.`;
@@ -279,7 +327,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     article.dataset.size = state.sizes[kind] || 'auto';
     const head = document.createElement('header');
     head.className = 'modular-widget-head';
-    head.draggable = true;
+    head.draggable = false;
     head.innerHTML = `<span class="modular-widget-drag" aria-hidden="true">⠿</span><span class="modular-widget-icon" aria-hidden="true">${definition.icon}</span><strong>${definition.title}</strong><small data-widget-state></small><div class="modular-widget-actions"><button type="button" data-move="previous" title="Move panel earlier" aria-label="Move ${definition.title} earlier">↑</button><button type="button" data-move="next" title="Move panel later" aria-label="Move ${definition.title} later">↓</button><button type="button" data-size title="Resize widget" aria-label="Resize ${definition.title}">↔</button><button type="button" data-remove title="Remove widget" aria-label="Remove ${definition.title}">×</button></div>`;
     const body = document.createElement('div');
     body.className = 'modular-widget-body';
@@ -326,6 +374,7 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       mountAgents(article);
     } else if (kind === 'codex') {
       createCodexWidget(body);
+      article.querySelector('[data-widget-state]').textContent = 'ChatGPT sign-in';
     } else if (kind === 'ladder') {
       const ladder = document.createElement('div');
       ladder.className = 'modular-ladder';
@@ -337,6 +386,14 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       list.className = 'modular-watchlist';
       list.dataset.watchlist = '';
       body.append(list);
+      listWidget = createListWidget(list,{
+        getSymbols,
+        getListSymbols:() => state.listSymbols,
+        setListSymbols:symbols => { state.listSymbols = [...new Set(symbols)]; state.listInitialized = true; persist(); },
+        getSelectedSymbol:() => state.listSelectedSymbol,
+        setSelectedSymbol:symbol => { state.listSelectedSymbol = symbol; persist(); },
+        selectSymbol,
+      });
       renderWatchlist();
     } else if (kind === 'indicators') {
       const cubes = document.createElement('div');
@@ -385,49 +442,17 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     const target = grid.querySelector('[data-watchlist]');
     if (!target) return;
     const catalog = getSymbols();
-    const known = new Set(catalog.map(item => item.symbol));
-    state.listSymbols = (state.listSymbols?.length ? state.listSymbols : catalog.slice(0,8).map(item => item.symbol)).filter(symbol => known.has(symbol));
-    target.replaceChildren();
     if (!catalog.length) {
-      target.innerHTML = '<p class="modular-provenance-note">The Count Desk symbol catalog is unavailable. Reload after the local service is ready.</p>';
+      target.innerHTML = '<p class="modular-provenance-note">The Count Desk symbol catalog is loading.</p>';
       return;
     }
-    const controls = document.createElement('div');
-    controls.className = 'modular-list-add';
-    const select = document.createElement('select');
-    select.setAttribute('aria-label','Add symbol to List');
-    select.append(new Option('Add instrument…',''));
-    catalog.filter(item => !state.listSymbols.includes(item.symbol)).forEach(item => select.append(new Option(item.label || item.symbol,item.symbol)));
-    select.addEventListener('change',() => {
-      if (!select.value) return;
-      state.listSymbols.push(select.value);
-      renderWatchlist(); persist();
-    });
-    controls.append(select); target.append(controls);
-    if (!state.listSymbols.length) {
-      const empty = document.createElement('p'); empty.className = 'modular-provenance-note'; empty.textContent = 'Add instruments from the Count Desk catalog.'; target.append(empty);
+    if (!state.listInitialized) {
+      state.listSymbols = catalog.filter(item => item.timeframes?.some(frame => frame.available)).slice(0,8).map(item => item.symbol);
+      if (!state.listSymbols.length) state.listSymbols = catalog.slice(0,8).map(item => item.symbol);
+      state.listInitialized = true;
+      persist();
     }
-    for (const symbol of state.listSymbols) {
-      const item = catalog.find(entry => entry.symbol === symbol);
-      if (!item) continue;
-      const row = document.createElement('div');
-      row.className = 'modular-watch-row';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = item.label || item.symbol;
-      button.title = `Load ${item.label || item.symbol} into the chart`;
-      button.addEventListener('click', () => selectSymbol(item.symbol));
-      const remove = document.createElement('button');
-      remove.type = 'button'; remove.className = 'modular-list-remove'; remove.textContent = '×';
-      remove.setAttribute('aria-label',`Remove ${item.symbol} from List`);
-      remove.addEventListener('click',() => { state.listSymbols = state.listSymbols.filter(value => value !== item.symbol); renderWatchlist(); persist(); });
-      row.append(button,remove);
-      target.append(row);
-    }
-    const foot = document.createElement('div');
-    foot.className = 'modular-footer';
-    foot.textContent = 'Saved locally · select an instrument to load its chart';
-    target.append(foot);
+    void listWidget?.refresh();
   }
 
   function renderLadder() {
@@ -510,7 +535,130 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     }
   }
 
+  function gridMetrics() {
+    const style = getComputedStyle(grid);
+    const left = parseFloat(style.paddingLeft) || 0;
+    const top = parseFloat(style.paddingTop) || 0;
+    const gapX = parseFloat(style.columnGap) || 0;
+    const gapY = parseFloat(style.rowGap) || 0;
+    const cellWidth = (grid.clientWidth - left - (parseFloat(style.paddingRight) || 0) - 11 * gapX) / 12;
+    const cellHeight = (grid.clientHeight - top - (parseFloat(style.paddingBottom) || 0) - 7 * gapY) / 8;
+    return {left,top,gapX,gapY,cellWidth,cellHeight};
+  }
+
+  function placeBlock(article, x, y) {
+    rememberLayout();
+    const visible = [...grid.querySelectorAll('.modular-widget')].filter(widget => !widget.hidden);
+    const items = [article,...visible.filter(widget => widget !== article)].map(widget => ({
+      id:widget.dataset.kind,kind:widget.dataset.kind,
+      size:state.sizes[widget.dataset.kind],span:state.spans[widget.dataset.kind],
+      position:widget === article ? {x,y} :
+        {x:Number(widget.style.gridColumn.split(' ')[0]),y:Number(widget.style.gridRow.split(' ')[0])},
+    }));
+    for (const item of packLegoGrid(items)) state.positions[item.id] = {x:item.x,y:item.y};
+    applyAdaptiveLayout(); persist(); snap(article);
+  }
+
+  function renderBlockTray() {
+    blockTray.replaceChildren();
+    const title = document.createElement('strong');
+    title.textContent = 'BUILD BOARD';
+    blockTray.append(title);
+    const undoButton = document.createElement('button');
+    undoButton.type = 'button';
+    undoButton.textContent = '↶ Undo';
+    undoButton.disabled = !previousLayout;
+    undoButton.title = 'Restore the last block move or resize';
+    undoButton.addEventListener('click',undoLayout);
+    blockTray.append(undoButton);
+    const available = ['chart','agents','codex','watchlist','ladder','indicators','context','notes']
+      .filter(kind => widgets.get(kind)?.parentElement !== grid);
+    if (!available.length) {
+      const detail = document.createElement('span');
+      detail.textContent = 'All blocks placed · drag a title bar to move, or use the glowing edge to resize';
+      blockTray.append(detail);
+      return;
+    }
+    const detail = document.createElement('span');
+    detail.textContent = 'Add a block, then drag its title bar onto the board';
+    blockTray.append(detail);
+    for (const kind of available) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `${widgetCatalog[kind].icon} ${widgetCatalog[kind].title}`;
+      button.addEventListener('click',() => addWidget(kind));
+      blockTray.append(button);
+    }
+  }
+
+  function showPlacementGhost(article, x, y, columns = Number(article.dataset.layoutCols), rows = Number(article.dataset.layoutRows)) {
+    const {left,top,gapX,gapY,cellWidth,cellHeight} = gridMetrics();
+    placementGhost.style.left = `${left + (x - 1) * (cellWidth + gapX)}px`;
+    placementGhost.style.top = `${top + (y - 1) * (cellHeight + gapY)}px`;
+    placementGhost.style.width = `${columns * cellWidth + (columns - 1) * gapX}px`;
+    placementGhost.style.height = `${rows * cellHeight + (rows - 1) * gapY}px`;
+    placementGhost.textContent = `${widgetCatalog[article.dataset.kind].title} · ${columns} × ${rows}`;
+    placementGhost.hidden = false;
+  }
+
+  function startBlockPlacement(article, event) {
+    if (!buildMode || event.button !== 0 || event.target.closest('button') || window.matchMedia('(max-width:1050px)').matches) return;
+    event.preventDefault();
+    const bounds = article.getBoundingClientRect();
+    const origin = {x:Number(article.style.gridColumn.split(' ')[0]),y:Number(article.style.gridRow.split(' ')[0])};
+    const pointerOffset = {x:event.clientX - bounds.left,y:event.clientY - bounds.top};
+    pointerPlacement = {article,startX:event.clientX,startY:event.clientY,origin,x:origin.x,y:origin.y,active:false};
+    const move = next => {
+      if (!pointerPlacement) return;
+      if (!pointerPlacement.active && Math.hypot(next.clientX - event.clientX,next.clientY - event.clientY) < 4) return;
+      pointerPlacement.active = true;
+      article.classList.add('is-dragging');
+      grid.classList.add('is-placing');
+      const gridBounds = grid.getBoundingClientRect();
+      const {left,top,gapX,gapY,cellWidth,cellHeight} = gridMetrics();
+      const x = Math.max(1,Math.min(13 - Number(article.dataset.layoutCols),
+        Math.round((next.clientX - gridBounds.left + grid.scrollLeft - pointerOffset.x - left) / (cellWidth + gapX)) + 1));
+      const y = Math.max(1,Math.min(9 - Number(article.dataset.layoutRows),
+        Math.round((next.clientY - gridBounds.top + grid.scrollTop - pointerOffset.y - top) / (cellHeight + gapY)) + 1));
+      pointerPlacement.x = x;
+      pointerPlacement.y = y;
+      showPlacementGhost(article,x,y);
+    };
+    const end = last => {
+      window.removeEventListener('pointermove',move);
+      window.removeEventListener('pointerup',end);
+      window.removeEventListener('pointercancel',cancel);
+      window.removeEventListener('keydown',key);
+      const placement = pointerPlacement;
+      pointerPlacement = null;
+      placementGhost.hidden = true;
+      grid.classList.remove('is-placing');
+      article.classList.remove('is-dragging');
+      if (!placement?.active || last.type === 'pointercancel') return;
+      placeBlock(article,placement.x,placement.y);
+    };
+    const cancel = next => end(next);
+    const key = next => { if (next.key === 'Escape') { next.preventDefault(); end({type:'pointercancel'}); } };
+    window.addEventListener('pointermove',move);
+    window.addEventListener('pointerup',end);
+    window.addEventListener('pointercancel',cancel);
+    window.addEventListener('keydown',key);
+  }
+
   function wireWidget(article) {
+    const head = article.querySelector('.modular-widget-head');
+    head.tabIndex = 0;
+    head.setAttribute('aria-label',`${widgetCatalog[article.dataset.kind].title} block. In Build mode, use arrow keys to move it on the grid.`);
+    head.addEventListener('pointerdown',event => startBlockPlacement(article,event));
+    head.addEventListener('keydown',event => {
+      if (!buildMode || event.target !== head || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const deltaX = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      const deltaY = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+      const x = Math.max(1,Math.min(13 - Number(article.dataset.layoutCols),Number(article.style.gridColumn.split(' ')[0]) + deltaX));
+      const y = Math.max(1,Math.min(9 - Number(article.dataset.layoutRows),Number(article.style.gridRow.split(' ')[0]) + deltaY));
+      if (x !== Number(article.style.gridColumn.split(' ')[0]) || y !== Number(article.style.gridRow.split(' ')[0])) placeBlock(article,x,y);
+    });
     article.querySelectorAll('[data-edge-size]').forEach(button => button.addEventListener('click',() =>
       changeSpan(article,button.dataset.edgeSize === 'larger' ? 1 : -1)));
     const grip = article.querySelector('[data-edge-resize]');
@@ -527,7 +675,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       article.classList.add('is-selected');
     });
     article.querySelectorAll('[data-move]').forEach(button => button.addEventListener('click',() => {
-      const neighbor = button.dataset.move === 'previous' ? article.previousElementSibling : article.nextElementSibling;
+      const siblings = [...grid.querySelectorAll('.modular-widget')];
+      const neighbor = siblings[siblings.indexOf(article) + (button.dataset.move === 'previous' ? -1 : 1)];
       if (!neighbor) return;
       if (button.dataset.move === 'previous') grid.insertBefore(article,neighbor);
       else grid.insertBefore(neighbor,article);
@@ -537,13 +686,14 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       snap(article);
     }));
     article.querySelector('[data-size]').addEventListener('click', () => {
-      if (window.matchMedia('(max-width:760px)').matches) {
+      if (window.matchMedia('(max-width:1050px)').matches) {
         const rows = Number(article.dataset.layoutRows);
         changeSpan(article,rows >= 4 ? 1 - rows : 1);
         return;
       }
       const order = ['auto','small','medium','wide','full'];
       const next = order[(order.indexOf(article.dataset.size) + 1) % order.length];
+      rememberLayout();
       if (next === 'auto') delete state.sizes[article.dataset.kind];
       else state.sizes[article.dataset.kind] = next;
       delete state.spans[article.dataset.kind];
@@ -553,34 +703,6 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       snap(article);
     });
     article.querySelector('[data-remove]').addEventListener('click', () => removeWidget(article.dataset.kind));
-    article.addEventListener('dragstart',event => {
-      if (!event.target.closest('.modular-widget-head') || event.target.closest('button')) { event.preventDefault(); return; }
-      draggedWidget = article;
-      article.classList.add('is-dragging');
-      event.dataTransfer.effectAllowed = 'move';
-    });
-    article.addEventListener('dragend',() => {
-      article.classList.remove('is-dragging');
-      grid.querySelectorAll('.is-drop-target').forEach(item => item.classList.remove('is-drop-target'));
-      draggedWidget = null;
-      persist();
-    });
-    article.addEventListener('dragover',event => {
-      event.preventDefault();
-      if (draggedWidget && draggedWidget !== article) article.classList.add('is-drop-target');
-    });
-    article.addEventListener('dragleave',() => article.classList.remove('is-drop-target'));
-    article.addEventListener('drop',event => {
-      event.preventDefault();
-      article.classList.remove('is-drop-target');
-      if (!draggedWidget || draggedWidget === article) return;
-      const before = event.clientY < article.getBoundingClientRect().top + article.offsetHeight / 2;
-      grid.insertBefore(draggedWidget,before ? article : article.nextSibling);
-      delete state.positions[draggedWidget.dataset.kind];
-      applyAdaptiveLayout();
-      persist();
-      snap(draggedWidget);
-    });
   }
 
   function addWidget(kind, {load = true} = {}) {
@@ -590,7 +712,8 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       setStatus(`${widgetCatalog[kind].title} is already on this layout.`);
       return;
     }
-    if (kind === 'chart' && load && grid.firstElementChild) grid.insertBefore(widget,grid.firstElementChild);
+    previousLayout = null;
+    if (kind === 'chart' && load && grid.querySelector('.modular-widget')) grid.insertBefore(widget,grid.querySelector('.modular-widget'));
     else grid.append(widget);
     const region = kind === 'chart' ? 'center' : ['agents','codex','watchlist'].includes(kind) ? 'left' : 'right';
     widget.dataset.region = region;
@@ -608,12 +731,14 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     if (kind === 'chart') mountChart(widget);
     if (kind === 'chart' && load) void loadChart();
     if (kind === 'chart') requestAnimationFrame(() => { if (window.countDeskVelaChart && window.countDeskVelaChart.resize) window.countDeskVelaChart.resize(); });
+    renderBlockTray();
     dialog.close();
   }
 
   function removeWidget(kind) {
     const widget = widgets.get(kind);
     if (!widget) return;
+    previousLayout = null;
     if (kind === 'chart') {
       chartElement.hidden = true;
       parking.append(chartElement);
@@ -623,17 +748,19 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       if (dock) { agentsParking?.append(dock); dock.hidden = true; }
     }
     widget.remove();
+    renderBlockTray();
     delete state.sizes[kind];
     delete state.spans[kind];
     delete state.mobileRows[kind];
     delete state.positions[kind];
-    if (!grid.children.length) state.layoutMode = 'scratch';
+    if (!grid.querySelector('.modular-widget')) state.layoutMode = 'scratch';
     applyAdaptiveLayout();
     persist();
   }
 
   function loadLayout(name, order, layoutMode = 'custom') {
-    for (const kind of [...grid.children].map(widget => widget.dataset.kind)) removeWidget(kind);
+    previousLayout = null;
+    for (const kind of [...grid.children].filter(widget => widget.dataset.kind).map(widget => widget.dataset.kind)) removeWidget(kind);
     state.name = name;
     state.layoutMode = layoutMode;
     state.sizes = {};
@@ -694,10 +821,11 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
     if (!item) return;
     if (action === 'load') {
       const saved = item.layout;
-      for (const kind of [...grid.children].map(widget => widget.dataset.kind)) removeWidget(kind);
+      for (const kind of [...grid.children].filter(widget => widget.dataset.kind).map(widget => widget.dataset.kind)) removeWidget(kind);
       state = {name:item.name,order:[],layoutMode:saved.layoutMode === 'scratch' && !saved.order?.length ? 'scratch' : 'custom',
         sizes:saved.sizes || {},spans:saved.spans || {},mobileRows:saved.mobileRows || {},positions:saved.positions || {},notes:saved.notes || '',
-        listSymbols:saved.listSymbols || [],platformSettings:saved.platformSettings || null};
+        listSymbols:saved.listSymbols || [],listInitialized:Boolean(saved.listInitialized || saved.listSymbols?.length),
+        listSelectedSymbol:saved.listSelectedSymbol || '',platformSettings:saved.platformSettings || null};
       nameInput.value = item.name;
       restoringLayout = true;
       for (const kind of (saved.order || []).filter(kind => Object.hasOwn(widgetCatalog,kind))) addWidget(kind,{load:false});
@@ -729,6 +857,22 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   }
 
   const restoredOrder = [...state.order];
+  const buildButton = document.createElement('button');
+  buildButton.type = 'button';
+  buildButton.id = 'modularBuildMode';
+  buildButton.setAttribute('aria-pressed','false');
+  buildButton.textContent = '◈ Build mode';
+  buildButton.title = 'Show the grid and drag blocks into place';
+  $('#modularAddWidget').before(buildButton);
+  buildButton.addEventListener('click',() => {
+    buildMode = !buildMode;
+    workspace.classList.toggle('is-building',buildMode);
+    blockTray.hidden = !buildMode;
+    if (buildMode) renderBlockTray();
+    buildButton.setAttribute('aria-pressed',String(buildMode));
+    buildButton.textContent = buildMode ? '✓ Done building' : '◈ Build mode';
+    setStatus(buildMode ? 'Build mode · drag a block header to snap it to the grid; use the glowing edge to resize.' : 'Workspace ready. Layout saved locally.');
+  });
   const soundButton = document.createElement('button');
   soundButton.type = 'button';
   soundButton.id = 'modularSnapSound';
@@ -749,29 +893,11 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
   restoredOrder.forEach(kind => { const widget = widgets.get(kind); if (widget?.parentElement === grid) grid.append(widget); });
   applyAdaptiveLayout();
   persist();
-  grid.addEventListener('dragover',event => {
-    if (draggedWidget && event.target === grid) event.preventDefault();
-  });
-  grid.addEventListener('drop',event => {
-    if (!draggedWidget || event.target !== grid) return;
-    event.preventDefault();
-    if (window.matchMedia('(max-width:760px)').matches) {
-      grid.append(draggedWidget);
-      applyAdaptiveLayout(); persist(); snap(draggedWidget);
-      return;
-    }
-    const bounds = grid.getBoundingClientRect();
-    const x = Math.max(1,Math.min(12,Math.ceil((event.clientX - bounds.left) / (bounds.width / 12))));
-    const y = Math.max(1,Math.min(8,Math.ceil((event.clientY - bounds.top + grid.scrollTop) / (bounds.height / 8))));
-    state.positions[draggedWidget.dataset.kind] = {x,y};
-    applyAdaptiveLayout(); persist(); snap(draggedWidget);
-  });
   window.addEventListener('resize',() => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(applyAdaptiveLayout,90);
   });
   nameInput.addEventListener('change',persist);
-  $('#modularAddWidget').addEventListener('click',() => dialog.showModal());
   const toggleWorkspaceRail = (side,button) => {
     const collapsed = workspace.classList.toggle(`is-${side}-collapsed`);
     button.setAttribute('aria-expanded',String(!collapsed));
@@ -816,12 +942,13 @@ export function createModularWorkspace({chartElement, getSymbols, getIndicators,
       dock.hidden = !mount;
     }
   });
-  window.addEventListener('countdesk:chart-context',() => { syncIndicators(); renderLadder(); renderContext(); persist(); });
+  window.addEventListener('countdesk:chart-context',() => { syncIndicators(); renderLadder(); renderContext(); void listWidget?.refresh(); persist(); });
   return {
     addWidget,renderWatchlist,renderLadder,syncIndicators,
     addToWatchlist(symbol) {
       if (!getSymbols().some(item => item.symbol === symbol)) return;
       if (!state.listSymbols.includes(symbol)) state.listSymbols.push(symbol);
+      state.listInitialized = true;
       renderWatchlist(); persist();
     },
     mountAgents(dock) {

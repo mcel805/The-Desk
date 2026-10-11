@@ -71,8 +71,9 @@ class CodexWidget:
             "You are the Count Desk Codex agent. Research and paper/shadow only. Never route orders, "
             "control broker accounts, claim live data without evidence, or invent prices, fills, or timestamps. "
             "Use project skills as workflows. A selected skill is not a specialist dispatch. "
-            "When the user explicitly selects a named specialist, delegate to that project-scoped custom "
-            "agent, wait for its actual result, and attribute it. If the handoff fails, say so. "
+            "When the user explicitly selects a named specialist, use its configured dispatch path. "
+            "If the widget includes a selected agent's project profile inline, follow that profile in the current turn; do not attempt another handoff. "
+            "Otherwise delegate to the callable project-scoped custom agent, wait for its actual result, and attribute it. "
             "For chart and trade analysis, Cleo is the preferred specialist. Give her the active chart "
             "source, instrument, timeframe, cutoff, freshness, and uncertainty. "
             "When Cleo is asked to research market context or sentiment, use read_market_research for its "
@@ -410,10 +411,23 @@ class CodexWidget:
                 return json.loads(match.group(1)) if match else ""
             name = field("name")
             if isinstance(name, str) and name and name.replace("_", "").isalnum():
-                agents.append({"name": name, "description": field("description")[:500],
+                agents.append({"name": name, "label": field("display_name")[:120],
+                               "description": field("description")[:500],
                                "sandbox": field("sandbox_mode") or "inherits"})
         return {"skills": skills, "agents": agents,
                 "skillErrors": data.get("errors", [])}
+
+    def _agent_instructions(self, name: str) -> str:
+        """Read a local agent profile for inline use when the runtime cannot call it by name."""
+        path = self.workspace / ".codex" / "agents" / f"{name}.toml"
+        try:
+            content = path.read_text()
+        except OSError as exc:
+            raise CodexWidgetError(f"The selected agent profile {name} is unavailable.") from exc
+        match = re.search(r'(?ms)^developer_instructions\s*=\s*"""(.*?)"""\s*$', content)
+        if not match:
+            raise CodexWidgetError(f"The selected agent profile {name} has no usable instructions.")
+        return match.group(1).strip()
 
     def _skill_path(self, name: str) -> str:
         listed = self._request("skills/list", {"cwds": [str(self.workspace)]})
@@ -522,6 +536,78 @@ class CodexWidget:
                 "Disclose any relative-volume or divergence calculation as provisional, including inputs and coverage; if you cannot calculate it from completed, supplied bars, say unavailable. Return four clearly headed sections: (1) Market Sentiment & Market Bias, (2) Reading the Liquidity Levels, (3) Elliott Wave, Trend Change & Fibonacci, and (4) Relative Volume & Divergence. Each section should give a concise evidence-based summary and recommendation. Finish with a short Final Recommendation. "
                 "The usual one-sentence chart-read format does not apply to this request. Do not emit the generic `chart-markup` block. Return one JSON payload exactly between these sentinels: `<!--CLEO_MARKET_READ_START-->JSON<!--CLEO_MARKET_READ_END-->`. Use schema `cleo.market-read.v1` with source {provider,symbol,timeframe,cutoff}, sections {sentiment_bias,liquidity,elliott_fib,volume_divergence}, each section {summary,recommendation,marks}, and finalRecommendation. Copy source.provider exactly from chart.readMarket.source.provider (the provider ID); do not append a source description or freshness note. Copy symbol, timeframe, and cutoff exactly from that same source object, preserving the cutoff's original JSON type and value. A mark is {id,geometry,label,timeframe,evidence,anchors}; geometry must be level (one exact active-chart candle anchor), trend (two chronological exact active-chart candle anchors), or zone (two chronological exact active-chart candle anchors defining the visible zone corners). Return at most five unique active-chart marks total across the sections. Every mark timeframe must equal the active chart timeframe. Each anchor price must lie within its cited candle's OHLC range, and its timestamp must exactly match a supplied active-chart bar. Prefer clear, useful support/resistance zones or levels when the bars support them; omit unsupported marks and explain when none can be anchored. Do not emit an order, entry, stop, target, or claim of validated strategy performance. Keep analysis provisional and paper/shadow only."
             )
+        rider_chart_request = bool(skill == "rider" and isinstance(chart, dict)
+                                   and chart.get("workspace") == "analyst-reference")
+        if rider_chart_request:
+            prompt += (
+                "\n\nSHAMMY / RIDER CHART CONTRACT. Work directly in this turn with the selected Rider skill. "
+                "Use chart.charts in order Daily, 4h, 1h, 30m, 15m, 5m as the six reference snapshots. "
+                "Each reference chart loads up to the latest 5,000 provider bars and frames its full loaded span. "
+                "The Daily and 4h frames supply historyBars, complete arrays of every loaded completed OHLCV bar "
+                "in the order named by historyBarsColumns; use Daily first to establish the parent structure, then audit "
+                "the 4h subdivisions against its own full sequence before moving to lower frames. "
+                "For each frame, historyFirst/historyLast/historyBarCount describe the loaded completed-bar coverage; "
+                "historyExtremes are exact observed wick highs/lows selected from successive older history buckets, "
+                "while bars is a contiguous recent window. These extrema are a lossy overview, not all pivots or "
+                "a continuous candle series: never treat gaps between them as chart cadence or claim absent swings. "
+                "historyHigh/historyLow are the exact extremes of every loaded completed bar on that frame, "
+                "with precomputed utc strings. Copy those UTC dates; do not convert their numeric timestamps by hand. "
+                "In the market summary, name the covered dates, use sourced extrema and completed bars, and check "
+                "that a described monthly/swing low or high is not contradicted by a more extreme supplied bar. "
+                "Render cutoffs in the written report as readable UTC dates and times, not a bare epoch-millisecond integer. "
+                "Never imply that the 5,000-bar request covers older provider history when the request cap was reached. "
+                "Start the parent read on Daily full-history OHLCV, audit 4h full-history OHLCV second, then work down one frame at a time. "
+                "Audit each source identity, completed-bar cutoff, bar cadence and completeness before making interval-dependent claims. "
+                "The six reference charts and the trader chart are seven distinct annotated views. "
+                "Read the chart image for visual context, but the supplied OHLCV bars are authoritative for exact anchors. "
+                "Give a source-bounded traditional Frost-Prechter count with a parent structure, strongest alternate, relevant hard-rule audit, "
+                "conditional next observation and a short teaching note. Mark supported, provisional, or unresolved clearly. "
+                "Do not show private reasoning; the app reports factual collection and runtime stages itself. "
+                "For every reference frame, use its full-span swingCandidates catalog to examine older, middle, and recent swings, "
+                "and use full Daily and 4h historyBars plus each frame's contiguous bars for detailed checks. Each major, intermediate, and minor catalog "
+                "is a chronological alternating sequence of exact completed-bar local wick extrema computed across the entire loaded span, "
+                "using successively narrower windows. This gives you actual candidate turning points throughout older history, not bucket "
+                "samples or inferred missing candles. The catalogs are nested observations, not prevalidated Elliott pivots: check "
+                "pattern subdivisions and hard rules before labeling any wave. Do not confuse the lack of a fully proven count with the lack of a useful working count: where the completed-bar sequence supports a coherent candidate, label it as a PROVISIONAL working count, mark uncertain pivots with `?`, show its strongest alternate, and state the exact rule checks still open. Reserve `unresolved` for a specific degree or segment where no coherent candidate can be selected from the supplied evidence; never use it as a blanket substitute for analyzing the loaded higher-timeframe charts. A provisional label is a hypothesis, not a validated count. "
+                "For candidate pivots, use the exact numeric millisecond `time` values in that frame's `historyBars`, `bars`, or `swingCandidates`; never put a formatted UTC string in an anchor field. Keep `wave` a bare symbol with no question-mark suffix; `confidence: uncertain` makes the chart renderer add the single visible `?`. The UI only accepts exact source-bar timestamps and wick prices. "
+                "START the reply with one fenced `chart-markup` JSON object, schema `cleo.elliott-markup.v2`, "
+                "method `Rider traditional Frost-Prechter`, source copied from chart.traderChart, "
+                "readout {decision,headline,takeaway,countercase,next}, and frames: exactly seven objects in Daily, 4h, 1h, "
+                "30m, 15m, 5m, trader order. Each frame has workspace `reference` or `trader`, chart equal to its 1-based index, "
+                "source {provider,symbol,timeframe,cutoff} copied exactly from its own frame (reference cutoff = loadedCutoff; "
+                "trader cutoff = cutoff), degreeStatus {major,intermediate,minor} with each value `supported`, `provisional`, or `unresolved`, "
+                "readout {decision,headline,takeaway,countercase,next}, primary {summary,pivots:[...]}, "
+                "optional alternate {summary,pivots:[...]}, optional fibonacci, forecasts:[], and invalidations:[]. "
+                "Daily and 4h must each have a best-fit parent count across their full loaded OHLCV spans; use their full-span swingCandidates to find turning points, then their full `historyBars` arrays to verify each candidate's candle, chronological subdivisions, and hard rules. Do not merely repeat the extrema summary or return empty pivots while these exact sequences are present. If the evidence supports a reasonable candidate but not a rule-complete count, mark its pivots uncertain and its degree `provisional`, then explain the precise unresolved test. For 1h and lower, explicitly separate the full-span wick candidate overview from the final 240-bar OHLCV subdivision audit; produce a provisional working count for the best-supported recent structure when the own-frame candles support one. "
+                "Attempt major, intermediate, and minor nested degrees ON EACH frame and state which finer degree is unresolved "
+                "when subdivisions cannot be established; do not fabricate labels for visual density. Use major wave I-V or A-C, "
+                "intermediate i-v or a-c, minor i-v or a-c, matching Rider's neutral double-parenthesis, blue "
+                "single-parenthesis, and red unparenthesized grammar. A pivot is {id,degree,wave,time,price,kind,confidence,evidenceRefs}; "
+                "kind is high or low, confidence confirmed or uncertain, and evidenceRefs contains its exact completed-bar time. "
+                "Use a bare wave symbol in JSON, such as I, ii, or c; the degree controls displayed parentheses. Do not include (( )) or ( ) in the wave field. "
+                "Check each pivot against its OWN timeframe bar; never copy a price/time anchor from a different timeframe without verifying that candle. "
+                "Use source wick prices for candidate pivot labels wherever possible; all displayed anchors must be in their cited bar. "
+                "For every frame with two defensible completed swing wicks, include fibonacci "
+                "{high:{time,price,evidenceRefs},low:{time,price,evidenceRefs},direction:'advance'|'decline',reason}; "
+                "Both Fib endpoints must be exact wick highs/lows of completed bars on that same frame. Do not carry a shared BTC price over from a neighboring timeframe without its matching bar. "
+                "the UI calculates 38.2, 50, and 61.8 percent from those exact endpoints. If unavailable, explain which anchor is missing. "
+                "Always include a conditional next-wave forecast on each frame when two sourced basis pivots and a completed last bar exist. "
+                "Each forecast is {scenario:'primary'|'alternate',condition,basis:{from:{time,price,evidenceRefs},"
+                "to:{time,price,evidenceRefs}},legs:[{barsAhead,ratio,wave,degree}]}. Use one or two forecasts per frame. "
+                "In EVERY forecast basis, from.time MUST be earlier than to.time, including decline/alternate paths. "
+                "Never pair a recent high with an older low as though that were a chronological decline; find a later sourced low or omit that branch. "
+                "barsAhead is a strictly increasing positive whole number; ratio is a signed multiplier of the exact basis price span "
+                "from the last completed close. The UI computes future timestamps and prices; these are conditional, not observed candles. "
+                "For a projected third impulse wave, its computed endpoint must exceed the sourced first-wave extreme in the motive direction. "
+                "If the count is unresolved, provide two conditional branches when their bases are supported. Never make an unconditional prediction. "
+                "An invalidation {id,label,time,price,evidenceRefs,reason} must use the actual rule boundary on an exact completed bar of that frame, not a convenient pivot or forming latest bar. Omit an unsupported boundary. "
+                "For a frame with fewer than three defensible pivots, return an empty pivot array, unresolved degreeStatus, "
+                "and state the precise missing evidence; keep the frame in the package so the user sees its status. "
+                "The UI validates exact source/cutoff and bars, draws native history and conditional future overlays, and records each view. "
+                "Do not claim drawings were applied yourself. After JSON, provide a compact report headed Status, Six-frame hierarchy, "
+                "Rule check, Alternate, Forecast, and Learn the rule; preserve each cutoff and distinguish unresolved frames. "
+                "No order, trade instruction, target, calibrated probability, or claim of live broker access."
+            )
         chart_read_agent = agent in {"cleo", "tradingagents"} or skill == "cleo"
         chart_read_request = bool(
             chart_read_agent and chart is not None and not isinstance(read_market, dict)
@@ -546,12 +632,12 @@ class CodexWidget:
                 "marks (use only as many as the read needs, never more than 5). Each mark has a unique id, evidenceRefs containing the exact loaded bar times that support it, "
                 "role (OBSERVED, CONTEXT, PRIMARY_PROJECTION, ALTERNATE_PROJECTION, INVALIDATION), "
                 "geometry (level, trendline, ray), anchors [{time,price}] (one for level, two for trendline/ray), optional label (at most 18 characters), and reason. "
-                "Use level for one sourced price and draw it as a right-extending horizontal ray; use trendline only between two confirmed pivots; "
+                "Use level for one sourced price and draw it as a right-extending horizontal ray; use trendline only between two confirmed pivots. "
                 "When the visible bars show a clear sequence of confirmed lower highs or higher lows, include one trendline to show that structure; don't reduce a directional read to horizontal levels alone. "
                 "Use ray only for a clearly conditional, evidence-based path. Prefer 2–4 marks. Do not use boxes, free-floating text, or multi-segment paths. "
                 "Aim for a useful map: the key swing/invalidation reference, nearest opposing level, and the confirmed structure line when supported. Prefer 3 marks when all three add distinct information; omit anything redundant. "
                 "Keep lines clean and labels short; omit a label when it adds clutter. Inspect the chart's existing drawings and do not duplicate or crowd them. "
-                "The chart draws Cleo's lines below the candles so wicks and bodies remain visible. Never shift an anchor just to avoid a candle; use only the sourced pivot/level. "
+                "The chart draws the selected team's marks below the candles so wicks and bodies remain visible. Never shift an anchor just to avoid a candle; use only the sourced pivot/level. "
                 "Copy source identity and cutoff exactly from the selected chart object; every anchor must use a cited loaded bar and a price inside that bar's range. "
                 "A conditional projection ray uses two sourced pivots and extends visually to the right; its label/readout must state the condition. Do not invent "
                 "coordinates to fill gaps. This is a review-only chart read: do not include an entry, stop, target, "
@@ -560,7 +646,27 @@ class CodexWidget:
                 "block. If evidence supports no exact anchor, return a plain concise read and say which evidence is missing. "
                 "The chart app validates and draws the marks; you do not issue drawing commands."
             )
-        if agent == "cleo" and skill == "cleo":
+            if re.search(r"\belliott\s*wave|\belliott\b", text, re.I):
+                prompt += (
+                    "\n\nThe user explicitly requested Elliott Wave analysis. For this request, override the generic 2–5 line markup format above and return one fenced `chart-markup` JSON object using schema `cleo.elliott-markup.v1`. "
+                    "Return chart (1-based), method, readout {decision,headline,takeaway,countercase,next}, exact source {provider,symbol,timeframe,cutoff}, primary {summary,pivots:[...]}, optional alternate {summary,pivots:[...]}, projections:[...], and invalidations:[...]. "
+                    "Each pivot has id, degree (`major`, `intermediate`, or `minor`), wave (short Elliott label such as `1`, `2`, `3`, `4`, `5`, `A`, `B`, or `C`), time, price, kind (`high` or `low`), confidence (`confirmed` or `uncertain`), and evidenceRefs (exact loaded bar times). Use actual turning bars and a compact useful count; omit unresolved parent degrees rather than invent context. Put `?` on uncertain labels. "
+                    "Each projection has id, scenario (`primary` or `alternate`), condition, anchors (exactly two sourced {time,price} pivots ordered left-to-right), and evidenceRefs. The UI draws these as conditional rays to the right; do not invent future timestamps or target prices. Each invalidation has id, label, time, price, evidenceRefs, and reason; use a named Elliott hard-rule failure only when the displayed count actually depends on that rule. "
+                    "All pivot and projection anchors must refer to supplied loaded bars and prices within those bars' high-low ranges. For visible wave labels use the final display grammar: major degree neutral `((wave))`, intermediate degree blue `(wave)`, minor degree red `wave`; unresolved labels gray with `?`; alternate count labels purple/dotted. Historical count is label-led at actual pivots, not a long connecting zigzag. Forecast/alternate rays go only rightward and remain explicitly conditional. "
+                    "The app validates source identity, loaded-bar timestamps, and prices inside their bars; it does not independently calculate Elliott wave rules or certify the count. Disclose this as model-assisted and provisional. Do not claim a mechanically validated count. "
+                    "The active chart's bars and screenshot are already attached in this request. Analyze those supplied inputs directly; do not call read_chart or another workspace/browser utility to rediscover the chart, and do not check for a writable overlay yourself. The Quant Lab UI applies the markup after you return it. "
+                    "Do not emit orders, targets, calibrated probabilities, or trading advice. Preserve the supplied chart/candles and limit this read to the supplied timeframe(s). If a defensible count or exact anchor cannot be established, say so in the concise readout and omit the markup block."
+                )
+        if agent == "tradingagents":
+            instructions = self._agent_instructions(agent)
+            prompt = (
+                "The user selected TradingAgents · Chart Team. Run this team directly in the current turn using the selected chart context. "
+                "Do not attempt to delegate to or hand off to a project-scoped agent named tradingagents; this callable runtime does not expose that profile. "
+                "Apply the selected team's instructions below. If independent subagent delegation is available, run and attribute those actual reviews; "
+                "otherwise complete the roles within this response and disclose that they were not independent agents.\n\n"
+                f"TradingAgents Chart Team instructions:\n{instructions}\n\n{prompt}"
+            )
+        elif agent == "cleo" and skill == "cleo":
             prompt = (
                 "Cleo is the selected responder. Apply the included Cleo skill directly in this turn; do not spawn or wait for a second Cleo specialist. "
                 "Return the chart read and any validated chart-markup block yourself.\n\n" + prompt

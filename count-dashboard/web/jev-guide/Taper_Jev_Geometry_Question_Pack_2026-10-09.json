@@ -1,0 +1,196 @@
+{
+  "method": "taper.tape-read.v0.3.geometry",
+  "questionPack": "taper.market-geometry.questions.v1",
+  "model": "jev-1.13.0",
+  "questionPlan": {
+    "tape_state": {
+      "type": "choice",
+      "instructions": "Classify the latest completed 1-minute tape around confirmed liquidity in `state`. Use only supplied bars and levels; infer no unseen candle or order-book depth. When `hunt` exists, prioritize `hunt.selectedLevels` and assess its conditional rule proposals. Historical learningContext is observational context, not proof of improvement.",
+      "criteria": {
+        "reject_high": "Price touched an upper liquidity level and completed back below it.",
+        "reject_low": "Price touched a lower liquidity level and completed back above it.",
+        "accept_above": "Completed closes accepted above an upper liquidity level.",
+        "accept_below": "Completed closes accepted below a lower liquidity level.",
+        "range": "Recent bars remain in a range with no qualified level resolution.",
+        "unclear": "Mixed evidence, unresolved direction, or required context unavailable."
+      }
+    },
+    "research_bias": {
+      "type": "choice",
+      "instructions": "Select a watch bias from supplied completed candles, confirmed levels and Wave Court context. This is paper research, never an order or probability of profit. When `hunt` exists, assess only its selected levels using its frozen policy: max 30 risk ticks, minimum 3R, prefer 5R+, nearest active opposite liquidity target. Missing risk scale or unqualified proposals mean WAIT. For `game`, only eligible levels in the matching frozen field govern a paper entry. Higher-frame context and learningContext cannot create new levels or bypass risk gates. Prefer WAIT when evidence is conflicting or insufficient.",
+      "criteria": {
+        "WATCH_LONG": "Completed tape supports watching a qualified long setup at a selected level.",
+        "WATCH_SHORT": "Completed tape supports watching a qualified short setup at a selected level.",
+        "WAIT": "No qualified supported setup; confirmation, risk scale, context or evidence missing."
+      }
+    },
+    "structure_clarity": {
+      "type": "score",
+      "instructions": "Rate agreement between supplied completed-bar structure, confirmed liquidity and available higher-frame Wave Court candidates. Missing parent counts reduce clarity. This question cannot see answers to other questions in this request.",
+      "criteria": [
+        "Weak: conflicting or insufficient completed tape and required parent context missing.",
+        "Mixed: some agreement, but an important confirmation or context is absent.",
+        "Clear: completed structure, nearby confirmed liquidity and available parent context agree."
+      ]
+    },
+    "geometry_1d": {
+      "type": "choice",
+      "instructions": "Classify Daily channel direction from `marketGeometry.frames` where timeframe is `1d`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_4h": {
+      "type": "choice",
+      "instructions": "Classify 4H channel direction from `marketGeometry.frames` where timeframe is `4h`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_1h": {
+      "type": "choice",
+      "instructions": "Classify 1H channel direction from `marketGeometry.frames` where timeframe is `1h`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_30m": {
+      "type": "choice",
+      "instructions": "Classify 30M channel direction from `marketGeometry.frames` where timeframe is `30m`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_15m": {
+      "type": "choice",
+      "instructions": "Classify 15M channel direction from `marketGeometry.frames` where timeframe is `15m`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_5m": {
+      "type": "choice",
+      "instructions": "Classify 5M channel direction from `marketGeometry.frames` where timeframe is `5m`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_1m": {
+      "type": "choice",
+      "instructions": "Classify 1M channel direction from `marketGeometry.frames` where timeframe is `1m`. Use all active directionCounts and bounded channel details. ACTIVE is local to its declared completed cutoff. Broken references do not establish a current trend. If no active channel or cadence gaps, choose UNAVAILABLE. Do not certify an Elliott count or predict profit.",
+      "criteria": {
+        "RISING": "Active wick-supported channels predominantly rise.",
+        "FALLING": "Active wick-supported channels predominantly fall.",
+        "SIDEWAYS": "Active channels predominantly have flat slope.",
+        "CONFLICTED": "Opposing active channel slopes give no dominant geometric direction.",
+        "UNAVAILABLE": "Frame missing, no active wick channel, or source cadence incomplete."
+      }
+    },
+    "geometry_interaction": {
+      "type": "choice",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. What is the current 1M price interaction with active channel rails? Use lastBar, interaction and position; count simultaneous conflicting rails as MIXED. Broken rails are excluded from active support/resistance.",
+      "criteria": {
+        "LOWER_REJECTION": "Completed candle touches a lower active rail and closes away above it.",
+        "UPPER_REJECTION": "Completed candle touches an upper active rail and closes away below it.",
+        "EDGE_TOUCH": "Touches an active edge with little completed rejection evidence.",
+        "INSIDE": "Within active channels away from edges.",
+        "MIXED": "Opposing channels/both-edge contacts conflict.",
+        "UNAVAILABLE": "No active 1M channel or required measurements missing."
+      }
+    },
+    "geometry_break": {
+      "type": "choice",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. Assess recent 1M break quality. Use breakState and breakAgeBars <=8. WICK_ONLY is not a confirmed trend break; confirmed/retest states require observed two outside closes and a subsequent contact. After break, rails are historical references only.",
+      "criteria": {
+        "INTACT": "No recent broken channel and at least one active channel.",
+        "WICK_ONLY": "Recent excursion has no two-close acceptance evidence.",
+        "ACCEPTED_UP": "Recent upward two-close break without subsequent held retest.",
+        "ACCEPTED_DOWN": "Recent downward two-close break without subsequent held retest.",
+        "RETEST_HELD_UP": "Recent upward break then observed held reference retest.",
+        "RETEST_HELD_DOWN": "Recent downward break then observed held reference retest.",
+        "REENTERED": "Recent broken channel with completed price back inside its reference corridor.",
+        "CONFLICTED": "Different recent channels give incompatible break evidence.",
+        "UNAVAILABLE": "No available break/active evidence."
+      }
+    },
+    "geometry_alignment": {
+      "type": "choice",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. Assess Daily/4H/1H channel context against 15M/5M/1M channels directly from frame evidence. User frame weights give higher frames more influence. Do not see other question answers. Missing required parent channels means UNAVAILABLE, not alignment.",
+      "criteria": {
+        "UP_ALIGNED": "Higher and execution frames predominantly rise.",
+        "DOWN_ALIGNED": "Higher and execution frames predominantly fall.",
+        "PULLBACK": "Execution slopes oppose a coherent higher-frame channel trend.",
+        "CONFLICTED": "Higher frames or execution frames disagree without a clear parent.",
+        "UNAVAILABLE": "Insufficient active channels to establish higher-to-lower relationship."
+      }
+    },
+    "geometry_liquidity": {
+      "type": "choice",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. Does geometry currently support a reaction at a user-hunted liquidity level? Compare selected prices/sides to supplied 1M active rail levels, wick tolerance/ATR, microStructure and convergence. Higher-frame direction is context only. No unselected price is an entry. Missing risk units still block research_bias WATCH entries.",
+      "criteria": {
+        "LOWER_SUPPORT": "A selected lower liquidity level is near qualified active lower geometry and completed support reaction.",
+        "UPPER_RESISTANCE": "A selected upper liquidity level is near qualified active upper geometry and completed resistance reaction.",
+        "BOTH_SIDES": "Both hunted sides have geometric support without a resolved reaction.",
+        "AGAINST": "Geometry is accepting through or opposing the hunted reaction.",
+        "NO_OVERLAP": "Available geometry is away from selected levels.",
+        "UNAVAILABLE": "No selected level or required active geometry available."
+      }
+    },
+    "geometry_path": {
+      "type": "choice",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. Which conditional market path is most supported by supplied geometry and recent completed tape? Consider all seven frames and unresolved wave alternates. This is a qualitative scenario, not a hit-first probability, an order, or guaranteed forecast. Missing/conflicting parents must favor WAIT.",
+      "criteria": {
+        "CONTINUE_UP": "Rising context with observed acceptance supports watching continuation up.",
+        "CONTINUE_DOWN": "Falling context with observed acceptance supports watching continuation down.",
+        "ROTATE_UP": "Observed lower-edge rejection supports watching rotation toward upper liquidity.",
+        "ROTATE_DOWN": "Observed upper-edge rejection supports watching rotation toward lower liquidity.",
+        "WAIT": "Unclear, conflicting, no validated reaction, or key parent evidence missing."
+      }
+    },
+    "geometry_fibonacci": {
+      "type": "choice",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. Assess the supplied core-timeframe confirmed-pivot Fibonacci measurements against the completed 1M tape. They are conditional references even when chart display is off. Identify whether current interaction around active untapped/tested levels reinforces a geometry reaction. Broken or unverified levels cannot count as active support. Do not fabricate missing swing anchors.",
+      "criteria": {
+        "SUPPORT_CONTEXT": "Unbroken Fibonacci area aligns with observed lower-edge support.",
+        "RESISTANCE_CONTEXT": "Unbroken Fibonacci area aligns with observed upper-edge resistance.",
+        "NO_ACTIVE_OVERLAP": "Available unbroken Fib references do not reinforce current geometry interaction.",
+        "BROKEN_CONTEXT": "Relevant Fib area has already been broken by completed closes.",
+        "UNAVAILABLE": "Swing anchors/levels unverified or absent."
+      }
+    },
+    "geometry_quality": {
+      "type": "score",
+      "instructions": "Use only supplied completed-bar `marketGeometry` measurements and `hunt` selected levels. Unavailable context must remain unknown. No unseen candles, order book or guaranteed reversal. Each question is independent. Score evidence quality for the geometry read. Consider wickContacts, same-frame cadence, age, active versus archived references and disagreement. This is an evidence-quality rubric, not probability of profit. A third wick contact corroborates two anchors; do not call two anchors alone a third validation.",
+      "criteria": [
+        "Insufficient: missing channels, gaps or conflicting geometry.",
+        "Limited: two anchor contacts with weak corroboration or missing parent context.",
+        "Moderate: extra wick contacts and consistent recent structure, but one important conflict.",
+        "Strong: corroborated active rails, recent observed reactions, complete aligned parent context."
+      ]
+    }
+  }
+}
