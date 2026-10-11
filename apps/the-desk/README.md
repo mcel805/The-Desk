@@ -24,7 +24,7 @@ Python 3.9+ and Node 22 are available on this machine. The checked-in Vela brows
 | Chart workspace | Vela native canvas chart, interval/style menus, crosshair/zoom, drawings and object tree, indicator catalog/settings, screenshot download, multi-chart grid and synchronization controls |
 | Workspace state | Local SQLite persistence for chart/layout/indicator/drawing state, complete named templates, light/dark theme; browser remembers the chosen account |
 | Markets | BTC, ETH and SOL on Coinbase spot and Hyperliquid perpetuals; qualified source identity, server quote age and visible stale/unavailable states |
-| Watchlist and DOM | Six market rows, source switching, 10 displayed bid and ask levels, spread, click-to-stage limit order |
+| Watchlist and DOM | Six market rows, streaming price/size/cumulative-total book, red/green depth bars and change highlights, source switching, click-to-stage limits, adjacent paper ticket |
 | Ticket | Buy/sell, market/limit/stop market/stop limit, units/USD notional/percentage/risk sizing, commission/risk/reward estimates, optional SL/TP, GTC or timed expiry |
 | Chart trader | Draft/working/position/protection lines aligned with the native price pane; context menu staging, drag amendment review, keyboard Enter editing |
 | Account manager | Separate virtual balances and ledgers; orders, open positions, executions, event history, partial close, reversal, SL/TP amendment and cancellation |
@@ -85,3 +85,15 @@ See [FEATURE-QA.md](FEATURE-QA.md) for the expanded feature matrix, current vali
 - To rebuild the Vela bundle from installed source: `node build-vendor.mjs`. Tree shaking is disabled because native registries depend on module side effects.
 
 TradingView is the functional and interaction comparison baseline. The Desk uses its own branding and licensed Vela source. TradingView's proprietary code/assets, proprietary Pine runtime and protected or paid indicators are not copied. Self-contained user-supplied Pine executes through the independent AGPL PineTS runtime.
+
+## Streaming DOM
+
+Open **DOM** beside Watchlist. The three-column order book follows the supplied October 11 Hyperliquid reference: descending asks above the spread, descending bids below it, cumulative depth shading, quantity-change flashes, best-price markers and recent trade-price highlights. The paper ticket stays beside the book on desktop and mobile. Bid rows stage buys; ask rows stage sells. Market buttons stage market orders; the ticket submits them. Hover or keyboard focus pins displayed prices while quantities continue updating. **Center** recenters the rows. Feed mode and 1×/10×/100× tick grouping persist in this browser.
+
+Hyperliquid uses public WebSocket `l2Book` and `trades`. Default **Fast** requests `fast:true`, which currently supplies at most five levels per side. **Depth** requests up to 20; the view shows the nearest 11 grouped levels per side. Coinbase uses the unauthenticated `level2_batch` channel (50 ms batches) and `ticker`; snapshot and absolute quantity deltas maintain its book. The client maintains the full Coinbase book and renders/groups the nearest 2,000 raw levels; deeper levels are not inferred. Cumulative totals are for the available displayed buckets, in base units. Rendering is batched to animation frames; incoming prices are never synthesized between provider updates.
+
+The stream reconnects with bounded backoff, rejects crossed/invalid books and older snapshots, resets on instrument switches, and exposes stale/reconnecting/REST fallback states. **Streaming refers to public display data. Paper matching remains the existing server bid/ask simulation on approximately three-second REST snapshots**; the stream cannot route orders or change the engine quote. Stale server quotes and chart replay still block submission.
+
+Reference APIs: [Hyperliquid subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [Coinbase channels](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels).
+
+Run `node --test tests/test_dom.mjs`. DOM tests cover cumulative grouping, crossed/invalid books, provider identity, fast/depth subscriptions, Coinbase snapshot/delta/delete semantics, out-of-order rejection and disconnect/switch cleanup.

@@ -1,4 +1,5 @@
 import {VelaWorkspace,CoinbaseProvider,HyperliquidProvider} from './vendor/vela.js';
+import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
 
@@ -94,14 +95,13 @@ function drawWatch(){
  $('#watchlist').innerHTML=instruments.map(i=>{const q=state?.quotes[i];return `<button class="watch-row ${i===instrument()?'active':''}" data-instrument="${esc(i)}"><span><span class="ticker">${esc(i.split(':')[1].replace('-USD',''))}</span><br><small>${i.startsWith('coinbase')?'COINBASE · SPOT':'HYPERLIQUID · PERP'}</small></span><span class="watch-value">${q?number(q.last):'—'}</span><span class="muted small">${q&&q.age<15?'●':'○'}</span></button>`;}).join('');
  $('#watchlist').querySelectorAll('button').forEach(b=>b.onclick=async()=>{draft=false;commandKey=null;try{await ws.chart.setMarket({symbol:b.dataset.instrument});updateTicket();drawWatch();}catch(e){toast(e.message,true);}});
 }
-function drawDOM(){
- const q=quote(),b=q?.book;if(!b){$('#domBook').innerHTML='<div class="empty">Order book unavailable for this instrument.</div>';return;}
- const rows=(list,kind)=>list.slice(0,10).map(r=>`<button class="dom-row ${kind}" data-price="${esc(r.price)}" data-side="${kind==='bid'?'buy':'sell'}"><span>${kind==='bid'?fmt(r.qty):''}</span><span>${fmt(r.price)}</span><span>${kind==='ask'?fmt(r.qty):''}</span></button>`).join('');
- $('#domBook').innerHTML='<div class="dom-labels"><span>BID SIZE</span><span>PRICE</span><span>ASK SIZE</span></div>'+rows([...b.asks.slice(0,10)].reverse(),'ask')+`<div class="empty" style="padding:5px">Spread ${fmt(Number(q.ask)-Number(q.bid))} · ${number(q.age,0)}s</div>`+rows(b.bids,'bid');
- $('#domBook').querySelectorAll('[data-price]').forEach(b=>b.onclick=()=>stage(b.dataset.side,'limit',Number(b.dataset.price)));
-}
-document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{rail=b.dataset.rail;$('#watchPanel').hidden=rail!=='watch';$('#domPanel').hidden=rail!=='dom';document.querySelectorAll('[data-rail]').forEach(x=>x.classList.toggle('active',x===b));drawDOM();});
-$('#domCenter').onclick=drawDOM;
+const dom=setupDOM({instrument,quote,stage,account,replay:()=>!!ws?.replay?.state?.active});
+function drawDOM(){dom.sync();}
+document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{
+ rail=b.dataset.rail;$('#watchPanel').hidden=rail!=='watch';$('#domPanel').hidden=rail!=='dom';
+ document.body.classList.toggle('dom-open',rail==='dom');
+ document.querySelectorAll('[data-rail]').forEach(x=>x.classList.toggle('active',x===b));drawDOM();ws?.cells().forEach(c=>c.chart.resize());
+});
 
 function setPanel(next){
  panel=next;document.querySelectorAll('[data-panel]').forEach(b=>{b.classList.toggle('active',b.dataset.panel===next);b.setAttribute('aria-selected',b.dataset.panel===next);});document.body.classList.toggle('journal-expanded',next==='journal');renderManager();ws?.cells().forEach(c=>c.chart.resize());
@@ -183,7 +183,7 @@ async function refresh(){
   const a=account();for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']])$('#'+id).textContent=usd(a?.[key]);$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
   $('#positionCount').textContent=state.positions.length;$('#orderCount').textContent=state.orders.filter(o=>['working','triggered'].includes(o.status)).length;
   $('#journalBadge').textContent=state.journal.pending?state.journal.pending+' queued':'synced';$('#journalStatus').textContent='Lux Journal '+(state.journal_available?'connected':'unavailable')+' · '+state.journal.pending+' queued / '+state.journal.delivered+' delivered';
-  $('#healthDot').className='status-dot ok';$('#healthText').textContent='The Desk · server connected';updateTicket();drawWatch();if(rail==='dom')drawDOM();renderManager();
+  $('#healthDot').className='status-dot ok';$('#healthText').textContent='The Desk · server connected';updateTicket();drawWatch();drawDOM();renderManager();
   const alerts=state.events.filter(e=>e.kind==='alert');if(refresh.lastAlert&&alerts.length&&alerts[0].id>refresh.lastAlert)toast(JSON.parse(alerts[0].content).message);if(alerts.length)refresh.lastAlert=alerts[0].id;
  }catch(e){$('#healthDot').className='status-dot';$('#healthText').textContent='Server disconnected';$('#submitOrder').disabled=true;}
  finally{polling=false;}
@@ -193,7 +193,7 @@ const overlayNodes=new Map();let dragging=null;
 function attachChart(cell){
  if(cell.deskAttached)return;cell.deskAttached=true;
  const c=cell.chart;
- c.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();});
+ c.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});
  c.ready().then(()=>{
   const native=c.renderer.renderer;if(!native?.plot)return;
   const overlay=document.createElement('div');overlay.className='trade-overlay';native.plot.append(overlay);overlayNodes.set(cell.id,{overlay,nodes:new Map(),native});
@@ -244,7 +244,7 @@ async function boot(){
  try{settings=await api('/api/settings');templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   ws=new VelaWorkspace('#workspace',{layout:'1',symbol:'hyperliquid:BTC',timeframe:'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider()},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
-  ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();});ws.on('cell:destroyed',()=>{for(const [id,v] of overlayNodes)if(!ws.cells().some(c=>c.id===id)){v.overlay.remove();overlayNodes.delete(id);}});ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
+  ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>{for(const [id,v] of overlayNodes)if(!ws.cells().some(c=>c.id===id)){v.overlay.remove();overlayNodes.delete(id);}});ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
   await refresh();setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);overlayFrame();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});
   if(window.innerWidth<700){document.body.classList.add('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','false');}
