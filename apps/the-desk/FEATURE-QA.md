@@ -79,3 +79,9 @@ python3 launch.py --qa --stop
 ```
 
 Use a free isolated journal port. Repeat browser mutation checks in QA, not the main journal. QA logs, bridge tokens, databases and generated exports are ignored and are not release artifacts. Screenshots and a duplicate report live in the MYM chart evidence workspace under `Charts/Reference/TheDesk/` and `Charts/Analysis/MTF/`.
+
+## Final runtime and review-gate status
+
+The tested fixes were committed locally as `9ac1e51`. The main Desk process was restarted to load them. The original journal was found stopped during the final check and restarted by the launcher. Final health checks: Desk 18880 HTTP 200, `mode=paper`, journal available; original journal 3000 HTTP 200; six market quotes present. The main paper account remains at 100,000 with zero orders, positions and fills. Isolated QA ports 18881 and 3102 were stopped and confirmed closed.
+
+The no-mistakes local review/test/document/lint gate was attempted with rebase/push/PR/CI excluded. Both attempts failed before creating a run: the daemon execution-context classification did not reply within 30 seconds. Doctor reported a running daemon and runnable Codex, but `axi status` still showed zero runs. No automated-review approval, remote CI, push or PR is claimed. The directly executed tests and browser evidence above remain valid. This review tooling failure should be resolved before a formal release.
