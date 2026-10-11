@@ -5,6 +5,7 @@ const CLEO_SOURCE_SIGNATURE='63dbad3a';
 const CLEO_INDICATOR_DECL='indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"';
 const sourceSignature=source=>{let hash=2166136261;for(const character of source.replace(/\r\n?/g,'\n')){hash^=character.codePointAt(0);hash=Math.imul(hash,16777619);}return (hash>>>0).toString(16).padStart(8,'0');};
 const isCleoLiquiditySource=source=>typeof source==='string'&&source.includes(CLEO_INDICATOR_DECL)&&sourceSignature(source)===CLEO_SOURCE_SIGNATURE;
+const CLEO_EXECUTION_TIMEOUT=120000;
 export const pineWorkerOptions=source=>isCleoLiquiditySource(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
 
 // Each study owns a worker. Cancelling a test cannot stop installed studies.
@@ -19,10 +20,10 @@ export class DeskPineEngine {
  }
  execute(req,handlers){
   const id=req.prepared.token.instanceId;let entry=this.workers.get(id);if(!entry){entry={worker:this.factory(req.prepared.token.source)};this.workers.set(id,entry);}
-  let timer,stopped=false,session;const secondary=[];
+  let timer,stopped=false,session;const secondary=[],executionTimeout=isCleoLiquiditySource(req.prepared.token.source)?CLEO_EXECUTION_TIMEOUT:this.executionTimeout;
   const clear=()=>{clearTimeout(timer);timer=null;};
   const fail=error=>{if(stopped)return;clear();result.stop();handlers.onError?.(error);};
-  const arm=()=>{if(timer||stopped)return;timer=setTimeout(()=>fail(Error('Pine execution exceeded 30 seconds. Reduce history or script complexity.')),this.executionTimeout);};
+  const arm=()=>{if(timer||stopped)return;timer=setTimeout(()=>fail(Error(`Pine execution exceeded ${executionTimeout/1000} seconds. Reduce history or script complexity.`)),executionTimeout);};
   const fetchSeries=async(symbol,timeframe,range)=>{const bars=await req.fetchSeries?.(symbol,timeframe,range)||[];if(!bars.length)throw Error('Required secondary data unavailable: '+symbol+' '+timeframe);secondary.push({symbol,timeframe,bars:bars.length,first:bars[0].time,last:bars.at(-1).time});return bars;};
   const result={stop:()=>{if(stopped)return;stopped=true;clear();session?.stop();entry.worker.terminate();if(this.workers.get(id)===entry)this.workers.delete(id);if(this.active.get(id)===result){this.records.delete(id);this.active.delete(id);}},cancel:()=>fail(Error('Pine test cancelled.')),update:(...args)=>{if(!stopped){arm();session.update(...args);}},setVisibleRange:r=>{if(!stopped){arm();session.setVisibleRange(r);}},notifyBars:reason=>{if(!stopped){if(reason!=='backfill')arm();session.notifyBars(reason);}},getContext:select=>{if(stopped)return Promise.resolve(null);let contextTimer;return Promise.race([session.getContext(select),new Promise((_,reject)=>{contextTimer=setTimeout(()=>reject(Error('Pine context request timed out.')),15000);})]).finally(()=>clearTimeout(contextTimer));}};
   this.active.set(id,result);entry.cancel=result.cancel;

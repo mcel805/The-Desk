@@ -72,12 +72,18 @@ test('CSV compares shared completed outputs and fails changed OHLC, missing colu
  assert.equal(compareReference(rows,rowsToCsv(rows.map(r=>({...r,Result:null})))).matched,false);
 });
 test('source fingerprints bind the untouched source and export excludes bars after the cutoff',async()=>{assert.equal((await sourceHash(simple)).length,64);assert.notEqual(await sourceHash(simple),await sourceHash(simple+'\n'));assert.equal(plotRows({series:[]},bars,bars[9].time).length,10);});
-function fakeFactory(){const workers=[];const factory=()=>{const worker={terminate(){this.terminated=true;},async prepare(source,id){return {token:{instanceId:id}};},execute(req,h){this.handlers=h;return {stop(){},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}};workers.push(worker);return worker;};return {factory,workers};}
+function fakeFactory(){const workers=[];const factory=()=>{const worker={terminate(){this.terminated=true;},async prepare(source,id){return {token:{instanceId:id,source}};},execute(req,h){this.handlers=h;return {stop(){},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}};workers.push(worker);return worker;};return {factory,workers};}
 test('cancelling a test leaves an installed study running and resolves the test error',async()=>{
  const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory,executionTimeout:1000});const real=await engine.prepare(simple,'installed'),temp=await engine.prepare(simple,'pine-test-1');let error;
  engine.execute({prepared:real,bars,market,historyState:'backfill'},{onModel(){}});engine.execute({prepared:temp,bars,market},{onModel(){},onError:e=>error=e});engine.cancelTests();assert.match(error.message,/cancelled/);assert.equal(workers[0].terminated,undefined);assert.equal(workers[1].terminated,true);engine.terminate();
 });
 test('execution watchdog terminates only the timed-out worker',async()=>{const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory,executionTimeout:10});const prepared=await engine.prepare(simple,'pine-test-timeout');const error=await new Promise(resolve=>engine.execute({prepared,bars,market},{onModel(){},onError:resolve}));assert.match(error.message,/execution exceeded/);assert.equal(workers[0].terminated,true);assert.equal(engine.active.size,0);});
+
+test('exact Cleo source gets a longer watchdog without widening ordinary studies',async()=>{
+ const cleo=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');let timer;
+ const factory=()=>({terminate(){clearTimeout(timer);},async prepare(source,id){return {token:{instanceId:id,source}};},execute(req,h){timer=setTimeout(()=>h.onModel({}),25);return {stop(){clearTimeout(timer);},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}});
+ const engine=new DeskPineEngine({factory,executionTimeout:10}),prepared=await engine.prepare(cleo,'pine-test-cleo');await new Promise((resolve,reject)=>engine.execute({prepared,bars,market},{onModel:resolve,onError:reject}));engine.terminate();
+});
 
 test('show/reload can execute a previously prepared source after its session was stopped',async()=>{const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory});const prepared=await engine.prepare(simple,'installed');const request={prepared,bars,market,historyState:'backfill'};engine.execute(request,{onModel(){}}).stop();assert.equal(engine.workers.size,0);engine.execute(request,{onModel(){}});assert.equal(workers.length,2);assert.equal(engine.active.size,1);engine.terminate();});
 test('compile watchdog rejects a hung preparation and releases its worker',async()=>{let terminated=false;const engine=new DeskPineEngine({compileTimeout:10,factory:()=>({prepare:()=>new Promise(()=>{}),terminate:()=>terminated=true})});await assert.rejects(engine.prepare(simple,'pine-test-hung'),/compilation exceeded/);assert.equal(terminated,true);assert.equal(engine.workers.size,0);});
