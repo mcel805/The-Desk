@@ -39,9 +39,9 @@ the chart's own settings.
 ## Runtime compatibility
 
 Pinned `@luxalgo/vela-pinets 0.2.15` / `pinets 0.11.0` are unchanged. The original
-nested security transport needs a scoped worker extension. Only scripts with
-both Wave Court transport functions select `pine-compatible-worker.js`; other
-Pine indicators keep the existing worker.
+nested security transport needs a scoped worker extension. Only the exact named
+Cleo source with its normalized source signature selects
+`pine-compatible-worker.js`; other Pine indicators keep the existing worker.
 
 `web/pine-compat/` applies host fixes to generated JavaScript, without rewriting
 Pine calculations: lazy requested expressions; shared independent requested
