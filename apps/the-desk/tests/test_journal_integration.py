@@ -4,6 +4,7 @@ Run after launch.py --qa --port 18881 --journal-port 3101 --detach.
 Never points at or reads the production journal database.
 """
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -17,6 +18,7 @@ from engine import Engine
 from server import Workers,Gateway,http_json
 
 ROOT=Path(__file__).resolve().parents[1]
+JOURNAL_URL='http://127.0.0.1:'+os.environ.get('QA_JOURNAL_PORT','3101')
 
 @unittest.skipUnless((ROOT/'qa-data/bridge-token').is_file(),'Requires isolated QA journal on port 3101')
 class JournalIntegration(unittest.TestCase):
@@ -44,7 +46,7 @@ class JournalIntegration(unittest.TestCase):
             w=Workers(e,Gateway(),'http://127.0.0.1:9',token);w.dispatch()
             self.assertEqual(e.state(a)['journal']['pending'],8)
             with e.db() as db:db.execute('UPDATE outbox SET next_attempt=0')
-            w.journal_url='http://127.0.0.1:3101';w.dispatch()
+            w.journal_url=JOURNAL_URL;w.dispatch()
             state=e.state(a);self.assertEqual(state['journal']['pending'],0)
             jid=state['journal']['account_id'];self.assertTrue(jid)
             with sqlite3.connect(str(journal_db)) as db:
@@ -60,14 +62,14 @@ class JournalIntegration(unittest.TestCase):
             self.assertEqual(e.state(a)['journal']['account_id'],jid)
             with sqlite3.connect(str(journal_db)) as db:
                 self.assertEqual(db.execute('SELECT count(*) FROM executions WHERE account_id=?',(jid,)).fetchone()[0],7)
-            stats=http_json('http://127.0.0.1:3101/api/stats?accounts='+jid)
+            stats=http_json(JOURNAL_URL+'/api/stats?accounts='+jid)
             self.assertEqual(stats['metrics']['closedTrades'],3)
             self.assertAlmostEqual(stats['metrics']['netPnl'],trades[1],places=8)
         for headers,code in [({'Origin':'https://untrusted.example','Content-Type':'application/json'},403),({'Content-Type':'text/plain'},403),({'Host':'untrusted.example','Content-Type':'application/json'},403)]:
             req=Request('http://127.0.0.1:18881/api/command',data=b'{}',headers=headers)
             with self.assertRaises(HTTPError) as rejected:urlopen(req,timeout=3)
             self.assertEqual(rejected.exception.code,code)
-        with self.assertRaises(HTTPError) as denied:http_json('http://127.0.0.1:3101/api/integrations/count-desk',{})
+        with self.assertRaises(HTTPError) as denied:http_json(JOURNAL_URL+'/api/integrations/count-desk',{})
         self.assertEqual(denied.exception.code,401)
 
 if __name__=='__main__':unittest.main()

@@ -20,6 +20,10 @@ def reachable(url):
         with urlopen(url,timeout=1) as r:return r.status==200
     except Exception:return False
 
+def process_start(pid):
+    try:return subprocess.check_output(['ps','-p',str(pid),'-o','lstart='],text=True).strip()
+    except subprocess.CalledProcessError:return None
+
 def env_values(path):
     result={}
     if path.is_file():
@@ -38,12 +42,19 @@ def main():
     pidfile=data/'processes.json'
     if args.stop:
         if pidfile.exists():
-            for pid in json.loads(pidfile.read_text()).get('owned',[]):
+            saved=json.loads(pidfile.read_text())
+            for pid in saved.get('owned',[]):
                 try:
                     command=subprocess.check_output(['ps','-p',str(pid),'-o','command='],text=True)
                     # A stale PID file must never terminate an unrelated reused PID.
-                    if str(ROOT/'server.py') in command or ('trade-journal/apps/web/node_modules/next/dist/bin/next' in command and ' start ' in command):
-                        os.kill(int(pid),signal.SIGTERM)
+                    fingerprint=saved.get('starts',{}).get(str(pid))
+                    valid_start=fingerprint and process_start(pid)==fingerprint
+                    known_command=str(ROOT/'server.py') in command or ('trade-journal/apps/web/node_modules/next/dist/bin/next' in command and ' start ' in command)
+                    # Next renames its process to next-server after startup.
+                    next_owned=valid_start and command.strip().startswith('next-server')
+                    if (known_command and (not fingerprint or valid_start)) or next_owned:
+                        if valid_start:os.killpg(int(pid),signal.SIGTERM)
+                        else:os.kill(int(pid),signal.SIGTERM)
                 except ProcessLookupError:pass
                 except subprocess.CalledProcessError:pass
             pidfile.unlink()
@@ -63,6 +74,8 @@ def main():
     journal_url='http://127.0.0.1:'+str(args.journal_port)
     env['LUX_JOURNAL_URL']=journal_url
     owned=[];children=[]
+    if args.qa and reachable(journal_url):
+        raise RuntimeError('QA journal port is occupied. Choose a free --journal-port; QA never reuses an unknown journal runtime.')
     if not args.qa and (journal/'data/journal.db').is_file():
         backup=data/'journal-startup-backup.db'
         if not backup.exists():
@@ -81,7 +94,7 @@ def main():
         else:raise RuntimeError('Lux journal readiness timeout')
     log=open(data/'desk.log','ab')
     proc=subprocess.Popen([sys.executable,str(ROOT/'server.py'),'--port',str(args.port),'--data-dir',str(data)],cwd=str(ROOT),env=env,stdout=log,stderr=log,start_new_session=True);children.append(proc);owned.append(proc.pid)
-    pidfile.write_text(json.dumps({'owned':owned,'desk_url':desk_url,'journal_url':journal_url}))
+    pidfile.write_text(json.dumps({'owned':owned,'starts':{str(pid):process_start(pid) for pid in owned},'desk_url':desk_url,'journal_url':journal_url}))
     for _ in range(30):
         if reachable(desk_url+'/api/health'):break
         if proc.poll() is not None:raise RuntimeError('The Desk failed to start; inspect runtime desk.log')

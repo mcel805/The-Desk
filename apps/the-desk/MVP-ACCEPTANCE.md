@@ -1,6 +1,6 @@
 # The Desk MVP acceptance
 
-Build date: October 10, 2026, America/Los_Angeles. Runtime validation may display October 11 UTC. The original 231-item full-platform requirements register remains proposed; this document records the implemented MVP subset separately.
+Build date: October 10, 2026, America/Los_Angeles. Expanded verification and fixes are recorded in [FEATURE-QA.md](FEATURE-QA.md); its results supersede the initial test counts below. Runtime validation may display October 11 UTC. The original 231-item full-platform requirements register remains proposed; this document records the implemented MVP subset separately.
 
 ## Automated evidence
 

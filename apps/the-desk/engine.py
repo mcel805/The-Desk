@@ -150,7 +150,9 @@ class Engine:
         opposite=sum((dec(r['qty']) for r in db.execute("SELECT qty FROM positions WHERE account_id=? AND instrument=? AND side<>? AND status='open'",(a['id'],instrument,side))),Decimal(0))
         new_qty=max(Decimal(0),qty-opposite)
         required=new_qty*entry/(Decimal(1) if instrument.startswith('coinbase:') else dec(a['leverage']))+qty*entry*dec(a['fee_bps'])/10000
-        if required>self.funds(db,a)['buying_power']:raise ValueError('Insufficient paper buying power.')
+        # An exposure-reducing exit must remain available during a drawdown.
+        # Its commission is charged to the ledger when the position is reduced.
+        if new_qty and required>self.funds(db,a)['buying_power']:raise ValueError('Insufficient paper buying power.')
         ttl=int(p.get('ttl_seconds',0))
         if ttl not in (0,60,3600,86400):raise ValueError('Unsupported time in force.')
         o={'id':uid('order'),'account_id':a['id'],'instrument':instrument,'side':side,'kind':kind,'qty':str(qty),'price':str(price) if price else None,'trigger':str(trigger) if trigger else None,'stop':str(stop) if stop else None,'target':str(target) if target else None,'status':'working','revision':1,'created_at':time.time(),'updated_at':stamp(),'expires_at':time.time()+ttl if ttl else None}
@@ -176,7 +178,8 @@ class Engine:
         for v in fields.values():
             if v is not None:self.precision(q,dec(o['qty']),v)
         old_price=dec(o['price'] or o['trigger'] or entry)
-        additional=max(Decimal(0),(entry-old_price)*dec(o['qty'])/dec(a['leverage']))
+        lev=Decimal(1) if o['instrument'].startswith('coinbase:') else dec(a['leverage'])
+        additional=max(Decimal(0),(entry-old_price)*dec(o['qty'])*(1/lev+dec(a['fee_bps'])/10000))
         if additional>self.funds(db,a)['buying_power']:raise ValueError('Amendment exceeds buying power.')
         db.execute('UPDATE orders SET price=?,trigger=?,stop=?,target=?,revision=revision+1,updated_at=? WHERE id=?',tuple(str(fields[k]) if fields[k] else None for k in ('price','trigger','stop','target'))+(stamp(),o['id']))
         return dict(db.execute('SELECT * FROM orders WHERE id=?',(o['id'],)).fetchone())

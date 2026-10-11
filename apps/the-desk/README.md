@@ -57,22 +57,21 @@ Desk account IDs are durable `desk-paper-*` identities. Journal records are labe
 
 Execution and its delivery record commit together. Journal downtime does not undo a simulated fill. Retries back off to 60 seconds and resume after restart. The footer separates journal availability and queued/delivered events. Open the journal panel to view the selected account; **Refresh journal** reloads its latest projections without automatically interrupting notes you may be editing. **Retry pending delivery** expedites pending events. A reused, already running journal must have the same bridge token; HTTP 401/503 delivery errors remain queued until configuration is reconciled.
 
-Desk SQLite, process IDs, backups, tokens and logs live under ignored `data/`. Test state lives under ignored `qa-data/`. No migration or backfill of old Count Desk accounts is performed. Their existing databases and journal history remain intact.
+Desk SQLite, process IDs, backups, tokens and logs live under ignored `data/`. Test state lives under ignored `qa-data/`. QA refuses an occupied journal port so it cannot silently reuse another journal database. Process startup fingerprints prevent stale PID metadata from stopping a reused process; owned Next processes remain stoppable after their process title changes. No migration or backfill of old Count Desk accounts is performed. Their existing databases and journal history remain intact.
 
 ## Verification
 
 ```sh
-python3 -m unittest discover -s tests -p test_engine.py -v
-python3 -m unittest discover -s tests -p test_market_data.py -v
+python3 launch.py --qa --port 18881 --journal-port 3102 --detach
+DESK_QA_HTTP=1 QA_JOURNAL_PORT=3102 python3 -m unittest discover -s tests -v
+node --test tests/test_sma.mjs
 node --check web/app.js
-python3 launch.py --qa --port 18881 --journal-port 3101 --detach
-python3 -m unittest discover -s tests -p test_journal_integration.py -v
 python3 launch.py --qa --stop
 ```
 
 Two market-data fixtures verify incomplete Coinbase aggregation and the request-time completed-bar cutoff. Engine tests cover order matching, costs, partial exits, bracket quantity, account isolation, reversal, spot inventory, stale quotes, precision, buying power, revision conflicts, restart recovery, one-shot alerts, feed-independent expiry, full export and transaction rollback. The opt-in journal test uses an isolated journal database, verifies seven executions/three closed trades, reconciles fees and balance, simulates delivery failure and lost acknowledgments, and checks origin/content-type/token rejection.
 
-See [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) for browser checks and the explicit full-platform boundary. Local workers continue with browser tabs closed while the Python process and awake machine are running; the launcher is not an operating-system service manager.
+See [FEATURE-QA.md](FEATURE-QA.md) for the expanded feature matrix, 42 Python and 6 SMA test results, inherited Vela failures, and remaining build work. [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) records the initial delivery acceptance. Local workers continue with browser tabs closed while the Python process and awake machine are running; the launcher is not an operating-system service manager.
 
 ## Reused source
 
