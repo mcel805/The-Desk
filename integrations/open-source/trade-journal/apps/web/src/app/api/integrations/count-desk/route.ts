@@ -7,7 +7,7 @@ import { getMultipliers, setSetting } from "@/server/settings";
 
 type EventBody = {
   eventId?: string;
-  eventType?: "account" | "execution" | "session";
+  eventType?: "account" | "execution" | "session" | "reset";
   session?: { id?: string; title?: string; content?: string; startedAt?: string };
   account?: { id?: string; name?: string; currency?: string; initialBalance?: number };
   execution?: {
@@ -31,7 +31,7 @@ export const POST = handler(async (request: Request) => {
     const eventId = payload.eventId?.trim() ?? "";
     requireValue(externalId.length > 0 && externalId.length <= 200, "A source account ID is required.");
     requireValue(eventId.length > 0 && eventId.length <= 240, "A stable event ID is required.");
-    requireValue(["account", "execution", "session"].includes(payload.eventType ?? ""), "Unsupported event type.");
+    requireValue(["account", "execution", "session", "reset"].includes(payload.eventType ?? ""), "Unsupported event type.");
     if (payload.eventType === "session") {
       requireValue(Boolean(payload.session?.id?.match(/^hunt-[a-f0-9]{32}$/)), "Session identity is invalid.");
       requireValue(typeof payload.session?.content === "string" && payload.session.content.length <= 2000000, "Session content is too large.");
@@ -88,6 +88,21 @@ export const POST = handler(async (request: Request) => {
       const exists = tx.select({ eventId: externalEventReceipts.eventId }).from(externalEventReceipts)
         .where(and(eq(externalEventReceipts.source, "count_desk"), eq(externalEventReceipts.eventId, eventId))).get();
       if (exists) { duplicate = true; return; }
+      if (payload.eventType === "account" || payload.eventType === "reset") {
+        const initialBalance = Number(payload.account?.initialBalance ?? 0);
+        requireValue(Number.isFinite(initialBalance) && initialBalance >= 0, "Initial virtual balance is invalid.");
+        tx.update(accounts).set({
+          name: payload.account?.name?.trim().slice(0, 120) || account!.name,
+          currency: payload.account?.currency ?? account!.currency,
+          initialBalance,
+        }).where(eq(accounts.id, accountId)).run();
+      }
+      if (payload.eventType === "reset") {
+        tx.delete(executions).where(eq(executions.accountId, accountId)).run();
+        tx.delete(externalEventReceipts).where(and(
+          eq(externalEventReceipts.source, "count_desk"), eq(externalEventReceipts.accountId, accountId),
+        )).run();
+      }
       if (payload.eventType === "execution") {
         const row = execution!;
         const symbol = row.symbol!.trim().toUpperCase();
@@ -118,6 +133,6 @@ export const POST = handler(async (request: Request) => {
       }
       tx.insert(externalEventReceipts).values({ source: "count_desk", eventId, accountId, createdAt: nowIso() }).run();
     });
-    if (payload.eventType === "execution") rebuildAccount(accountId);
+    if (payload.eventType === "execution" || payload.eventType === "reset") rebuildAccount(accountId);
     return ok({ accepted: true, duplicate, accountId });
 }, { public: true });

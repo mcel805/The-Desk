@@ -107,7 +107,7 @@ class Engine:
             if old:
                 if old['hash']!=h: raise ValueError('Idempotency key was reused for a different command.')
                 return json.loads(old['result'])
-            methods={'account':self.create_account,'order':self.create_order,'amend':self.amend,'cancel':self.cancel,'close':self.close,'bracket':self.bracket,'alert':self.create_alert,'alert_delete':self.delete_alert,'cancel_orders':self.cancel_orders,'flatten':self.flatten,'reverse':self.reverse}
+            methods={'account':self.create_account,'account_update':self.update_account,'account_reset':self.reset_account,'account_delete':self.delete_account,'order':self.create_order,'amend':self.amend,'cancel':self.cancel,'close':self.close,'bracket':self.bracket,'alert':self.create_alert,'alert_delete':self.delete_alert,'cancel_orders':self.cancel_orders,'flatten':self.flatten,'reverse':self.reverse}
             if action not in methods: raise ValueError('Unknown command')
             result=methods[action](db,payload)
             db.execute('INSERT INTO commands VALUES(?,?,?)',(key,h,json.dumps(result)))
@@ -123,6 +123,45 @@ class Engine:
         self.queue(db,a['id']+':account',{'eventId':a['id']+':account','eventType':'account','account':self.account_payload(a)})
         self.event(db,'account',{'account_id':a['id'],'message':'Paper account created: '+name})
         return a
+
+    def reset_journal(self,db,a):
+        db.execute("DELETE FROM outbox WHERE status='pending' AND json_extract(payload,'$.account.id')=?",(a['id'],))
+        event_id=uid('journal-reset')
+        self.queue(db,event_id,{'eventId':event_id,'eventType':'reset','account':self.account_payload(a)})
+
+    def update_account(self,db,p):
+        a=self.account(db,p.get('account_id'))
+        name=str(p.get('name','')).strip()
+        if not name or len(name)>80:raise ValueError('Account name must contain 1–80 characters.')
+        capital=dec(p.get('capital'),True);fee=dec(p.get('fee_bps'));lev=dec(p.get('leverage'),True)
+        if capital>Decimal('1000000000') or not 0<=fee<=1000 or not 1<=lev<=20:raise ValueError('Capital, fees or paper leverage are outside supported limits.')
+        db.execute('UPDATE accounts SET name=?,capital=?,fee_bps=?,leverage=? WHERE id=?',(name,str(capital),str(fee),str(lev),a['id']))
+        updated=db.execute('SELECT * FROM accounts WHERE id=?',(a['id'],)).fetchone()
+        if p.get('reset_journal') is True:self.reset_journal(db,updated)
+        else:
+            event_id=uid('account-update')
+            self.queue(db,event_id,{'eventId':event_id,'eventType':'account','account':self.account_payload(updated)})
+        self.event(db,'account',{'account_id':a['id'],'message':'Paper account settings updated: '+name})
+        return {'account_id':a['id'],'journal_reset_queued':p.get('reset_journal') is True}
+
+    def reset_account(self,db,p):
+        a=self.account(db,p.get('account_id'))
+        for table in ('orders','positions','fills','cash','alerts'):
+            db.execute('DELETE FROM '+table+' WHERE account_id=?',(a['id'],))
+        db.execute("DELETE FROM events WHERE json_extract(content,'$.account_id')=?",(a['id'],))
+        if p.get('reset_journal') is True:self.reset_journal(db,a)
+        self.event(db,'account',{'account_id':a['id'],'message':'Paper account reset to starting capital'})
+        return {'account_id':a['id'],'journal_reset_queued':p.get('reset_journal') is True}
+
+    def delete_account(self,db,p):
+        a=self.account(db,p.get('account_id'))
+        if db.execute('SELECT COUNT(*) FROM accounts').fetchone()[0]<2:raise ValueError('Create another paper account before deleting the last one.')
+        for table in ('orders','positions','fills','cash','alerts'):
+            db.execute('DELETE FROM '+table+' WHERE account_id=?',(a['id'],))
+        db.execute("DELETE FROM events WHERE json_extract(content,'$.account_id')=?",(a['id'],))
+        if p.get('reset_journal') is True:self.reset_journal(db,a)
+        db.execute('DELETE FROM accounts WHERE id=?',(a['id'],))
+        return {'deleted':a['id'],'journal_reset_queued':p.get('reset_journal') is True}
 
     def validate_levels(self,side,entry,stop,target):
         if stop is not None and ((side=='buy' and stop>=entry) or (side=='sell' and stop<=entry)):raise ValueError('Stop loss must be on the loss side of entry.')

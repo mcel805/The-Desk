@@ -90,6 +90,47 @@ function showDialog(title,body,submit){
 $('#addAccount').onclick=()=>showDialog('Create paper account',`<label>Account name<input name="name" value="My paper account" required maxlength="80"></label><div class="two-col"><label>Starting capital · USD<input name="capital" type="number" min="1" max="1000000000" value="10000" required></label><label>Commission · bps / side<input name="fee_bps" type="number" min="0" max="1000" step="any" value="5" required></label></div><label>Perpetual paper leverage<select name="leverage"><option>1</option><option>2</option><option>5</option><option>10</option><option>20</option></select></label><p class="muted small">Separate virtual capital and ledger. Coinbase spot uses owned inventory; Hyperliquid supports paper longs and shorts.</p>`,async fd=>{const a=await command('account',Object.fromEntries(fd));activeAccount=a.id;localStorage.setItem('the-desk.account',activeAccount);draft=false;await refresh();toast('Paper account created and queued for Lux Journal.');});
 $('#accountSelect').onchange=async e=>{activeAccount=e.target.value;localStorage.setItem('the-desk.account',activeAccount);draft=false;commandKey=null;await refresh();};
 
+$('#manageAccount').onclick=()=>{
+ const a=account();if(!a)return toast('Create a paper account first.',true);
+ const accountForm='<label>Account name<input name="name" value="'+esc(a.name)+'" required maxlength="80"></label>'+
+  '<div class="two-col"><label>Starting capital · USD<input name="capital" type="number" min="1" max="1000000000" step="any" value="'+esc(a.capital)+'" required></label>'+
+  '<label>Commission · bps / side<input name="fee_bps" type="number" min="0" max="1000" step="any" value="'+esc(a.fee_bps)+'" required></label></div>'+
+  '<label>Perpetual paper leverage<select name="leverage">'+[1,2,5,10,20].map(n=>'<option value="'+n+'" '+(Number(a.leverage)===n?'selected':'')+'>'+n+'×</option>').join('')+'</select></label>'+
+  '<label><input type="checkbox" name="reset_journal"> Also reset this account’s linked Lux Journal history</label>'+
+  '<div class="template-row"><button type="button" id="resetPaperAccount">Reset paper account…</button>'+
+  '<button type="button" id="deletePaperAccount" '+(state.accounts.length<2?'disabled':'')+'>Delete paper account…</button></div>'+
+  '<p class="muted small">Reset clears this account’s paper orders, positions, executions and cash ledger, then restores starting capital.</p>';
+ showDialog('Manage paper account',accountForm,async fd=>{
+  const resetJournal=fd.get('reset_journal')==='on';
+  await command('account_update',{account_id:a.id,name:fd.get('name'),capital:fd.get('capital'),fee_bps:fd.get('fee_bps'),leverage:fd.get('leverage'),reset_journal:resetJournal});
+  toast(resetJournal?'Account updated; Lux Journal reset queued.':'Paper account updated; journal history retained.');
+ });
+ $('#resetPaperAccount').onclick=()=>{
+  $('#dialog').close();
+  showDialog('Reset paper account','<p><strong>'+esc(a.name)+'</strong> will return to its starting capital. Its paper orders, open positions, executions and cash ledger will be cleared.</p>'+
+   '<label><input type="checkbox" name="reset_journal"> Also reset this account’s linked Lux Journal history</label>'+
+   '<p class="muted small">The journal reset is queued if Lux Journal is unavailable.</p>',async fd=>{
+    const resetJournal=fd.get('reset_journal')==='on';
+    await command('account_reset',{account_id:a.id,reset_journal:resetJournal});
+    toast(resetJournal?'Paper account reset; Lux Journal reset queued.':'Paper account reset; Lux Journal history retained.');
+   });
+ };
+ $('#deletePaperAccount').onclick=()=>{
+  if(state.accounts.length<2)return;
+  $('#dialog').close();
+  showDialog('Delete paper account','<p>Delete <strong>'+esc(a.name)+'</strong> and its paper orders, positions, executions, alerts and cash ledger. This cannot be undone.</p>'+
+   '<label>Type <strong>'+esc(a.name)+'</strong> to confirm<input name="confirm_name" required autocomplete="off"></label>'+
+   '<label><input type="checkbox" name="reset_journal"> Also reset this account’s linked Lux Journal history</label>'+
+   '<p class="muted small">Create another paper account before deleting the last one.</p>',async fd=>{
+    if(fd.get('confirm_name')!==a.name)throw Error('The account name does not match.');
+    const resetJournal=fd.get('reset_journal')==='on';
+    await command('account_delete',{account_id:a.id,reset_journal:resetJournal});
+    activeAccount=state.active_account;localStorage.setItem('the-desk.account',activeAccount);
+    toast(resetJournal?'Paper account deleted; Lux Journal reset queued.':'Paper account deleted; Lux Journal history retained.');
+   });
+ };
+};
+
 function drawWatch(){
  $('#watchlist').innerHTML=instruments.map(i=>{const q=state?.quotes[i];return `<button class="watch-row ${i===instrument()?'active':''}" data-instrument="${esc(i)}"><span><span class="ticker">${esc(i.split(':')[1].replace('-USD',''))}</span><br><small>${i.startsWith('coinbase')?'COINBASE · SPOT':'HYPERLIQUID · PERP'}</small></span><span class="watch-value">${q?number(q.last):'—'}</span><span class="muted small">${q&&q.age<15?'●':'○'}</span></button>`;}).join('');
  $('#watchlist').querySelectorAll('button').forEach(b=>b.onclick=async()=>{draft=false;commandKey=null;try{await ws.chart.setMarket({symbol:b.dataset.instrument});updateTicket();drawWatch();}catch(e){toast(e.message,true);}});
