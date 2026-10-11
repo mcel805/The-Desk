@@ -61,6 +61,8 @@ Desk SQLite, process IDs, backups, tokens and logs live under ignored `data/`. T
 
 ## Pine Script indicators
 
+**Cleo's Liquidity** is available in **Indicators → Cleo's Liquidity → Open & test**. The supplied Wave Court v1.14 source keeps all 199 inputs and original calculations/drawings; only its declaration name changes. See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for installation, validation and the TradingView reference boundary.
+
 Open **Indicators → Create Pine Script indicator**, paste native Pine v5/v6 source or load Market Gravity, then **Compile & test**. Add tested source to the chart or save it in the local Pine library. Original settings and drawings use Vela; reports and CSV comparison keep runtime success separate from verified TradingView parity. See [PINE-INDICATORS.md](PINE-INDICATORS.md) for the workflow, compatibility boundary, tests and AGPL dependencies.
 
 ## Verification

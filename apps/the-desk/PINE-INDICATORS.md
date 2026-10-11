@@ -46,3 +46,7 @@ Vela's installed repository source/dependencies are required by `build-vendor.mj
 - Vela 0.8.0: Apache-2.0; existing `VELA-LICENSE.txt` and `VELA-NOTICE.txt` remain in `web/vendor/`.
 - `@luxalgo/vela-pinets` 0.2.15 and `pinets` 0.11.0: AGPL-3.0-only, with `PINE-AGPL-LICENSE.txt` and `PINE-NOTICE.txt` in `web/vendor/`. Runtime source is available from [LuxAlgo/Vela-pinets](https://github.com/LuxAlgo/Vela-pinets) and [LuxAlgo/PineTS](https://github.com/LuxAlgo/PineTS); exact dependency versions and package integrity are pinned in `package-lock.json`. The adapter and UI source are committed beside this document. Including this runtime introduces AGPL obligations; the complete app is no longer accurately described as using only Apache/MIT dependencies.
 - Market Gravity: the unmodified source is `web/pine-examples/market-gravity.pine` with its existing MPL-2.0 and YinYangAlgorithms notices. Downloads retain the pasted notices. Comparison instrumentation is clearly identified in its exported companion source.
+
+## Cleo's Liquidity
+
+See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension. All other Pine sources retain the existing worker.

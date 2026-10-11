@@ -4,15 +4,15 @@ import {checkPineSource,drawingCounts} from './pine-validation.mjs';
 // Each study owns a worker. Cancelling a test cannot stop installed studies.
 export class DeskPineEngine {
  language='pine';capabilities={streaming:true,visibleRange:true,inputs:true,props:true};
- constructor({factory=()=>new PineWorkerEngine(),compileTimeout=15000,executionTimeout=30000}={}){this.factory=factory;this.compileTimeout=compileTimeout;this.executionTimeout=executionTimeout;this.records=new Map();this.active=new Map();this.workers=new Map();}
+ constructor({factory=source=>new PineWorkerEngine(/f_confirmedMaster\s*\(/.test(source)&&/f_marketSource\s*\(/.test(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{}),compileTimeout=15000,executionTimeout=30000}={}){this.factory=factory;this.compileTimeout=compileTimeout;this.executionTimeout=executionTimeout;this.records=new Map();this.active=new Map();this.workers=new Map();}
  async prepare(source,id){
-  checkPineSource(source);const worker=this.factory();let timer,rejectPending;
+  checkPineSource(source);const worker=this.factory(source);let timer,rejectPending;
   const entry={worker,cancel:()=>rejectPending?.(Error('Pine test cancelled.'))};this.workers.set(id,entry);
   try{return await Promise.race([worker.prepare(source,id),new Promise((_,reject)=>{rejectPending=reject;timer=setTimeout(()=>reject(Error('Pine compilation exceeded 15 seconds.')),this.compileTimeout);})]);}
   catch(error){worker.terminate();if(this.workers.get(id)===entry)this.workers.delete(id);throw error;}finally{clearTimeout(timer);}
  }
  execute(req,handlers){
-  const id=req.prepared.token.instanceId;let entry=this.workers.get(id);if(!entry){entry={worker:this.factory()};this.workers.set(id,entry);}
+  const id=req.prepared.token.instanceId;let entry=this.workers.get(id);if(!entry){entry={worker:this.factory(req.prepared.token.source)};this.workers.set(id,entry);}
   let timer,stopped=false,session;const secondary=[];
   const clear=()=>{clearTimeout(timer);timer=null;};
   const fail=error=>{if(stopped)return;clear();result.stop();handlers.onError?.(error);};

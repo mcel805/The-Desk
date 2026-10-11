@@ -1,3 +1,4 @@
 The Desk Pine adapter: @luxalgo/vela-pinets 0.2.15 and PineTS 0.11.0 by LuxAlgo. AGPL-3.0-only.
 Original source: https://github.com/LuxAlgo/Vela-pinets and https://github.com/LuxAlgo/PineTS
+Cleo nested-security host extension and copied HTF/LTF sampling helpers: AGPL-3.0-only; editable source in web/pine-compat/ and web/pine-compatible-worker.mjs.
 The supplied Market Gravity Pine source retains its MPL-2.0 notice and YinYangAlgorithms attribution.

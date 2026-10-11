@@ -1,0 +1,2303 @@
+//@version=6
+// Wave Court v1.14 — compact collision-merged liquidity timeframe tags, 2026-10-08.
+// Read USER_GUIDE_v1_14.md before interpreting signals.
+// Structural quality is NOT probability. Pivot liquidity is NOT order-book data.
+indicator("Wave Court • Seven Timeframe Research v1.14", "Wave Court MTF 1.14", overlay = true, dynamic_requests = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 120)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 01 · INPUT CONTRACT. Visibility never changes analytical participation.
+// ══════════════════════════════════════════════════════════════════════════════
+string G_ENGINE = "01 · Engine / source"
+string G_TF = "02 · Timeframe participation / weight"
+string G_WAVE = "03 · Elliott candidate engine"
+string G_VIEW = "04 · Display layers"
+string G_LIQ = "05 · Pivot liquidity"
+string G_CON = "06 · Shared convergence"
+string G_PLAN = "07 · Conditional decision / stops / targets"
+string G_PANEL = "08 · Read panel / alerts"
+string G_STYLE = "09 · Styling"
+string G_MAN = "10 · Manual core primary anchors"
+string G_STRUCT = "11 · Micro structure tags"
+bool standardSource = input.bool(true, "Use standard OHLC source", group = G_ENGINE, tooltip = "Uses ticker.standard(). Recommended on standard time-based candlesticks. Synthetic chart prices are not execution references.")
+int sourceBars = input.int(400, "History requested per source timeframe", minval = 200, maxval = 1200, group = G_ENGINE)
+int masterBars = input.int(1200, "1-minute master history", minval = 500, maxval = 6000, group = G_ENGINE, tooltip = "Canonical state window. Larger values increase runtime. All compared charts must use identical settings, source and available history.")
+int fastLength = input.int(21, "Trend fast EMA", minval = 2, maxval = 200, group = G_ENGINE, inline = "ema")
+int slowLength = input.int(55, "Slow EMA", minval = 3, maxval = 300, group = G_ENGINE, inline = "ema")
+int atrLength = input.int(14, "Source ATR length", minval = 2, maxval = 100, group = G_ENGINE)
+string coreChoice = input.string("1H", "Core research timeframe", options = ["Daily", "4H", "1H", "30M", "15M", "5M", "1M"], group = G_ENGINE)
+string tfD = input.timeframe("1D", "Daily source", group = G_TF, inline = "D")
+bool useD = input.bool(true, "Use", group = G_TF, inline = "D")
+float weightD = input.float(16, "Weight", minval = 0, group = G_TF, inline = "D")
+string tf4 = input.timeframe("240", "4H source", group = G_TF, inline = "4")
+bool use4 = input.bool(true, "Use", group = G_TF, inline = "4")
+float weight4 = input.float(8, "Weight", minval = 0, group = G_TF, inline = "4")
+string tf1 = input.timeframe("60", "1H source", group = G_TF, inline = "1")
+bool use1 = input.bool(true, "Use", group = G_TF, inline = "1")
+float weight1 = input.float(4, "Weight", minval = 0, group = G_TF, inline = "1")
+string tf30 = input.timeframe("30", "30M source", group = G_TF, inline = "30")
+bool use30 = input.bool(true, "Use", group = G_TF, inline = "30")
+float weight30 = input.float(2, "Weight", minval = 0, group = G_TF, inline = "30")
+string tf15 = input.timeframe("15", "15M source", group = G_TF, inline = "15")
+bool use15 = input.bool(true, "Use", group = G_TF, inline = "15")
+float weight15 = input.float(1, "Weight", minval = 0, group = G_TF, inline = "15")
+string tf5 = input.timeframe("5", "5M source", group = G_TF, inline = "5")
+bool use5 = input.bool(true, "Use", group = G_TF, inline = "5")
+float weight5 = input.float(0.5, "Weight", minval = 0, group = G_TF, inline = "5")
+bool useM = input.bool(true, "1M fixed master source · participate", group = G_TF, inline = "M")
+float weightM = input.float(0.25, "Weight", minval = 0, group = G_TF, inline = "M")
+
+int minorLen = input.int(2, "Minor pivot strength", minval = 1, maxval = 15, group = G_WAVE, inline = "len")
+int midLen = input.int(6, "Intermediate", minval = 2, maxval = 30, group = G_WAVE, inline = "len")
+int majorLen = input.int(12, "Major", minval = 3, maxval = 50, group = G_WAVE, inline = "len")
+int pivotKeep = input.int(24, "Confirmed swings retained / degree / TF", minval = 8, maxval = 40, group = G_WAVE)
+int searchWindows = input.int(8, "Recent candidate windows searched", minval = 1, maxval = 15, group = G_WAVE)
+string preference = input.string("Recent + quality", "Candidate ranking", options = ["Recent + quality", "Quality first"], group = G_WAVE)
+bool allowTruncation = input.bool(false, "Allow truncated fifth candidates", group = G_WAVE)
+bool diagonals = input.bool(true, "Evaluate diagonal geometry", group = G_WAVE)
+bool triangles = input.bool(true, "Evaluate triangle geometry", group = G_WAVE)
+bool complexABC = input.bool(true, "Show W-X-Y geometry alternate", group = G_WAVE, tooltip = "Only a geometric alternative. Three component corrections are not certified by this label.")
+float flatMin = input.float(0.90, "Flat B/A minimum retracement", minval = 0.5, maxval = 1.5, step = 0.01, group = G_WAVE)
+float flatRegularMax = input.float(1.05, "Regular flat B/A maximum", minval = 1, maxval = 1.5, step = 0.01, group = G_WAVE)
+float projectionLow = input.float(1.0, "Impulse extension lower Fib", minval = 0.1, step = 0.001, group = G_WAVE, inline = "fib")
+float projectionHigh = input.float(1.618, "Upper", minval = 0.1, step = 0.001, group = G_WAVE, inline = "fib")
+int projectionBars = input.int(12, "Schematic projection horizon in source bars", minval = 2, maxval = 100, group = G_WAVE)
+
+string preset = input.string("Active now", "Display preset", options = ["Active now", "Core + context", "All seven", "HTF", "Scalp", "Setup only"], group = G_VIEW, tooltip = "Controls the timeframe scope for visual layers. The count ladder setting below limits visible wave labels independently; all seven source frames still participate in the analysis.")
+string countMode = input.string("Three-level ladder", "Visible Elliott count levels", options = ["Three-level ladder", "Full research"], group = G_VIEW, tooltip = "Three-level ladder shows parent major, chart intermediate and child minor counts. Full research restores every enabled timeframe and degree. Count calculations do not change.")
+int activeWindow = input.int(20, "Active geometry window · core bars", minval = 5, maxval = 120, group = G_VIEW)
+bool activeCompactLabels = input.bool(false, "Active view · compact latest wave labels", group = G_VIEW, tooltip = "Leave off to show every qualified endpoint of the retained primary and alternate counts on all enabled timeframes.")
+bool showWaves = input.bool(true, "Wave labels", group = G_VIEW, inline = "wv")
+bool showAlternates = input.bool(true, "Alternate count", group = G_VIEW, inline = "wv")
+bool showMajor = input.bool(true, "Major", group = G_VIEW, inline = "deg")
+bool showMid = input.bool(true, "Intermediate", group = G_VIEW, inline = "deg")
+bool showMinor = input.bool(true, "Minor", group = G_VIEW, inline = "deg")
+bool showSwingPath = input.bool(false, "All retained swing paths / unlabeled pivots", group = G_VIEW)
+bool showChannels = input.bool(true, "Wick-safe chart channels", group = G_VIEW, inline = "cn")
+bool showProjection = input.bool(false, "Conditional projections", group = G_VIEW, inline = "cn")
+bool showWaveInvalidation = input.bool(false, "Candidate origin / non-overlap invalidation references", group = G_VIEW)
+bool showFib = input.bool(false, "Critical Fib swing lines", group = G_VIEW)
+bool showRaw = input.bool(true, "Raw liquidity", group = G_VIEW, inline = "lq")
+string rawScope = input.string("1H + 30M + 15M", "Scope", options = ["1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")
+bool showLiquidityTimeframeTags = input.bool(true, "Small timeframe numbers at liquidity ends", group = G_VIEW, tooltip = "White 8 px labels sit just beyond each active or ended source line. Nearby endpoints merge into one tag such as 60/30; turn this off for the fully text-free view.")
+bool showLiquidityPockets = input.bool(false, "Shade liquidity pockets", group = G_VIEW, tooltip = "Off by default for a clean chart. When on, a faint pocket uses its source timeframe color.")
+bool showConfluence = input.bool(true, "Shared purple convergence zones", group = G_VIEW)
+bool showConfluenceTags = input.bool(false, "Print P-zone tags", group = G_VIEW, tooltip = "Off by default. Purple center segments still identify convergence without repeated P text.")
+bool showOtherConvergence = input.bool(false, "Show convergence without a displayed core line", group = G_VIEW, tooltip = "The compact view overlays convergence on a displayed 1H/30M/15M wick level. Turn this on to show all other active zones as short independent purple markers.")
+bool colorTrendBars = input.bool(false, "Color bars by completed core EMA context", group = G_VIEW)
+bool showD = input.bool(true, "Daily", group = G_VIEW, inline = "frames")
+bool show4 = input.bool(true, "4H", group = G_VIEW, inline = "frames")
+bool show1 = input.bool(true, "1H", group = G_VIEW, inline = "frames")
+bool show30 = input.bool(true, "30M", group = G_VIEW, inline = "frames2")
+bool show15 = input.bool(true, "15M", group = G_VIEW, inline = "frames2")
+bool show5 = input.bool(true, "5M", group = G_VIEW, inline = "frames2")
+bool showM = input.bool(true, "1M", group = G_VIEW, inline = "frames2")
+
+// Batty Clean v1.9.6 has a default aqua EQL path from paired 3/3 lows and
+// a separate 5/5 internal pivot path inside a 14/14 external range.
+// Wave Court keeps compact cyan rendering and independent strength scoring.
+bool structureEnabled = input.bool(true, "Calculate micro structure", group = G_STRUCT, inline = "st")
+bool showStructure = input.bool(true, "Show cyan dashes", group = G_STRUCT, inline = "st")
+string structureDetector = input.string("Micro structure map", "Detector", options = ["Micro structure map", "Batty equal lows", "Batty internal range", "Reaction pivots"], group = G_STRUCT)
+int structureMapPivot = input.int(3, "Map pivot bars on each side", minval = 1, maxval = 12, group = G_STRUCT)
+int structurePivot = input.int(5, "Internal pivot bars on each side", minval = 1, maxval = 12, group = G_STRUCT)
+int structureExternalPivot = input.int(14, "External swing bars on each side", minval = 2, maxval = 40, group = G_STRUCT)
+int structureEqualPivot = input.int(3, "Equal-low pivot bars on each side", minval = 1, maxval = 12, group = G_STRUCT)
+int structureEqualATRLength = input.int(200, "Equal-low tolerance ATR length", minval = 20, maxval = 400, group = G_STRUCT)
+float structureEqualATRTolerance = input.float(0.10, "Equal-low match tolerance / ATR", minval = 0.01, maxval = 1.0, step = 0.01, group = G_STRUCT)
+int structureATRLength = input.int(14, "Chart ATR length", minval = 5, maxval = 100, group = G_STRUCT)
+float structureMinReaction = input.float(0.60, "Reaction-mode minimum move / ATR", minval = 0.05, maxval = 5.0, step = 0.05, group = G_STRUCT)
+int structureMinGap = input.int(0, "Minimum bars between same-side tags", minval = 0, maxval = 50, group = G_STRUCT)
+int structureNearTicks = input.int(8, "Repeated-level tolerance · ticks", minval = 1, maxval = 100, group = G_STRUCT)
+int structureBreakTicks = input.int(0, "Close-through break buffer · ticks", minval = 0, maxval = 100, group = G_STRUCT)
+int structureRetestGap = input.int(5, "Minimum bars between defended retests", minval = 1, maxval = 100, group = G_STRUCT)
+float structureReactionWeight = input.float(25, "Reaction score / ATR", minval = 1, maxval = 50, step = 1, group = G_STRUCT, inline = "weights")
+float structureRepeatWeight = input.float(12, "Repeat", minval = 0, maxval = 25, step = 1, group = G_STRUCT, inline = "weights")
+float structureRetestWeight = input.float(8, "Retest", minval = 0, maxval = 25, step = 1, group = G_STRUCT, inline = "weights")
+int structureMedium = input.int(55, "Medium score threshold", minval = 20, maxval = 90, group = G_STRUCT, inline = "tier")
+int structureStrong = input.int(75, "Strong", minval = 30, maxval = 100, group = G_STRUCT, inline = "tier")
+int structureMinDisplay = input.int(0, "Minimum score shown · 0 shows all", minval = 0, maxval = 100, group = G_STRUCT)
+int structureMaxAge = input.int(350, "Maximum tag age · chart bars", minval = 20, maxval = 2000, group = G_STRUCT)
+int structureKeep = input.int(64, "Maximum tags retained", minval = 12, maxval = 100, group = G_STRUCT, inline = "limit")
+int structureShown = input.int(30, "Draw", minval = 5, maxval = 40, group = G_STRUCT, inline = "limit")
+string structureDash = input.string("Short dash", "Dash length", options = ["Dot", "Short dash", "Medium dash"], group = G_STRUCT)
+bool structureHighlight = input.bool(true, "Subtle halo on strong dashes", group = G_STRUCT, inline = "extra")
+bool structureShowBroken = input.bool(true, "Keep broken history dimmed", group = G_STRUCT, inline = "extra")
+bool structureScoresOnChart = input.bool(false, "Print score beside strong dashes", group = G_STRUCT)
+color structureCyan = input.color(color.rgb(28, 210, 231), "Cyan structure mark", group = G_STRUCT)
+
+int liqLen = input.int(3, "Liquidity pivot strength", minval = 1, maxval = 30, group = G_LIQ)
+bool liqExternal = input.bool(true, "Include Batty 14/14 external swing pivots", group = G_LIQ)
+int liqExternalLen = input.int(14, "External swing strength", minval = 2, maxval = 30, group = G_LIQ)
+int liqKeep = input.int(24, "Maximum pools / source timeframe", minval = 2, maxval = 32, group = G_LIQ)
+int liqAge = input.int(1000, "Maximum age in source bars", minval = 20, maxval = 2000, group = G_LIQ)
+int liqLowerHistory = input.int(800, "30M / 15M history requested", minval = 400, maxval = 1200, group = G_LIQ, tooltip = "Extra source bars preserve older 30M and 15M wick levels when the chart is on 1H.")
+int equalTicks = input.int(8, "Equal-high / low tolerance in ticks", minval = 0, group = G_LIQ)
+string consumption = input.string("Wick touch", "Pool consumption", options = ["Wick touch", "Close through"], group = G_LIQ)
+
+string spanMode = input.string("Fixed ticks", "Cluster maximum TOTAL span", options = ["Fixed ticks", "Core ATR fraction"], group = G_CON)
+int clusterTicks = input.int(70, "Maximum span in ticks", minval = 1, group = G_CON)
+float clusterATR = input.float(0.25, "Core ATR fraction", minval = 0.01, maxval = 3, step = 0.01, group = G_CON)
+int minFrames = input.int(2, "Minimum unique timeframes", minval = 2, maxval = 7, group = G_CON)
+float minStrength = input.float(10, "Minimum weight coverage %", minval = 0, maxval = 100, group = G_CON)
+bool requireHTF = input.bool(false, "Require Daily or 4H contributor", group = G_CON)
+int zoneDisplay = input.int(10, "Maximum zones displayed", minval = 1, maxval = 20, group = G_CON)
+string zoneRank = input.string("Strength", "Display ranking", options = ["Strength", "Distance"], group = G_CON)
+int rawPrimaryPerSide = input.int(1, "Raw primary pools / side / timeframe", minval = 1, maxval = 3, group = G_LIQ)
+string rawDisplayMode = input.string("All retained", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "All retained draws every available pool in the selected timeframe scope, including ended lines. Nearest N restores the compact v1.10 view.")
+int pocketTicks = input.int(8, "Optional liquidity pocket depth · ticks", minval = 1, maxval = 100, group = G_LIQ)
+int pocketTransparency = input.int(87, "Optional liquidity pocket transparency", minval = 50, maxval = 98, group = G_LIQ)
+int brokenCoreShown = input.int(1, "Recent broken core lines / timeframe", minval = 0, maxval = 3, group = G_LIQ)
+bool showRetiredZones = input.bool(true, "Show retired convergence · grey", group = G_CON)
+int retiredDisplay = input.int(2, "Recent retired levels shown in Active now", minval = 0, maxval = 8, group = G_CON)
+int retiredActiveAge = input.int(80, "Active view · retired max age / core bars", minval = 1, maxval = 1000, group = G_CON)
+int retiredAtlasDisplay = input.int(8, "Recent retired levels shown in research presets", minval = 0, maxval = 16, group = G_CON)
+
+bool enableDecision = input.bool(true, "Enable conditional decision engine", group = G_PLAN)
+string confirmChoice = input.string("30M", "Retest confirmation timeframe", options = ["1H", "30M", "15M", "5M", "1M"], group = G_PLAN)
+string entryChoice = input.string("15M", "Precision entry timeframe", options = ["30M", "15M", "5M", "1M"], group = G_PLAN)
+string filterChoice = input.string("4H", "Trend context timeframe", options = ["Daily", "4H", "1H", "30M", "15M", "5M", "1M"], group = G_PLAN)
+bool allowCounter = input.bool(true, "Allow qualified countertrend reclaim / rejection", group = G_PLAN)
+bool allowContinuation = input.bool(true, "Evaluate breakdown / breakout retests", group = G_PLAN)
+int stopBuffer = input.int(5, "Structural stop buffer in ticks", minval = 1, group = G_PLAN)
+int maxRisk = input.int(30, "Preferred maximum stop in ticks", minval = 1, group = G_PLAN)
+bool allowWider = input.bool(false, "Permit a qualified plan above preferred stop cap", group = G_PLAN, tooltip = "Wider structural risk is always displayed. False waits for a closer precision retest; it never moves a stop inside invalidation.")
+float minRR = input.float(0, "Minimum reward / risk filter (0 = off)", minval = 0, maxval = 10, step = 0.1, group = G_PLAN)
+string targetScope = input.string("All active frames", "Nearest opposite liquidity target universe", options = ["All active frames", "Core and higher"], group = G_PLAN)
+int setupLife = input.int(12, "Setup expiry in elapsed core periods", minval = 1, maxval = 100, group = G_PLAN)
+int resultHold = input.int(60, "Keep resolved reference plan (elapsed minutes)", minval = 1, maxval = 1000, group = G_PLAN)
+
+string panelMode = input.string("Off", "Panel mode / minimize", options = ["Expanded", "Compact", "Off"], group = G_PANEL)
+string panelPosition = input.string("Top right", "Panel position", options = ["Top left", "Top center", "Top right", "Middle left", "Middle center", "Middle right", "Bottom left", "Bottom center", "Bottom right"], group = G_PANEL)
+string panelSize = input.string("Small", "Panel text", options = ["Tiny", "Small", "Normal"], group = G_PANEL)
+bool enableAlerts = input.bool(false, "Enable dynamic event alerts", group = G_PANEL)
+bool alertGates = input.bool(true, "Alert core / confirmation / over-cap gates", group = G_PANEL)
+bool alertOutcomes = input.bool(true, "Alert reference target / stop touches", group = G_PANEL)
+
+color purple = input.color(color.rgb(150, 60, 230), "Confluence + target purple", group = G_STYLE, inline = "plan")
+color retiredInk = input.color(color.rgb(149, 157, 173), "Retired convergence grey", group = G_STYLE)
+color yellow = input.color(color.rgb(255, 210, 30), "Stop yellow", group = G_STYLE, inline = "plan")
+int coreLineWidth = input.int(1, "Core liquidity line width", minval = 1, maxval = 3, group = G_STYLE)
+int waveCountFontPx = input.int(12, "Wave count font size (pixels)", minval = 8, maxval = 24, group = G_STYLE, tooltip = "12 px is about one-third smaller than the previous Large count text. Alternate labels use 70% of this value.")
+int waveLabelPadTicks = input.int(8, "Wave label distance from pivot, ticks", minval = 0, maxval = 40, group = G_STYLE)
+int waveStackBars = input.int(2, "Wave tag overlap window, chart bars", minval = 0, maxval = 5, group = G_STYLE)
+float waveStackAtr = input.float(0.15, "Wave tag vertical spacing, chart ATR", minval = 0.05, maxval = 0.50, step = 0.01, group = G_STYLE)
+string liquidityTextSize = input.string("Large", "Optional P label size", options = ["Normal", "Large", "Huge"], group = G_STYLE)
+int liquidityTagGapBars = input.int(1, "Timeframe number gap · chart bars", minval = 1, maxval = 6, group = G_STYLE)
+int liquidityTagMergeTicks = input.int(24, "Merge nearby timeframe numbers · ticks", minval = 1, maxval = 100, group = G_STYLE, tooltip = "Merge line-end labels close in both time and price. Increase when a vertically compressed chart makes small labels collide; the underlying liquidity prices never move.")
+color majorColor = input.color(color.rgb(66, 205, 185), "Major count", group = G_STYLE, inline = "degrees")
+color midColor = input.color(color.rgb(240, 125, 215), "Intermediate", group = G_STYLE, inline = "degrees")
+color minorColor = input.color(color.rgb(110, 178, 255), "Minor", group = G_STYLE, inline = "degrees")
+color dColor = input.color(color.rgb(245, 247, 252), "Daily · white", group = G_STYLE, inline = "tfcol")
+color h4Color = input.color(color.rgb(48, 83, 168), "4H · dark blue", group = G_STYLE, inline = "tfcol")
+color h1Color = input.color(color.rgb(255, 135, 34), "1H · orange", group = G_STYLE, inline = "tfcol")
+color m30Color = input.color(color.rgb(25, 208, 233), "30M · cyan", group = G_STYLE, inline = "tfcol2")
+color m15Color = input.color(color.rgb(255, 177, 45), "15M · amber orange", group = G_STYLE, inline = "tfcol2")
+color m5Color = input.color(color.rgb(145, 153, 165), "5M · grey", group = G_STYLE, inline = "tfcol2")
+color m1Color = input.color(color.rgb(8, 12, 20), "1M · black", group = G_STYLE, inline = "tfcol2")
+color panelBG = input.color(color.rgb(20, 26, 39), "Panel background", group = G_STYLE)
+color panelText = input.color(color.rgb(235, 239, 247), "Panel text", group = G_STYLE)
+color fibEndColor = input.color(color.rgb(62, 135, 230), "Fib swing 0 / 1 · blue", group = G_STYLE)
+color fib382Color = input.color(color.rgb(63, 180, 110), "Fib 0.382 · green", group = G_STYLE)
+color fib50Color = input.color(color.rgb(235, 205, 60), "Fib 0.5 · yellow", group = G_STYLE)
+color fib618Color = input.color(color.rgb(238, 145, 53), "Fib 0.618 · orange", group = G_STYLE)
+color fib786Color = input.color(color.rgb(55, 190, 195), "Fib 0.786 · teal", group = G_STYLE)
+color fib2Color = input.color(color.rgb(220, 84, 90), "Fib 2.0 extension · red", group = G_STYLE)
+int fibRightPct = input.int(25, "Fib future segment · visible chart %", minval = 5, maxval = 50, group = G_STYLE, tooltip = "The segment begins after the last completed price bar and is 25% of the current visible chart span by default. Add right chart margin to see the whole segment.")
+color fibBrokenColor = input.color(color.rgb(123, 132, 148), "Fib broken / unverified · slate", group = G_STYLE)
+int geometryPivot = input.int(4, "Channel pivot bars on each side", minval = 2, maxval = 15, group = G_STYLE)
+int geometryHistory = input.int(600, "Chart bars retained for wick audit", minval = 100, maxval = 1200, group = G_STYLE)
+int geometryMinSpan = input.int(8, "Minimum anchor span · chart bars", minval = 2, maxval = 100, group = G_STYLE)
+int geometryTouchTolerance = input.int(2, "Extra wick touch tolerance · ticks", minval = 0, maxval = 10, group = G_STYLE)
+int geometryMinTouches = input.int(0, "Extra wick touches beyond 2 anchors", minval = 0, maxval = 8, group = G_STYLE, tooltip = "Zero displays channels supported by two confirmed pivot wicks, provided neither rail cuts through intervening bars. Raise to 1 or 2 to require more independent rail contacts.")
+int geometryShown = input.int(8, "Channels displayed · active first", minval = 1, maxval = 24, group = G_STYLE)
+int geometryActiveShown = input.int(4, "Maximum active channels", minval = 1, maxval = 24, group = G_STYLE)
+bool geometryShowBroken = input.bool(true, "Show historical channels to wick break", group = G_STYLE)
+bool geometryShowLabels = input.bool(false, "Print channel detail text", group = G_STYLE)
+color geometryActiveInk = input.color(color.rgb(190, 207, 230), "Active channel rails", group = G_STYLE)
+color geometryBrokenInk = input.color(color.rgb(108, 124, 148), "Ended channel rails", group = G_STYLE)
+
+bool manualEnabled = input.bool(false, "Override core major primary with six manual impulse anchors", group = G_MAN, tooltip = "Set six dated price anchors, oldest to newest. Matching price/time inputs create native interactive chart points. Overrides display only; no fabricated confluence votes.")
+float manP0 = input.price(0, "Origin", inline = "a0", group = G_MAN, active = manualEnabled)
+int manT0 = input.time(0, "Date", inline = "a0", group = G_MAN, active = manualEnabled)
+float manP1 = input.price(0, "1", inline = "a1", group = G_MAN, active = manualEnabled)
+int manT1 = input.time(0, "Date", inline = "a1", group = G_MAN, active = manualEnabled)
+float manP2 = input.price(0, "2", inline = "a2", group = G_MAN, active = manualEnabled)
+int manT2 = input.time(0, "Date", inline = "a2", group = G_MAN, active = manualEnabled)
+float manP3 = input.price(0, "3", inline = "a3", group = G_MAN, active = manualEnabled)
+int manT3 = input.time(0, "Date", inline = "a3", group = G_MAN, active = manualEnabled)
+float manP4 = input.price(0, "4", inline = "a4", group = G_MAN, active = manualEnabled)
+int manT4 = input.time(0, "Date", inline = "a4", group = G_MAN, active = manualEnabled)
+float manP5 = input.price(0, "5", inline = "a5", group = G_MAN, active = manualEnabled)
+int manT5 = input.time(0, "Date", inline = "a5", group = G_MAN, active = manualEnabled)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 02 · LOCAL TYPES. No UDT or collection is returned by request.security().
+// ══════════════════════════════════════════════════════════════════════════════
+type Pivot
+    int t
+    float p
+    int side
+    int born
+
+type WaveTag
+    int t
+    float p
+    int side
+    int id
+    int degree
+    bool alternate
+    string value
+    color ink
+
+type Pool
+    int t
+    int born
+    float p
+    int side
+    int tf
+    string kind
+    int age
+    bool taken
+    int takenAt = 0    // First master-observed consumption, display only.
+    int breakStatus = 0 // 1 = completed close through; 0 = wick sweep.
+
+type Count
+    string kind = "Unresolved"
+    int start = 0
+    int n = 0
+    int dir = 0
+    float quality = 0
+    float projLo = na
+    float projHi = na
+    float invalid = na
+    string note = "Insufficient confirmed pivots"
+
+type Frame
+    int cutoff = na
+    float o = na
+    float h = na
+    float l = na
+    float c = na
+    float atr = na
+    int trend = 0
+    string major = ""
+    string mid = ""
+    string minor = ""
+    Count cp = na
+    Count ca = na
+    Count ip = na
+    Count ia = na
+    Count mp = na
+    Count ma = na
+    string pools = ""
+    int bars = 0
+    int opened = na
+
+type Zone
+    float lo
+    float hi
+    int side
+    int mask
+    int members
+    float weight
+    float strength
+    int born
+
+type RetiredZone
+    float lo
+    float hi
+    int side
+    int mask
+    float strength
+    int born
+    int retiredAt
+    int status  // 1 = completed close through far edge; 0 = swept/consumed.
+
+type WickChannel
+    int t0
+    float p0
+    int t1
+    float p1
+    int side  // -1 = base through support wicks; 1 = base through resistance wicks.
+    float offset
+    int endAt
+    bool broken
+    int touches
+    int spanBars
+
+type LiquidityEndTag
+    int rightAt
+    float price
+    int mask
+    int members
+
+type StructureTag
+    int t
+    int pivotBar
+    int confirmedBar
+    float p
+    int side
+    float reactionATR
+    int neighbors
+    int retests
+    int lastRetestBar
+    bool broken
+
+type Plan
+    int stage = 0
+    int dir = 0
+    string mode = "Scanning"
+    float lo = na
+    float hi = na
+    int mask = 0
+    float strength = 0
+    float extreme = na
+    int started = na
+    int gateAt = na
+    int confirmAt = na
+    int entryAt = na
+    int resolvedAt = na
+    float entry = na
+    float sl = na
+    float tp = na
+    float risk = na
+    float rr = na
+    string reason = "Wait for a qualified shared zone"
+
+type Master
+    Frame d = na
+    Frame h4 = na
+    Frame h1 = na
+    Frame m30 = na
+    Frame m15 = na
+    Frame m5 = na
+    Frame m1 = na
+    string raw = ""
+    string zones = ""
+    Plan plan = na
+    int asof = na
+    int eventSeq = 0
+    string eventKind = ""
+    int eventTime = na
+    int ready = 0
+    int masterAge = 0
+    int epoch = na
+    int coreTrend = 0
+    float price = na
+    string retired = ""
+
+string sourceId = standardSource ? ticker.standard(syminfo.tickerid) : syminfo.tickerid
+float tick = syminfo.mintick
+float chartAtr = ta.atr(14)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 03 · SMALL HELPERS / SERIALIZATION. ';' separates records, ',' fields.
+// ══════════════════════════════════════════════════════════════════════════════
+f_id(string name) =>
+    switch name
+        "Daily" => 0
+        "4H" => 1
+        "1H" => 2
+        "30M" => 3
+        "15M" => 4
+        "5M" => 5
+        => 6
+
+f_name(int id) =>
+    switch id
+        0 => "D"
+        1 => "4H"
+        2 => "1H"
+        3 => "30M"
+        4 => "15M"
+        5 => "5M"
+        => "1M"
+
+f_tf(int id) =>
+    switch id
+        0 => tfD
+        1 => tf4
+        2 => tf1
+        3 => tf30
+        4 => tf15
+        5 => tf5
+        => "1"
+
+f_ms(int id) =>
+    switch id
+        0 => int(timeframe.in_seconds(tfD) * 1000)
+        1 => int(timeframe.in_seconds(tf4) * 1000)
+        2 => int(timeframe.in_seconds(tf1) * 1000)
+        3 => int(timeframe.in_seconds(tf30) * 1000)
+        4 => int(timeframe.in_seconds(tf15) * 1000)
+        5 => int(timeframe.in_seconds(tf5) * 1000)
+        => 60000
+f_use(int id) =>
+    switch id
+        0 => useD
+        1 => use4
+        2 => use1
+        3 => use30
+        4 => use15
+        5 => use5
+        => useM
+
+f_weight(int id) =>
+    switch id
+        0 => weightD
+        1 => weight4
+        2 => weight1
+        3 => weight30
+        4 => weight15
+        5 => weight5
+        => weightM
+
+f_color(int id) =>
+    switch id
+        0 => dColor
+        1 => h4Color
+        2 => h1Color
+        3 => m30Color
+        4 => m15Color
+        5 => m5Color
+        => m1Color
+
+f_bit(int id) => int(math.pow(2, id))
+f_has(int mask, int id) => int(math.floor(mask / f_bit(id))) % 2 == 1
+f_maskText(int mask) =>
+    string s = ""
+    for id = 0 to 6
+        if f_has(mask, id)
+            s += (s == "" ? "" : "+") + f_name(id)
+    s
+
+f_members(int mask) =>
+    int n = 0
+    for id = 0 to 6
+        if f_has(mask, id)
+            n += 1
+    n
+
+f_price(float p) => na(p) ? "—" : str.tostring(p, format.mintick)
+f_roundUp(float p) => math.ceil(p / tick) * tick
+f_roundDown(float p) => math.floor(p / tick) * tick
+f_num(array<string> a, int i) => str.tonumber(array.get(a, i))
+f_stamp(int t) => na(t) ? "warming up" : str.format_time(t, "MM-dd HH:mm", syminfo.timezone)
+
+f_packPivots(array<Pivot> pivots) =>
+    string s = ""
+    if array.size(pivots) > 0
+        for i = 0 to array.size(pivots) - 1
+            Pivot p = array.get(pivots, i)
+            s += (s == "" ? "" : ";") + str.tostring(p.t) + "," + str.tostring(p.p) + "," + str.tostring(p.side) + "," + str.tostring(p.born)
+    s
+
+f_unpackPivots(string s) =>
+    array<Pivot> a = array.new<Pivot>()
+    if str.length(s) > 0
+        array<string> records = str.split(s, ";")
+        for rec in records
+            array<string> v = str.split(rec, ",")
+            if array.size(v) == 4
+                array.push(a, Pivot.new(int(f_num(v, 0)), f_num(v, 1), int(f_num(v, 2)), int(f_num(v, 3))))
+    a
+
+f_poolKey(Pool p) => str.tostring(p.tf) + ":" + str.tostring(p.t) + ":" + str.tostring(p.side)
+f_packPools(array<Pool> pools) =>
+    string s = ""
+    if array.size(pools) > 0
+        for p in pools
+            s += (s == "" ? "" : ";") + str.tostring(p.t) + "," + str.tostring(p.born) + "," + str.tostring(p.p) + "," + str.tostring(p.side) + "," + str.tostring(p.tf) + "," + p.kind + "," + str.tostring(p.age) + "," + (p.taken ? "1" : "0") + "," + str.tostring(p.takenAt) + "," + str.tostring(p.breakStatus)
+    s
+
+// The master display packet uses the same ten fields as source packets.
+f_packDisplayPools(array<Pool> pools) =>
+    string s = ""
+    if array.size(pools) > 0
+        for p in pools
+            s += (s == "" ? "" : ";") + str.tostring(p.t) + "," + str.tostring(p.born) + "," + str.tostring(p.p) + "," + str.tostring(p.side) + "," + str.tostring(p.tf) + "," + p.kind + "," + str.tostring(p.age) + "," + (p.taken ? "1" : "0") + "," + str.tostring(p.takenAt) + "," + str.tostring(p.breakStatus)
+    s
+
+f_appendPools(array<Pool> into, string s) =>
+    if str.length(s) > 0
+        array<string> records = str.split(s, ";")
+        for rec in records
+            array<string> v = str.split(rec, ",")
+            if array.size(v) == 8 or array.size(v) == 10
+                Pool p = Pool.new(int(f_num(v, 0)), int(f_num(v, 1)), f_num(v, 2), int(f_num(v, 3)), int(f_num(v, 4)), array.get(v, 5), int(f_num(v, 6)), f_num(v, 7) == 1)
+                if array.size(v) == 10
+                    p.takenAt := int(f_num(v, 8))
+                    p.breakStatus := int(f_num(v, 9))
+                array.push(into, p)
+    array.size(into)
+
+f_packZones(array<Zone> zones) =>
+    string s = ""
+    for z in zones
+        s += (s == "" ? "" : ";") + str.tostring(z.lo) + "," + str.tostring(z.hi) + "," + str.tostring(z.side) + "," + str.tostring(z.mask) + "," + str.tostring(z.members) + "," + str.tostring(z.weight) + "," + str.tostring(z.strength) + "," + str.tostring(z.born)
+    s
+
+f_unpackZones(string s) =>
+    array<Zone> zones = array.new<Zone>()
+    if str.length(s) > 0
+        for rec in str.split(s, ";")
+            array<string> v = str.split(rec, ",")
+            if array.size(v) == 8
+                array.push(zones, Zone.new(f_num(v, 0), f_num(v, 1), int(f_num(v, 2)), int(f_num(v, 3)), int(f_num(v, 4)), f_num(v, 5), f_num(v, 6), int(f_num(v, 7))))
+    zones
+
+f_packRetired(array<RetiredZone> levels) =>
+    string s = ""
+    for r in levels
+        s += (s == "" ? "" : ";") + str.tostring(r.lo) + "," + str.tostring(r.hi) + "," + str.tostring(r.side) + "," + str.tostring(r.mask) + "," + str.tostring(r.strength) + "," + str.tostring(r.born) + "," + str.tostring(r.retiredAt) + "," + str.tostring(r.status)
+    s
+
+f_unpackRetired(string s) =>
+    array<RetiredZone> levels = array.new<RetiredZone>()
+    if str.length(s) > 0
+        for rec in str.split(s, ";")
+            array<string> v = str.split(rec, ",")
+            if array.size(v) == 8
+                array.push(levels, RetiredZone.new(f_num(v, 0), f_num(v, 1), int(f_num(v, 2)), int(f_num(v, 3)), f_num(v, 4), int(f_num(v, 5)), int(f_num(v, 6)), int(f_num(v, 7))))
+    levels
+
+f_frameAt(Master m, int id) =>
+    switch id
+        0 => m.d
+        1 => m.h4
+        2 => m.h1
+        3 => m.m30
+        4 => m.m15
+        5 => m.m5
+        => m.m1
+
+// Validate inputs once; chart timeframes are never used to calculate clusters.
+if barstate.isfirst
+    if na(timeframe.in_seconds()) or timeframe.in_seconds() < 60 or not chart.is_standard
+        runtime.error("Use a standard time-based chart of 1 minute or higher. Wave Court requests standard OHLC and cannot align synthetic/seconds charts safely.")
+    if not (timeframe.in_seconds(tfD) > timeframe.in_seconds(tf4) and timeframe.in_seconds(tf4) > timeframe.in_seconds(tf1) and timeframe.in_seconds(tf1) > timeframe.in_seconds(tf30) and timeframe.in_seconds(tf30) > timeframe.in_seconds(tf15) and timeframe.in_seconds(tf15) > timeframe.in_seconds(tf5) and timeframe.in_seconds(tf5) > 60)
+        runtime.error("Source timeframes must be unique and strictly descending: Daily > 4H > 1H > 30M > 15M > 5M > fixed 1M.")
+    if not (majorLen > midLen and midLen > minorLen)
+        runtime.error("Pivot strengths must satisfy major > intermediate > minor.")
+    if f_ms(f_id(coreChoice)) < f_ms(f_id(confirmChoice)) or f_ms(f_id(confirmChoice)) < f_ms(f_id(entryChoice))
+        runtime.error("Decision flow must be core >= confirmation >= precision entry timeframe.")
+    if fastLength >= slowLength
+        runtime.error("Trend EMA lengths must satisfy fast < slow.")
+    if projectionHigh < projectionLow or flatRegularMax < flatMin
+        runtime.error("Fib upper bound must exceed lower bound; regular flat maximum must exceed minimum.")
+    float totalW = 0
+    for id = 0 to 6
+        if f_use(id)
+            totalW += f_weight(id)
+    if totalW <= 0
+        runtime.error("Enable at least one positive analytical timeframe weight.")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 04 · CONFIRMED SWINGS. No speculative labels on forming pivot bars.
+// Same-side replacements improve the latest pivot but can revise candidates.
+// Dual high/low pivots are skipped because OHLC cannot order intrabar extremes.
+// ══════════════════════════════════════════════════════════════════════════════
+f_addPivot(array<Pivot> a, int t, float p, int side, int born) =>
+    bool changed = false
+    if array.size(a) == 0
+        array.push(a, Pivot.new(t, p, side, born))
+        changed := true
+    else
+        Pivot last = array.last(a)
+        if t > last.t
+            if side != last.side
+                array.push(a, Pivot.new(t, p, side, born))
+                changed := true
+            else if (side == 1 and p > last.p) or (side == -1 and p < last.p)
+                array.set(a, array.size(a) - 1, Pivot.new(t, p, side, born))
+                changed := true
+    if array.size(a) > pivotKeep
+        array.shift(a)
+    changed
+
+f_updatePivots(array<Pivot> a, int strength, float ph, float pl) =>
+    bool changed = false
+    if not na(ph) and na(pl)
+        changed := f_addPivot(a, time[strength], ph, 1, time_close)
+    else if not na(pl) and na(ph)
+        changed := f_addPivot(a, time[strength], pl, -1, time_close)
+    changed
+
+f_atPrice(array<Pivot> a, int index) =>
+    Pivot p = array.get(a, index)
+    p.p
+
+f_atTime(array<Pivot> a, int index) =>
+    Pivot p = array.get(a, index)
+    p.t
+
+f_ratioQuality(float actual, float ideal) => math.max(0.0, 1.0 - math.abs(actual - ideal) / math.max(ideal, 0.01))
+f_legCount(array<Pivot> lower, int t0, int t1) =>
+    int n = 0
+    for p in lower
+        if p.t > t0 and p.t <= t1
+            n += 1
+    n
+
+// This is a subdivision SCREEN, not a fractal proof. Finite pivot strengths
+// often omit/multiply internal turns; each qualifying leg only adds small weight.
+f_subdivisionScore(array<Pivot> a, array<Pivot> lower, int start, int n, bool motive) =>
+    int hit = 0
+    int legs = n - 1
+    if array.size(lower) > 0 and legs > 0
+        for k = 1 to legs
+            Pivot p0 = array.get(a, start + k - 1)
+            Pivot p1 = array.get(a, start + k)
+            int found = f_legCount(lower, p0.t, p1.t)
+            int expected = motive ? (k % 2 == 1 ? 5 : 3) : 3
+            if found >= expected
+                hit += 1
+    legs > 0 ? 10.0 * hit / legs : 0.0
+
+f_candidate(array<Pivot> a, array<Pivot> lower, int s, int n) =>
+    Count out = Count.new()
+    if n >= 2 and s >= 0 and s + n <= array.size(a)
+        Pivot p0 = array.get(a, s)
+        Pivot p1 = array.get(a, s + 1)
+        int dir = p1.p > p0.p ? 1 : -1
+        float q0 = dir * p0.p
+        float q1 = dir * p1.p
+        float w1 = q1 - q0
+        if w1 > tick
+            out.start := s
+            out.n := n
+            out.dir := dir
+            out.invalid := p0.p
+            out.note := "Geometry candidate; lower subdivisions provisional"
+            if n <= 5
+                float q2 = n >= 3 ? dir * f_atPrice(a, s + 2) : na
+                float q3 = n >= 4 ? dir * f_atPrice(a, s + 3) : na
+                float q4 = n >= 5 ? dir * f_atPrice(a, s + 4) : na
+                bool good2 = n < 3 or (q2 > q0 and q2 < q1)
+                bool good3 = n < 4 or q3 > q1
+                bool good4 = n < 5 or (q4 > q1 and q4 < q3)
+                if good2 and good3 and good4
+                    out.kind := "Developing impulse"
+                    out.quality := 32 + 5 * (n - 2) + f_subdivisionScore(a, lower, s, n, true)
+                    float endP = f_atPrice(a, s + n - 1)
+                    float pa = na
+                    float pb = na
+                    if n == 2
+                        pa := endP - dir * w1 * 0.618
+                        pb := endP - dir * w1 * 0.382
+                    else if n == 3
+                        pa := endP + dir * w1 * projectionLow
+                        pb := endP + dir * w1 * projectionHigh
+                    else if n == 4
+                        float w3 = q3 - q2
+                        pa := endP - dir * w3 * 0.382
+                        pb := endP - dir * w3 * 0.236
+                        out.invalid := p1.p
+                    else
+                        pa := endP + dir * w1 * 0.618
+                        pb := endP + dir * w1
+                        out.invalid := p1.p
+                    out.projLo := math.min(pa, pb)
+                    out.projHi := math.max(pa, pb)
+            if n == 6
+                float q2 = dir * f_atPrice(a, s + 2)
+                float q3 = dir * f_atPrice(a, s + 3)
+                float q4 = dir * f_atPrice(a, s + 4)
+                float q5 = dir * f_atPrice(a, s + 5)
+                float w3 = q3 - q2
+                float w5 = q5 - q4
+                bool w2OK = q2 > q0 and q2 < q1
+                bool progress = q3 > q1 and q4 < q3 and q5 > q4
+                bool thirdOK = w3 >= math.min(w1, w5)
+                bool fifthOK = allowTruncation or q5 > q3
+                bool impulseOK = w2OK and progress and thirdOK and fifthOK and q4 > q1
+                bool overlap = q4 <= q1 and q4 > q2
+                float upperSlope = (q3 - q1) / math.max(1, f_atTime(a, s + 3) - p1.t)
+                float lowerSlope = (q4 - q2) / math.max(1, f_atTime(a, s + 4) - f_atTime(a, s + 2))
+                float upperAt5 = q3 + upperSlope * (f_atTime(a, s + 5) - f_atTime(a, s + 3))
+                float lowerAt5 = q4 + lowerSlope * (f_atTime(a, s + 5) - f_atTime(a, s + 4))
+                float railGap5 = upperAt5 - lowerAt5
+                bool contracting = w3 < w1 and w5 < w3 and (q3 - q4) < (q1 - q2) and upperSlope < lowerSlope and railGap5 > 0
+                bool expanding = w3 > w1 and w5 > w3 and (q3 - q4) > (q1 - q2) and upperSlope > lowerSlope and railGap5 > 0
+                if impulseOK or (diagonals and w2OK and progress and overlap and fifthOK and (contracting or expanding))
+                    out.kind := impulseOK ? (q5 <= q3 ? "Truncated impulse" : "Impulse") : (contracting ? "Contracting diagonal" : "Expanding diagonal")
+                    float retrace2 = (q1 - q2) / w1
+                    float retrace4 = (q3 - q4) / math.max(w3, tick)
+                    out.quality := (impulseOK ? 62 : 47) + 8 * f_ratioQuality(retrace2, 0.618) + 8 * f_ratioQuality(retrace4, 0.382) + f_subdivisionScore(a, lower, s, n, impulseOK)
+                    out.note := impulseOK ? "2 origin / 3 length / 4 overlap rules pass; subdivisions screened" : "Wedge + overlap pass; leading/ending parent placement unresolved"
+                    float total = q5 - q0
+                    float pa = f_atPrice(a, s + 5) - dir * total * 0.618
+                    float pb = f_atPrice(a, s + 5) - dir * total * 0.382
+                    out.projLo := math.min(pa, pb)
+                    out.projHi := math.max(pa, pb)
+                if triangles and out.kind == "Unresolved"
+                    bool contract = q2 > q0 and q4 > q2 and q3 < q1 and q5 < q3 and q4 < q5
+                    bool expand = q2 < q0 and q4 < q2 and q3 > q1 and q5 > q3
+                    bool barrier = q2 > q0 and q4 > q2 and math.abs(q3 - q1) <= equalTicks * tick and math.abs(q5 - q3) <= equalTicks * tick and q4 < q5
+                    if contract or expand or barrier
+                        out.kind := contract ? "Contracting triangle" : expand ? "Expanding triangle" : "Barrier triangle"
+                        out.quality := 48 + f_subdivisionScore(a, lower, s, n, false)
+                        out.note := "A-B-C-D-E geometry only; 3-3-3-3-3 / parent position unresolved"
+                        out.projLo := math.min(p0.p, p1.p)
+                        out.projHi := math.max(p0.p, p1.p)
+            // ABC correction competes with a developing 1-2-3 interpretation.
+            if n == 4
+                float q2 = dir * f_atPrice(a, s + 2)
+                float q3 = dir * f_atPrice(a, s + 3)
+                float bRatio = (q1 - q2) / w1
+                float cLen = q3 - q2
+                bool zig = bRatio > 0 and bRatio < flatMin and q2 > q0 and q3 > q1
+                bool regular = bRatio >= flatMin and bRatio <= flatRegularMax and q3 >= q1 - 0.15 * w1 and cLen > 0
+                bool expanded = bRatio > flatRegularMax and q2 < q0 and q3 > q1
+                bool running = bRatio > flatRegularMax and q2 < q0 and q3 > q0 and q3 < q1 and cLen > 0
+                if zig or regular or expanded or running
+                    out.kind := zig ? "Zigzag ABC" : regular ? "Regular flat ABC" : expanded ? "Expanded flat ABC" : "Running flat ABC"
+                    out.quality := 48 + 10 * f_ratioQuality(cLen / w1, 1) + f_subdivisionScore(a, lower, s, n, false) - (running ? 8 : 0)
+                    out.note := "ABC geometry; zigzag 5-3-5 / flat 3-3-5 not certified"
+                    float endP = f_atPrice(a, s + 3)
+                    float pa = endP - dir * w1
+                    float pb = endP - dir * w1 * projectionHigh
+                    out.projLo := math.min(pa, pb)
+                    out.projHi := math.max(pa, pb)
+            out.quality := math.min(95, out.quality)
+    out
+
+f_rank(Count c, int size) =>
+    c.quality + (preference == "Recent + quality" ? 6.0 * (c.start + c.n - size) : 0.0)
+
+f_counts(array<Pivot> a, array<Pivot> lower) =>
+    Count best = Count.new()
+    Count alt = Count.new()
+    int sizeA = array.size(a)
+    if sizeA >= 2
+        int first = math.max(0, sizeA - searchWindows - 5)
+        for s = first to sizeA - 2
+            for n = 2 to 6
+                if s + n <= sizeA and sizeA - (s + n) <= searchWindows - 1
+                    Count c = f_candidate(a, lower, s, n)
+                    if c.kind != "Unresolved"
+                        float rankC = f_rank(c, sizeA)
+                        if best.kind == "Unresolved" or rankC > f_rank(best, sizeA)
+                            alt := best
+                            best := c
+                        else if (alt.kind == "Unresolved" or rankC > f_rank(alt, sizeA)) and (c.start != best.start or c.n != best.n or c.kind != best.kind)
+                            alt := c
+        // Same anchors can validly have a 1-2-3 motive alternate to ABC.
+        if best.n == 4 and str.contains(best.kind, "ABC")
+            Count motive = f_candidate(a, lower, best.start, 3)
+            Pivot endpoint = array.get(a, best.start + 3)
+            if motive.kind != "Unresolved" and best.dir * endpoint.p > best.dir * f_atPrice(a, best.start + 1)
+                motive.kind := "Developing impulse"
+                motive.n := 4
+                motive.quality := math.max(30, best.quality - 5)
+                float w3 = math.abs(endpoint.p - f_atPrice(a, best.start + 2))
+                float pa = endpoint.p - best.dir * w3 * 0.382
+                float pb = endpoint.p - best.dir * w3 * 0.236
+                motive.projLo := math.min(pa, pb)
+                motive.projHi := math.max(pa, pb)
+                motive.invalid := f_atPrice(a, best.start + 1)
+                motive.note := "Alternate 1-2-3; future 4 must preserve wave-1 non-overlap"
+                alt := motive
+        if complexABC and best.n == 4 and str.contains(best.kind, "ABC")
+            Count complex = Count.new("W-X-Y geometry", best.start, best.n, best.dir, math.max(20, best.quality - 15), best.projLo, best.projHi, best.invalid, "Component corrections / internals unresolved")
+            if alt.kind == "Unresolved" or f_rank(complex, sizeA) > f_rank(alt, sizeA)
+                alt := complex
+    [best, alt]
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 05 · SOURCE-TIMEFRAME ENGINE. Executed independently in seven source contexts.
+// ══════════════════════════════════════════════════════════════════════════════
+f_addPool(array<Pool> pools, int tfId, int strength, float p, int side, bool external) =>
+    string kind = side == 1 ? (external ? "BSL EXT" : "BSL") : (external ? "SSL EXT" : "SSL")
+    bool duplicate = false
+    if array.size(pools) > 0
+        for old in pools
+            if old.side == side and old.t == time[strength] and math.abs(old.p - p) <= tick * 0.5
+                duplicate := true
+                if external
+                    old.kind := kind
+            else if not external and old.side == side and not old.taken and math.abs(old.p - p) <= equalTicks * tick
+                kind := side == 1 ? "EQH" : "EQL"
+    if not duplicate
+        array.push(pools, Pool.new(time[strength], time_close, p, side, tfId, kind, bar_index - strength, false))
+    // Make room by removing the oldest consumed pool first. An old unbroken
+    // external level must not disappear just because newer short pivots formed.
+    int keepCap = tfId >= 2 and tfId <= 4 ? liqKeep : math.min(liqKeep, 10)
+    while array.size(pools) > keepCap
+        int dropIndex = -1
+        for j = 0 to array.size(pools) - 1
+            Pool candidate = array.get(pools, j)
+            if candidate.taken
+                dropIndex := j
+                break
+        array.remove(pools, dropIndex >= 0 ? dropIndex : 0)
+    true
+
+// Compact liquidity state remains local to each source execution context.
+f_liquidity(int tfId) =>
+    var array<Pool> pools = array.new<Pool>()
+    float phLiq = ta.pivothigh(high, liqLen, liqLen)
+    float plLiq = ta.pivotlow(low, liqLen, liqLen)
+    float phExt = ta.pivothigh(high, liqExternalLen, liqExternalLen)
+    float plExt = ta.pivotlow(low, liqExternalLen, liqExternalLen)
+    if array.size(pools) > 0
+        for i = array.size(pools) - 1 to 0
+            Pool p = array.get(pools, i)
+            if bar_index - p.age > liqAge
+                array.remove(pools, i)
+            else if time_close > p.born
+                bool touched = p.side == 1 ? (consumption == "Wick touch" ? high >= p.p : close > p.p) : (consumption == "Wick touch" ? low <= p.p : close < p.p)
+                if touched and not p.taken
+                    p.taken := true
+                    p.takenAt := time_close
+                    p.breakStatus := p.side == 1 ? (close > p.p ? 1 : 0) : (close < p.p ? 1 : 0)
+    // A large outside bar can confirm both sides on the same source bar.
+    if not na(phLiq)
+        f_addPool(pools, tfId, liqLen, phLiq, 1, false)
+    if not na(plLiq)
+        f_addPool(pools, tfId, liqLen, plLiq, -1, false)
+    if liqExternal and not na(phExt)
+        f_addPool(pools, tfId, liqExternalLen, phExt, 1, true)
+    if liqExternal and not na(plExt)
+        f_addPool(pools, tfId, liqExternalLen, plExt, -1, true)
+    f_packPools(pools)
+
+// Ten primitive tuple values cross each HTF→1M request; no nested Count/Frame.
+f_marketSource(int tfId, bool confirmed) =>
+    string poolText = f_liquidity(tfId)
+    float fast = ta.ema(close, fastLength)
+    float slow = ta.ema(close, slowLength)
+    float atr = ta.atr(atrLength)
+    int trend = close > slow and fast > slow ? 1 : close < slow and fast < slow ? -1 : 0
+    if confirmed
+        [time_close[1], open[1], high[1], low[1], close[1], atr[1], trend[1], poolText[1], bar_index[1] + 1, time[1]]
+    else
+        [time_close, open, high, low, close, atr, trend, poolText, bar_index + 1, time]
+
+f_leanFrame(int cutoff, float o, float h, float l, float c, float atr, int trend, string pools, int bars, int opened) =>
+    Frame result = na
+    if not na(cutoff)
+        result := Frame.new(cutoff, o, h, l, c, atr, trend, "", "", "", na, na, na, na, na, na, pools, bars, opened)
+    result
+
+f_source(int tfId) =>
+    var array<Pivot> major = array.new<Pivot>()
+    var array<Pivot> middle = array.new<Pivot>()
+    var array<Pivot> minor = array.new<Pivot>()
+    var Count cp = Count.new()
+    var Count ca = Count.new()
+    var Count ip = Count.new()
+    var Count ia = Count.new()
+    var Count mp = Count.new()
+    var Count ma = Count.new()
+    var string majorS = ""
+    var string midS = ""
+    var string minorS = ""
+    float phMajor = ta.pivothigh(high, majorLen, majorLen)
+    float plMajor = ta.pivotlow(low, majorLen, majorLen)
+    float phMid = ta.pivothigh(high, midLen, midLen)
+    float plMid = ta.pivotlow(low, midLen, midLen)
+    float phMinor = ta.pivothigh(high, minorLen, minorLen)
+    float plMinor = ta.pivotlow(low, minorLen, minorLen)
+    bool majorChanged = f_updatePivots(major, majorLen, phMajor, plMajor)
+    bool midChanged = f_updatePivots(middle, midLen, phMid, plMid)
+    bool minorChanged = f_updatePivots(minor, minorLen, phMinor, plMinor)
+    if majorChanged or midChanged
+        [a, b] = f_counts(major, middle)
+        cp := a
+        ca := b
+        majorS := f_packPivots(major)
+    if midChanged or minorChanged
+        [a, b] = f_counts(middle, minor)
+        ip := a
+        ia := b
+        midS := f_packPivots(middle)
+    if minorChanged
+        [a, b] = f_counts(minor, array.new<Pivot>())
+        mp := a
+        ma := b
+        minorS := f_packPivots(minor)
+    float fast = ta.ema(close, fastLength)
+    float slow = ta.ema(close, slowLength)
+    float atr = ta.atr(atrLength)
+    int trend = close > slow and fast > slow ? 1 : close < slow and fast < slow ? -1 : 0
+    Frame.new(time_close, open, high, low, close, atr, trend, majorS, midS, minorS, cp, ca, ip, ia, mp, ma, "", bar_index + 1, time)
+
+// Large wave snapshots are strings returned only for the latest two source
+// bars. Two bars cover the confirmed [1] offset on open AND closed markets.
+// All pivot/count calculations still run inside their own source context.
+f_packCount(Count c) =>
+    c.kind + "~" + str.tostring(c.start) + "~" + str.tostring(c.n) + "~" + str.tostring(c.dir) + "~" + str.tostring(c.quality) + "~" + str.tostring(c.projLo) + "~" + str.tostring(c.projHi) + "~" + str.tostring(c.invalid) + "~" + c.note
+
+f_unpackCount(string textValue) =>
+    array<string> v = str.split(textValue, "~")
+    Count c = Count.new()
+    if array.size(v) == 9
+        c := Count.new(array.get(v, 0), int(f_num(v, 1)), int(f_num(v, 2)), int(f_num(v, 3)), f_num(v, 4), f_num(v, 5), f_num(v, 6), f_num(v, 7), array.get(v, 8))
+    c
+
+f_packFrame(Frame f) =>
+    string result = ""
+    if not na(f)
+        string meta = str.tostring(f.cutoff) + "," + str.tostring(f.o) + "," + str.tostring(f.h) + "," + str.tostring(f.l) + "," + str.tostring(f.c) + "," + str.tostring(f.atr) + "," + str.tostring(f.trend) + "," + str.tostring(f.bars) + "," + str.tostring(f.opened)
+        result := meta + "#" + f.major + "#" + f.mid + "#" + f.minor + "#" + f_packCount(f.cp) + "#" + f_packCount(f.ca) + "#" + f_packCount(f.ip) + "#" + f_packCount(f.ia) + "#" + f_packCount(f.mp) + "#" + f_packCount(f.ma)
+    result
+
+f_unpackFrame(string packed, int cutoffLimit) =>
+    Frame result = na
+    if not na(packed) and str.length(packed) > 0
+        array<string> fields = str.split(packed, "#")
+        if array.size(fields) == 10
+            array<string> meta = str.split(array.get(fields, 0), ",")
+            if array.size(meta) == 9
+                int cutoff = int(f_num(meta, 0))
+                if not na(cutoffLimit) and cutoff <= cutoffLimit
+                    result := Frame.new(cutoff, f_num(meta, 1), f_num(meta, 2), f_num(meta, 3), f_num(meta, 4), f_num(meta, 5), int(f_num(meta, 6)), array.get(fields, 1), array.get(fields, 2), array.get(fields, 3), f_unpackCount(array.get(fields, 4)), f_unpackCount(array.get(fields, 5)), f_unpackCount(array.get(fields, 6)), f_unpackCount(array.get(fields, 7)), f_unpackCount(array.get(fields, 8)), f_unpackCount(array.get(fields, 9)), "", int(f_num(meta, 7)), int(f_num(meta, 8)))
+    result
+
+f_waveSnapshot(int tfId) =>
+    Frame current = f_source(tfId)
+    Frame completed = current[1]
+    bool latest = barstate.islast or barstate.islastconfirmedhistory or bar_index >= last_bar_index - 1
+    latest ? f_packFrame(completed) : ""
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOCAL MICRO STRUCTURE. Chart-timeframe OHLC only; no new security request.
+// Pivot price is displayed at its pivot bar AFTER right-side confirmation.
+// Later retests/repeated levels can strengthen the present-day reading of an
+// older mark. This is not a historical entry signal or the frozen-plan stop.
+// ══════════════════════════════════════════════════════════════════════════════
+var array<StructureTag> structureTags = array.new<StructureTag>()
+
+f_structureScore(StructureTag tag) =>
+    math.min(100.0, 20.0 + math.min(45.0, tag.reactionATR * structureReactionWeight) + math.min(24.0, tag.neighbors * structureRepeatWeight) + math.min(16.0, tag.retests * structureRetestWeight))
+
+f_structureAdd(float pivotPrice, int side, float reactionATR, int pivotDepth, int repeatSeed) =>
+    if not na(pivotPrice) and not na(reactionATR) and (structureDetector != "Reaction pivots" or reactionATR >= structureMinReaction)
+        int pivotBar = bar_index - pivotDepth
+        bool spaced = true
+        if array.size(structureTags) > 0
+            for j = 0 to array.size(structureTags) - 1
+                StructureTag old = array.get(structureTags, j)
+                if old.side == side and pivotBar - old.pivotBar < structureMinGap
+                    spaced := false
+        if spaced
+            int neighbors = repeatSeed
+            if array.size(structureTags) > 0
+                for j = 0 to array.size(structureTags) - 1
+                    StructureTag old = array.get(structureTags, j)
+                    bool nearby = old.side == side and not old.broken and pivotBar - old.pivotBar <= structureMaxAge and math.abs(old.p - pivotPrice) <= structureNearTicks * tick
+                    if nearby
+                        neighbors += 1
+                        old.neighbors := math.min(2, old.neighbors + 1)
+                        array.set(structureTags, j, old)
+            array.push(structureTags, StructureTag.new(time[pivotDepth], pivotBar, bar_index, pivotPrice, side, reactionATR, math.min(2, neighbors), 0, bar_index, false))
+            if array.size(structureTags) > structureKeep
+                array.shift(structureTags)
+    true
+
+f_structureUpdate() =>
+    if array.size(structureTags) > 0
+        for j = 0 to array.size(structureTags) - 1
+            StructureTag tag = array.get(structureTags, j)
+            if not tag.broken and bar_index > tag.confirmedBar
+                bool crossed = tag.side == 1 ? close > tag.p + structureBreakTicks * tick : close < tag.p - structureBreakTicks * tick
+                if crossed
+                    tag.broken := true
+                else
+                    bool touched = high >= tag.p - structureNearTicks * tick and low <= tag.p + structureNearTicks * tick
+                    bool defended = tag.side == 1 ? close < tag.p : close > tag.p
+                    if touched and defended and bar_index - tag.lastRetestBar >= structureRetestGap
+                        tag.retests := math.min(2, tag.retests + 1)
+                        tag.lastRetestBar := bar_index
+                array.set(structureTags, j, tag)
+    true
+
+f_structureNearest(float price, int side) =>
+    float level = na
+    float score = na
+    if array.size(structureTags) > 0
+        for tag in structureTags
+            bool eligible = not tag.broken and bar_index - tag.pivotBar <= structureMaxAge and f_structureScore(tag) >= structureMinDisplay and (side == -1 ? tag.p < price : tag.p > price)
+            if eligible and (na(level) or (side == -1 ? tag.p > level : tag.p < level))
+                level := tag.p
+                score := f_structureScore(tag)
+    [level, score]
+
+f_structureCounts() =>
+    int eligible = 0
+    int active = 0
+    if array.size(structureTags) > 0
+        for tag in structureTags
+            bool inScope = bar_index - tag.pivotBar <= structureMaxAge and f_structureScore(tag) >= structureMinDisplay
+            if inScope and not tag.broken
+                active += 1
+            if showStructure and inScope and (structureShowBroken or not tag.broken)
+                eligible += 1
+    [eligible, active]
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 06 · CONFLUENCE. Sort by side/price; bounded TOTAL span, unique TF weight.
+// No chained gaps, duplicated same-TF votes, or chart-timeframe ATR leakage.
+// ══════════════════════════════════════════════════════════════════════════════
+f_sortPools(array<Pool> a) =>
+    int n = array.size(a)
+    if n > 1
+        for i = 1 to n - 1
+            Pool key = array.get(a, i)
+            int j = i - 1
+            while j >= 0
+                Pool current = array.get(a, j)
+                bool move = current.side > key.side or (current.side == key.side and current.p > key.p)
+                if not move
+                    break
+                array.set(a, j + 1, current)
+                j -= 1
+            array.set(a, j + 1, key)
+    n
+
+f_cluster(array<Pool> pools, float maxSpan, float denominator) =>
+    array<Zone> zones = array.new<Zone>()
+    array<Pool> active = array.new<Pool>()
+    for p in pools
+        if not p.taken and f_use(p.tf) and f_weight(p.tf) > 0
+            array.push(active, p)
+    f_sortPools(active)
+    int i = 0
+    while i < array.size(active)
+        Pool first = array.get(active, i)
+        float lo = first.p
+        float hi = first.p
+        int mask = 0
+        float w = 0
+        int born = first.born
+        int j = i
+        while j < array.size(active)
+            Pool next = array.get(active, j)
+            if next.side != first.side or next.p - lo > maxSpan
+                break
+            hi := next.p
+            born := math.max(born, next.born)
+            if not f_has(mask, next.tf)
+                mask += f_bit(next.tf)
+                w += f_weight(next.tf)
+            j += 1
+        int members = f_members(mask)
+        float strength = denominator > 0 ? 100 * w / denominator : 0
+        if members >= minFrames and strength >= minStrength and (not requireHTF or f_has(mask, 0) or f_has(mask, 1))
+            array.push(zones, Zone.new(lo, hi, first.side, mask, members, w, strength, born))
+        i := j
+    zones
+
+f_nearestZone(array<Zone> zones, float price, int side) =>
+    Zone found = na
+    float best = 1e20
+    for z in zones
+        bool relevant = z.side == side and (side == 1 ? z.hi > price : z.lo < price)
+        float distance = side == 1 ? math.max(0, z.lo - price) : math.max(0, price - z.hi)
+        if relevant and distance < best
+            found := z
+            best := distance
+    found
+
+f_target(array<Pool> pools, float entry, int dir, float zoneLo, float zoneHi) =>
+    float target = na
+    int coreId = f_id(coreChoice)
+    for p in pools
+        bool eligible = not p.taken and f_use(p.tf) and (targetScope == "All active frames" or p.tf <= coreId)
+        bool opposite = dir == 1 ? p.side == 1 and p.p > entry and p.p > zoneHi : p.side == -1 and p.p < entry and p.p < zoneLo
+        if eligible and opposite
+            if na(target) or (dir == 1 ? p.p < target : p.p > target)
+                target := p.p
+    target
+
+f_start(Zone z, int dir, string mode, float extreme, int stamp) =>
+    Plan.new(1, dir, mode, z.lo, z.hi, z.mask, z.strength, extreme, stamp, na, na, na, na, na, na, na, na, na, "Waiting for a completed core close")
+
+f_stop(Plan p) => p.dir == 1 ? f_roundDown(math.min(p.lo, p.extreme) - stopBuffer * tick) : f_roundUp(math.max(p.hi, p.extreme) + stopBuffer * tick)
+f_stage(int stage) =>
+    switch stage
+        0 => "SCAN"
+        1 => "CORE GATE"
+        2 => "CONFIRM RETEST"
+        3 => "PRECISION RETEST"
+        4 => "REFERENCE QUALIFIED"
+        5 => "TARGET TOUCHED"
+        6 => "STOP TOUCHED"
+        7 => "BOTH TOUCHED · ORDER UNKNOWN"
+        8 => "CANCELLED / EXPIRED"
+        => "UNRESOLVED"
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 07 · CANONICAL 1M MASTER + CAUSAL DECISION STATE MACHINE.
+// Six nested HTF requests use [1] + lookahead_on. Local 1M is shifted at output.
+// Only the master owns consumption, zones, watch snapshots and plan lifecycle.
+// ══════════════════════════════════════════════════════════════════════════════
+f_master() =>
+    [dCut, dO, dH, dL, dC, dATR, dTrend, dPools, dBars, dOpen] = request.security(sourceId, tfD, f_marketSource(0, true), lookahead = barmerge.lookahead_on, calc_bars_count = sourceBars)
+    Frame d = f_leanFrame(dCut, dO, dH, dL, dC, dATR, dTrend, dPools, dBars, dOpen)
+    [h4Cut, h4O, h4H, h4L, h4C, h4ATR, h4Trend, h4Pools, h4Bars, h4Open] = request.security(sourceId, tf4, f_marketSource(1, true), lookahead = barmerge.lookahead_on, calc_bars_count = sourceBars)
+    Frame h4 = f_leanFrame(h4Cut, h4O, h4H, h4L, h4C, h4ATR, h4Trend, h4Pools, h4Bars, h4Open)
+    [h1Cut, h1O, h1H, h1L, h1C, h1ATR, h1Trend, h1Pools, h1Bars, h1Open] = request.security(sourceId, tf1, f_marketSource(2, true), lookahead = barmerge.lookahead_on, calc_bars_count = sourceBars)
+    Frame h1 = f_leanFrame(h1Cut, h1O, h1H, h1L, h1C, h1ATR, h1Trend, h1Pools, h1Bars, h1Open)
+    [m30Cut, m30O, m30H, m30L, m30C, m30ATR, m30Trend, m30Pools, m30Bars, m30Open] = request.security(sourceId, tf30, f_marketSource(3, true), lookahead = barmerge.lookahead_on, calc_bars_count = math.max(sourceBars, liqLowerHistory))
+    Frame m30 = f_leanFrame(m30Cut, m30O, m30H, m30L, m30C, m30ATR, m30Trend, m30Pools, m30Bars, m30Open)
+    [m15Cut, m15O, m15H, m15L, m15C, m15ATR, m15Trend, m15Pools, m15Bars, m15Open] = request.security(sourceId, tf15, f_marketSource(4, true), lookahead = barmerge.lookahead_on, calc_bars_count = math.max(sourceBars, liqLowerHistory))
+    Frame m15 = f_leanFrame(m15Cut, m15O, m15H, m15L, m15C, m15ATR, m15Trend, m15Pools, m15Bars, m15Open)
+    [m5Cut, m5O, m5H, m5L, m5C, m5ATR, m5Trend, m5Pools, m5Bars, m5Open] = request.security(sourceId, tf5, f_marketSource(5, true), lookahead = barmerge.lookahead_on, calc_bars_count = sourceBars)
+    Frame m5 = f_leanFrame(m5Cut, m5O, m5H, m5L, m5C, m5ATR, m5Trend, m5Pools, m5Bars, m5Open)
+    [m1Cut, m1O, m1H, m1L, m1C, m1ATR, m1Trend, m1Pools, m1Bars, m1Open] = f_marketSource(6, false)
+    Frame m1 = f_leanFrame(m1Cut, m1O, m1H, m1L, m1C, m1ATR, m1Trend, m1Pools, m1Bars, m1Open)
+    Master frames = Master.new(d, h4, h1, m30, m15, m5, m1)
+    Frame core = f_frameAt(frames, f_id(coreChoice))
+    Frame confirm = f_frameAt(frames, f_id(confirmChoice))
+    Frame precision = f_frameAt(frames, f_id(entryChoice))
+    Frame context = f_frameAt(frames, f_id(filterChoice))
+    var map<string, int> taken = map.new<string, int>()
+    var array<string> takenOrder = array.new<string>()
+    var Zone watchUpper = na
+    var Zone watchLower = na
+    var Plan plan = Plan.new()
+    var int eventSeq = 0
+    var string eventKind = ""
+    var int eventTime = na
+    var int age = 0
+    var int epoch = na
+    if na(epoch)
+        epoch := time
+    var int lastCore = na
+    var int lastConfirm = na
+    var int lastPrecision = na
+    // Display ledger only. The decision engine continues to use current zones.
+    var array<Zone> priorZones = array.new<Zone>()
+    var array<RetiredZone> retiredZones = array.new<RetiredZone>()
+    age += 1
+    array<Pool> raw = array.new<Pool>()
+    float denominator = 0
+    for id = 0 to 6
+        Frame f = f_frameAt(frames, id)
+        if f_use(id)
+            denominator += f_weight(id)
+            if not na(f)
+                f_appendPools(raw, f.pools)
+    // Taken registry prevents a stale HTF packet resurrecting a pool after 1M touch.
+    for p in raw
+        string key = f_poolKey(p)
+        bool already = map.contains(taken, key)
+        bool touched = time_close > p.born and (p.side == 1 ? (consumption == "Wick touch" ? high >= p.p : close > p.p) : (consumption == "Wick touch" ? low <= p.p : close < p.p))
+        if p.taken or touched or already
+            p.taken := true
+            if not already
+                bool closedBeyond = p.side == 1 ? close > p.p : close < p.p
+                int firstObserved = p.takenAt > 0 ? p.takenAt : time_close
+                int firstStatus = p.takenAt > 0 ? p.breakStatus : (closedBeyond ? 1 : 0)
+                map.put(taken, key, firstStatus == 1 ? firstObserved : -firstObserved)
+                array.push(takenOrder, key)
+            int recorded = map.get(taken, key)
+            p.takenAt := math.abs(recorded)
+            p.breakStatus := recorded > 0 ? 1 : 0
+    // Prune unreferenced retired keys; rotate protected keys instead of letting
+    // one old Daily pool block the whole queue. Up to 112 default source pools exist.
+    if array.size(takenOrder) > 4096
+        for prune = 0 to 127
+            if array.size(takenOrder) <= 4096
+                break
+            string oldest = array.shift(takenOrder)
+            bool referenced = false
+            for p in raw
+                if f_poolKey(p) == oldest
+                    referenced := true
+            if referenced
+                array.push(takenOrder, oldest)
+            else
+                map.remove(taken, oldest)
+    float span = spanMode == "Fixed ticks" ? clusterTicks * tick : not na(core) and not na(core.atr) ? core.atr * clusterATR : clusterTicks * tick
+    array<Zone> zones = f_cluster(raw, span, denominator)
+    // A zone is retired only when its former range disappears AND the completed
+    // master bar actually touches it. A far-edge close is BROKEN; a wick-only
+    // consumption is SWEPT. Mere re-clustering or age-out is not a break.
+    for old in priorZones
+        bool continued = false
+        for current in zones
+            if current.side == old.side and current.mask == old.mask and math.abs(current.lo - old.lo) <= tick / 2 and math.abs(current.hi - old.hi) <= tick / 2
+                continued := true
+                break
+        bool touched = time_close > old.born and (old.side == 1 ? high >= old.lo : low <= old.hi)
+        if not continued and touched
+            bool passed = old.side == 1 ? close > old.hi : close < old.lo
+            array.push(retiredZones, RetiredZone.new(old.lo, old.hi, old.side, old.mask, old.strength, old.born, time_close, passed ? 1 : 0))
+            if array.size(retiredZones) > 16
+                array.shift(retiredZones)
+    priorZones := zones
+    string event = ""
+    bool newCore = not na(core) and (na(lastCore) or core.cutoff > lastCore)
+    bool newConfirm = not na(confirm) and (na(lastConfirm) or confirm.cutoff > lastConfirm)
+    bool newPrecision = not na(precision) and (na(lastPrecision) or precision.cutoff > lastPrecision)
+    bool contextReady = not na(context)
+    // Historical watch zones were recorded BEFORE this bar consumes their pools.
+    if enableDecision and plan.stage == 0 and not na(core) and contextReady
+        bool sweepUpper = not na(watchUpper) and time_close > watchUpper.born and high > watchUpper.hi
+        bool sweepLower = not na(watchLower) and time_close > watchLower.born and low < watchLower.lo
+        bool dualSweep = sweepUpper and sweepLower
+        if dualSweep
+            event := "dual_sweep_unresolved"
+        else if sweepUpper and (allowCounter or context.trend <= 0)
+            plan := f_start(watchUpper, -1, "BSL rejection short", high, time_close)
+            event := "sweep_short"
+        else if sweepLower and (allowCounter or context.trend >= 0)
+            plan := f_start(watchLower, 1, "SSL reclaim long", low, time_close)
+            event := "sweep_long"
+        else if allowContinuation and newCore
+            if not na(watchLower) and core.cutoff > watchLower.born and core.c < watchLower.lo and (allowCounter or context.trend <= 0)
+                plan := f_start(watchLower, -1, "SSL breakdown short", math.max(watchLower.hi, core.h), core.cutoff)
+                plan.stage := 2
+                plan.gateAt := core.cutoff
+                plan.reason := "Core breakdown; wait for later confirmation retest"
+                event := "core_breakdown"
+            else if not na(watchUpper) and core.cutoff > watchUpper.born and core.c > watchUpper.hi and (allowCounter or context.trend >= 0)
+                plan := f_start(watchUpper, 1, "BSL breakout long", math.min(watchUpper.lo, core.l), core.cutoff)
+                plan.stage := 2
+                plan.gateAt := core.cutoff
+                plan.reason := "Core breakout; wait for later confirmation retest"
+                event := "core_breakout"
+    // Track observed extreme before freezing the reference plan.
+    if plan.stage >= 1 and plan.stage <= 3
+        plan.extreme := plan.dir == 1 ? math.min(plan.extreme, low) : math.max(plan.extreme, high)
+        bool expired = time_close - plan.started > setupLife * f_ms(f_id(coreChoice))
+        if expired
+            plan.stage := 8
+            plan.resolvedAt := time_close
+            plan.reason := "No qualified precision retest before setup expiry"
+            event := "setup_expired"
+        else
+            // A swept SSL can develop into continuation instead of reclaiming.
+            // Switch direction only on a completed core close, before qualification.
+            if plan.stage == 1 and allowContinuation and newCore and core.cutoff >= plan.started
+                bool downContinuation = plan.dir == 1 and str.contains(plan.mode, "SSL") and core.c < plan.lo and (allowCounter or context.trend <= 0)
+                bool upContinuation = plan.dir == -1 and str.contains(plan.mode, "BSL") and core.c > plan.hi and (allowCounter or context.trend >= 0)
+                if downContinuation or upContinuation
+                    plan.dir := downContinuation ? -1 : 1
+                    plan.mode := downContinuation ? "SSL breakdown short" : "BSL breakout long"
+                    plan.extreme := downContinuation ? math.max(plan.hi, core.h) : math.min(plan.lo, core.l)
+                    plan.stage := 2
+                    plan.gateAt := core.cutoff
+                    plan.reason := "Sweep converted to core continuation; wait for later confirmation retest"
+                    event := downContinuation ? "core_breakdown" : "core_breakout"
+            if plan.stage == 1 and newCore and core.cutoff >= plan.started
+                bool gate = plan.dir == 1 ? core.c > plan.hi : core.c < plan.lo
+                if gate
+                    plan.stage := 2
+                    plan.gateAt := core.cutoff
+                    plan.reason := "Core close accepted; wait for later confirmation retest"
+                    event := "core_gate"
+            // Failed opposite close after confirmation invalidates the retest premise.
+            if plan.stage >= 2 and plan.stage <= 3 and newConfirm and confirm.cutoff > plan.gateAt
+                bool failed = plan.dir == 1 ? confirm.c < plan.lo : confirm.c > plan.hi
+                if failed
+                    plan.stage := 8
+                    plan.resolvedAt := time_close
+                    plan.reason := "Confirmation closed through the far side; setup invalidated"
+                    event := "setup_cancelled"
+            if plan.stage == 2 and newConfirm and confirm.cutoff > plan.gateAt and confirm.opened >= plan.gateAt
+                bool retest = plan.dir == 1 ? confirm.l <= plan.hi and confirm.c > plan.hi : confirm.h >= plan.lo and confirm.c < plan.lo
+                if retest
+                    plan.stage := 3
+                    plan.confirmAt := confirm.cutoff
+                    plan.reason := "Confirmation retest accepted; wait for precision retest"
+                    event := "confirmation_gate"
+            if plan.stage == 3 and newPrecision and precision.cutoff > plan.confirmAt and precision.opened >= plan.confirmAt
+                // A closer entry may close inside the band after the parent rejected it.
+                bool touch = precision.h >= plan.lo and precision.l <= plan.hi
+                bool direction = plan.dir == 1 ? precision.c > precision.o and precision.c > plan.lo : precision.c < precision.o and precision.c < plan.hi
+                if touch and direction
+                    plan.entry := precision.c
+                    plan.sl := f_stop(plan)
+                    plan.risk := math.abs(plan.entry - plan.sl) / tick
+                    plan.tp := f_target(raw, plan.entry, plan.dir, plan.lo, plan.hi)
+                    plan.rr := not na(plan.tp) and plan.risk > 0 ? math.abs(plan.tp - plan.entry) / (plan.risk * tick) : na
+                    bool correctSide = plan.dir == 1 ? plan.sl < plan.entry : plan.sl > plan.entry
+                    bool withinCap = plan.risk <= maxRisk or allowWider
+                    bool targetOK = not na(plan.tp) and (minRR == 0 or plan.rr >= minRR)
+                    if correctSide and withinCap and targetOK
+                        plan.stage := 4
+                        plan.entryAt := time_close
+                        plan.reason := plan.risk > maxRisk ? "Wider stop permitted: zone edge / observed wick + buffer" : "Conditional reference qualified; stop beyond structure; opposite liquidity target"
+                        event := "reference_qualified"
+                    else if not withinCap
+                        plan.reason := "OVER CAP: zone edge / observed wick + buffer needs " + str.tostring(plan.risk, "#.0") + " ticks; wait for closer confirmed retest"
+                        event := "over_cap"
+                    else if na(plan.tp)
+                        plan.reason := "No active opposite-side pool outside setup zone; no reference qualified"
+                        event := "target_unavailable"
+                    else
+                        plan.reason := "Reference fails stop direction or minimum reward/risk"
+                        event := "risk_filter"
+    // Reprice an unqualified reference when an observed wick extends. The stop
+    // freezes only at stage 4; it must not remain stale during an over-cap wait.
+    if plan.stage >= 1 and plan.stage <= 3 and not na(plan.entry)
+        plan.sl := f_stop(plan)
+        plan.risk := math.abs(plan.entry - plan.sl) / tick
+        plan.tp := f_target(raw, plan.entry, plan.dir, plan.lo, plan.hi)
+        plan.rr := not na(plan.tp) and plan.risk > 0 ? math.abs(plan.tp - plan.entry) / (plan.risk * tick) : na
+        if plan.risk > maxRisk and not allowWider
+            plan.reason := "OVER CAP: zone edge / observed wick + buffer needs " + str.tostring(plan.risk, "#.0") + " ticks; wait for closer confirmed retest"
+    if plan.stage == 4 and time_close > plan.entryAt
+        bool slHit = plan.dir == 1 ? low <= plan.sl : high >= plan.sl
+        bool tpHit = plan.dir == 1 ? high >= plan.tp : low <= plan.tp
+        if slHit or tpHit
+            plan.stage := slHit and tpHit ? 7 : tpHit ? 5 : 6
+            plan.resolvedAt := time_close
+            plan.reason := slHit and tpHit ? "Both touched in one completed 1M bar; ordering and fills unknown" : "Reference level touched; this is not a fill or performance result"
+            event := slHit and tpHit ? "both_touched_unknown" : tpHit ? "target_touched" : "stop_touched"
+    if plan.stage >= 5 and not na(plan.resolvedAt) and time_close - plan.resolvedAt > resultHold * 60000
+        plan := Plan.new()
+    if plan.stage == 0
+        watchUpper := f_nearestZone(zones, close, 1)
+        watchLower := f_nearestZone(zones, close, -1)
+    if event != ""
+        eventSeq += 1
+        eventKind := event
+        eventTime := time_close
+    if newCore
+        lastCore := core.cutoff
+    if newConfirm
+        lastConfirm := confirm.cutoff
+    if newPrecision
+        lastPrecision := precision.cutoff
+    // Detailed display snapshots are not exported across all historical bars.
+    bool latest = barstate.islast or barstate.islastconfirmedhistory or bar_index >= last_bar_index - 1
+    string rawView = latest ? f_packDisplayPools(raw) : ""
+    string zoneView = latest ? f_packZones(zones) : ""
+    string retiredView = latest ? f_packRetired(retiredZones) : ""
+    [rawView, zoneView, plan.stage, plan.dir, plan.mode, plan.lo, plan.hi, plan.mask, plan.strength, plan.extreme, plan.started, plan.gateAt, plan.confirmAt, plan.entryAt, plan.resolvedAt, plan.entry, plan.sl, plan.tp, plan.risk, plan.rr, plan.reason, time_close, eventSeq, eventKind, eventTime, age, epoch, not na(core) ? core.trend : 0, close, retiredView]
+
+f_confirmedMaster() =>
+    [rawView, zoneView, stage, dir, mode, lo, hi, mask, strength, extreme, started, gateAt, confirmAt, entryAt, resolvedAt, entry, sl, tp, risk, rr, reason, asof, seq, kind, eventAt, age, epoch, coreTrend, price, retiredView] = f_master()
+    [rawView[1], zoneView[1], stage[1], dir[1], mode[1], lo[1], hi[1], mask[1], strength[1], extreme[1], started[1], gateAt[1], confirmAt[1], entryAt[1], resolvedAt[1], entry[1], sl[1], tp[1], risk[1], rr[1], reason[1], asof[1], seq[1], kind[1], eventAt[1], age[1], epoch[1], coreTrend[1], price[1], retiredView[1]]
+
+// The master returns primitive series only (30 tuple elements); no Master,
+// Frame, Count, array or map crosses any request.security() boundary.
+[sRawView, sZoneView, sStage, sDir, sMode, sLo, sHi, sMask, sStrength, sExtreme, sStarted, sGateAt, sConfirmAt, sEntryAt, sResolvedAt, sEntry, sSl, sTp, sRisk, sRr, sReason, sAsof, sSeq, sKind, sEventAt, sAge, sEpoch, sCoreTrend, sPrice, sRetiredView] = request.security(sourceId, "1", f_confirmedMaster(), lookahead = barmerge.lookahead_off, calc_bars_count = masterBars)
+
+// Seven latest-only wave snapshots are independent of the decision transport.
+// HTFs use a confirmed value with lookahead_on; LTFs use lookahead_off sampling.
+string dWave = request.security(sourceId, tfD, f_waveSnapshot(0), lookahead = timeframe.in_seconds(tfD) > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+string h4Wave = request.security(sourceId, tf4, f_waveSnapshot(1), lookahead = timeframe.in_seconds(tf4) > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+string h1Wave = request.security(sourceId, tf1, f_waveSnapshot(2), lookahead = timeframe.in_seconds(tf1) > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+string m30Wave = request.security(sourceId, tf30, f_waveSnapshot(3), lookahead = timeframe.in_seconds(tf30) > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+string m15Wave = request.security(sourceId, tf15, f_waveSnapshot(4), lookahead = timeframe.in_seconds(tf15) > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+string m5Wave = request.security(sourceId, tf5, f_waveSnapshot(5), lookahead = timeframe.in_seconds(tf5) > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+string m1Wave = request.security(sourceId, "1", f_waveSnapshot(6), lookahead = timeframe.in_seconds("1") > timeframe.in_seconds() ? barmerge.lookahead_on : barmerge.lookahead_off, calc_bars_count = sourceBars)
+
+// Chart-local micro tags never cross the shared 1M master transport. They are
+// derived from closed bars and can be switched off without changing any wave,
+// liquidity, convergence or frozen-plan calculation.
+float structureHighPivot = ta.pivothigh(high, structurePivot, structurePivot)
+float structureLowPivot = ta.pivotlow(low, structurePivot, structurePivot)
+float structureMapHighPivot = ta.pivothigh(high, structureMapPivot, structureMapPivot)
+float structureMapLowPivot = ta.pivotlow(low, structureMapPivot, structureMapPivot)
+float structureEqualLowPivot = ta.pivotlow(low, structureEqualPivot, structureEqualPivot)
+float structureExternalHighPivot = ta.pivothigh(high, structureExternalPivot, structureExternalPivot)
+float structureExternalLowPivot = ta.pivotlow(low, structureExternalPivot, structureExternalPivot)
+var float structureExternalHigh = na
+var float structureExternalLow = na
+var float structurePreviousEqualLow = na
+var float structurePreviousMapHigh = na
+var float structurePreviousMapLow = na
+// Recursive Wilder ATR avoids expanding the indicator's global history buffer.
+float structureTrueRange = ta.tr(true)
+var float structureEqualATR = na
+var float structureEqualTRSum = 0.0
+structureEqualTRSum += structureTrueRange
+if bar_index == structureEqualATRLength - 1
+    structureEqualATR := structureEqualTRSum / structureEqualATRLength
+else if bar_index >= structureEqualATRLength
+    structureEqualATR := (structureEqualATR[1] * (structureEqualATRLength - 1) + structureTrueRange) / structureEqualATRLength
+float structureATR = ta.atr(structureATRLength)
+// The pivot candle is excluded: these are the right-side confirmation bars.
+float structureAfterLow = ta.lowest(low, structurePivot)
+float structureAfterHigh = ta.highest(high, structurePivot)
+float structureMapAfterLow = ta.lowest(low, structureMapPivot)
+float structureMapAfterHigh = ta.highest(high, structureMapPivot)
+float structureEqualAfterHigh = ta.highest(high, structureEqualPivot)
+if structureEnabled and barstate.isconfirmed
+    if not na(structureExternalHighPivot)
+        structureExternalHigh := structureExternalHighPivot
+    if not na(structureExternalLowPivot)
+        structureExternalLow := structureExternalLowPivot
+    bool structureRangeReady = not na(structureExternalHigh) and not na(structureExternalLow) and structureExternalHigh > structureExternalLow
+    f_structureUpdate()
+    if structureDetector == "Micro structure map"
+        float mapToleranceATR = na(structureEqualATR) ? structureATR : structureEqualATR
+        if not na(structureMapHighPivot)
+            bool mapHighRepeat = not na(structurePreviousMapHigh) and not na(mapToleranceATR) and math.abs(structureMapHighPivot - structurePreviousMapHigh) <= mapToleranceATR * structureEqualATRTolerance
+            float mapHighReaction = (structureMapHighPivot - structureMapAfterLow) / math.max(nz(structureATR[structureMapPivot], tick), tick)
+            f_structureAdd(structureMapHighPivot, 1, mapHighReaction, structureMapPivot, mapHighRepeat ? 1 : 0)
+            structurePreviousMapHigh := structureMapHighPivot
+        if not na(structureMapLowPivot)
+            bool mapLowRepeat = not na(structurePreviousMapLow) and not na(mapToleranceATR) and math.abs(structureMapLowPivot - structurePreviousMapLow) <= mapToleranceATR * structureEqualATRTolerance
+            float mapLowReaction = (structureMapAfterHigh - structureMapLowPivot) / math.max(nz(structureATR[structureMapPivot], tick), tick)
+            f_structureAdd(structureMapLowPivot, -1, mapLowReaction, structureMapPivot, mapLowRepeat ? 1 : 0)
+            structurePreviousMapLow := structureMapLowPivot
+    if structureDetector == "Batty equal lows" and not na(structureEqualLowPivot)
+        bool equalInsideRange = not structureRangeReady or (structureEqualLowPivot < structureExternalHigh and structureEqualLowPivot > structureExternalLow)
+        bool equalMatch = not na(structurePreviousEqualLow) and not na(structureEqualATR) and math.abs(structureEqualLowPivot - structurePreviousEqualLow) <= structureEqualATR * structureEqualATRTolerance
+        if equalInsideRange and equalMatch
+            float equalPrice = (structureEqualLowPivot + structurePreviousEqualLow) / 2.0
+            float equalReaction = (structureEqualAfterHigh - equalPrice) / math.max(nz(structureATR[structureEqualPivot], tick), tick)
+            // Batty's EQL line begins on the confirmation bar, not at either low.
+            f_structureAdd(equalPrice, -1, equalReaction, 0, 1)
+        structurePreviousEqualLow := structureEqualLowPivot
+    if (structureDetector == "Batty internal range" or structureDetector == "Reaction pivots") and not na(structureHighPivot) and (structureDetector != "Batty internal range" or (structureRangeReady and structureHighPivot < structureExternalHigh and structureHighPivot > structureExternalLow))
+        f_structureAdd(structureHighPivot, 1, (structureHighPivot - structureAfterLow) / math.max(nz(structureATR[structurePivot], tick), tick), structurePivot, 0)
+    if (structureDetector == "Batty internal range" or structureDetector == "Reaction pivots") and not na(structureLowPivot) and (structureDetector != "Batty internal range" or (structureRangeReady and structureLowPivot < structureExternalHigh and structureLowPivot > structureExternalLow))
+        f_structureAdd(structureLowPivot, -1, (structureAfterHigh - structureLowPivot) / math.max(nz(structureATR[structurePivot], tick), tick), structurePivot, 0)
+float structureReferenceClose = barstate.isconfirmed ? close : close[1]
+[structureSupport, structureSupportScore] = f_structureNearest(structureReferenceClose, -1)
+[structureResistance, structureResistanceScore] = f_structureNearest(structureReferenceClose, 1)
+[structureEligibleCount, structureActiveCount] = f_structureCounts()
+
+// Chart-local channel ledger. Every base line is anchored to two confirmed
+// same-side pivot wicks and rejected if any intervening wick cuts through it.
+// The parallel boundary touches the farthest opposite wick in that interval.
+// Once either boundary is breached by a later completed wick, both end at the
+// preceding valid bar. These drawings never participate in wave/plan decisions.
+var array<int> geometryTimes = array.new<int>()
+var array<float> geometryHighs = array.new<float>()
+var array<float> geometryLows = array.new<float>()
+var array<float> geometryCloses = array.new<float>()
+var array<Pivot> geometryHighPivots = array.new<Pivot>()
+var array<Pivot> geometryLowPivots = array.new<Pivot>()
+var array<WickChannel> geometryChannels = array.new<WickChannel>()
+float geometryHighPivot = ta.pivothigh(high, geometryPivot, geometryPivot)
+float geometryLowPivot = ta.pivotlow(low, geometryPivot, geometryPivot)
+
+f_geometryBase(WickChannel g, int at) =>
+    g.p0 + (g.p1 - g.p0) * (at - g.t0) / (g.t1 - g.t0)
+
+f_geometryInside(WickChannel g, int at, float hi, float lo) =>
+    float base = f_geometryBase(g, at)
+    float epsilon = tick * 0.0001
+    g.side == -1 ? lo >= base - epsilon and hi <= base + g.offset + epsilon : hi <= base + epsilon and lo >= base - g.offset - epsilon
+
+f_geometryTouches(WickChannel g, int at, float hi, float lo) =>
+    float base = f_geometryBase(g, at)
+    float opposite = g.side == -1 ? base + g.offset : base - g.offset
+    float tolerance = geometryTouchTolerance * tick + tick * 0.0001
+    bool baseTouch = g.side == -1 ? math.abs(lo - base) <= tolerance : math.abs(hi - base) <= tolerance
+    bool oppositeTouch = g.side == -1 ? math.abs(hi - opposite) <= tolerance : math.abs(lo - opposite) <= tolerance
+    baseTouch or oppositeTouch
+
+f_geometryCandidate(Pivot first, Pivot second, int side) =>
+    WickChannel candidate = na
+    if second.t > first.t
+        float offset = 0.0
+        int touches = 0
+        int spanBars = 0
+        bool valid = false
+        bool cut = false
+        for [i, at] in geometryTimes
+            if at >= first.t and at <= second.t
+                float base = first.p + (second.p - first.p) * (at - first.t) / (second.t - first.t)
+                float wick = side == -1 ? array.get(geometryLows, i) : array.get(geometryHighs, i)
+                float opposite = side == -1 ? array.get(geometryHighs, i) : array.get(geometryLows, i)
+                bool through = side == -1 ? wick < base - tick * 0.0001 : wick > base + tick * 0.0001
+                cut := cut or through
+                offset := math.max(offset, side == -1 ? opposite - base : base - opposite)
+                spanBars += 1
+                if at == first.t
+                    valid := true
+        if valid and not cut and spanBars >= geometryMinSpan and offset > 0
+            candidate := WickChannel.new(first.t, first.p, second.t, second.p, side, offset, second.t, false, touches, spanBars)
+            for [i, at] in geometryTimes
+                if at > first.t and at < second.t and f_geometryTouches(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                    candidate.touches += 1
+                if at > second.t and not candidate.broken
+                    if f_geometryInside(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                        candidate.endAt := at
+                        if f_geometryTouches(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                            candidate.touches += 1
+                    else
+                        candidate.broken := true
+    candidate
+
+f_geometryAdd(Pivot current, int side) =>
+    array<Pivot> pivots = side == 1 ? geometryHighPivots : geometryLowPivots
+    int n = array.size(pivots)
+    if n > 0
+        for j = 0 to math.min(3, n - 1)
+            Pivot prior = array.get(pivots, n - 1 - j)
+            WickChannel candidate = f_geometryCandidate(prior, current, side)
+            if not na(candidate)
+                array.push(geometryChannels, candidate)
+                if array.size(geometryChannels) > 48
+                    array.shift(geometryChannels)
+    array.push(pivots, current)
+    if array.size(pivots) > 8
+        array.shift(pivots)
+    true
+
+if barstate.isconfirmed
+    array.push(geometryTimes, time)
+    array.push(geometryHighs, high)
+    array.push(geometryLows, low)
+    array.push(geometryCloses, close)
+    if array.size(geometryTimes) > geometryHistory
+        array.shift(geometryTimes)
+        array.shift(geometryHighs)
+        array.shift(geometryLows)
+        array.shift(geometryCloses)
+    for g in geometryChannels
+        if not g.broken and time > g.endAt
+            if f_geometryInside(g, time, high, low)
+                g.endAt := time
+                if f_geometryTouches(g, time, high, low)
+                    g.touches += 1
+            else
+                g.broken := true
+    if not na(geometryHighPivot)
+        f_geometryAdd(Pivot.new(time[geometryPivot], geometryHighPivot, 1, time), 1)
+    if not na(geometryLowPivot)
+        f_geometryAdd(Pivot.new(time[geometryPivot], geometryLowPivot, -1, time), -1)
+Master state = na
+if not na(sAsof)
+    Plan referencePlan = Plan.new(sStage, sDir, sMode, sLo, sHi, sMask, sStrength, sExtreme, sStarted, sGateAt, sConfirmAt, sEntryAt, sResolvedAt, sEntry, sSl, sTp, sRisk, sRr, sReason)
+    state := Master.new(na, na, na, na, na, na, na, sRawView, sZoneView, referencePlan, sAsof, sSeq, sKind, sEventAt, 0, sAge, sEpoch, sCoreTrend, sPrice)
+    state.retired := sRetiredView
+    if barstate.islast
+        state.d := f_unpackFrame(dWave, sAsof)
+        state.h4 := f_unpackFrame(h4Wave, sAsof)
+        state.h1 := f_unpackFrame(h1Wave, sAsof)
+        state.m30 := f_unpackFrame(m30Wave, sAsof)
+        state.m15 := f_unpackFrame(m15Wave, sAsof)
+        state.m5 := f_unpackFrame(m5Wave, sAsof)
+        state.m1 := f_unpackFrame(m1Wave, sAsof)
+        for id = 0 to 6
+            Frame f = f_frameAt(state, id)
+            if f_use(id) and not na(f) and f.cp.n >= 4
+                state.ready += 1
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 08 · BOUNDED DISPLAY OBJECTS. Rebuild the last-bar snapshot, with priorities:
+// shared zones / plan → core liquidity → counts / channels / projections.
+// ══════════════════════════════════════════════════════════════════════════════
+var array<line> drawnLines = array.new<line>()
+var array<label> drawnLabels = array.new<label>()
+var array<box> drawnBoxes = array.new<box>()
+var array<WaveTag> waveTags = array.new<WaveTag>()
+var array<LiquidityEndTag> liquidityEndTags = array.new<LiquidityEndTag>()
+var array<int> dropped = array.new<int>(1, 0)
+
+f_clearDrawings() =>
+    for id in drawnLines
+        line.delete(id)
+    for id in drawnLabels
+        label.delete(id)
+    for id in drawnBoxes
+        box.delete(id)
+    array.clear(drawnLines)
+    array.clear(drawnLabels)
+    array.clear(drawnBoxes)
+    array.clear(waveTags)
+    array.clear(liquidityEndTags)
+    array.set(dropped, 0, 0)
+    true
+
+f_line(int t0, float p0, int t1, float p1, color c, int width, string style, bool right) =>
+    if not na(t0) and not na(t1) and not na(p0) and not na(p1) and t1 > t0 and array.size(drawnLines) < 475
+        line ln = line.new(t0, p0, t1, p1, xloc = xloc.bar_time, extend = right ? extend.right : extend.none, color = c, width = width, style = style)
+        array.push(drawnLines, ln)
+    else
+        array.set(dropped, 0, array.get(dropped, 0) + 1)
+    true
+
+f_label(int t, float p, string txt, color c, string style, string sz) =>
+    if not na(t) and not na(p) and array.size(drawnLabels) < 475
+        label lb = label.new(t, p, txt, xloc = xloc.bar_time, style = style, textcolor = c, color = color.new(c, 94), size = sz)
+        array.push(drawnLabels, lb)
+    else
+        array.set(dropped, 0, array.get(dropped, 0) + 1)
+    true
+
+f_readableSize(string choice) =>
+    choice == "Huge" ? size.huge : choice == "Large" ? size.large : size.normal
+
+f_waveCountLabel(int t, float p, string value, color ink, int pixels, int id) =>
+    if not na(t) and not na(p) and array.size(drawnLabels) < 475
+        // Black 1M and dark-blue 4H retain their requested hue on dark themes.
+        // A slightly larger pale glyph under them keeps the center readable.
+        if (id == 6 or id == 1) and array.size(drawnLabels) < 474
+            label halo = label.new(t, p, value, xloc = xloc.bar_time, style = label.style_none, textcolor = color.new(color.white, id == 6 ? 20 : 58), color = color.new(color.white, 100), size = pixels + 2, textalign = text.align_center)
+            array.push(drawnLabels, halo)
+        label lb = label.new(t, p, value, xloc = xloc.bar_time, style = label.style_none, textcolor = ink, color = color.new(ink, 100), size = pixels, textalign = text.align_center)
+        array.push(drawnLabels, lb)
+    else
+        array.set(dropped, 0, array.get(dropped, 0) + 1)
+    true
+
+// Render once after collecting every visible degree and timeframe. Lower-degree
+// counts sit closest to the pivot; higher-degree counts stack farther outside.
+f_renderWaveTags() =>
+    int n = array.size(waveTags)
+    if n > 0
+        array<int> placedTimes = array.new<int>()
+        array<float> placedAnchors = array.new<float>()
+        array<float> placedYs = array.new<float>()
+        array<int> placedSides = array.new<int>()
+        int clusterMs = int(timeframe.in_seconds(timeframe.period) * 1000) * waveStackBars
+        float atr = na(chartAtr) ? tick * 80 : chartAtr
+        float clusterRange = math.max(tick * 24, atr * 0.45)
+        float gap = math.max(tick * 12, atr * waveStackAtr)
+        float base = math.max(tick * waveLabelPadTicks, gap * 0.55)
+        for rank = 0 to 41
+            for i = 0 to n - 1
+                WaveTag tag = array.get(waveTags, i)
+                int tagRank = (2 - tag.degree) * 14 + (6 - tag.id) * 2 + (tag.alternate ? 1 : 0)
+                if tagRank == rank
+                    float offset = base
+                    int placedCount = array.size(placedTimes)
+                    if placedCount > 0
+                        for j = 0 to placedCount - 1
+                            bool nearTime = math.abs(tag.t - array.get(placedTimes, j)) <= clusterMs
+                            bool nearPrice = math.abs(tag.p - array.get(placedAnchors, j)) <= clusterRange
+                            if nearTime and nearPrice and tag.side == array.get(placedSides, j)
+                                offset := math.max(offset, tag.side * (array.get(placedYs, j) - tag.p) + gap)
+                    float y = tag.p + tag.side * offset
+                    int pixels = tag.alternate ? math.max(8, int(math.round(waveCountFontPx * 0.70))) : waveCountFontPx
+                    f_waveCountLabel(tag.t, y, tag.value, tag.ink, pixels, tag.id)
+                    array.push(placedTimes, tag.t)
+                    array.push(placedAnchors, tag.p)
+                    array.push(placedYs, y)
+                    array.push(placedSides, tag.side)
+    true
+
+f_pocket(int leftAt, int rightAt, float top, bool retired, int id) =>
+    if rightAt > leftAt and array.size(drawnBoxes) < 90
+        color sourceInk = f_color(id)
+        color fill = color.new(sourceInk, retired ? math.min(98, pocketTransparency + 8) : pocketTransparency)
+        box area = box.new(leftAt, top, rightAt, top - pocketTicks * tick, border_color = color.new(sourceInk, 100), xloc = xloc.bar_time, bgcolor = fill)
+        array.push(drawnBoxes, area)
+    true
+
+// Map a chart to the seven configured source frames. This changes only what
+// count labels are drawn; all frame packets and convergence weights remain.
+f_chartFrame() =>
+    int chartSeconds = nz(timeframe.in_seconds(timeframe.period), 60)
+    chartSeconds >= timeframe.in_seconds(tfD) ? 0 : chartSeconds >= timeframe.in_seconds(tf4) ? 1 : chartSeconds >= timeframe.in_seconds(tf1) ? 2 : chartSeconds >= timeframe.in_seconds(tf30) ? 3 : chartSeconds >= timeframe.in_seconds(tf15) ? 4 : chartSeconds >= timeframe.in_seconds(tf5) ? 5 : 6
+
+f_countVisible(int id, int degree) =>
+    int chartId = f_chartFrame()
+    int first = chartId == 0 ? 0 : chartId == 6 ? 4 : chartId - 1
+    countMode == "Full research" or (id == first and degree == 0) or (id == first + 1 and degree == 1) or (id == first + 2 and degree == 2)
+
+f_visible(int id) =>
+    bool selected = switch id
+        0 => showD
+        1 => show4
+        2 => show1
+        3 => show30
+        4 => show15
+        5 => show5
+        => showM
+    int coreId = f_id(coreChoice)
+    bool presetOK = switch preset
+        "Active now" => true
+        "All seven" => true
+        "HTF" => id <= coreId
+        "Scalp" => id >= 3
+        "Setup only" => false
+        => id == coreId or id == math.max(0, coreId - 1) or id == math.min(6, coreId + 1)
+    selected and presetOK
+
+f_waveValue(Count c, int k, int degree) =>
+    string raw = ""
+    if str.contains(c.kind, "triangle")
+        raw := k == 1 ? "A" : k == 2 ? "B" : k == 3 ? "C" : k == 4 ? "D" : "E"
+    else if str.contains(c.kind, "ABC")
+        raw := k == 1 ? "A" : k == 2 ? "B" : "C"
+    else if str.contains(c.kind, "W-X-Y")
+        raw := k == 1 ? "W" : k == 2 ? "X" : "Y"
+    else
+        raw := degree == 0 ? (k == 1 ? "I" : k == 2 ? "II" : k == 3 ? "III" : k == 4 ? "IV" : "V") : str.tostring(k)
+    raw
+
+f_waveLabel(Count c, int k, int degree) =>
+    string raw = f_waveValue(c, k, degree)
+    degree == 0 ? "(" + raw + ")" : degree == 1 ? "[" + raw + "]" : raw
+
+f_projectionTag(Count c, int degree) =>
+    string tag = ""
+    if c.kind == "Unresolved"
+        tag := "No qualified projection"
+    else if c.kind == "Developing impulse"
+        tag := f_waveLabel(c, c.n, degree) + "? next leg"
+    else if str.contains(c.kind, "triangle")
+        tag := "thrust? · parent position unresolved"
+    else
+        bool completedMotive = str.contains(c.kind, "Impulse") or str.contains(c.kind, "impulse") or str.contains(c.kind, "diagonal")
+        string raw = completedMotive ? "A" : degree == 0 ? "I" : "1"
+        tag := (degree == 0 ? "(" + raw + ")" : degree == 1 ? "[" + raw + "]" : raw) + "? conditional next leg"
+    tag
+
+f_manualPivots() =>
+    array<Pivot> a = array.new<Pivot>()
+    bool valid = manualEnabled and manT0 > 0 and manT1 > manT0 and manT2 > manT1 and manT3 > manT2 and manT4 > manT3 and manT5 > manT4 and not na(state) and manT5 <= state.asof
+    if valid
+        int dir = manP1 > manP0 ? 1 : -1
+        array.push(a, Pivot.new(manT0, manP0, -dir, manT0))
+        array.push(a, Pivot.new(manT1, manP1, dir, manT1))
+        array.push(a, Pivot.new(manT2, manP2, -dir, manT2))
+        array.push(a, Pivot.new(manT3, manP3, dir, manT3))
+        array.push(a, Pivot.new(manT4, manP4, -dir, manT4))
+        array.push(a, Pivot.new(manT5, manP5, dir, manT5))
+    a
+
+// Fib lifecycle is a display read on completed chart bars since the selected
+// core swing endpoint: OPEN = no wick touch, TESTED = touched but no close
+// through, BROKEN = a completed close through in the relevant direction.
+// A history gap is UNVERIFIED, never silently called untouched.
+f_fibState(float level, int fromAt, bool upSwing, bool extension) =>
+    int status = 0
+    int n = array.size(geometryTimes)
+    if n == 0 or array.get(geometryTimes, 0) > fromAt
+        status := 3
+    else
+        for i = 0 to n - 1
+            int at = array.get(geometryTimes, i)
+            if at > fromAt
+                float hi = array.get(geometryHighs, i)
+                float lo = array.get(geometryLows, i)
+                float closeAt = array.get(geometryCloses, i)
+                bool through = extension ? (upSwing ? closeAt > level : closeAt < level) : (upSwing ? closeAt < level : closeAt > level)
+                if through
+                    status := 2
+                else if status == 0 and lo <= level and hi >= level
+                    status := 1
+    status
+
+f_fibLine(int leftAt, int rightAt, float level, string tag, color ink, int status) =>
+    color drawInk = status == 2 or status == 3 ? fibBrokenColor : status == 1 ? color.new(ink, 35) : ink
+    string stroke = status == 2 ? line.style_dashed : status == 1 or status == 3 ? line.style_dotted : line.style_solid
+    int width = status == 0 ? 3 : status == 1 ? 2 : 1
+    string stateTag = status == 0 ? "OPEN" : status == 1 ? "TESTED" : status == 2 ? "× BROKEN" : "? UNVERIFIED"
+    f_line(leftAt, level, rightAt, level, drawInk, width, stroke, false)
+    f_label(rightAt, level, tag + " · " + stateTag + " · " + f_price(level), drawInk, label.style_none, size.small)
+    true
+
+f_drawFibSwing(array<Pivot> a, Count c, int asof) =>
+    int lastIndex = c.start + c.n - 1
+    if c.kind != "Unresolved" and c.n >= 2 and c.start >= 0 and lastIndex < array.size(a)
+        Pivot first = array.get(a, lastIndex - 1)
+        Pivot second = array.get(a, lastIndex)
+        if second.t > first.t and math.abs(second.p - first.p) >= tick
+            float move = second.p - first.p
+            int chartMs = int(nz(timeframe.in_seconds(), 60) * 1000)
+            int visibleMs = math.max(chart.right_visible_bar_time - chart.left_visible_bar_time, chartMs * 12)
+            int segmentMs = int(math.round(visibleMs * fibRightPct / 100.0))
+            int leftAt = math.max(asof + chartMs, chart.right_visible_bar_time - segmentMs)
+            int rightAt = leftAt + segmentMs
+            bool upSwing = move > 0
+            float fib0 = second.p
+            float fib382 = second.p - move * 0.382
+            float fib50 = second.p - move * 0.500
+            float fib618 = second.p - move * 0.618
+            float fib786 = second.p - move * 0.786
+            float fib1 = first.p
+            float fib2 = first.p + move * 2.0
+            f_fibLine(leftAt, rightAt, fib0, "Fib 0.000 · swing end", fibEndColor, f_fibState(fib0, second.t, upSwing, false))
+            f_fibLine(leftAt, rightAt, fib382, "Fib 0.382", fib382Color, f_fibState(fib382, second.t, upSwing, false))
+            f_fibLine(leftAt, rightAt, fib50, "Fib 0.500", fib50Color, f_fibState(fib50, second.t, upSwing, false))
+            f_fibLine(leftAt, rightAt, fib618, "Fib 0.618", fib618Color, f_fibState(fib618, second.t, upSwing, false))
+            f_fibLine(leftAt, rightAt, fib786, "Fib 0.786", fib786Color, f_fibState(fib786, second.t, upSwing, false))
+            f_fibLine(leftAt, rightAt, fib1, "Fib 1.000 · swing start", fibEndColor, f_fibState(fib1, second.t, upSwing, false))
+            f_fibLine(leftAt, rightAt, fib2, "Fib 2.000 · 2× extension", fib2Color, f_fibState(fib2, second.t, upSwing, true))
+            Pivot highPivot = first.p > second.p ? first : second
+            Pivot lowPivot = first.p < second.p ? first : second
+            f_label(highPivot.t, highPivot.p, "FIB HIGH " + f_price(highPivot.p), fibEndColor, label.style_none, size.small)
+            f_label(lowPivot.t, lowPivot.p, "FIB LOW " + f_price(lowPivot.p), fibEndColor, label.style_none, size.small)
+    true
+
+f_drawCount(array<Pivot> a, Count c, int id, int degree, bool alternate, int asof) =>
+    color col = f_color(id)
+    color ink = color.new(col, alternate ? 43 : 0)
+    int n = c.n
+    if c.kind != "Unresolved" and c.start >= 0 and n >= 2 and c.start + n <= array.size(a)
+        for k = 1 to n - 1
+            Pivot p = array.get(a, c.start + k)
+            bool showThisLabel = showWaves and f_countVisible(id, degree) and (preset != "Active now" or not activeCompactLabels or k >= n - 2)
+            if showThisLabel
+                if array.size(waveTags) < 450
+                    array.push(waveTags, WaveTag.new(p.t, p.p, p.side, id, degree, alternate, f_waveValue(c, k, degree), ink))
+                else
+                    array.set(dropped, 0, array.get(dropped, 0) + 1)
+            if alternate and showThisLabel
+                Pivot prev = array.get(a, c.start + k - 1)
+                f_line(prev.t, prev.p, p.t, p.p, ink, 1, line.style_dotted, false)
+        int horizon = f_ms(id) * projectionBars
+        bool activePrimary = preset == "Active now" and id == f_id(coreChoice) and degree == 0 and not alternate
+        if showWaveInvalidation and not alternate and not na(c.invalid)
+            f_line(asof - f_ms(id), c.invalid, asof + horizon, c.invalid, ink, 1, line.style_dotted, false)
+            f_label(asof + horizon, c.invalid, f_name(id) + " count origin/non-overlap " + f_price(c.invalid), ink, label.style_none, size.small)
+        // Historical candidate endpoint is retained. Projection starts at current master cutoff.
+        if showFib and not alternate and degree == 0 and id == f_id(coreChoice)
+            f_drawFibSwing(a, c, asof)
+        if not alternate and (preset != "Active now" or activePrimary) and showProjection and not na(c.projLo) and not na(c.projHi)
+            Pivot endpoint = array.get(a, c.start + n - 1)
+            int projectedAt = asof + horizon
+            float destination = (c.projLo + c.projHi) / 2
+            if showProjection
+                if not str.contains(c.kind, "triangle")
+                    f_line(math.max(endpoint.t, asof - f_ms(id)), endpoint.p, projectedAt, destination, ink, 1, line.style_dashed, false)
+                    f_label(projectedAt, destination, f_name(id) + " " + f_projectionTag(c, degree) + "\n" + f_price(c.projLo) + "–" + f_price(c.projHi), ink, label.style_none, size.small)
+                else
+                    f_line(asof, endpoint.p, projectedAt, c.projHi, ink, 1, line.style_dashed, false)
+                    f_line(asof, endpoint.p, projectedAt, c.projLo, ink, 1, line.style_dashed, false)
+    true
+
+f_drawDegree(string packed, Count primary, Count alternate, int id, int degree, int asof, bool overrideManual) =>
+    array<Pivot> pivots = overrideManual ? f_manualPivots() : f_unpackPivots(packed)
+    Count p = primary
+    Count a = alternate
+    if overrideManual
+        p := f_candidate(pivots, array.new<Pivot>(), 0, array.size(pivots))
+        p.note := "Manual anchors; geometry rules still checked; no OHLC anchor verification"
+        a := Count.new()
+    if showSwingPath and array.size(pivots) > 1
+        color col = color.new(f_color(id), degree == 0 ? 30 : degree == 1 ? 55 : 75)
+        for i = 1 to array.size(pivots) - 1
+            Pivot previous = array.get(pivots, i - 1)
+            Pivot current = array.get(pivots, i)
+            f_line(previous.t, previous.p, current.t, current.p, col, 1, line.style_solid, false)
+            // Unqualified pivots remain in the swing path, without count text.
+    f_drawCount(pivots, p, id, degree, false, asof)
+    if showAlternates and not overrideManual
+        f_drawCount(pivots, a, id, degree, true, asof)
+    true
+
+f_rankZones(array<Zone> zones, float price) =>
+    int n = array.size(zones)
+    if n > 1
+        for i = 1 to n - 1
+            Zone key = array.get(zones, i)
+            float keyRank = zoneRank == "Strength" ? key.strength : -math.abs(price - (key.lo + key.hi) / 2)
+            int j = i - 1
+            while j >= 0
+                Zone current = array.get(zones, j)
+                float currentRank = zoneRank == "Strength" ? current.strength : -math.abs(price - (current.lo + current.hi) / 2)
+                if currentRank >= keyRank
+                    break
+                array.set(zones, j + 1, current)
+                j -= 1
+            array.set(zones, j + 1, key)
+    n
+
+f_drawWickChannels() =>
+    int n = array.size(geometryChannels)
+    int shown = 0
+    if showChannels and n > 0
+        // Active rails take the limited slots first. Historical channels then
+        // fill remaining slots, newest first, ending at the last wick-safe bar.
+        for pass = 0 to 1
+            for j = 0 to n - 1
+                WickChannel g = array.get(geometryChannels, n - 1 - j)
+                bool passOK = pass == 0 ? not g.broken : g.broken and geometryShowBroken
+                int passCap = pass == 0 ? math.min(geometryActiveShown, geometryShown) : geometryShown
+                if passOK and shown < passCap and g.endAt >= g.t1 and g.touches >= geometryMinTouches
+                    float ending = f_geometryBase(g, g.endAt)
+                    float shift = g.side == -1 ? g.offset : -g.offset
+                    color ink = g.broken ? geometryBrokenInk : geometryActiveInk
+                    int width = g.broken ? 1 : 2
+                    string stroke = g.broken ? line.style_dashed : line.style_solid
+                    f_line(g.t0, g.p0, g.endAt, ending, ink, width, stroke, false)
+                    f_line(g.t0, g.p0 + shift, g.endAt, ending + shift, ink, width, stroke, false)
+                    if geometryShowLabels and shown < 3
+                        string status = g.broken ? "ended at wick break" : "active"
+                        f_label(g.endAt, ending, timeframe.period + " channel · " + status + " · " + str.tostring(g.touches) + " extra contacts", ink, label.style_none, size.small)
+                    shown += 1
+    true
+
+f_drawStructure() =>
+    if structureEnabled and showStructure and array.size(structureTags) > 0
+        int displayed = 0
+        int halos = 0
+        int n = array.size(structureTags)
+        int effectiveStrong = math.max(structureStrong, structureMedium + 1)
+        float dashFactor = structureDash == "Dot" ? 0.35 : structureDash == "Medium dash" ? 1.20 : 0.75
+        int spanMs = int(math.max(1.0, nz(timeframe.in_seconds(), 60) * 1000.0 * dashFactor))
+        for j = 0 to n - 1
+            StructureTag tag = array.get(structureTags, n - 1 - j)
+            bool visible = bar_index - tag.pivotBar <= structureMaxAge and (structureShowBroken or not tag.broken)
+            float strength = f_structureScore(tag)
+            if visible and strength >= structureMinDisplay and displayed < structureShown
+                bool strong = strength >= effectiveStrong
+                bool medium = strength >= structureMedium
+                color ink = tag.broken ? color.new(structureCyan, 65) : strong ? structureCyan : medium ? structureCyan : color.new(structureCyan, 18)
+                int width = tag.broken ? 1 : strong ? 3 : medium ? 2 : 1
+                if strong and not tag.broken and structureHighlight and halos < 8
+                    f_line(tag.t, tag.p, tag.t + spanMs, tag.p, color.new(structureCyan, 83), 6, line.style_solid, false)
+                    halos += 1
+                f_line(tag.t, tag.p, tag.t + spanMs, tag.p, ink, width, line.style_solid, false)
+                if strong and not tag.broken and structureScoresOnChart
+                    f_label(tag.t + spanMs, tag.p, str.tostring(strength, "#.0"), structureCyan, label.style_none, size.tiny)
+                displayed += 1
+    true
+
+// Scope selects timeframes. In All retained mode it does not suppress any
+// available active or retired pool within those selected source packets.
+f_liqScope(int id, int coreId) =>
+    rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true
+
+f_liqTag(int id) =>
+    switch id
+        0 => "L-D"
+        1 => "L-240"
+        2 => "L-60"
+        3 => "L-30"
+        4 => "L-15"
+        5 => "L-5"
+        => "L-1"
+
+f_liqMinuteTag(int id) =>
+    switch id
+        0 => "1440"
+        1 => "240"
+        2 => "60"
+        3 => "30"
+        4 => "15"
+        5 => "5"
+        => "1"
+
+f_liqTagMask(int base, int extra) =>
+    int result = base
+    for id = 0 to 6
+        if f_has(extra, id) and not f_has(result, id)
+            result += f_bit(id)
+    result
+
+f_liqTagText(int mask) =>
+    string result = ""
+    for id = 0 to 6
+        if f_has(mask, id)
+            result := str.length(result) == 0 ? f_liqMinuteTag(id) : result + "/" + f_liqMinuteTag(id)
+    result
+
+// Keep every core line at its exact source price. Only the tiny endpoint text
+// moves to a shared center when nearby end labels would visually collide.
+f_renderLiquidityEndTags() =>
+    int n = array.size(liquidityEndTags)
+    if showLiquidityTimeframeTags and n > 0
+        array<LiquidityEndTag> groups = array.new<LiquidityEndTag>()
+        int chartMs = int(nz(timeframe.in_seconds(timeframe.period), 60) * 1000)
+        int visibleMs = math.max(chartMs * 12, chart.right_visible_bar_time - chart.left_visible_bar_time)
+        int xTolerance = math.max(chartMs * 6, int(visibleMs * 0.06))
+        float lowestTag = na
+        float highestTag = na
+        for item in liquidityEndTags
+            lowestTag := na(lowestTag) ? item.price : math.min(lowestTag, item.price)
+            highestTag := na(highestTag) ? item.price : math.max(highestTag, item.price)
+        float yTolerance = math.max(math.max(liquidityTagMergeTicks * tick, nz(chartAtr, tick * 80) * 0.18), (highestTag - lowestTag) * 0.03)
+        for item in liquidityEndTags
+            bool joined = false
+            int count = array.size(groups)
+            if count > 0
+                for i = 0 to count - 1
+                    LiquidityEndTag g = array.get(groups, i)
+                    if math.abs(item.rightAt - g.rightAt) <= xTolerance and math.abs(item.price - g.price) <= yTolerance
+                        int members = g.members + item.members
+                        float center = (g.price * g.members + item.price * item.members) / members
+                        array.set(groups, i, LiquidityEndTag.new(math.max(g.rightAt, item.rightAt), center, f_liqTagMask(g.mask, item.mask), members))
+                        joined := true
+                        break
+            if not joined
+                array.push(groups, item)
+        // A later candidate may bridge two existing groups. Coalesce again so
+        // no pair of tags remains within the configured collision envelope.
+        bool changed = true
+        while changed
+            changed := false
+            int count = array.size(groups)
+            if count > 1
+                for i = 0 to count - 2
+                    if not changed
+                        for j = i + 1 to count - 1
+                            LiquidityEndTag left = array.get(groups, i)
+                            LiquidityEndTag right = array.get(groups, j)
+                            if math.abs(left.rightAt - right.rightAt) <= xTolerance and math.abs(left.price - right.price) <= yTolerance
+                                int members = left.members + right.members
+                                float center = (left.price * left.members + right.price * right.members) / members
+                                array.set(groups, i, LiquidityEndTag.new(math.max(left.rightAt, right.rightAt), center, f_liqTagMask(left.mask, right.mask), members))
+                                array.remove(groups, j)
+                                changed := true
+                                break
+        for g in groups
+            if array.size(drawnLabels) < 475
+                int labelAt = g.rightAt + chartMs * liquidityTagGapBars
+                label lb = label.new(labelAt, g.price, f_liqTagText(g.mask), xloc = xloc.bar_time, style = label.style_label_left, textcolor = color.white, color = color.new(color.black, 100), size = 8, textalign = text.align_left)
+                array.push(drawnLabels, lb)
+            else
+                array.set(dropped, 0, array.get(dropped, 0) + 1)
+    true
+
+f_coreLine(Pool p, int rightAt) =>
+    bool retired = p.taken
+    int endAt = retired ? p.takenAt : rightAt
+    if endAt > p.t
+        color sourceInk = f_color(p.tf)
+        color ink = retired ? color.new(sourceInk, 72) : sourceInk
+        string stroke = retired ? (p.breakStatus == 1 ? line.style_dashed : line.style_dotted) : line.style_solid
+        if showLiquidityPockets
+            f_pocket(p.t, endAt, p.p, retired, p.tf)
+        if p.tf == 6 or p.tf == 1
+            f_line(p.t, p.p, endAt, p.p, color.new(color.white, retired ? 90 : 72), coreLineWidth + 2, stroke, false)
+        f_line(p.t, p.p, endAt, p.p, ink, coreLineWidth, stroke, false)
+        if showLiquidityTimeframeTags and array.size(liquidityEndTags) < 180
+            array.push(liquidityEndTags, LiquidityEndTag.new(endAt, p.p, f_bit(p.tf), 1))
+    true
+
+// One middle-right quarter carries the purple emphasis. The transparent wide
+// stroke provides glow; the crisp center is twice the underlying timeframe-color stroke.
+// Retired overlays use the same break style as their core line and no glow.
+f_convergenceOverlay(int leftAt, int rightAt, float price, bool retired, int breakStatus) =>
+    if rightAt > leftAt
+        int span = rightAt - leftAt
+        int highlightLeft = leftAt + int(math.round(span * 0.50))
+        int highlightRight = leftAt + int(math.round(span * 0.75))
+        color ink = retired ? retiredInk : purple
+        string stroke = retired ? (breakStatus == 1 ? line.style_dashed : line.style_dotted) : line.style_solid
+        if not retired
+            f_line(highlightLeft, price, highlightRight, price, color.new(purple, 76), math.max(6, coreLineWidth * 6), line.style_solid, false)
+        f_line(highlightLeft, price, highlightRight, price, ink, math.max(2, coreLineWidth * 2), stroke, false)
+    true
+
+f_drawShared(Master m) =>
+    int coreId = f_id(coreChoice)
+    int asof = m.asof
+    int rightAt = asof + projectionBars * f_ms(coreId)
+    array<Pool> raw = array.new<Pool>()
+    f_appendPools(raw, m.raw)
+    array<Zone> zones = f_unpackZones(m.zones)
+    f_rankZones(zones, m.price)
+    array<Pool> displayed = array.new<Pool>()
+    array<bool> matched = array.new<bool>(array.size(zones), false)
+    if showRaw
+        // All retained is the complete bounded source ledger. Nearest N keeps
+        // the optional compact behavior of v1.10 for crowded chart studies.
+        for p in raw
+            bool scopeOK = f_liqScope(p.tf, coreId)
+            bool relevant = p.side == 1 ? p.p >= m.price : p.p <= m.price
+            int nearer = 0
+            int newerRetired = 0
+            if scopeOK and rawDisplayMode == "Nearest N"
+                for peer in raw
+                    if peer.tf == p.tf and peer.side == p.side and not peer.taken and (peer.side == 1 ? peer.p >= m.price : peer.p <= m.price)
+                        float peerDistance = math.abs(peer.p - m.price)
+                        float ownDistance = math.abs(p.p - m.price)
+                        if peerDistance < ownDistance or (peerDistance == ownDistance and peer.born > p.born)
+                            nearer += 1
+                    if peer.tf == p.tf and peer.taken and peer.takenAt > 0 and (peer.takenAt > p.takenAt or (peer.takenAt == p.takenAt and peer.born > p.born))
+                        newerRetired += 1
+            bool activeSelected = scopeOK and not p.taken and (rawDisplayMode == "All retained" or relevant and nearer < rawPrimaryPerSide)
+            bool retiredSelected = scopeOK and p.taken and p.takenAt > p.t and (rawDisplayMode == "All retained" or newerRetired < brokenCoreShown)
+            if activeSelected or retiredSelected
+                f_coreLine(p, rightAt)
+                array.push(displayed, p)
+    // Draw convergence glow after its timeframe-colored wick line, covering only its
+    // middle-right quarter so the source liquidity price remains visible.
+    if showConfluence
+        int zoneCount = array.size(zones)
+        if zoneCount > 0
+            for i = 0 to zoneCount - 1
+                Zone z = array.get(zones, i)
+                if i < zoneDisplay
+                    for p in displayed
+                        if not p.taken and p.side == z.side and f_has(z.mask, p.tf) and p.p >= z.lo - tick * 0.5 and p.p <= z.hi + tick * 0.5
+                            int overlayStart = math.max(p.t, z.born)
+                            f_convergenceOverlay(overlayStart, rightAt, p.p, false, 0)
+                            if showConfluenceTags
+                                int tagAt = overlayStart + int(math.round((rightAt - overlayStart) * 0.77))
+                                f_label(tagAt, p.p + tick * 3, "P" + str.tostring(i + 1), purple, label.style_none, f_readableSize(liquidityTextSize))
+                            array.set(matched, i, true)
+                    if (showOtherConvergence or not showRaw) and not array.get(matched, i)
+                        int leftAt = math.max(z.born, asof - activeWindow * f_ms(coreId))
+                        float middle = (z.lo + z.hi) / 2
+                        f_convergenceOverlay(leftAt, rightAt, middle, false, 0)
+                        if showConfluenceTags
+                            int tagAt = leftAt + int(math.round((rightAt - leftAt) * 0.77))
+                            f_label(tagAt, middle + tick * 3, "P" + str.tostring(i + 1), purple, label.style_none, f_readableSize(liquidityTextSize))
+        if showRetiredZones and str.length(m.retired) > 0
+            array<RetiredZone> retired = f_unpackRetired(m.retired)
+            int shown = 0
+            int cap = preset == "Active now" ? retiredDisplay : retiredAtlasDisplay
+            int n = array.size(retired)
+            if n > 0 and cap > 0
+                for j = 0 to n - 1
+                    RetiredZone r = array.get(retired, n - 1 - j)
+                    bool recent = preset != "Active now" or m.asof - r.retiredAt <= retiredActiveAge * f_ms(coreId)
+                    if shown < cap and recent
+                        bool found = false
+                        for p in displayed
+                            if p.taken and p.side == r.side and f_has(r.mask, p.tf) and p.p >= r.lo - tick * 0.5 and p.p <= r.hi + tick * 0.5
+                                int endAt = math.min(p.takenAt, r.retiredAt)
+                                f_convergenceOverlay(math.max(p.t, r.born), endAt, p.p, true, r.status)
+                                found := true
+                        if not found and (showOtherConvergence or not showRaw)
+                            int leftAt = math.max(r.born, r.retiredAt - activeWindow * f_ms(coreId))
+                            f_convergenceOverlay(leftAt, r.retiredAt, (r.lo + r.hi) / 2, true, r.status)
+                            found := true
+                        if found
+                            shown += 1
+    f_drawStructure()
+    true
+
+f_position(string s) =>
+    switch s
+        "Top left" => position.top_left
+        "Top center" => position.top_center
+        "Middle left" => position.middle_left
+        "Middle center" => position.middle_center
+        "Middle right" => position.middle_right
+        "Bottom left" => position.bottom_left
+        "Bottom center" => position.bottom_center
+        "Bottom right" => position.bottom_right
+        => position.top_right
+
+f_textSize() => panelSize == "Tiny" ? size.tiny : panelSize == "Normal" ? size.normal : size.small
+var table panel = table.new(f_position(panelPosition), 2, 25, bgcolor = panelBG, frame_color = purple, frame_width = 1, border_width = 0)
+
+f_row(int r, string heading, string value, color ink) =>
+    table.cell(panel, 0, r, heading, text_color = panelText, bgcolor = panelBG, text_size = f_textSize(), text_halign = text.align_left)
+    table.cell(panel, 1, r, value, text_color = ink, bgcolor = panelBG, text_size = f_textSize(), text_halign = text.align_left)
+    true
+
+f_parentRead(Master m, int id) =>
+    Frame child = f_frameAt(m, id)
+    Frame parent = id > 0 ? f_frameAt(m, id - 1) : na
+    string result = "Highest requested context"
+    if id > 0
+        if na(parent) or na(child) or parent.cp.n < 2 or child.cp.n < 2
+            result := "Parent / child unresolved"
+        else
+            result := child.cp.dir == parent.cp.dir ? "Candidate direction aligned" : "Opposite candidate direction / possible nested correction"
+    result
+
+f_structureRead() =>
+    string supportRead = na(structureSupport) ? "—" : f_price(structureSupport) + " / " + str.tostring(structureSupportScore, "#.0")
+    string resistanceRead = na(structureResistance) ? "—" : f_price(structureResistance) + " / " + str.tostring(structureResistanceScore, "#.0")
+    structureEnabled ? timeframe.period + " " + (structureDetector == "Micro structure map" ? "map" : structureDetector == "Batty equal lows" ? "EQL" : structureDetector == "Batty internal range" ? "internal" : "reaction") + " " + str.tostring(array.size(structureTags)) + " tags / " + str.tostring(math.min(structureEligibleCount, structureShown)) + " eligible / " + str.tostring(structureActiveCount) + " active · S " + supportRead + " · R " + resistanceRead : "Off"
+
+f_renderPanel(Master m) =>
+    table.clear(panel, 0, 0, 1, 24)
+    if panelMode != "Off"
+        Frame core = f_frameAt(m, f_id(coreChoice))
+        Plan p = m.plan
+        Count panelPrimary = not na(core) ? core.cp : Count.new()
+        Count panelAlternate = not na(core) ? core.ca : Count.new()
+        if manualEnabled
+            array<Pivot> manual = f_manualPivots()
+            panelPrimary := f_candidate(manual, array.new<Pivot>(), 0, array.size(manual))
+            panelAlternate := Count.new()
+        string bias = not na(core) ? core.trend == 1 ? "UP EMA context" : core.trend == -1 ? "DOWN EMA context" : "MIXED EMA context" : "Source unavailable"
+        f_row(0, "WAVE COURT · v1.14", syminfo.ticker + " · canonical 1M", purple)
+        f_row(1, "Current read", coreChoice + " · " + bias, panelText)
+        f_row(2, "Decision", f_stage(p.stage) + " · " + p.mode, p.stage == 4 ? purple : panelText)
+        f_row(3, "Risk / target", (na(p.risk) ? "entry pending" : str.tostring(p.risk, "#.0") + " ticks") + " · TP " + f_price(p.tp), not na(p.risk) and p.risk > maxRisk ? yellow : panelText)
+        f_row(4, "Master cutoff", f_stamp(m.asof) + " " + syminfo.timezone, panelText)
+        if panelMode == "Expanded"
+            f_row(5, "Primary major", na(core) ? "Unavailable" : panelPrimary.kind + " · " + str.tostring(panelPrimary.quality, "#.0") + " structural quality", majorColor)
+            f_row(6, "Alternate major", na(core) ? "Unavailable" : panelAlternate.kind + " · " + str.tostring(panelAlternate.quality, "#.0"), majorColor)
+            f_row(7, "Intermediate / minor", na(core) ? "Unavailable" : core.ip.kind + " / " + core.mp.kind, midColor)
+            f_row(8, "Conditional projection", na(core) ? "Unavailable" : f_projectionTag(panelPrimary, 0) + " · " + f_price(panelPrimary.projLo) + "–" + f_price(panelPrimary.projHi) + " · timing schematic", panelText)
+            f_row(9, "Parent fit", f_parentRead(m, f_id(coreChoice)), panelText)
+            f_row(10, "Setup detail", p.reason, not na(p.risk) and p.risk > maxRisk ? yellow : panelText)
+            f_row(11, "Frozen band / stop", f_price(p.lo) + "–" + f_price(p.hi) + " · SL " + f_price(p.stage > 0 ? (not na(p.sl) ? p.sl : f_stop(p)) : na), yellow)
+            f_row(12, "Target rule", "Nearest active opposite pool outside own band · " + targetScope, purple)
+            for id = 0 to 6
+                Frame f = f_frameAt(m, id)
+                string cutoff = na(f) ? "Unavailable" : f_stamp(f.cutoff)
+                string countText = na(f) ? "" : " · " + f.cp.kind
+                f_row(13 + id, f_name(id) + " [" + f_tf(id) + "] " + (f_use(id) ? "w=" + str.tostring(f_weight(id)) : "excluded"), cutoff + countText, f_color(id))
+            string manualStatus = manualEnabled ? "Manual core primary display enabled; validate all six dates/prices" : (not na(core) ? core.cp.note : "Source unresolved")
+            f_row(20, "Count evidence", manualStatus, panelText)
+            f_row(21, "Coverage / objects", str.tostring(m.ready) + " candidate-ready frames · " + str.tostring(m.masterAge) + " bars since " + f_stamp(m.epoch) + " · " + str.tostring(array.get(dropped, 0)) + " draws omitted", panelText)
+            f_row(22, "Limits", "Weight / quality ≠ probability · pools ≠ order book · no broker orders", yellow)
+            f_row(23, "Controls", "Settings: layers + Compact/Off + 9 positions · use 1M for alert stream", panelText)
+            f_row(24, "Micro S / R", f_structureRead(), structureCyan)
+    true
+
+// Independent display modules: channels / projections remain visible when the
+// count-label layer is disabled. f_drawCount controls its labels separately.
+if barstate.islast
+    f_clearDrawings()
+    if not na(state) and not na(state.asof)
+        f_drawShared(state)
+        f_drawWickChannels()
+        if showWaves or showChannels or showProjection or showFib or showSwingPath or showWaveInvalidation
+            // Draw the core first, then its parents/children, to manage object limits.
+            for pass = 0 to 1
+                for id = 0 to 6
+                    bool passOK = pass == 0 ? id == f_id(coreChoice) : id != f_id(coreChoice)
+                    if passOK and f_visible(id)
+                        Frame frame = f_frameAt(state, id)
+                        if not na(frame)
+                            if showMajor
+                                f_drawDegree(frame.major, frame.cp, frame.ca, id, 0, state.asof, manualEnabled and id == f_id(coreChoice))
+                            if showMid
+                                f_drawDegree(frame.mid, frame.ip, frame.ia, id, 1, state.asof, false)
+                            if showMinor
+                                f_drawDegree(frame.minor, frame.mp, frame.ma, id, 2, state.asof, false)
+        f_renderWaveTags()
+        f_renderLiquidityEndTags()
+        f_renderPanel(state)
+    else
+        table.clear(panel, 0, 0, 1, 24)
+        if panelMode != "Off"
+            f_row(0, "WAVE COURT", "Waiting for canonical source history", yellow)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 09 · DATA WINDOW + STICKY EVENT ALERTS. Reference levels, never executions.
+// Alerts are deduplicated by master sequence. Coarse chart sampling can miss
+// intermediate events; create a 1M alert for the fullest available event stream.
+// ══════════════════════════════════════════════════════════════════════════════
+float entrySeries = not na(state) and not na(state.plan) ? state.plan.entry : na
+float stopSeries = not na(state) and not na(state.plan) and state.plan.stage > 0 ? (not na(state.plan.sl) ? state.plan.sl : f_stop(state.plan)) : na
+float targetSeries = not na(state) and not na(state.plan) ? state.plan.tp : na
+barcolor(colorTrendBars and not na(state) ? (state.coreTrend == 1 ? color.new(majorColor, 25) : state.coreTrend == -1 ? color.new(midColor, 25) : na) : na)
+plot(entrySeries, "Reference entry", color = color.gray, display = display.data_window)
+plot(stopSeries, "Structural stop", color = yellow, display = display.data_window)
+plot(targetSeries, "Opposite liquidity target", color = purple, display = display.data_window)
+plot(structureEnabled ? structureSupport : na, "Nearest active micro support", color = structureCyan, display = display.data_window)
+plot(structureEnabled ? structureSupportScore : na, "Micro support strength / 100", color = structureCyan, display = display.data_window)
+plot(structureEnabled ? structureResistance : na, "Nearest active micro resistance", color = structureCyan, display = display.data_window)
+plot(structureEnabled ? structureResistanceScore : na, "Micro resistance strength / 100", color = structureCyan, display = display.data_window)
+plot(structureEnabled ? array.size(structureTags) : na, "Micro tags retained", color = structureCyan, display = display.data_window)
+plot(structureEnabled ? structureEligibleCount : na, "Micro tags drawable", color = structureCyan, display = display.data_window)
+
+varip int seenEvent = na
+varip bool qualifiedLatch = false
+varip bool outcomeLatch = false
+varip bool gateLatch = false
+if barstate.isnew
+    qualifiedLatch := false
+    outcomeLatch := false
+    gateLatch := false
+bool newEvent = false
+bool qualifiedEvent = false
+bool outcomeEvent = false
+if not na(state)
+    if na(seenEvent)
+        seenEvent := state.eventSeq
+    else if state.eventSeq > seenEvent
+        newEvent := true
+        qualifiedEvent := state.eventKind == "reference_qualified"
+        outcomeEvent := state.eventKind == "target_touched" or state.eventKind == "stop_touched" or state.eventKind == "both_touched_unknown"
+        bool gateEvent = not qualifiedEvent and not outcomeEvent
+        qualifiedLatch := qualifiedLatch or qualifiedEvent
+        outcomeLatch := outcomeLatch or outcomeEvent
+        gateLatch := gateLatch or gateEvent
+        if enableAlerts and barstate.isrealtime and (qualifiedEvent or (gateEvent and alertGates) or (outcomeEvent and alertOutcomes))
+            string payload = "{\"indicator\":\"Wave Court v1.14\",\"symbol\":\"" + syminfo.tickerid + "\",\"clock\":\"1M\",\"event\":\"" + state.eventKind + "\",\"time\":" + str.tostring(state.eventTime) + ",\"sequence\":" + str.tostring(state.eventSeq) + ",\"direction\":" + str.tostring(state.plan.dir) + ",\"entry\":\"" + f_price(entrySeries) + "\",\"stop\":\"" + f_price(stopSeries) + "\",\"target\":\"" + f_price(targetSeries) + "\",\"status\":\"research_reference\"}"
+            alert(payload, alert.freq_all)
+        seenEvent := state.eventSeq
+alertcondition(qualifiedLatch, "Wave Court reference qualified", "Conditional reference qualified. Review Wave Court panel and structural stop; this is not a broker order.")
+alertcondition(outcomeLatch, "Wave Court reference level touched", "A reference target or stop was touched. Review the panel; same-bar ordering and fills can be unknown.")
+alertcondition(gateLatch, "Wave Court decision gate changed", "Wave Court decision gate changed. Review the canonical cutoff and panel.")
