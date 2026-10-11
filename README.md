@@ -4,6 +4,10 @@ This is the Trading Research repository in the Digital Company workspace. See th
 
 The repository is research-led and paper/shadow only. Local generated artifacts and private data are preserved but excluded from Git pending curation; see [preservation note](docs/LOCAL-ARTIFACT-PRESERVATION.md).
 
+## The Desk trading MVP
+
+[The Desk](apps/the-desk/README.md) is the local Vela chart and paper trading application. It preserves Coinbase and Hyperliquid public market data, adds durable account selection and chart trading, and embeds the existing LuxAlgo Trade Journal. Open `apps/the-desk/Open The Desk.command`, or run `python3 apps/the-desk/launch.py --detach`, then visit http://127.0.0.1:18880/. See [MVP validation and scope](apps/the-desk/MVP-ACCEPTANCE.md) and the [full TradingView experience requirements](apps/the-desk/docs/product-plan/README.md).
+
 ## MYM Liquidity Zone Forward Lab
 
 [Liquidity Lab](liquidity-lab/README.md) is the local paper/shadow implementation of protocol `mym-lz-forward-v0.1`. It records immutable TradingView zone forecasts, separates attraction from reaction probabilities, opens first-touch one-contract shadow trials with a fixed 30-tick stop and frozen same-timeframe opposite target, resolves outcomes from chronological price observations, and displays calibration and trading-economics scorecards. It has no live order-routing capability.
@@ -26,7 +30,7 @@ The Trader is a multimodal, research-led trading system. A trader submits screen
 
 ## Current status
 
-This repository is in product discovery and research definition. It is not a live trading system, does not claim live broker connectivity, and must not place real orders.
+The Desk MVP is implemented for local charting and paper trading. Broader research and full-platform parity remain in development. This is not a live trading system and must not place real orders.
 
 ## Product thesis
 

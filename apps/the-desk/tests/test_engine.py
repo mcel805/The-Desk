@@ -1,0 +1,108 @@
+import json
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from decimal import Decimal
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from engine import Engine
+
+class PaperTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.path=Path(self.temp.name)/'desk.db';self.e=Engine(self.path)
+        self.a=self.e.execute('account-a','account',{'name':'Test A','capital':'10000','fee_bps':'5','leverage':'1'})['id']
+        self.i='hyperliquid:BTC';self.quote(100,101)
+    def tearDown(self):self.temp.cleanup()
+    def quote(self,bid,ask,i=None,**kw):self.e.ingest(i or self.i,bid,ask,{'tick':'.01','qty_step':'.001'},**kw)
+    def order(self,key='order',**kw):
+        return self.e.execute(key,'order',{'account_id':self.a,'instrument':self.i,'side':'buy','kind':'market','qty':'1',**kw})
+    def state(self):return self.e.state(self.a)
+    def test_market_fee_and_partial_exit_reconcile(self):
+        self.order(qty='2');p=self.state()['positions'][0]
+        self.assertEqual(p['entry'],'101');self.assertEqual(Decimal(self.state()['accounts'][0]['balance']),Decimal('9999.899'))
+        self.quote(110,111)
+        self.e.execute('close','close',{'account_id':self.a,'id':p['id'],'revision':p['revision'],'qty':'.5'})
+        s=self.state();self.assertEqual(s['positions'][0]['qty'],'1.5');self.assertEqual(Decimal(s['accounts'][0]['balance']),Decimal('10004.3715'))
+        self.assertEqual(len(s['fills']),2)
+        with self.e.db() as db:
+            payload=json.loads(db.execute("SELECT payload FROM outbox WHERE event_id=?",(s['fills'][0]['id'],)).fetchone()[0])
+        self.assertEqual(payload['execution']['fee'],.0275);self.assertTrue(payload['provenance']['simulation'])
+    def test_idempotency_and_changed_payload(self):
+        one=self.order();two=self.order();self.assertEqual(one['id'],two['id']);self.assertEqual(len(self.state()['fills']),1)
+        with self.assertRaisesRegex(ValueError,'different command'):self.order(qty='2')
+    def test_limit_waits_and_price_improves(self):
+        o=self.order(kind='limit',price='99');self.assertEqual(o['status'],'working');self.assertFalse(self.state()['fills'])
+        self.quote(99,100);self.assertFalse(self.state()['fills'])
+        self.quote(97,98);self.assertEqual(self.state()['orders'][0]['status'],'filled');self.assertEqual(self.state()['fills'][0]['price'],'98')
+    def test_stop_limit_trigger_before_fill(self):
+        self.order(kind='stop_limit',trigger='105',price='104')
+        self.quote(102,103);self.assertEqual(self.state()['orders'][0]['status'],'working')
+        self.quote(106,107);self.assertEqual(self.state()['orders'][0]['status'],'triggered');self.assertFalse(self.state()['fills'])
+        self.quote(102,103);self.assertEqual(self.state()['orders'][0]['status'],'filled')
+    def test_stop_market_gap(self):
+        self.order(kind='stop',trigger='105');self.quote(109,110);self.assertEqual(self.state()['fills'][0]['price'],'110')
+    def test_bracket_partial_exit_closes_remaining_once(self):
+        self.order(qty='2',stop='95',target='110');p=self.state()['positions'][0]
+        self.e.execute('partial','close',{'account_id':self.a,'id':p['id'],'revision':1,'qty':'.5'})
+        self.quote(94,95);self.assertFalse(self.state()['positions']);self.assertEqual(self.state()['fills'][0]['qty'],'1.5')
+        count=len(self.state()['fills']);self.quote(90,91);self.assertEqual(len(self.state()['fills']),count)
+    def test_account_isolation(self):
+        b=self.e.execute('b','account',{'name':'B','capital':'1000','fee_bps':'0'})['id'];self.order();p=self.state()['positions'][0]
+        with self.assertRaises(ValueError):self.e.execute('wrong-close','close',{'account_id':b,'id':p['id'],'revision':1})
+        self.assertFalse(self.e.state(b)['positions']);self.assertEqual(len(self.state()['positions']),1)
+    def test_reversal_nets_and_retains_journal_legs(self):
+        self.order();self.order('reverse',side='sell',qty='2');s=self.state()
+        self.assertEqual(len(s['positions']),1);self.assertEqual(s['positions'][0]['side'],'sell');self.assertEqual(s['positions'][0]['qty'],'1');self.assertEqual(len(s['fills']),3)
+    def test_spot_inventory_and_pending_sells(self):
+        i='coinbase:BTC-USD';self.quote(100,101,i)
+        with self.assertRaisesRegex(ValueError,'owned'):self.order(instrument=i,side='sell')
+        self.order('spotbuy',instrument=i);self.order('spotsell',instrument=i,side='sell',kind='limit',price='110')
+        with self.assertRaisesRegex(ValueError,'owned'):self.order('oversell',instrument=i,side='sell',kind='limit',price='111')
+    def test_precision_and_buying_power(self):
+        with self.assertRaisesRegex(ValueError,'multiple'):self.order(qty='.0001')
+        with self.assertRaisesRegex(ValueError,'buying power'):self.order(qty='1000')
+        with self.assertRaisesRegex(ValueError,'multiple'):self.order(kind='limit',price='99.999')
+    def test_stale_quote_disables_commands(self):
+        self.quote(100,101,received_at=time.time()-20)
+        with self.assertRaisesRegex(ValueError,'Fresh'):self.order()
+    def test_revision_and_cancel(self):
+        o=self.order(kind='limit',price='95')
+        change={'account_id':self.a,'id':o['id'],'revision':1,'price':'94','trigger':None,'stop':None,'target':None}
+        result=self.e.execute('amend','amend',change);self.assertEqual(result['revision'],2)
+        with self.assertRaisesRegex(ValueError,'changed'):self.e.execute('stale','cancel',{'account_id':self.a,'id':o['id'],'revision':1})
+        self.e.execute('cancel','cancel',{'account_id':self.a,'id':o['id'],'revision':2});self.quote(89,90);self.assertFalse(self.state()['fills'])
+    def test_restart_recovery_and_order_matching(self):
+        self.order(kind='limit',price='95');self.e=Engine(self.path);self.quote(89,90)
+        self.assertEqual(self.state()['orders'][0]['status'],'filled');self.assertEqual(len(self.state()['fills']),1)
+    def test_alert_is_durable_and_one_shot(self):
+        self.e.execute('alert','alert',{'instrument':self.i,'condition':'above','price':'105'});self.e=Engine(self.path);self.quote(106,107);self.quote(108,109)
+        self.assertEqual(self.state()['alerts'][0]['status'],'triggered');self.assertEqual(sum(e['kind']=='alert' for e in self.state()['events']),1)
+    def test_gap_bracket_rejection_atomic(self):
+        self.order(kind='limit',price='99',stop='95',target='110');self.quote(89,90)
+        self.assertEqual(self.state()['orders'][0]['status'],'rejected');self.assertFalse(self.state()['fills']);self.assertFalse(self.state()['positions'])
+    def test_fill_outbox_atomic_on_failure(self):
+        original=self.e.queue
+        def fail(*a):raise RuntimeError('fault injected')
+        self.e.queue=fail
+        with self.assertRaises(RuntimeError):self.order()
+        self.e.queue=original
+        self.assertFalse(self.state()['orders']);self.assertFalse(self.state()['fills']);self.assertEqual(self.state()['accounts'][0]['balance'],'10000')
+    def test_expiry_without_market_feed(self):
+        o=self.order(kind='limit',price='95',ttl_seconds=60)
+        self.e=Engine(self.path)
+        self.assertEqual(self.e.expire(o['expires_at']+1),1)
+        self.assertEqual(self.state()['orders'][0]['status'],'expired')
+        self.assertEqual(self.state()['accounts'][0]['reserved'],'0')
+        self.assertEqual(self.e.expire(o['expires_at']+2),0)
+    def test_export_is_complete_scoped_and_reconciles(self):
+        self.e.execute('other','account',{'name':'Other','capital':'100'})
+        for i in range(101):self.order('many-'+str(i),qty='.001')
+        exported=self.e.export(self.a)
+        self.assertEqual(len(self.state()['fills']),100)
+        self.assertEqual(len(exported['fills']),101)
+        self.assertTrue(all(f['account_id']==self.a for f in exported['fills']))
+        balance=Decimal(exported['account']['capital'])+sum(Decimal(x['amount']) for x in exported['cash'])
+        self.assertEqual(balance,Decimal(exported['account']['balance']))
+
+if __name__=='__main__':unittest.main()

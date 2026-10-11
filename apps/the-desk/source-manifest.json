@@ -1,0 +1,22 @@
+{
+  "application": "The Desk",
+  "version": "0.1.0-mvp",
+  "execution": "paper-only",
+  "vela": {
+    "version": "0.8.0",
+    "commit": "eb8c8f9552b836825c6fd56b3305a5b58eeda09d",
+    "license": "Apache-2.0",
+    "browser_bundle_sha256": "a95eeebd51492b811bc4f10fa1984eccdb1e705abdc64effbddb268eec75f32b",
+    "build": "node build-vendor.mjs"
+  },
+  "journal": {
+    "path": "integrations/open-source/trade-journal",
+    "license": "MIT",
+    "source_repository_commit_at_import": "e75d1af508f53841a0340f92de6d42c30c638802",
+    "bridge_route_sha256": "799657b9d97dce61fcd181ce60b65a2e0280e63948c57e7f0c605ce5f201f393"
+  },
+  "sma_study": {
+    "source": "count-dashboard/web/quant-backtest.mjs",
+    "sha256": "b561fdc58d48cff97151013c18088a80f7e75bea8742ef86c447bb9895cbff07"
+  }
+}

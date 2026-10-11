@@ -1,0 +1,8 @@
+data/
+qa-data/
+__pycache__/
+*.pyc
+node_modules/
+.env*
+vendor-entry.js
+verification-private/
