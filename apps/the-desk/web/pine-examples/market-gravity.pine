@@ -1,0 +1,4773 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    ,@@@@@@@@@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@      @@@@@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@        @@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@         @@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@           @@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@        .@@@@@@@@@@@@@@@            @@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@          *@@@@@@@@@@@@@@             @@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@         @@@@@@@@@@@@@@@               @@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@@@@@@                 @@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                  @@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.                    @@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                      @@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@.                         @
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                             @
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@,                                       @
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                                                @
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@                                                    @
+// @@@@@@@@@@@@@@@@@@@@@@@@@                                                     @@
+// @@@@@@@@@@@@@@@@@@@@@@@                                                       @@
+// @@@@@@@@@@@@@@@@@@@@@@                                                       @@@
+// @@@@@@@@@@@@@@@@@@@@@*                @@@@@                                 @@@@
+// @@@@@@@@@@@@@@@@@@@@@               @@@@@@@@@                              @@@@@
+// @@@@@@@@@@@@@@@@@@@@@              @@@@@@@@@@@                           @@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@               @@@@@@@@%                           @@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@                                                @@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@                                            @@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@                                        %@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@                                   @@@@@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@                           @@@@@@@@@@@@@@@@@@@@@@@@
+// @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+// © YinYangAlgorithms
+
+//@version=6
+indicator(
+     "Market Gravity [YinYangAlgorithms]",
+     overlay = true,
+     max_lines_count = 100,
+     max_labels_count = 100,
+     max_polylines_count = 10
+ )
+
+// Drawing objects that anchor to historical bar_index values are internally
+// converted to timestamps. The level-history input can draw up to 3000 bars
+// back, so explicitly size only the `time` buffer required by those drawings.
+// +1 covers the inclusive offset conversion observed by TradingView.
+max_bars_back(time, 3001)
+
+// Market Gravity maps inferred liquidity structures above and below price,
+// scores their current attraction, ranks the strongest active magnets, and
+// visualizes directional pressure with primary and opposing Gravity paths.
+// Gravity scores are relative attraction metrics, not probabilities.
+
+// ~~~~~~~~~~~ INPUTS ~~~~~~~~~~~ //
+
+// Liquidity Detection
+pivotLeft = input.int(
+     5,
+     "Pivot Left Bars",
+     minval = 1,
+     group = "Advanced - Liquidity Detection",
+     tooltip = "Bars to the left used when confirming swing liquidity."
+ )
+
+pivotRight = input.int(
+     5,
+     "Pivot Right Bars",
+     minval = 1,
+     group = "Advanced - Liquidity Detection",
+     tooltip = "Bars to the right required before a swing is confirmed."
+ )
+
+clusterATR = input.float(
+     0.15,
+     "Pool Cluster Distance (ATR)",
+     minval = 0.01,
+     step = 0.01,
+     group = "Advanced - Liquidity Detection",
+     tooltip = "Compatible liquidity structures within this ATR distance are clustered into one liquidity pool."
+ )
+
+sweepBufferATR = input.float(
+     0.05,
+     "Sweep Buffer (ATR)",
+     minval = 0.0,
+     step = 0.01,
+     group = "Advanced - Liquidity Detection",
+     tooltip = "Price must exceed a liquidity level by this ATR amount before the level is considered swept."
+ )
+
+maxAgeBars = input.int(
+     1500,
+     "Maximum Liquidity Age",
+     minval = 100,
+     maxval = 5000,
+     group = "Advanced - Liquidity Detection"
+ )
+
+maxStoredLevels = input.int(
+     40,
+     "Maximum Stored Levels",
+     minval = 10,
+     maxval = 100,
+     group = "Advanced - Liquidity Detection"
+ )
+
+maxTargetDistanceATR = input.float(
+     12.0,
+     "Maximum Target Distance (ATR)",
+     minval = 1.0,
+     step = 0.5,
+     group = "Advanced - Liquidity Detection"
+ )
+
+
+// Liquidity Sources
+useSwingLiquidity = input.bool(
+     true,
+     "Swing High / Low Liquidity",
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Use confirmed swing pivots as baseline inferred liquidity."
+ )
+
+useEqualHighLow = input.bool(
+     true,
+     "Equal Highs / Lows",
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Detect repeated confirmed pivots forming equal-high or equal-low liquidity."
+ )
+
+useMajorSwings = input.bool(
+     true,
+     "Major Isolated Swings",
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Allow unusually prominent confirmed swings to qualify as their own liquidity structures."
+ )
+
+usePreviousDay = input.bool(
+     true,
+     "Previous Day High / Low",
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Use the previous completed daily high and low when the chart timeframe is daily or lower."
+ )
+
+usePreviousWeek = input.bool(
+     true,
+     "Previous Week High / Low",
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Use the previous completed weekly high and low when the chart timeframe is weekly or lower."
+ )
+
+useRepeatedRejections = input.bool(
+     true,
+     "Repeated Rejection Structures",
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Classify repeated confirmed reactions near the same price as rejection-based liquidity structures."
+ )
+
+equalToleranceATR = input.float(
+     0.15,
+     "Equal High / Low Tolerance (ATR)",
+     minval = 0.01,
+     step = 0.01,
+     group = "Advanced - Liquidity Sources"
+ )
+
+majorSwingATR = input.float(
+     2.50,
+     "Major Swing Threshold (ATR)",
+     minval = 0.50,
+     step = 0.25,
+     group = "Advanced - Liquidity Sources"
+ )
+
+rejectionMinSeparationBars = input.int(
+     8,
+     "Rejection Minimum Separation",
+     minval = 1,
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Minimum bars between reactions before they can qualify as a repeated rejection structure."
+ )
+
+rejectionWickRatio = input.float(
+     0.30,
+     "Rejection Wick Ratio",
+     minval = 0.0,
+     maxval = 1.0,
+     step = 0.05,
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Minimum wick share of the pivot candle range used when classifying repeated rejection structures."
+ )
+
+recentPivotMemory = input.int(
+     30,
+     "Recent Pivot Memory",
+     minval = 5,
+     maxval = 100,
+     group = "Advanced - Liquidity Sources",
+     tooltip = "Number of recent confirmed pivots retained only for structure classification."
+ )
+
+// Pool Engine
+independentTouchMinSeparationBars = input.int(
+     8,
+     "Independent Touch Minimum Separation",
+     minval = 1,
+     group = "Advanced - Pool Engine",
+     tooltip = "Minimum bars between price-reaction events before they count as separate liquidity touches. Structural confirmations can join a pool without inflating touch count."
+ )
+
+clusterZonePaddingATR = input.float(
+     0.02,
+     "Clustered Pool Zone Padding (ATR)",
+     minval = 0.0,
+     step = 0.01,
+     group = "Advanced - Pool Engine",
+     tooltip = "Padding added outside the minimum and maximum member prices of a clustered pool."
+ )
+
+isolatedZoneHalfATR = input.float(
+     0.05,
+     "Isolated Pool Half Width (ATR)",
+     minval = 0.01,
+     step = 0.01,
+     group = "Advanced - Pool Engine",
+     tooltip = "Half-width used for a one-member liquidity pool before additional structures join it."
+ )
+
+maxZoneWidthATR = input.float(
+     0.50,
+     "Maximum Pool Zone Width (ATR)",
+     minval = 0.10,
+     step = 0.05,
+     group = "Advanced - Pool Engine",
+     tooltip = "Safety bound that prevents an unusually broad cluster from becoming an oversized target zone."
+ )
+
+// Gravity Model
+atrLength = input.int(
+     14,
+     "ATR Length",
+     minval = 1,
+     group = "Advanced - Gravity Model"
+ )
+
+fastEMALength = input.int(
+     21,
+     "Fast EMA Length",
+     minval = 1,
+     group = "Advanced - Gravity Model"
+ )
+
+slowEMALength = input.int(
+     55,
+     "Slow EMA Length",
+     minval = 2,
+     group = "Advanced - Gravity Model"
+ )
+
+volumeLength = input.int(
+     50,
+     "Relative Volume Length",
+     minval = 5,
+     group = "Advanced - Gravity Model"
+ )
+
+approachingATR = input.float(
+     0.75,
+     "Approaching Distance (ATR)",
+     minval = 0.1,
+     step = 0.05,
+     group = "Advanced - Gravity Model"
+ )
+
+// Directional Pull
+primaryRankWeight = 1.00
+secondaryRankWeight = 0.65
+tertiaryRankWeight = 0.40
+
+accessibilityKATR = input.float(
+     2.0,
+     "Accessibility Distance K (ATR)",
+     minval = 0.25,
+     step = 0.25,
+     group = "Advanced - Gravity Model",
+     tooltip = "Controls nonlinear distance decay. Around K ATR, accessibility is approximately 50%."
+ )
+
+swingFreshnessHalfLifeBars = input.int(
+     150,
+     "Swing Freshness Half-Life (Bars)",
+     minval = 10,
+     group = "Advanced - Gravity Model"
+ )
+
+clusterFreshnessHalfLifeBars = input.int(
+     250,
+     "Cluster Freshness Half-Life (Bars)",
+     minval = 10,
+     group = "Advanced - Gravity Model"
+ )
+
+previousDayFreshnessHalfLifeBars = input.int(
+     300,
+     "Previous Day Freshness Half-Life (Bars)",
+     minval = 10,
+     group = "Advanced - Gravity Model"
+ )
+
+previousWeekFreshnessHalfLifeBars = input.int(
+     500,
+     "Previous Week Freshness Half-Life (Bars)",
+     minval = 10,
+     group = "Advanced - Gravity Model"
+ )
+
+// Liquidity Lifecycle
+activeLiquidityStrengthThreshold = input.float(
+     40.0,
+     "Active Liquidity Strength Threshold",
+     minval = 0.0,
+     maxval = 100.0,
+     step = 1.0,
+     group = "Advanced - Liquidity Lifecycle",
+     tooltip = "Pools below this structural Liquidity Strength remain Forming and are not eligible for target ranking."
+ )
+
+rejectionWindowBars = input.int(
+     2,
+     "Sweep Rejection Window (Bars)",
+     minval = 1,
+     maxval = 10,
+     group = "Advanced - Liquidity Lifecycle",
+     tooltip = "After a confirmed sweep, a close back on the original side of the full zone within this many bars classifies the sweep as Rejected."
+ )
+
+acceptanceCloseCount = input.int(
+     2,
+     "Acceptance Consecutive Closes",
+     minval = 1,
+     maxval = 5,
+     group = "Advanced - Liquidity Lifecycle",
+     tooltip = "Consecutive confirmed closes beyond the outer zone boundary required to classify swept liquidity as Accepted."
+ )
+
+lifecycleEventDisplayBars = input.int(
+     3,
+     "Resolved State Hold (Bars)",
+     minval = 1,
+     maxval = 20,
+     group = "Advanced - Liquidity Lifecycle",
+     tooltip = "Bars to retain Rejected or Accepted state internally before the pool transitions to Retired and its lifecycle event visualization fades."
+ )
+
+// Projection
+showCurves = input.bool(
+     true,
+     "Show Gravity Paths",
+     group = "Display - Projection"
+ )
+
+showOpposingCurve = input.bool(
+     true,
+     "Show Opposing Gravity Path",
+     group = "Display - Projection"
+ )
+
+projectionBars = input.int(
+     35,
+     "Projection Length",
+     minval = 10,
+     maxval = 100,
+     group = "Display - Projection"
+ )
+
+// Display
+displayLevels = input.int(
+     3,
+     "Levels Per Side",
+     minval = 1,
+     maxval = 3,
+     group = "Display"
+ )
+
+lineHistoryBars = input.int(
+     500,
+     "Level Line History",
+     minval = 50,
+     maxval = 3000,
+     group = "Display"
+ )
+
+showGlow = input.bool(
+     true,
+     "Level Glow",
+     group = "Display"
+ )
+
+showTable = input.bool(
+     true,
+     "Market Gravity Table",
+     group = "Display"
+ )
+
+textSizePercent = input.int(
+     150,
+     "Text Size (%)",
+     minval = 75,
+     maxval = 200,
+     step = 5,
+     group = "Display",
+     tooltip = "Scales Market Gravity target labels, score numbers, lifecycle annotations, table text, and Gravity path badges. Score circles stay compact. Gravity path badges intentionally use a smaller relative scale to reduce clutter."
+ )
+
+showLifecycleEvents = input.bool(
+     true,
+     "Show Lifecycle Events",
+     group = "Display",
+     tooltip = "Briefly preserves Sweeping, Rejected, and Accepted liquidity events on the chart after they leave future-target ranking."
+ )
+
+labelCollisionMode = input.string(
+     "Auto",
+     "Label Collision Handling",
+     options = [
+         "Auto",
+         "Off"
+     ],
+     group = "Display",
+     tooltip = "Auto keeps target labels readable with horizontal lanes and repositions Gravity path badges only when they would overlap curved paths, liquidity lines, or another path badge. Target prices and curve geometry never move."
+ )
+
+labelCollisionThresholdATR = input.float(
+     0.60,
+     "Label Collision Threshold (ATR)",
+     minval = 0.05,
+     maxval = 2.00,
+     step = 0.05,
+     group = "Display",
+     tooltip = "Targets within this ATR-normalized vertical distance are treated as a visual collision and assigned separate horizontal lanes."
+ )
+
+rankMarkerSpacingBars = input.int(
+     18,
+     "Label Base Lane Spacing (Bars)",
+     minval = 1,
+     maxval = 40,
+     group = "Display",
+     tooltip = "Base horizontal spacing for collision lanes. Automatic spacing also expands with Text Size so larger labels remain readable. True target prices never move vertically."
+ )
+
+lifecycleLabelGapBars = input.int(
+     18,
+     "Lifecycle Label Gap (Bars)",
+     minval = 0,
+     maxval = 40,
+     group = "Display",
+     tooltip = "Extra horizontal gap beyond the furthest active target lane before lifecycle-event labels begin, so Accepted, Rejected, and Sweeping annotations remain readable."
+ )
+
+tablePositionInput = input.string(
+     "Top Right",
+     "Table Position",
+     options = [
+         "Top Right",
+         "Bottom Right",
+         "Top Left",
+         "Bottom Left"
+     ],
+     group = "Display"
+ )
+
+// Alerts
+primaryGravityAlertLevel = input.float(
+     70.0,
+     "High Primary Gravity Threshold",
+     minval = 1.0,
+     maxval = 100.0,
+     step = 1.0,
+     group = "Alerts",
+     tooltip = "Triggers the High Primary Gravity alert when the current upside or downside Primary Magnet crosses above this Gravity score. Gravity is an attraction score, not a probability."
+ )
+
+gravityAlertLevel = input.float(
+     60.0,
+     "Strong Net Gravity Threshold",
+     minval = 1.0,
+     maxval = 100.0,
+     step = 1.0,
+     group = "Alerts",
+     tooltip = "Triggers strong directional Market Gravity alerts when Net Gravity crosses above +threshold or below -threshold. Net Gravity measures directional imbalance, not probability."
+ )
+
+// Colors
+bullColor = input.color(
+     #00E5A8,
+     "Bullish Gravity",
+     group = "Style"
+ )
+
+bearColor = input.color(
+     #FF4664,
+     "Bearish Gravity",
+     group = "Style"
+ )
+
+neutralColor = input.color(
+     #A8B2C1,
+     "Neutral Gravity",
+     group = "Style"
+ )
+
+pathColor = input.color(
+     #00C8FF,
+     "Primary Gravity Path",
+     group = "Style"
+ )
+
+// ~~~~~~~~~~~ VARIABLES ~~~~~~~~~~~ //
+
+// Display-only typographic point sizes. These affect presentation only.
+labelTinyTextSize = int(math.round(7.0 * textSizePercent / 100.0))
+labelSmallTextSize = int(math.round(10.0 * textSizePercent / 100.0))
+
+// Gravity Flow / Opposing Gravity badges remain user-scalable, but use a
+// smaller relative base so they do not dominate the chart at 150%.
+pathBadgeTextSize = int(math.round(6.0 * textSizePercent / 100.0))
+
+tableTinyTextSize = int(math.round(8.0 * textSizePercent / 100.0))
+tableSmallTextSize = int(math.round(10.0 * textSizePercent / 100.0))
+
+atr = ta.atr(atrLength)
+
+fastEMA = ta.ema(close, fastEMALength)
+slowEMA = ta.ema(close, slowEMALength)
+
+volumeAverage = ta.sma(volume, volumeLength)
+
+pivotHigh = ta.pivothigh(
+     high,
+     pivotLeft,
+     pivotRight
+ )
+
+pivotLow = ta.pivotlow(
+     low,
+     pivotLeft,
+     pivotRight
+ )
+
+pivotWindow = pivotLeft + pivotRight + 1
+
+
+// Confirmed higher-timeframe structures.
+// [1] + lookahead_on returns the previous completed HTF bar without leaking the developing bar.
+[previousDayHigh, previousDayLow] = request.security(
+     syminfo.tickerid,
+     "1D",
+     [high[1], low[1]],
+     lookahead = barmerge.lookahead_on
+ )
+
+[previousWeekHigh, previousWeekLow] = request.security(
+     syminfo.tickerid,
+     "1W",
+     [high[1], low[1]],
+     lookahead = barmerge.lookahead_on
+ )
+
+chartTimeframeSeconds = timeframe.in_seconds()
+canUsePreviousDay = chartTimeframeSeconds <= timeframe.in_seconds("1D")
+canUsePreviousWeek = chartTimeframeSeconds <= timeframe.in_seconds("1W")
+
+newDay = timeframe.change("1D")
+newWeek = timeframe.change("1W")
+
+// Persistent liquidity lifecycle states.
+LIFECYCLE_FORMING = 0
+LIFECYCLE_ACTIVE = 1
+LIFECYCLE_APPROACHING = 2
+LIFECYCLE_SWEEPING = 3
+LIFECYCLE_REJECTED = 4
+LIFECYCLE_ACCEPTED = 5
+LIFECYCLE_RETIRED = 6
+
+tablePosition =
+     tablePositionInput == "Top Right" ? position.top_right :
+     tablePositionInput == "Top Left" ? position.top_left :
+     tablePositionInput == "Bottom Left" ? position.bottom_left :
+     position.bottom_right
+
+// Liquidity pools. `Prices` stores the weighted centroid used by the visual layer.
+// Zone/member arrays feed the structural Liquidity Strength and dynamic Gravity engine.
+var array<float> upperPrices = array.new_float()
+var array<int> upperTouches = array.new_int()
+var array<int> upperBars = array.new_int()
+var array<int> upperActiveBars = array.new_int()
+var array<float> upperStrengths = array.new_float()
+var array<float> upperVolumes = array.new_float()
+var array<string> upperSources = array.new_string()
+var array<float> upperZoneLows = array.new_float()
+var array<float> upperZoneHighs = array.new_float()
+var array<float> upperMemberMins = array.new_float()
+var array<float> upperMemberMaxs = array.new_float()
+var array<int> upperMemberCounts = array.new_int()
+var array<float> upperTotalWeights = array.new_float()
+var array<int> upperLastTouchBars = array.new_int()
+var array<float> upperPoolATRs = array.new_float()
+
+// Structural evidence remains deliberately independent of
+// current price so Liquidity Strength remains stable unless pool structure changes.
+var array<float> upperMaxSwingProminences = array.new_float()
+var array<int> upperSwingEvidenceCounts = array.new_int()
+var array<float> upperVolumeEvidenceSums = array.new_float()
+var array<int> upperVolumeEvidenceCounts = array.new_int()
+
+var array<int> upperLifecycleStates = array.new_int()
+var array<int> upperSweepBars = array.new_int()
+var array<int> upperBeyondCloseCounts = array.new_int()
+var array<int> upperResolutionBars = array.new_int()
+var array<int> upperLifecycleTouchBars = array.new_int()
+
+var array<float> lowerPrices = array.new_float()
+var array<int> lowerTouches = array.new_int()
+var array<int> lowerBars = array.new_int()
+var array<int> lowerActiveBars = array.new_int()
+var array<float> lowerStrengths = array.new_float()
+var array<float> lowerVolumes = array.new_float()
+var array<string> lowerSources = array.new_string()
+var array<float> lowerZoneLows = array.new_float()
+var array<float> lowerZoneHighs = array.new_float()
+var array<float> lowerMemberMins = array.new_float()
+var array<float> lowerMemberMaxs = array.new_float()
+var array<int> lowerMemberCounts = array.new_int()
+var array<float> lowerTotalWeights = array.new_float()
+var array<int> lowerLastTouchBars = array.new_int()
+var array<float> lowerPoolATRs = array.new_float()
+
+var array<float> lowerMaxSwingProminences = array.new_float()
+var array<int> lowerSwingEvidenceCounts = array.new_int()
+var array<float> lowerVolumeEvidenceSums = array.new_float()
+var array<int> lowerVolumeEvidenceCounts = array.new_int()
+
+var array<int> lowerLifecycleStates = array.new_int()
+var array<int> lowerSweepBars = array.new_int()
+var array<int> lowerBeyondCloseCounts = array.new_int()
+var array<int> lowerResolutionBars = array.new_int()
+var array<int> lowerLifecycleTouchBars = array.new_int()
+
+// Raw confirmed pivot memory used only to classify liquidity structures.
+// These arrays do not create tradable targets by themselves.
+var array<float> recentUpperPivotPrices = array.new_float()
+var array<int> recentUpperPivotBars = array.new_int()
+var array<float> recentLowerPivotPrices = array.new_float()
+var array<int> recentLowerPivotBars = array.new_int()
+
+var array<line> displayLines = array.new_line()
+var array<label> displayLabels = array.new_label()
+
+var polyline upperPath = na
+var polyline lowerPath = na
+
+var string lastLifecycleEvent = "None"
+var int lastLifecycleEventBar = -1
+
+var table gravityTable = table.new(
+     tablePosition,
+     4,
+     9,
+     bgcolor = color.new(color.black, 15),
+     frame_color = color.new(color.gray, 75),
+     frame_width = 1,
+     border_color = color.new(color.gray, 90),
+     border_width = 1
+ )
+
+
+// ~~~~~~~~~~~ FUNCTIONS ~~~~~~~~~~~ //
+
+clamp01(float value) =>
+    math.max(
+         0.0,
+         math.min(1.0, value)
+     )
+
+clampSigned(float value) =>
+    math.max(
+         -1.0,
+         math.min(1.0, value)
+     )
+
+formatPrice(float value) =>
+    na(value) ?
+         "-" :
+         str.tostring(
+              value,
+              format.mintick
+         )
+
+formatScore(float value) =>
+    na(value) ?
+         "-" :
+         str.tostring(
+              int(math.round(value))
+         )
+
+appendSource(
+     string currentSources,
+     string newSource
+ ) =>
+    wrappedSources =
+         " + " +
+         currentSources +
+         " + "
+
+    wrappedNewSource =
+         " + " +
+         newSource +
+         " + "
+
+    currentSources == "" ?
+         newSource :
+         str.contains(
+              wrappedSources,
+              wrappedNewSource
+         ) ?
+         currentSources :
+         currentSources + " + " + newSource
+
+getRecentMatchCount(
+     array<float> prices,
+     array<int> bars,
+     float newPrice,
+     int newBar,
+     float tolerance,
+     int minimumSeparation
+ ) =>
+    int matches = 0
+
+    if array.size(prices) > 0
+        for i = 0 to array.size(prices) - 1
+            oldPrice = array.get(
+                 prices,
+                 i
+             )
+
+            oldBar = array.get(
+                 bars,
+                 i
+             )
+
+            farEnough =
+                 math.abs(
+                      newBar -
+                      oldBar
+                 ) >=
+                 minimumSeparation
+
+            closeEnough =
+                 math.abs(
+                      newPrice -
+                      oldPrice
+                 ) <=
+                 tolerance
+
+            if farEnough and closeEnough
+                matches += 1
+
+    matches
+
+storeRecentPivot(
+     array<float> prices,
+     array<int> bars,
+     float price,
+     int pivotBar,
+     int maximumSize
+ ) =>
+    array.push(
+         prices,
+         price
+     )
+
+    array.push(
+         bars,
+         pivotBar
+     )
+
+    while array.size(prices) > maximumSize
+        array.shift(prices)
+        array.shift(bars)
+
+getPoolZoneBounds(
+     float memberMin,
+     float memberMax,
+     int memberCount,
+     float centroid,
+     float poolATR
+ ) =>
+    float zoneLow = na
+    float zoneHigh = na
+
+    if poolATR > 0
+        if memberCount <= 1
+            zoneLow := centroid - poolATR * isolatedZoneHalfATR
+            zoneHigh := centroid + poolATR * isolatedZoneHalfATR
+        else
+            zoneLow := memberMin - poolATR * clusterZonePaddingATR
+            zoneHigh := memberMax + poolATR * clusterZonePaddingATR
+
+        maximumWidth = poolATR * maxZoneWidthATR
+        currentWidth = zoneHigh - zoneLow
+
+        if maximumWidth > 0 and currentWidth > maximumWidth
+            zoneMidpoint = (zoneHigh + zoneLow) / 2.0
+            zoneLow := zoneMidpoint - maximumWidth / 2.0
+            zoneHigh := zoneMidpoint + maximumWidth / 2.0
+
+    [zoneLow, zoneHigh]
+
+removeLevel(
+     array<float> prices,
+     array<int> touches,
+     array<int> bars,
+     array<int> activeBars,
+     array<float> strengths,
+     array<float> volumes,
+     array<string> sources,
+     array<float> zoneLows,
+     array<float> zoneHighs,
+     array<float> memberMins,
+     array<float> memberMaxs,
+     array<int> memberCounts,
+     array<float> totalWeights,
+     array<int> lastTouchBars,
+     array<float> poolATRs,
+     array<float> maxSwingProminences,
+     array<int> swingEvidenceCounts,
+     array<float> volumeEvidenceSums,
+     array<int> volumeEvidenceCounts,
+     array<int> lifecycleStates,
+     array<int> sweepBars,
+     array<int> beyondCloseCounts,
+     array<int> resolutionBars,
+     array<int> lifecycleTouchBars,
+     int index
+ ) =>
+    array.remove(prices, index)
+    array.remove(touches, index)
+    array.remove(bars, index)
+    array.remove(activeBars, index)
+    array.remove(strengths, index)
+    array.remove(volumes, index)
+    array.remove(sources, index)
+    array.remove(zoneLows, index)
+    array.remove(zoneHighs, index)
+    array.remove(memberMins, index)
+    array.remove(memberMaxs, index)
+    array.remove(memberCounts, index)
+    array.remove(totalWeights, index)
+    array.remove(lastTouchBars, index)
+    array.remove(poolATRs, index)
+    array.remove(maxSwingProminences, index)
+    array.remove(swingEvidenceCounts, index)
+    array.remove(volumeEvidenceSums, index)
+    array.remove(volumeEvidenceCounts, index)
+    array.remove(lifecycleStates, index)
+    array.remove(sweepBars, index)
+    array.remove(beyondCloseCounts, index)
+    array.remove(resolutionBars, index)
+    array.remove(lifecycleTouchBars, index)
+
+addPoolMember(
+     array<float> prices,
+     array<int> touches,
+     array<int> bars,
+     array<int> activeBars,
+     array<float> strengths,
+     array<float> volumes,
+     array<string> sources,
+     array<float> zoneLows,
+     array<float> zoneHighs,
+     array<float> memberMins,
+     array<float> memberMaxs,
+     array<int> memberCounts,
+     array<float> totalWeights,
+     array<int> lastTouchBars,
+     array<float> poolATRs,
+     array<float> maxSwingProminences,
+     array<int> swingEvidenceCounts,
+     array<float> volumeEvidenceSums,
+     array<int> volumeEvidenceCounts,
+     array<int> lifecycleStates,
+     array<int> sweepBars,
+     array<int> beyondCloseCounts,
+     array<int> resolutionBars,
+     array<int> lifecycleTouchBars,
+     float newPrice,
+     int newBar,
+     int newActiveBar,
+     float newStrength,
+     float newVolume,
+     float newStructuralSwingProminence,
+     float newStructuralVolumeScore,
+     string newSource,
+     float newWeight,
+     float newATR,
+     bool countsAsTouch,
+     int touchBar,
+     float tolerance,
+     int maximumLevels
+ ) =>
+    int nearestIndex = -1
+    float nearestDistance = na
+
+    if array.size(prices) > 0
+        for i = 0 to array.size(prices) - 1
+            poolState = array.get(lifecycleStates, i)
+            canMerge =
+                 poolState == LIFECYCLE_FORMING or
+                 poolState == LIFECYCLE_ACTIVE or
+                 poolState == LIFECYCLE_APPROACHING
+
+            if canMerge
+                poolCentroid = array.get(prices, i)
+                distance = math.abs(poolCentroid - newPrice)
+
+                if distance <= tolerance and (
+                     na(nearestDistance) or
+                     distance < nearestDistance
+                 )
+                    nearestIndex := i
+                    nearestDistance := distance
+
+    safeWeight = math.max(newWeight, 0.01)
+    safeATR = newATR > 0 ? newATR : atr
+
+    hasSwingEvidence = not na(newStructuralSwingProminence)
+    hasVolumeEvidence = not na(newStructuralVolumeScore)
+
+    structuralSwingProminence =
+         hasSwingEvidence ?
+         clamp01(newStructuralSwingProminence) :
+         0.0
+
+    structuralVolumeScore =
+         hasVolumeEvidence ?
+         clamp01(newStructuralVolumeScore) :
+         0.0
+
+    if nearestIndex == -1
+        initialMemberMin = newPrice
+        initialMemberMax = newPrice
+        initialMemberCount = 1
+        initialTouchBar = countsAsTouch ? touchBar : newBar
+
+        [initialZoneLow, initialZoneHigh] = getPoolZoneBounds(
+             initialMemberMin,
+             initialMemberMax,
+             initialMemberCount,
+             newPrice,
+             safeATR
+         )
+
+        array.push(prices, newPrice)
+        // Every structure begins with one observed formation event. Additional
+        // structure confirmations do not count as independent touches unless a
+        // separated price-reaction event explicitly qualifies below.
+        array.push(touches, 1)
+        array.push(bars, newBar)
+        array.push(activeBars, newActiveBar)
+        array.push(strengths, newStrength)
+        array.push(volumes, newVolume)
+        array.push(sources, newSource)
+        array.push(zoneLows, initialZoneLow)
+        array.push(zoneHighs, initialZoneHigh)
+        array.push(memberMins, initialMemberMin)
+        array.push(memberMaxs, initialMemberMax)
+        array.push(memberCounts, initialMemberCount)
+        array.push(totalWeights, safeWeight)
+        array.push(lastTouchBars, initialTouchBar)
+        array.push(poolATRs, safeATR)
+        array.push(maxSwingProminences, structuralSwingProminence)
+        array.push(swingEvidenceCounts, hasSwingEvidence ? 1 : 0)
+        array.push(volumeEvidenceSums, structuralVolumeScore)
+        array.push(volumeEvidenceCounts, hasVolumeEvidence ? 1 : 0)
+        array.push(lifecycleStates, LIFECYCLE_FORMING)
+        array.push(sweepBars, -1)
+        array.push(beyondCloseCounts, 0)
+        array.push(resolutionBars, -1)
+        array.push(lifecycleTouchBars, -1)
+
+    else
+        oldTouches = array.get(touches, nearestIndex)
+        oldCentroid = array.get(prices, nearestIndex)
+        oldBar = array.get(bars, nearestIndex)
+        oldActiveBar = array.get(activeBars, nearestIndex)
+        oldStrength = array.get(strengths, nearestIndex)
+        oldVolume = array.get(volumes, nearestIndex)
+        oldSources = array.get(sources, nearestIndex)
+        oldMemberMin = array.get(memberMins, nearestIndex)
+        oldMemberMax = array.get(memberMaxs, nearestIndex)
+        oldMemberCount = array.get(memberCounts, nearestIndex)
+        oldTotalWeight = array.get(totalWeights, nearestIndex)
+        oldLastTouchBar = array.get(lastTouchBars, nearestIndex)
+        oldPoolATR = array.get(poolATRs, nearestIndex)
+        oldMaxSwingProminence = array.get(maxSwingProminences, nearestIndex)
+        oldSwingEvidenceCount = array.get(swingEvidenceCounts, nearestIndex)
+        oldVolumeEvidenceSum = array.get(volumeEvidenceSums, nearestIndex)
+        oldVolumeEvidenceCount = array.get(volumeEvidenceCounts, nearestIndex)
+
+        combinedWeight = oldTotalWeight + safeWeight
+        newCentroid = (
+             oldCentroid * oldTotalWeight +
+             newPrice * safeWeight
+         ) / combinedWeight
+
+        averagedStrength = (
+             oldStrength * oldTotalWeight +
+             newStrength * safeWeight
+         ) / combinedWeight
+
+        averagedVolume = (
+             oldVolume * oldTotalWeight +
+             newVolume * safeWeight
+         ) / combinedWeight
+
+        averagedATR = (
+             oldPoolATR * oldTotalWeight +
+             safeATR * safeWeight
+         ) / combinedWeight
+
+        updatedMemberMin = math.min(oldMemberMin, newPrice)
+        updatedMemberMax = math.max(oldMemberMax, newPrice)
+        updatedMemberCount = oldMemberCount + 1
+
+        isIndependentTouch =
+             countsAsTouch and
+             math.abs(touchBar - oldLastTouchBar) >= independentTouchMinSeparationBars
+
+        updatedTouches = oldTouches + (isIndependentTouch ? 1 : 0)
+        updatedLastTouchBar = isIndependentTouch ? touchBar : oldLastTouchBar
+
+        updatedMaxSwingProminence =
+             hasSwingEvidence ?
+             math.max(
+                  oldMaxSwingProminence,
+                  structuralSwingProminence
+             ) :
+             oldMaxSwingProminence
+
+        updatedSwingEvidenceCount =
+             oldSwingEvidenceCount +
+             (hasSwingEvidence ? 1 : 0)
+
+        updatedVolumeEvidenceSum =
+             oldVolumeEvidenceSum +
+             (hasVolumeEvidence ? structuralVolumeScore : 0.0)
+
+        updatedVolumeEvidenceCount =
+             oldVolumeEvidenceCount +
+             (hasVolumeEvidence ? 1 : 0)
+
+        [updatedZoneLow, updatedZoneHigh] = getPoolZoneBounds(
+             updatedMemberMin,
+             updatedMemberMax,
+             updatedMemberCount,
+             newCentroid,
+             averagedATR
+         )
+
+        array.set(prices, nearestIndex, newCentroid)
+        array.set(touches, nearestIndex, updatedTouches)
+
+        // Use the earliest structural origin for a stable pool identity.
+        array.set(
+             bars,
+             nearestIndex,
+             math.min(
+                  oldBar,
+                  newBar
+             )
+         )
+
+        // Historical integrity: the pool is known from the earliest
+        // confirmation that created any member of the pool.
+        array.set(
+             activeBars,
+             nearestIndex,
+             math.min(
+                  oldActiveBar,
+                  newActiveBar
+             )
+         )
+
+        array.set(strengths, nearestIndex, averagedStrength)
+        array.set(volumes, nearestIndex, averagedVolume)
+        array.set(
+             sources,
+             nearestIndex,
+             appendSource(
+                  oldSources,
+                  newSource
+             )
+         )
+        array.set(zoneLows, nearestIndex, updatedZoneLow)
+        array.set(zoneHighs, nearestIndex, updatedZoneHigh)
+        array.set(memberMins, nearestIndex, updatedMemberMin)
+        array.set(memberMaxs, nearestIndex, updatedMemberMax)
+        array.set(memberCounts, nearestIndex, updatedMemberCount)
+        array.set(totalWeights, nearestIndex, combinedWeight)
+        array.set(lastTouchBars, nearestIndex, updatedLastTouchBar)
+        array.set(poolATRs, nearestIndex, averagedATR)
+        array.set(maxSwingProminences, nearestIndex, updatedMaxSwingProminence)
+        array.set(swingEvidenceCounts, nearestIndex, updatedSwingEvidenceCount)
+        array.set(volumeEvidenceSums, nearestIndex, updatedVolumeEvidenceSum)
+        array.set(volumeEvidenceCounts, nearestIndex, updatedVolumeEvidenceCount)
+
+    while array.size(prices) > maximumLevels
+        int oldestIndex = 0
+        int oldestBar = array.get(activeBars, 0)
+
+        if array.size(prices) > 1
+            for i = 1 to array.size(prices) - 1
+                candidateBar = array.get(activeBars, i)
+
+                if candidateBar < oldestBar
+                    oldestBar := candidateBar
+                    oldestIndex := i
+
+        removeLevel(
+             prices,
+             touches,
+             bars,
+             activeBars,
+             strengths,
+             volumes,
+             sources,
+             zoneLows,
+             zoneHighs,
+             memberMins,
+             memberMaxs,
+             memberCounts,
+             totalWeights,
+             lastTouchBars,
+             poolATRs,
+             maxSwingProminences,
+             swingEvidenceCounts,
+             volumeEvidenceSums,
+             volumeEvidenceCounts,
+             lifecycleStates,
+             sweepBars,
+             beyondCloseCounts,
+             resolutionBars,
+             lifecycleTouchBars,
+             oldestIndex
+         )
+
+// Liquidity Strength is structural only.
+// None of these components depend on current close, current distance, trend,
+// regime, or current ATR. They change only when the pool itself gains evidence.
+containsSource(
+     string currentSources,
+     string sourceName
+ ) =>
+    wrappedSources =
+         " + " +
+         currentSources +
+         " + "
+
+    wrappedSource =
+         " + " +
+         sourceName +
+         " + "
+
+    str.contains(
+         wrappedSources,
+         wrappedSource
+     )
+
+getLiquidityDensityScore(int memberCount) =>
+    memberCount <= 0 ?
+         0.0 :
+         clamp01(
+              0.20 +
+              0.80 *
+              (
+                   1.0 -
+                   math.exp(
+                        -0.70 *
+                        float(
+                             math.max(
+                                  memberCount - 1,
+                                  0
+                             )
+                        )
+                   )
+              )
+         )
+
+getTouchQualityScore(int independentTouches) =>
+    independentTouches <= 0 ?
+         0.0 :
+         clamp01(
+              0.20 +
+              0.80 *
+              (
+                   1.0 -
+                   math.exp(
+                        -0.80 *
+                        float(
+                             math.max(
+                                  independentTouches - 1,
+                                  0
+                             )
+                        )
+                   )
+              )
+         )
+
+getTimeframeImportanceScore(string sources) =>
+    hasPreviousWeek =
+         containsSource(
+              sources,
+              "Previous Week High"
+         ) or
+         containsSource(
+              sources,
+              "Previous Week Low"
+         )
+
+    hasPreviousDay =
+         containsSource(
+              sources,
+              "Previous Day High"
+         ) or
+         containsSource(
+              sources,
+              "Previous Day Low"
+         )
+
+    hasPreviousWeek ?
+         1.00 :
+         hasPreviousDay ?
+         0.70 :
+         0.35
+
+getLiquidityStrengthComponents(
+     int memberCount,
+     int independentTouches,
+     float maxSwingProminence,
+     int swingEvidenceCount,
+     float volumeEvidenceSum,
+     int volumeEvidenceCount,
+     string sources
+ ) =>
+    densityScore =
+         getLiquidityDensityScore(
+              memberCount
+         )
+
+    swingProminenceScore =
+         swingEvidenceCount > 0 ?
+         clamp01(
+              maxSwingProminence
+         ) :
+         0.0
+
+    touchQualityScore =
+         getTouchQualityScore(
+              independentTouches
+         )
+
+    timeframeImportanceScore =
+         getTimeframeImportanceScore(
+              sources
+         )
+
+    formationVolumeScore =
+         volumeEvidenceCount > 0 ?
+         clamp01(
+              volumeEvidenceSum /
+              float(volumeEvidenceCount)
+         ) :
+         0.0
+
+    liquidityStrength =
+         100.0 *
+         (
+              densityScore * 0.30 +
+              swingProminenceScore * 0.25 +
+              touchQualityScore * 0.20 +
+              timeframeImportanceScore * 0.15 +
+              formationVolumeScore * 0.10
+         )
+
+    [densityScore, swingProminenceScore, touchQualityScore, timeframeImportanceScore, formationVolumeScore, liquidityStrength]
+
+getPoolLiquidityStrengthAtIndex(
+     array<int> touches,
+     array<string> sources,
+     array<int> memberCounts,
+     array<float> maxSwingProminences,
+     array<int> swingEvidenceCounts,
+     array<float> volumeEvidenceSums,
+     array<int> volumeEvidenceCounts,
+     int index
+ ) =>
+    float result = na
+
+    if index >= 0 and index < array.size(memberCounts)
+        [densityScore, prominenceScore, touchScore, timeframeScore, volumeScore, liquidityStrength] = getLiquidityStrengthComponents(
+             array.get(memberCounts, index),
+             array.get(touches, index),
+             array.get(maxSwingProminences, index),
+             array.get(swingEvidenceCounts, index),
+             array.get(volumeEvidenceSums, index),
+             array.get(volumeEvidenceCounts, index),
+             array.get(sources, index)
+         )
+        result := liquidityStrength
+
+    result
+
+getPoolLiquidityComponentsAtIndex(
+     array<int> touches,
+     array<string> sources,
+     array<int> memberCounts,
+     array<float> maxSwingProminences,
+     array<int> swingEvidenceCounts,
+     array<float> volumeEvidenceSums,
+     array<int> volumeEvidenceCounts,
+     int index
+ ) =>
+    float densityScore = na
+    float prominenceScore = na
+    float touchScore = na
+    float timeframeScore = na
+    float volumeScore = na
+    float liquidityStrength = na
+
+    if index >= 0 and index < array.size(memberCounts)
+        [componentDensity, componentProminence, componentTouch, componentTimeframe, componentVolume, componentStrength] = getLiquidityStrengthComponents(
+             array.get(memberCounts, index),
+             array.get(touches, index),
+             array.get(maxSwingProminences, index),
+             array.get(swingEvidenceCounts, index),
+             array.get(volumeEvidenceSums, index),
+             array.get(volumeEvidenceCounts, index),
+             array.get(sources, index)
+         )
+
+        densityScore := componentDensity
+        prominenceScore := componentProminence
+        touchScore := componentTouch
+        timeframeScore := componentTimeframe
+        volumeScore := componentVolume
+        liquidityStrength := componentStrength
+
+    [densityScore, prominenceScore, touchScore, timeframeScore, volumeScore, liquidityStrength]
+
+
+// Dynamic Gravity starts from structural Liquidity Strength and applies
+// only current-context modifiers. Liquidity Strength itself remains unchanged.
+getDistanceToZoneATR(
+     float zoneLow,
+     float zoneHigh,
+     float currentATR
+ ) =>
+    float distanceATR = 0.0
+
+    if currentATR > 0
+        distanceATR :=
+             close < zoneLow ?
+             (zoneLow - close) / currentATR :
+             close > zoneHigh ?
+             (close - zoneHigh) / currentATR :
+             0.0
+
+    distanceATR
+
+getBaseFreshnessHalfLife(
+     string sources,
+     int memberCount,
+     int independentTouches
+ ) =>
+    hasPreviousWeek =
+         containsSource(sources, "Previous Week High") or
+         containsSource(sources, "Previous Week Low")
+
+    hasPreviousDay =
+         containsSource(sources, "Previous Day High") or
+         containsSource(sources, "Previous Day Low")
+
+    hasClusterEvidence =
+         memberCount >= 2 or
+         independentTouches >= 2 or
+         containsSource(sources, "Equal High") or
+         containsSource(sources, "Equal Low") or
+         containsSource(sources, "Repeated Rejection")
+
+    hasPreviousWeek ?
+         float(previousWeekFreshnessHalfLifeBars) :
+         hasPreviousDay ?
+         float(previousDayFreshnessHalfLifeBars) :
+         hasClusterEvidence ?
+         float(clusterFreshnessHalfLifeBars) :
+         float(swingFreshnessHalfLifeBars)
+
+getFreshnessComponents(
+     int activeBar,
+     float liquidityStrength,
+     string sources,
+     int memberCount,
+     int independentTouches
+ ) =>
+    age = math.max(bar_index - activeBar, 0)
+
+    baseHalfLife = getBaseFreshnessHalfLife(
+         sources,
+         memberCount,
+         independentTouches
+     )
+
+    strengthNormalized = clamp01(
+         liquidityStrength / 100.0
+     )
+
+    // Stronger structures persist longer: 0.75x .. 1.50x the source half-life.
+    strengthHalfLifeMultiplier =
+         0.75 +
+         0.75 *
+         strengthNormalized
+
+    effectiveHalfLife = math.max(
+         1.0,
+         baseHalfLife * strengthHalfLifeMultiplier
+     )
+
+    // True half-life decay: at age == effectiveHalfLife, freshness == 0.50.
+    freshness = math.exp(
+         -0.6931471805599453 *
+         float(age) /
+         effectiveHalfLife
+     )
+
+    [age, baseHalfLife, effectiveHalfLife, clamp01(freshness)]
+
+// Semi-adaptive Trend influence curve. Timeframe duration is the
+// independent variable, so custom intervals inherit a continuous bridged value
+// instead of falling through to hardcoded timeframe names.
+getAdaptiveTrendInfluenceScale(float timeframeSeconds) =>
+    float adaptiveScale = 1.00
+
+    if not na(timeframeSeconds) and timeframeSeconds > 0.0
+        fiveMinutes = 5.0 * 60.0
+        fifteenMinutes = 15.0 * 60.0
+        fourHours = 4.0 * 60.0 * 60.0
+        oneDay = 24.0 * 60.0 * 60.0
+
+        if timeframeSeconds <= fiveMinutes
+            adaptiveScale := 2.00
+        else if timeframeSeconds < fifteenMinutes
+            progress = math.log(timeframeSeconds / fiveMinutes) / math.log(fifteenMinutes / fiveMinutes)
+            adaptiveScale := 2.00 + 0.50 * progress
+        else if timeframeSeconds <= fourHours
+            adaptiveScale := 2.50
+        else if timeframeSeconds < oneDay
+            progress = math.log(timeframeSeconds / fourHours) / math.log(oneDay / fourHours)
+            adaptiveScale := 2.50 - 1.50 * progress
+        else
+            adaptiveScale := 1.00
+
+    math.max(1.00, math.min(2.50, adaptiveScale))
+
+getTrendModifier(
+     float trendBias,
+     int direction
+ ) =>
+    directionalTrend = clampSigned(
+         float(direction) * trendBias
+     )
+
+    adaptiveTrendScale = getAdaptiveTrendInfluenceScale(
+         chartTimeframeSeconds
+     )
+
+    math.max(
+         0.75,
+         math.min(
+              1.25,
+              1.0 + 0.10 * adaptiveTrendScale * directionalTrend
+         )
+    )
+
+getRegimeModifier(
+     string currentRegime,
+     float trendBias,
+     int direction,
+     string sources
+ ) =>
+    directionalTrend = clampSigned(
+         float(direction) * trendBias
+     )
+
+    isRangeStructure =
+         containsSource(sources, "Equal High") or
+         containsSource(sources, "Equal Low") or
+         containsSource(sources, "Repeated Rejection")
+
+    rawModifier =
+         currentRegime == "Trend Expansion" ?
+         1.0 + 0.10 * directionalTrend :
+         currentRegime == "Trend" ?
+         1.0 + 0.05 * directionalTrend :
+         currentRegime == "Range" ?
+         (isRangeStructure ? 1.05 : 1.00) :
+         currentRegime == "Compression" ?
+         0.92 :
+         1.00
+
+    // Scale the bounded regime modifier away from neutral while retaining
+    // conservative limits around 1.00x.
+    boundedModifier = math.max(
+         0.90,
+         math.min(
+              1.10,
+              rawModifier
+         )
+    )
+
+    scaledModifier = 1.0 + (boundedModifier - 1.0) * 2.00
+
+    math.max(
+         0.80,
+         math.min(
+              1.20,
+              scaledModifier
+         )
+    )
+
+getGravityComponents(
+     float zoneLow,
+     float zoneHigh,
+     float liquidityStrength,
+     int activeBar,
+     int memberCount,
+     int independentTouches,
+     string sources,
+     float currentATR,
+     float trendBias,
+     int direction,
+     string currentRegime
+ ) =>
+    [age, baseHalfLife, effectiveHalfLife, freshness] = getFreshnessComponents(
+         activeBar,
+         liquidityStrength,
+         sources,
+         memberCount,
+         independentTouches
+     )
+
+    distanceATR = getDistanceToZoneATR(
+         zoneLow,
+         zoneHigh,
+         currentATR
+     )
+
+    normalizedDistance =
+         accessibilityKATR > 0 ?
+         distanceATR / accessibilityKATR :
+         distanceATR
+
+    accessibility = 1.0 / (
+         1.0 +
+         normalizedDistance * normalizedDistance
+     )
+
+    distanceMultiplier =
+         0.55 +
+         0.45 *
+         accessibility
+
+    freshnessMultiplier =
+         0.70 +
+         0.30 *
+         freshness
+
+    trendModifier = getTrendModifier(
+         trendBias,
+         direction
+     )
+
+    regimeModifier = getRegimeModifier(
+         currentRegime,
+         trendBias,
+         direction,
+         sources
+     )
+
+    gravity = math.max(
+         0.0,
+         math.min(
+              100.0,
+              liquidityStrength *
+              distanceMultiplier *
+              freshnessMultiplier *
+              trendModifier *
+              regimeModifier
+         )
+    )
+
+    [age, baseHalfLife, effectiveHalfLife, freshness, distanceATR, accessibility, distanceMultiplier, freshnessMultiplier, trendModifier, regimeModifier, gravity]
+
+getGravityScore(
+     float zoneLow,
+     float zoneHigh,
+     float liquidityStrength,
+     int activeBar,
+     int memberCount,
+     int independentTouches,
+     string sources,
+     float currentATR,
+     float trendBias,
+     int direction,
+     string currentRegime
+ ) =>
+    [age, baseHalfLife, effectiveHalfLife, freshness, distanceATR, accessibility, distanceMultiplier, freshnessMultiplier, trendModifier, regimeModifier, gravity] = getGravityComponents(
+         zoneLow,
+         zoneHigh,
+         liquidityStrength,
+         activeBar,
+         memberCount,
+         independentTouches,
+         sources,
+         currentATR,
+         trendBias,
+         direction,
+         currentRegime
+     )
+
+    gravity
+
+getBestIndex(
+     array<float> prices,
+     array<int> touches,
+     array<int> activeBars,
+     array<string> sources,
+     array<float> zoneLows,
+     array<float> zoneHighs,
+     array<int> memberCounts,
+     array<float> maxSwingProminences,
+     array<int> swingEvidenceCounts,
+     array<float> volumeEvidenceSums,
+     array<int> volumeEvidenceCounts,
+     array<int> lifecycleStates,
+     int exclude1,
+     int exclude2,
+     float currentATR,
+     float trendBias,
+     int direction,
+     string currentRegime
+ ) =>
+    int bestIndex = -1
+    float bestScore = na
+
+    if array.size(prices) > 0
+        for i = 0 to array.size(prices) - 1
+            if i != exclude1 and i != exclude2
+                levelPrice = array.get(prices, i)
+                zoneLow = array.get(zoneLows, i)
+                zoneHigh = array.get(zoneHighs, i)
+                poolSources = array.get(sources, i)
+                memberCount = array.get(memberCounts, i)
+                independentTouches = array.get(touches, i)
+
+                lifecycleState = array.get(lifecycleStates, i)
+                rankEligible =
+                     lifecycleState == LIFECYCLE_ACTIVE or
+                     lifecycleState == LIFECYCLE_APPROACHING
+
+                correctSide =
+                     direction == 1 ?
+                     zoneHigh >= close :
+                     zoneLow <= close
+
+                distanceATR = getDistanceToZoneATR(
+                     zoneLow,
+                     zoneHigh,
+                     currentATR
+                 )
+
+                if rankEligible and correctSide and distanceATR <= maxTargetDistanceATR
+                    [densityScore, swingProminenceScore, touchQualityScore, timeframeImportanceScore, formationVolumeScore, liquidityStrength] = getLiquidityStrengthComponents(
+                         memberCount,
+                         independentTouches,
+                         array.get(maxSwingProminences, i),
+                         array.get(swingEvidenceCounts, i),
+                         array.get(volumeEvidenceSums, i),
+                         array.get(volumeEvidenceCounts, i),
+                         poolSources
+                     )
+
+                    candidateScore = getGravityScore(
+                         zoneLow,
+                         zoneHigh,
+                         liquidityStrength,
+                         array.get(activeBars, i),
+                         memberCount,
+                         independentTouches,
+                         poolSources,
+                         currentATR,
+                         trendBias,
+                         direction,
+                         currentRegime
+                     )
+
+                    if na(bestScore) or candidateScore > bestScore
+                        bestScore := candidateScore
+                        bestIndex := i
+
+    [bestIndex, bestScore]
+
+getRankContribution(
+     float score,
+     float rankWeight
+ ) =>
+    na(score) ?
+         0.0 :
+         score * rankWeight
+
+getRankWeightedPull(
+     float primaryScore,
+     float secondaryScore,
+     float tertiaryScore
+ ) =>
+    getRankContribution(
+         primaryScore,
+         primaryRankWeight
+     ) +
+     getRankContribution(
+         secondaryScore,
+         secondaryRankWeight
+     ) +
+     getRankContribution(
+         tertiaryScore,
+         tertiaryRankWeight
+     )
+
+getLifecycleStateName(int state) =>
+    string stateName = "Forming"
+
+    if state == LIFECYCLE_ACTIVE
+        stateName := "Active"
+    else if state == LIFECYCLE_APPROACHING
+        stateName := "Approaching"
+    else if state == LIFECYCLE_SWEEPING
+        stateName := "Sweeping"
+    else if state == LIFECYCLE_REJECTED
+        stateName := "Rejected"
+    else if state == LIFECYCLE_ACCEPTED
+        stateName := "Accepted"
+    else if state == LIFECYCLE_RETIRED
+        stateName := "Retired"
+
+    stateName
+
+getLatestLifecycleEventIndex(
+     array<int> lifecycleStates,
+     array<int> sweepBars,
+     array<int> resolutionBars
+ ) =>
+    int bestIndex = -1
+    int bestEventBar = -1
+
+    if array.size(lifecycleStates) > 0
+        for i = 0 to array.size(lifecycleStates) - 1
+            state = array.get(lifecycleStates, i)
+            eventBar =
+                 state == LIFECYCLE_SWEEPING ? array.get(sweepBars, i) :
+                 (state == LIFECYCLE_REJECTED or state == LIFECYCLE_ACCEPTED) ? array.get(resolutionBars, i) :
+                 -1
+
+            if eventBar > bestEventBar
+                bestEventBar := eventBar
+                bestIndex := i
+
+    [bestIndex, bestEventBar]
+
+getLifecycleEventColor(
+     int direction,
+     int state
+ ) =>
+    color result = #F5B942
+
+    if state == LIFECYCLE_ACCEPTED
+        result := direction == 1 ? bullColor : bearColor
+    else if state == LIFECYCLE_REJECTED
+        result := direction == 1 ? bearColor : bullColor
+
+    result
+
+getLifecycleEventText(
+     int direction,
+     int state
+ ) =>
+    string result = "SWEEPING"
+
+    if state == LIFECYCLE_ACCEPTED
+        result := direction == 1 ? "✓ ACCEPTED ↑" : "✓ ACCEPTED ↓"
+    else if state == LIFECYCLE_REJECTED
+        result := direction == 1 ? "↩ REJECTED ↓" : "↩ REJECTED ↑"
+    else if state == LIFECYCLE_SWEEPING
+        result := direction == 1 ? "SWEEPING ↑" : "SWEEPING ↓"
+
+    result
+
+pricesVisuallyCollide(
+     float priceA,
+     float priceB,
+     float currentATR
+ ) =>
+    (
+         labelCollisionMode == "Auto" and
+         not na(priceA) and
+         not na(priceB) and
+         currentATR > 0 and
+         math.abs(priceA - priceB) / currentATR <= labelCollisionThresholdATR
+     )
+
+reserveTargetLabelLane(
+     float targetPrice,
+     array<float> assignedPrices,
+     array<int> assignedLanes,
+     float currentATR
+ ) =>
+    int lane = 0
+
+    if labelCollisionMode == "Auto" and
+         not na(targetPrice) and
+         currentATR > 0
+
+        bool lane0Used = false
+        bool lane1Used = false
+        bool lane2Used = false
+        bool lane3Used = false
+        bool lane4Used = false
+        bool lane5Used = false
+
+        if array.size(assignedPrices) > 0
+            for i = 0 to array.size(assignedPrices) - 1
+                otherPrice = array.get(assignedPrices, i)
+                otherLane = array.get(assignedLanes, i)
+
+                if pricesVisuallyCollide(
+                     targetPrice,
+                     otherPrice,
+                     currentATR
+                 )
+                    if otherLane == 0
+                        lane0Used := true
+                    else if otherLane == 1
+                        lane1Used := true
+                    else if otherLane == 2
+                        lane2Used := true
+                    else if otherLane == 3
+                        lane3Used := true
+                    else if otherLane == 4
+                        lane4Used := true
+                    else if otherLane == 5
+                        lane5Used := true
+
+        lane :=
+             not lane0Used ? 0 :
+             not lane1Used ? 1 :
+             not lane2Used ? 2 :
+             not lane3Used ? 3 :
+             not lane4Used ? 4 :
+             not lane5Used ? 5 :
+             5
+
+    if not na(targetPrice)
+        array.push(assignedPrices, targetPrice)
+        array.push(assignedLanes, lane)
+
+    lane
+
+getTargetLaneOffsetBars(
+     int lane
+ ) =>
+    // Use progressive X offsets instead of equal lane spacing. Larger user
+    // text sizes receive proportionally more horizontal room, and collided
+    // lanes get a small fixed readability buffer. True target prices never move.
+    safeLane = math.max(lane, 0)
+    textScale = math.max(1.0, float(textSizePercent) / 100.0)
+    scaledBaseSpacing = int(
+         math.round(
+              float(rankMarkerSpacingBars) * textScale +
+              4.0
+         )
+     )
+    scaledExtraSpacing = int(
+         math.round(
+              2.0 * textScale
+         )
+     )
+
+    safeLane * scaledBaseSpacing +
+         scaledExtraSpacing * safeLane * (safeLane - 1)
+
+drawLifecycleEvent(
+     float levelPrice,
+     float zoneLow,
+     float zoneHigh,
+     int state,
+     int eventBar,
+     int direction,
+     int markerX,
+     color eventColor
+ ) =>
+    if showLifecycleEvents and
+         not na(levelPrice) and
+         eventBar >= 0 and
+         (
+              state == LIFECYCLE_SWEEPING or
+              state == LIFECYCLE_REJECTED or
+              state == LIFECYCLE_ACCEPTED
+         )
+
+        eventPrice =
+             direction == 1 ? zoneHigh : zoneLow
+
+        eventStartX = math.max(
+             eventBar,
+             bar_index - 12
+         )
+
+        eventEndX = markerX
+
+        if showGlow
+            eventGlow = line.new(
+                 eventStartX,
+                 eventPrice,
+                 eventEndX,
+                 eventPrice,
+                 xloc = xloc.bar_index,
+                 extend = extend.none,
+                 color = color.new(eventColor, 88),
+                 style = line.style_solid,
+                 width = 7
+             )
+
+            array.push(displayLines, eventGlow)
+
+        eventLine = line.new(
+             eventStartX,
+             eventPrice,
+             eventEndX,
+             eventPrice,
+             xloc = xloc.bar_index,
+             extend = extend.none,
+             color = color.new(eventColor, 5),
+             style = state == LIFECYCLE_SWEEPING ? line.style_dashed : line.style_solid,
+             width = 2
+         )
+
+        // Keep lifecycle event lines at their exact prices, but offset their
+        // labels away from one another: upper-side events above their line,
+        // lower-side events below their line. This prevents nearby Rejected /
+        // Accepted labels from occupying the same visual band at larger text.
+        eventLabelOffset =
+             not na(atr) and
+             atr > 0 ?
+             atr * 0.18 :
+             syminfo.mintick * 30
+
+        eventLabelY =
+             direction == 1 ?
+             eventPrice + eventLabelOffset :
+             eventPrice - eventLabelOffset
+
+        eventLabel = label.new(
+             eventEndX + 1,
+             eventLabelY,
+             getLifecycleEventText(direction, state) +
+             "\n" +
+             formatPrice(levelPrice),
+             xloc = xloc.bar_index,
+             yloc = yloc.price,
+             style = label.style_label_left,
+             color = color.new(eventColor, 72),
+             textcolor = eventColor,
+             size = labelTinyTextSize,
+             textalign = text.align_left
+         )
+
+        array.push(displayLines, eventLine)
+        array.push(displayLabels, eventLabel)
+
+updateLifecycle(
+     array<float> prices,
+     array<int> touches,
+     array<int> activeBars,
+     array<string> sources,
+     array<float> zoneLows,
+     array<float> zoneHighs,
+     array<int> memberCounts,
+     array<float> maxSwingProminences,
+     array<int> swingEvidenceCounts,
+     array<float> volumeEvidenceSums,
+     array<int> volumeEvidenceCounts,
+     array<int> lifecycleStates,
+     array<int> sweepBars,
+     array<int> beyondCloseCounts,
+     array<int> resolutionBars,
+     array<int> lifecycleTouchBars,
+     float currentATR,
+     int direction,
+     bool commitTransitions
+ ) =>
+    bool touchedEvent = false
+    bool sweepEvent = false
+    bool rejectedEvent = false
+    bool acceptedEvent = false
+
+    if commitTransitions and array.size(prices) > 0 and currentATR > 0
+        for i = 0 to array.size(prices) - 1
+            currentState = array.get(lifecycleStates, i)
+            zoneLow = array.get(zoneLows, i)
+            zoneHigh = array.get(zoneHighs, i)
+            activeBar = array.get(activeBars, i)
+            poolSources = array.get(sources, i)
+            memberCount = array.get(memberCounts, i)
+            independentTouches = array.get(touches, i)
+
+            [densityScore, swingProminenceScore, touchQualityScore, timeframeImportanceScore, formationVolumeScore, liquidityStrength] = getLiquidityStrengthComponents(
+                 memberCount,
+                 independentTouches,
+                 array.get(maxSwingProminences, i),
+                 array.get(swingEvidenceCounts, i),
+                 array.get(volumeEvidenceSums, i),
+                 array.get(volumeEvidenceCounts, i),
+                 poolSources
+             )
+
+            distanceATR = getDistanceToZoneATR(
+                 zoneLow,
+                 zoneHigh,
+                 currentATR
+             )
+
+            zoneTouched =
+                 direction == 1 ?
+                 high >= zoneLow :
+                 low <= zoneHigh
+
+            sweepBoundary =
+                 direction == 1 ?
+                 zoneHigh + currentATR * sweepBufferATR :
+                 zoneLow - currentATR * sweepBufferATR
+
+            swept =
+                 direction == 1 ?
+                 high >= sweepBoundary :
+                 low <= sweepBoundary
+
+            closeBeyond =
+                 direction == 1 ?
+                 close > zoneHigh :
+                 close < zoneLow
+
+            closeOriginalSide =
+                 direction == 1 ?
+                 close < zoneLow :
+                 close > zoneHigh
+
+            if currentState == LIFECYCLE_FORMING or
+                 currentState == LIFECYCLE_ACTIVE or
+                 currentState == LIFECYCLE_APPROACHING
+
+                if swept and bar_index >= activeBar
+                    initialBeyondCount = closeBeyond ? 1 : 0
+                    array.set(sweepBars, i, bar_index)
+                    array.set(beyondCloseCounts, i, initialBeyondCount)
+                    sweepEvent := true
+
+                    if initialBeyondCount >= acceptanceCloseCount
+                        array.set(lifecycleStates, i, LIFECYCLE_ACCEPTED)
+                        array.set(resolutionBars, i, bar_index)
+                        acceptedEvent := true
+                    else
+                        array.set(lifecycleStates, i, LIFECYCLE_SWEEPING)
+
+                else
+                    nextState =
+                         liquidityStrength < activeLiquidityStrengthThreshold ?
+                         LIFECYCLE_FORMING :
+                         distanceATR <= approachingATR ?
+                         LIFECYCLE_APPROACHING :
+                         LIFECYCLE_ACTIVE
+
+                    array.set(lifecycleStates, i, nextState)
+
+                    lastLifecycleTouchBar = array.get(lifecycleTouchBars, i)
+                    newTouchEvent =
+                         zoneTouched and
+                         not swept and
+                         bar_index > activeBar and
+                         (
+                              lastLifecycleTouchBar < 0 or
+                              bar_index - lastLifecycleTouchBar >= independentTouchMinSeparationBars
+                         )
+
+                    if newTouchEvent
+                        array.set(lifecycleTouchBars, i, bar_index)
+                        touchedEvent := true
+
+            else if currentState == LIFECYCLE_SWEEPING
+                sweepBar = array.get(sweepBars, i)
+                barsSinceSweep = bar_index - sweepBar
+                previousBeyondCount = array.get(beyondCloseCounts, i)
+                updatedBeyondCount = closeBeyond ? previousBeyondCount + 1 : 0
+                array.set(beyondCloseCounts, i, updatedBeyondCount)
+
+                if updatedBeyondCount >= acceptanceCloseCount
+                    array.set(lifecycleStates, i, LIFECYCLE_ACCEPTED)
+                    array.set(resolutionBars, i, bar_index)
+                    acceptedEvent := true
+
+                else if barsSinceSweep <= rejectionWindowBars and closeOriginalSide
+                    array.set(lifecycleStates, i, LIFECYCLE_REJECTED)
+                    array.set(resolutionBars, i, bar_index)
+                    rejectedEvent := true
+
+                else if barsSinceSweep > rejectionWindowBars
+                    array.set(lifecycleStates, i, LIFECYCLE_RETIRED)
+                    array.set(resolutionBars, i, bar_index)
+
+            else if currentState == LIFECYCLE_REJECTED or
+                 currentState == LIFECYCLE_ACCEPTED
+                resolutionBar = array.get(resolutionBars, i)
+
+                if resolutionBar >= 0 and
+                     bar_index - resolutionBar >= lifecycleEventDisplayBars
+                    array.set(lifecycleStates, i, LIFECYCLE_RETIRED)
+                    array.set(resolutionBars, i, bar_index)
+
+    [touchedEvent, sweepEvent, rejectedEvent, acceptedEvent]
+
+drawLevel(
+     float levelPrice,
+     float score,
+     string levelName,
+     string state,
+     int levelBar,
+     color levelColor,
+     int markerX,
+     int markerLane
+ ) =>
+    if not na(levelPrice) and
+         not na(score)
+
+        startX = math.max(
+             levelBar,
+             bar_index -
+             lineHistoryBars
+         )
+
+        isPrimary = levelName == "Primary Magnet"
+        isApproaching = state == "Approaching"
+        lineWidth = isPrimary ? 2 : 1
+        glowWidth = isPrimary ? 7 : 5
+        circleTransparency = isApproaching ? 0 : 10
+        labelTransparency = isApproaching ? 66 : 78
+
+        // "Active" is implicit for ranked visible targets, so omit it.
+        // Other lifecycle states remain visible because they carry context.
+        stateSuffix =
+             state == "Active" or
+             state == "-" ?
+             "" :
+             "  •  " + state
+
+        // Keep the visible marker compact and independent of Text Size (%).
+        // Render the scalable score in a separate fully-transparent centered
+        // label at the exact same anchor. label.style_circle places its text
+        // above the marker; label.style_label_center centers text on the given
+        // price coordinate while the separate scoreCircle supplies the marker.
+
+        if showGlow
+            glowLine = line.new(
+                 startX,
+                 levelPrice,
+                 markerX,
+                 levelPrice,
+                 xloc = xloc.bar_index,
+                 extend = extend.none,
+                 color = color.new(
+                      levelColor,
+                      85
+                 ),
+                 style = line.style_solid,
+                 width = glowWidth
+             )
+
+            array.push(
+                 displayLines,
+                 glowLine
+             )
+
+        levelLine = line.new(
+             startX,
+             levelPrice,
+             markerX,
+             levelPrice,
+             xloc = xloc.bar_index,
+             extend = extend.none,
+             color = color.new(
+                  levelColor,
+                  15
+             ),
+             style = line.style_dashed,
+             width = lineWidth
+         )
+
+        // Native size.small is intentionally fixed rather than derived from
+        // Text Size (%). A single blank character keeps the circle object
+        // straightforward for TradingView's runtime renderer.
+        scoreCircle = label.new(
+             markerX,
+             levelPrice,
+             " ",
+             xloc = xloc.bar_index,
+             style = label.style_circle,
+             color = color.new(
+                  levelColor,
+                  circleTransparency
+             ),
+             textcolor = color.new(color.white, 100),
+             size = size.small
+         )
+
+        scoreTextLabel = label.new(
+             markerX,
+             levelPrice,
+             formatScore(score),
+             xloc = xloc.bar_index,
+             yloc = yloc.price,
+             style = label.style_label_center,
+             color = color.new(levelColor, 100),
+             textcolor = color.white,
+             size = labelSmallTextSize,
+             textalign = text.align_center
+         )
+
+        nameLabel = label.new(
+             markerX + 2,
+             levelPrice,
+             levelName +
+             stateSuffix +
+             "\n" +
+             formatPrice(levelPrice),
+             xloc = xloc.bar_index,
+             style = label.style_label_left,
+             color = color.new(
+                  levelColor,
+                  labelTransparency
+             ),
+             textcolor = levelColor,
+             size = labelTinyTextSize,
+             textalign = text.align_left
+         )
+
+        array.push(
+             displayLines,
+             levelLine
+         )
+
+        array.push(
+             displayLabels,
+             scoreCircle
+         )
+
+        array.push(
+             displayLabels,
+             scoreTextLabel
+         )
+
+        array.push(
+             displayLabels,
+             nameLabel
+         )
+
+pathBadgePlacementIsLogical(
+     float badgeY,
+     bool upwardPath,
+     float spacingUnit
+ ) =>
+    // Keep automatic collision handling semantically tied to the curve.
+    // A badge may move farther toward the price side of its path, but it is
+    // never allowed to drift materially past current price just to find room.
+    upwardPath ?
+         badgeY >= close - spacingUnit * 0.25 :
+         badgeY <= close + spacingUnit * 0.25
+
+pathBadgePlacementIsClear(
+     int badgeX,
+     float badgeY,
+     float pathY,
+     float otherPathYStart,
+     float otherPathYEnd,
+     float badgeHalfHeight,
+     float spacingUnit,
+     int targetX,
+     int futureBars,
+     array<float> obstaclePrices,
+     array<int> reservedBadgeXs,
+     array<float> reservedBadgeYs,
+     array<float> reservedBadgeHalfHeights
+ ) =>
+    bool clear = true
+
+    curveClearance = spacingUnit * 0.08
+    liquidityClearance = spacingUnit * 0.08
+    badgeClearance = spacingUnit * 0.16
+
+    // Priority 1: keep the badge clear of dashed Gravity paths. The badge is
+    // already intentionally placed on the price side of its own path; this
+    // check protects both its own curve and the opposing curve.
+    if math.abs(badgeY - pathY) < badgeHalfHeight + curveClearance
+        clear := false
+
+    if clear and
+         not na(otherPathYStart)
+        otherPathLow =
+             not na(otherPathYEnd) ?
+             math.min(otherPathYStart, otherPathYEnd) :
+             otherPathYStart
+
+        otherPathHigh =
+             not na(otherPathYEnd) ?
+             math.max(otherPathYStart, otherPathYEnd) :
+             otherPathYStart
+
+        if badgeY + badgeHalfHeight + curveClearance >= otherPathLow and
+             badgeY - badgeHalfHeight - curveClearance <= otherPathHigh
+            clear := false
+
+    // Priority 2: do not allow a horizontal active/event liquidity line to
+    // run through the badge. Horizontal line geometry itself never moves.
+    if clear and
+         array.size(obstaclePrices) > 0
+        for i = 0 to array.size(obstaclePrices) - 1
+            obstaclePrice = array.get(obstaclePrices, i)
+
+            if not na(obstaclePrice) and
+                 math.abs(badgeY - obstaclePrice) < badgeHalfHeight + liquidityClearance
+                clear := false
+
+    // Path badges share the same future projection region. The dominant path
+    // is drawn first and therefore retains placement priority; the opposing
+    // badge adapts around it only when their approximate footprints overlap.
+    if clear and
+         array.size(reservedBadgeYs) > 0
+        horizontalCollisionBars = math.max(
+             8,
+             int(
+                  math.round(
+                       futureBars * 0.36
+                  )
+             )
+         )
+
+        for i = 0 to array.size(reservedBadgeYs) - 1
+            otherX = array.get(reservedBadgeXs, i)
+            otherY = array.get(reservedBadgeYs, i)
+            otherHalfHeight = array.get(reservedBadgeHalfHeights, i)
+
+            if math.abs(badgeX - otherX) <= horizontalCollisionBars and
+                 math.abs(badgeY - otherY) < badgeHalfHeight + otherHalfHeight + badgeClearance
+                clear := false
+
+    // Keep the badge region distinct from the right-edge target annotations.
+    // This is intentionally conservative and never moves the actual target.
+    minimumTargetGapBars = math.max(
+         5,
+         int(
+              math.round(
+                   futureBars * 0.20
+              )
+         )
+     )
+
+    if clear and
+         targetX - badgeX < minimumTargetGapBars
+        clear := false
+
+    clear
+
+choosePathBadgePlacement(
+     float target,
+     float otherTarget,
+     int futureBars,
+     float spacingUnit,
+     float badgeHalfHeight,
+     array<float> obstaclePrices,
+     array<int> reservedBadgeXs,
+     array<float> reservedBadgeYs,
+     array<float> reservedBadgeHalfHeights
+ ) =>
+    delta = target - close
+    upwardPath = delta >= 0
+    direction = upwardPath ? -1.0 : 1.0
+
+    x2 = bar_index +
+         int(
+              math.round(
+                   futureBars * 0.25
+              )
+         )
+
+    x3 = bar_index +
+         int(
+              math.round(
+                   futureBars * 0.50
+              )
+         )
+
+    targetX = bar_index + futureBars
+
+    y2 = close + delta * 0.10
+    y3 = close + delta * 0.32
+
+    otherY2 =
+         not na(otherTarget) ?
+         close + (otherTarget - close) * 0.10 :
+         na
+
+    otherY3 =
+         not na(otherTarget) ?
+         close + (otherTarget - close) * 0.32 :
+         na
+
+    otherY4 =
+         not na(otherTarget) ?
+         close + (otherTarget - close) * 0.66 :
+         na
+
+    // Start with the existing visually preferred midpoint placement.
+    // Automatic handling tries only nearby, semantically sensible positions:
+    // midpoint first, then a slightly larger offset, then the earlier path
+    // quarter-point. It never jumps to the opposite side of the curve.
+    int selectedX = x3
+    float selectedY = y3 + direction * spacingUnit * 0.35
+    bool foundClearPlacement = false
+
+    if labelCollisionMode == "Auto"
+        candidateY1 = y3 + direction * spacingUnit * 0.35
+        candidate1Logical = pathBadgePlacementIsLogical(candidateY1, upwardPath, spacingUnit)
+        candidate1Clear = candidate1Logical and pathBadgePlacementIsClear(
+             x3,
+             candidateY1,
+             y3,
+             otherY3,
+             otherY4,
+             badgeHalfHeight,
+             spacingUnit,
+             targetX,
+             futureBars,
+             obstaclePrices,
+             reservedBadgeXs,
+             reservedBadgeYs,
+             reservedBadgeHalfHeights
+         )
+
+        if candidate1Clear
+            selectedX := x3
+            selectedY := candidateY1
+            foundClearPlacement := true
+
+        if not foundClearPlacement
+            candidateY2 = y3 + direction * spacingUnit * 0.55
+            candidate2Logical = pathBadgePlacementIsLogical(candidateY2, upwardPath, spacingUnit)
+            candidate2Clear = candidate2Logical and pathBadgePlacementIsClear(
+                 x3,
+                 candidateY2,
+                 y3,
+                 otherY3,
+                 otherY4,
+                 badgeHalfHeight,
+                 spacingUnit,
+                 targetX,
+                 futureBars,
+                 obstaclePrices,
+                 reservedBadgeXs,
+                 reservedBadgeYs,
+                 reservedBadgeHalfHeights
+             )
+
+            if candidate2Clear
+                selectedX := x3
+                selectedY := candidateY2
+                foundClearPlacement := true
+
+        if not foundClearPlacement
+            candidateY3 = y2 + direction * spacingUnit * 0.35
+            candidate3Logical = pathBadgePlacementIsLogical(candidateY3, upwardPath, spacingUnit)
+            candidate3Clear = candidate3Logical and pathBadgePlacementIsClear(
+                 x2,
+                 candidateY3,
+                 y2,
+                 otherY2,
+                 otherY3,
+                 badgeHalfHeight,
+                 spacingUnit,
+                 targetX,
+                 futureBars,
+                 obstaclePrices,
+                 reservedBadgeXs,
+                 reservedBadgeYs,
+                 reservedBadgeHalfHeights
+             )
+
+            if candidate3Clear
+                selectedX := x2
+                selectedY := candidateY3
+                foundClearPlacement := true
+
+        if not foundClearPlacement
+            candidateY4 = y2 + direction * spacingUnit * 0.55
+            candidate4Logical = pathBadgePlacementIsLogical(candidateY4, upwardPath, spacingUnit)
+            candidate4Clear = candidate4Logical and pathBadgePlacementIsClear(
+                 x2,
+                 candidateY4,
+                 y2,
+                 otherY2,
+                 otherY3,
+                 badgeHalfHeight,
+                 spacingUnit,
+                 targetX,
+                 futureBars,
+                 obstaclePrices,
+                 reservedBadgeXs,
+                 reservedBadgeYs,
+                 reservedBadgeHalfHeights
+             )
+
+            if candidate4Clear
+                selectedX := x2
+                selectedY := candidateY4
+                foundClearPlacement := true
+
+        if not foundClearPlacement
+            candidateY5 = y3 + direction * spacingUnit * 0.75
+            candidate5Logical = pathBadgePlacementIsLogical(candidateY5, upwardPath, spacingUnit)
+            candidate5Clear = candidate5Logical and pathBadgePlacementIsClear(
+                 x3,
+                 candidateY5,
+                 y3,
+                 otherY3,
+                 otherY4,
+                 badgeHalfHeight,
+                 spacingUnit,
+                 targetX,
+                 futureBars,
+                 obstaclePrices,
+                 reservedBadgeXs,
+                 reservedBadgeYs,
+                 reservedBadgeHalfHeights
+             )
+
+            if candidate5Clear
+                selectedX := x3
+                selectedY := candidateY5
+                foundClearPlacement := true
+
+        if not foundClearPlacement
+            candidateY6 = y2 + direction * spacingUnit * 0.75
+            candidate6Logical = pathBadgePlacementIsLogical(candidateY6, upwardPath, spacingUnit)
+            candidate6Clear = candidate6Logical and pathBadgePlacementIsClear(
+                 x2,
+                 candidateY6,
+                 y2,
+                 otherY2,
+                 otherY3,
+                 badgeHalfHeight,
+                 spacingUnit,
+                 targetX,
+                 futureBars,
+                 obstaclePrices,
+                 reservedBadgeXs,
+                 reservedBadgeYs,
+                 reservedBadgeHalfHeights
+             )
+
+            if candidate6Clear
+                selectedX := x2
+                selectedY := candidateY6
+                foundClearPlacement := true
+
+        // If every preferred placement is occupied, do not fall back to an
+        // overlapping badge. Push the later (opposing) badge toward its own
+        // target side relative to the already-reserved dominant badge.
+        if not foundClearPlacement and
+             array.size(reservedBadgeYs) > 0
+
+            otherIndex = array.size(reservedBadgeYs) - 1
+            otherY = array.get(reservedBadgeYs, otherIndex)
+            otherHalfHeight = array.get(reservedBadgeHalfHeights, otherIndex)
+
+            targetSideDirection =
+                 upwardPath ?
+                 1.0 :
+                 -1.0
+
+            minimumBadgeSeparation =
+                 badgeHalfHeight +
+                 otherHalfHeight +
+                 spacingUnit * 0.22
+
+            selectedX := x2
+            selectedY :=
+                 otherY +
+                 targetSideDirection *
+                 minimumBadgeSeparation
+
+    [selectedX, selectedY]
+
+drawCurve(
+     float target,
+     int futureBars,
+     color curveColor,
+     string curveText,
+     float currentATR,
+     float otherTarget,
+     int badgeLines,
+     array<float> obstaclePrices,
+     array<int> reservedBadgeXs,
+     array<float> reservedBadgeYs,
+     array<float> reservedBadgeHalfHeights
+ ) =>
+    array<chart.point> points =
+         array.new<chart.point>()
+
+    delta = target - close
+
+    x1 = bar_index
+
+    x2 = bar_index +
+         int(
+              math.round(
+                   futureBars *
+                   0.25
+              )
+         )
+
+    x3 = bar_index +
+         int(
+              math.round(
+                   futureBars *
+                   0.50
+              )
+         )
+
+    x4 = bar_index +
+         int(
+              math.round(
+                   futureBars *
+                   0.75
+              )
+         )
+
+    x5 = bar_index +
+         futureBars
+
+    y1 = close
+    y2 = close + delta * 0.10
+    y3 = close + delta * 0.32
+    y4 = close + delta * 0.66
+    y5 = target
+
+    array.push(
+         points,
+         chart.point.from_index(
+              x1,
+              y1
+         )
+     )
+
+    array.push(
+         points,
+         chart.point.from_index(
+              x2,
+              y2
+         )
+     )
+
+    array.push(
+         points,
+         chart.point.from_index(
+              x3,
+              y3
+         )
+     )
+
+    array.push(
+         points,
+         chart.point.from_index(
+              x4,
+              y4
+         )
+     )
+
+    array.push(
+         points,
+         chart.point.from_index(
+              x5,
+              y5
+         )
+     )
+
+    path = polyline.new(
+         points,
+         curved = true,
+         closed = false,
+         xloc = xloc.bar_index,
+         line_color = curveColor,
+         fill_color = na,
+         line_style = line.style_dashed,
+         line_width = 2
+     )
+
+    spacingUnit =
+         not na(currentATR) and
+         currentATR > 0 ?
+         currentATR :
+         math.max(
+              math.abs(delta) * 0.25,
+              syminfo.mintick * 50
+         )
+
+    // Approximate the vertical footprint of the two/three-line badge in
+    // volatility-normalized price space. This is used only for display
+    // collision avoidance; it has no effect on the model or path geometry.
+    badgeHalfHeight =
+         spacingUnit *
+         (badgeLines >= 3 ? 0.28 : 0.21)
+
+    [badgeX, badgeY] = choosePathBadgePlacement(
+         target,
+         otherTarget,
+         futureBars,
+         spacingUnit,
+         badgeHalfHeight,
+         obstaclePrices,
+         reservedBadgeXs,
+         reservedBadgeYs,
+         reservedBadgeHalfHeights
+     )
+
+    pathLabel = label.new(
+         badgeX,
+         badgeY,
+         curveText,
+         xloc = xloc.bar_index,
+         style = label.style_label_left,
+         color = color.new(
+              color.black,
+              20
+         ),
+         textcolor = curveColor,
+         textalign = text.align_left,
+         size = pathBadgeTextSize
+     )
+
+    array.push(
+         displayLabels,
+         pathLabel
+     )
+
+    array.push(reservedBadgeXs, badgeX)
+    array.push(reservedBadgeYs, badgeY)
+    array.push(reservedBadgeHalfHeights, badgeHalfHeight)
+
+    path
+
+setTableLevel(
+     int row,
+     string levelName,
+     float price,
+     float score,
+     string state,
+     color levelColor
+ ) =>
+    table.cell(
+         gravityTable,
+         0,
+         row,
+         levelName,
+         text_color = levelColor,
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         1,
+         row,
+         formatPrice(price),
+         text_color = color.white,
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         2,
+         row,
+         formatScore(score),
+         text_color = levelColor,
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         3,
+         row,
+         state,
+         text_color = color.new(
+              levelColor,
+              10
+         ),
+         text_size = tableTinyTextSize
+     )
+
+// ~~~~~~~~~~~ CALCULATIONS ~~~~~~~~~~~ //
+
+// Market Trend Alignment
+trendDistance =
+     atr > 0 ?
+     (
+          fastEMA -
+          slowEMA
+     ) / (
+          atr *
+          2.0
+     ) :
+     0.0
+
+trendBias = clampSigned(
+     trendDistance
+ )
+
+// Market regime is calculated before Gravity ranking because it is
+// an explicit dynamic modifier rather than a display-only label.
+[plusDI, minusDI, adx] = ta.dmi(
+     14,
+     14
+ )
+
+atrAverage = ta.sma(
+     atr,
+     50
+ )
+
+regime =
+     adx >= 25 and
+     atr >
+     atrAverage *
+     1.05 ?
+     "Trend Expansion" :
+     adx >= 25 ?
+     "Trend" :
+     atr <
+     atrAverage *
+     0.85 ?
+     "Compression" :
+     "Range"
+
+// Detect Confirmed Upper Liquidity Structures
+if not na(pivotHigh) and
+     not na(atr)
+
+    pivotBar =
+         bar_index -
+         pivotRight
+
+    activeBar =
+         bar_index
+
+    lowestAroundPivot = ta.lowest(
+         low,
+         pivotWindow
+     )
+
+    rawSwingStrength = (
+         pivotHigh -
+         lowestAroundPivot
+     ) / atr
+
+    swingStrength = clamp01(
+         rawSwingStrength /
+         4.0
+     )
+
+    pivotVolume =
+         volume[pivotRight]
+
+    pivotAverageVolume =
+         volumeAverage[pivotRight]
+
+    structuralVolumeStrength =
+         not na(pivotVolume) and
+         not na(pivotAverageVolume) and
+         pivotAverageVolume > 0 ?
+         clamp01(
+              (
+                   pivotVolume /
+                   pivotAverageVolume
+              ) /
+              2.0
+         ) :
+         na
+
+    // Legacy pool fields retain a neutral fallback for continuity.
+    // Gravity uses structural Liquidity Strength evidence instead.
+    volumeStrength =
+         na(structuralVolumeStrength) ?
+         0.50 :
+         structuralVolumeStrength
+
+    equalMatches = getRecentMatchCount(
+         recentUpperPivotPrices,
+         recentUpperPivotBars,
+         pivotHigh,
+         pivotBar,
+         atr *
+         equalToleranceATR,
+         math.max(
+              1,
+              pivotRight
+         )
+     )
+
+    rejectionMatches = getRecentMatchCount(
+         recentUpperPivotPrices,
+         recentUpperPivotBars,
+         pivotHigh,
+         pivotBar,
+         atr *
+         equalToleranceATR,
+         rejectionMinSeparationBars
+     )
+
+    pivotRange =
+         high[pivotRight] -
+         low[pivotRight]
+
+    upperWick =
+         high[pivotRight] -
+         math.max(
+              open[pivotRight],
+              close[pivotRight]
+         )
+
+    upperWickRatio =
+         pivotRange > 0 ?
+         upperWick /
+         pivotRange :
+         0.0
+
+    isEqualHigh =
+         equalMatches > 0
+
+    isMajorHigh =
+         rawSwingStrength >=
+         majorSwingATR
+
+    isRepeatedUpperRejection =
+         rejectionMatches > 0 and
+         upperWickRatio >=
+         rejectionWickRatio
+
+    string upperSource = ""
+
+    if useSwingLiquidity
+        upperSource := appendSource(
+             upperSource,
+             "Swing High"
+         )
+
+    if useEqualHighLow and isEqualHigh
+        upperSource := appendSource(
+             upperSource,
+             "Equal High"
+         )
+
+    if useMajorSwings and isMajorHigh
+        upperSource := appendSource(
+             upperSource,
+             "Major Swing High"
+         )
+
+    if useRepeatedRejections and
+         isRepeatedUpperRejection
+
+        upperSource := appendSource(
+             upperSource,
+             "Repeated Rejection"
+         )
+
+    if upperSource != ""
+        // Major is a property of this pivot member, not a second member.
+        // Its extra centroid influence applies only when that source is enabled.
+        pivotMemberWeight =
+             useMajorSwings and isMajorHigh ?
+             1.25 :
+             1.00
+
+        addPoolMember(
+             upperPrices,
+             upperTouches,
+             upperBars,
+             upperActiveBars,
+             upperStrengths,
+             upperVolumes,
+             upperSources,
+             upperZoneLows,
+             upperZoneHighs,
+             upperMemberMins,
+             upperMemberMaxs,
+             upperMemberCounts,
+             upperTotalWeights,
+             upperLastTouchBars,
+             upperPoolATRs,
+             upperMaxSwingProminences,
+             upperSwingEvidenceCounts,
+             upperVolumeEvidenceSums,
+             upperVolumeEvidenceCounts,
+             upperLifecycleStates,
+             upperSweepBars,
+             upperBeyondCloseCounts,
+             upperResolutionBars,
+             upperLifecycleTouchBars,
+             pivotHigh,
+             pivotBar,
+             activeBar,
+             swingStrength,
+             volumeStrength,
+             swingStrength,
+             structuralVolumeStrength,
+             upperSource,
+             pivotMemberWeight,
+             atr,
+             true,
+             pivotBar,
+             atr *
+             clusterATR,
+             maxStoredLevels
+         )
+
+    storeRecentPivot(
+         recentUpperPivotPrices,
+         recentUpperPivotBars,
+         pivotHigh,
+         pivotBar,
+         recentPivotMemory
+     )
+
+// Detect Confirmed Lower Liquidity Structures
+if not na(pivotLow) and
+     not na(atr)
+
+    pivotBar =
+         bar_index -
+         pivotRight
+
+    activeBar =
+         bar_index
+
+    highestAroundPivot = ta.highest(
+         high,
+         pivotWindow
+     )
+
+    rawSwingStrength = (
+         highestAroundPivot -
+         pivotLow
+     ) / atr
+
+    swingStrength = clamp01(
+         rawSwingStrength /
+         4.0
+     )
+
+    pivotVolume =
+         volume[pivotRight]
+
+    pivotAverageVolume =
+         volumeAverage[pivotRight]
+
+    structuralVolumeStrength =
+         not na(pivotVolume) and
+         not na(pivotAverageVolume) and
+         pivotAverageVolume > 0 ?
+         clamp01(
+              (
+                   pivotVolume /
+                   pivotAverageVolume
+              ) /
+              2.0
+         ) :
+         na
+
+    // Legacy pool fields retain a neutral fallback for continuity.
+    // Gravity uses structural Liquidity Strength evidence instead.
+    volumeStrength =
+         na(structuralVolumeStrength) ?
+         0.50 :
+         structuralVolumeStrength
+
+    equalMatches = getRecentMatchCount(
+         recentLowerPivotPrices,
+         recentLowerPivotBars,
+         pivotLow,
+         pivotBar,
+         atr *
+         equalToleranceATR,
+         math.max(
+              1,
+              pivotRight
+         )
+     )
+
+    rejectionMatches = getRecentMatchCount(
+         recentLowerPivotPrices,
+         recentLowerPivotBars,
+         pivotLow,
+         pivotBar,
+         atr *
+         equalToleranceATR,
+         rejectionMinSeparationBars
+     )
+
+    pivotRange =
+         high[pivotRight] -
+         low[pivotRight]
+
+    lowerWick =
+         math.min(
+              open[pivotRight],
+              close[pivotRight]
+         ) -
+         low[pivotRight]
+
+    lowerWickRatio =
+         pivotRange > 0 ?
+         lowerWick /
+         pivotRange :
+         0.0
+
+    isEqualLow =
+         equalMatches > 0
+
+    isMajorLow =
+         rawSwingStrength >=
+         majorSwingATR
+
+    isRepeatedLowerRejection =
+         rejectionMatches > 0 and
+         lowerWickRatio >=
+         rejectionWickRatio
+
+    string lowerSource = ""
+
+    if useSwingLiquidity
+        lowerSource := appendSource(
+             lowerSource,
+             "Swing Low"
+         )
+
+    if useEqualHighLow and isEqualLow
+        lowerSource := appendSource(
+             lowerSource,
+             "Equal Low"
+         )
+
+    if useMajorSwings and isMajorLow
+        lowerSource := appendSource(
+             lowerSource,
+             "Major Swing Low"
+         )
+
+    if useRepeatedRejections and
+         isRepeatedLowerRejection
+
+        lowerSource := appendSource(
+             lowerSource,
+             "Repeated Rejection"
+         )
+
+    if lowerSource != ""
+        // Major is a property of this pivot member, not a second member.
+        // Its extra centroid influence applies only when that source is enabled.
+        pivotMemberWeight =
+             useMajorSwings and isMajorLow ?
+             1.25 :
+             1.00
+
+        addPoolMember(
+             lowerPrices,
+             lowerTouches,
+             lowerBars,
+             lowerActiveBars,
+             lowerStrengths,
+             lowerVolumes,
+             lowerSources,
+             lowerZoneLows,
+             lowerZoneHighs,
+             lowerMemberMins,
+             lowerMemberMaxs,
+             lowerMemberCounts,
+             lowerTotalWeights,
+             lowerLastTouchBars,
+             lowerPoolATRs,
+             lowerMaxSwingProminences,
+             lowerSwingEvidenceCounts,
+             lowerVolumeEvidenceSums,
+             lowerVolumeEvidenceCounts,
+             lowerLifecycleStates,
+             lowerSweepBars,
+             lowerBeyondCloseCounts,
+             lowerResolutionBars,
+             lowerLifecycleTouchBars,
+             pivotLow,
+             pivotBar,
+             activeBar,
+             swingStrength,
+             volumeStrength,
+             swingStrength,
+             structuralVolumeStrength,
+             lowerSource,
+             pivotMemberWeight,
+             atr,
+             true,
+             pivotBar,
+             atr *
+             clusterATR,
+             maxStoredLevels
+         )
+
+    storeRecentPivot(
+         recentLowerPivotPrices,
+         recentLowerPivotBars,
+         pivotLow,
+         pivotBar,
+         recentPivotMemory
+     )
+
+// Previous Completed Day High / Low
+if usePreviousDay and
+     canUsePreviousDay and
+     newDay and
+     not na(atr)
+
+    if not na(previousDayHigh)
+        addPoolMember(
+             upperPrices,
+             upperTouches,
+             upperBars,
+             upperActiveBars,
+             upperStrengths,
+             upperVolumes,
+             upperSources,
+             upperZoneLows,
+             upperZoneHighs,
+             upperMemberMins,
+             upperMemberMaxs,
+             upperMemberCounts,
+             upperTotalWeights,
+             upperLastTouchBars,
+             upperPoolATRs,
+             upperMaxSwingProminences,
+             upperSwingEvidenceCounts,
+             upperVolumeEvidenceSums,
+             upperVolumeEvidenceCounts,
+             upperLifecycleStates,
+             upperSweepBars,
+             upperBeyondCloseCounts,
+             upperResolutionBars,
+             upperLifecycleTouchBars,
+             previousDayHigh,
+             bar_index,
+             bar_index,
+             0.50,
+             0.50,
+             na,
+             na,
+             "Previous Day High",
+             1.15,
+             atr,
+             false,
+             bar_index,
+             atr *
+             clusterATR,
+             maxStoredLevels
+         )
+
+    if not na(previousDayLow)
+        addPoolMember(
+             lowerPrices,
+             lowerTouches,
+             lowerBars,
+             lowerActiveBars,
+             lowerStrengths,
+             lowerVolumes,
+             lowerSources,
+             lowerZoneLows,
+             lowerZoneHighs,
+             lowerMemberMins,
+             lowerMemberMaxs,
+             lowerMemberCounts,
+             lowerTotalWeights,
+             lowerLastTouchBars,
+             lowerPoolATRs,
+             lowerMaxSwingProminences,
+             lowerSwingEvidenceCounts,
+             lowerVolumeEvidenceSums,
+             lowerVolumeEvidenceCounts,
+             lowerLifecycleStates,
+             lowerSweepBars,
+             lowerBeyondCloseCounts,
+             lowerResolutionBars,
+             lowerLifecycleTouchBars,
+             previousDayLow,
+             bar_index,
+             bar_index,
+             0.50,
+             0.50,
+             na,
+             na,
+             "Previous Day Low",
+             1.15,
+             atr,
+             false,
+             bar_index,
+             atr *
+             clusterATR,
+             maxStoredLevels
+         )
+
+// Previous Completed Week High / Low
+if usePreviousWeek and
+     canUsePreviousWeek and
+     newWeek and
+     not na(atr)
+
+    if not na(previousWeekHigh)
+        addPoolMember(
+             upperPrices,
+             upperTouches,
+             upperBars,
+             upperActiveBars,
+             upperStrengths,
+             upperVolumes,
+             upperSources,
+             upperZoneLows,
+             upperZoneHighs,
+             upperMemberMins,
+             upperMemberMaxs,
+             upperMemberCounts,
+             upperTotalWeights,
+             upperLastTouchBars,
+             upperPoolATRs,
+             upperMaxSwingProminences,
+             upperSwingEvidenceCounts,
+             upperVolumeEvidenceSums,
+             upperVolumeEvidenceCounts,
+             upperLifecycleStates,
+             upperSweepBars,
+             upperBeyondCloseCounts,
+             upperResolutionBars,
+             upperLifecycleTouchBars,
+             previousWeekHigh,
+             bar_index,
+             bar_index,
+             0.50,
+             0.50,
+             na,
+             na,
+             "Previous Week High",
+             1.30,
+             atr,
+             false,
+             bar_index,
+             atr *
+             clusterATR,
+             maxStoredLevels
+         )
+
+    if not na(previousWeekLow)
+        addPoolMember(
+             lowerPrices,
+             lowerTouches,
+             lowerBars,
+             lowerActiveBars,
+             lowerStrengths,
+             lowerVolumes,
+             lowerSources,
+             lowerZoneLows,
+             lowerZoneHighs,
+             lowerMemberMins,
+             lowerMemberMaxs,
+             lowerMemberCounts,
+             lowerTotalWeights,
+             lowerLastTouchBars,
+             lowerPoolATRs,
+             lowerMaxSwingProminences,
+             lowerSwingEvidenceCounts,
+             lowerVolumeEvidenceSums,
+             lowerVolumeEvidenceCounts,
+             lowerLifecycleStates,
+             lowerSweepBars,
+             lowerBeyondCloseCounts,
+             lowerResolutionBars,
+             lowerLifecycleTouchBars,
+             previousWeekLow,
+             bar_index,
+             bar_index,
+             0.50,
+             0.50,
+             na,
+             na,
+             "Previous Week Low",
+             1.30,
+             atr,
+             false,
+             bar_index,
+             atr *
+             clusterATR,
+             maxStoredLevels
+         )
+
+// Persistent Liquidity Lifecycle
+// The updater is called on every execution, but it only commits state changes
+// when the current candle is confirmed.
+[upperLiquidityTouched, upperLiquiditySwept, upperLiquidityRejected, upperLiquidityAccepted] = updateLifecycle(
+     upperPrices,
+     upperTouches,
+     upperActiveBars,
+     upperSources,
+     upperZoneLows,
+     upperZoneHighs,
+     upperMemberCounts,
+     upperMaxSwingProminences,
+     upperSwingEvidenceCounts,
+     upperVolumeEvidenceSums,
+     upperVolumeEvidenceCounts,
+     upperLifecycleStates,
+     upperSweepBars,
+     upperBeyondCloseCounts,
+     upperResolutionBars,
+     upperLifecycleTouchBars,
+     atr,
+     1,
+     barstate.isconfirmed
+ )
+
+[lowerLiquidityTouched, lowerLiquiditySwept, lowerLiquidityRejected, lowerLiquidityAccepted] = updateLifecycle(
+     lowerPrices,
+     lowerTouches,
+     lowerActiveBars,
+     lowerSources,
+     lowerZoneLows,
+     lowerZoneHighs,
+     lowerMemberCounts,
+     lowerMaxSwingProminences,
+     lowerSwingEvidenceCounts,
+     lowerVolumeEvidenceSums,
+     lowerVolumeEvidenceCounts,
+     lowerLifecycleStates,
+     lowerSweepBars,
+     lowerBeyondCloseCounts,
+     lowerResolutionBars,
+     lowerLifecycleTouchBars,
+     atr,
+     -1,
+     barstate.isconfirmed
+ )
+
+currentLifecycleEvents = ""
+currentLifecycleEvents := upperLiquidityTouched ? appendSource(currentLifecycleEvents, "Upper Touch") : currentLifecycleEvents
+currentLifecycleEvents := lowerLiquidityTouched ? appendSource(currentLifecycleEvents, "Lower Touch") : currentLifecycleEvents
+currentLifecycleEvents := upperLiquiditySwept ? appendSource(currentLifecycleEvents, "Upper Sweep") : currentLifecycleEvents
+currentLifecycleEvents := lowerLiquiditySwept ? appendSource(currentLifecycleEvents, "Lower Sweep") : currentLifecycleEvents
+currentLifecycleEvents := upperLiquidityRejected ? appendSource(currentLifecycleEvents, "Upper Rejected") : currentLifecycleEvents
+currentLifecycleEvents := lowerLiquidityRejected ? appendSource(currentLifecycleEvents, "Lower Rejected") : currentLifecycleEvents
+currentLifecycleEvents := upperLiquidityAccepted ? appendSource(currentLifecycleEvents, "Upper Accepted") : currentLifecycleEvents
+currentLifecycleEvents := lowerLiquidityAccepted ? appendSource(currentLifecycleEvents, "Lower Accepted") : currentLifecycleEvents
+
+if barstate.isconfirmed and currentLifecycleEvents != ""
+    lastLifecycleEvent := currentLifecycleEvents
+    lastLifecycleEventBar := bar_index
+
+// Hard expiry remains a resource bound, not the primary freshness model.
+// Resolved pools persist through their event state, then Retired for one bar.
+if array.size(upperPrices) > 0
+    for i = array.size(upperPrices) - 1 to 0
+        lifecycleState = array.get(upperLifecycleStates, i)
+        activeBar = array.get(upperActiveBars, i)
+        resolutionBar = array.get(upperResolutionBars, i)
+        expired = bar_index - activeBar > maxAgeBars
+        removableRetired =
+             lifecycleState == LIFECYCLE_RETIRED and
+             resolutionBar >= 0 and
+             bar_index > resolutionBar
+
+        if expired or removableRetired
+            removeLevel(
+                 upperPrices,
+                 upperTouches,
+                 upperBars,
+                 upperActiveBars,
+                 upperStrengths,
+                 upperVolumes,
+                 upperSources,
+                 upperZoneLows,
+                 upperZoneHighs,
+                 upperMemberMins,
+                 upperMemberMaxs,
+                 upperMemberCounts,
+                 upperTotalWeights,
+                 upperLastTouchBars,
+                 upperPoolATRs,
+                 upperMaxSwingProminences,
+                 upperSwingEvidenceCounts,
+                 upperVolumeEvidenceSums,
+                 upperVolumeEvidenceCounts,
+                 upperLifecycleStates,
+                 upperSweepBars,
+                 upperBeyondCloseCounts,
+                 upperResolutionBars,
+                 upperLifecycleTouchBars,
+                 i
+             )
+
+if array.size(lowerPrices) > 0
+    for i = array.size(lowerPrices) - 1 to 0
+        lifecycleState = array.get(lowerLifecycleStates, i)
+        activeBar = array.get(lowerActiveBars, i)
+        resolutionBar = array.get(lowerResolutionBars, i)
+        expired = bar_index - activeBar > maxAgeBars
+        removableRetired =
+             lifecycleState == LIFECYCLE_RETIRED and
+             resolutionBar >= 0 and
+             bar_index > resolutionBar
+
+        if expired or removableRetired
+            removeLevel(
+                 lowerPrices,
+                 lowerTouches,
+                 lowerBars,
+                 lowerActiveBars,
+                 lowerStrengths,
+                 lowerVolumes,
+                 lowerSources,
+                 lowerZoneLows,
+                 lowerZoneHighs,
+                 lowerMemberMins,
+                 lowerMemberMaxs,
+                 lowerMemberCounts,
+                 lowerTotalWeights,
+                 lowerLastTouchBars,
+                 lowerPoolATRs,
+                 lowerMaxSwingProminences,
+                 lowerSwingEvidenceCounts,
+                 lowerVolumeEvidenceSums,
+                 lowerVolumeEvidenceCounts,
+                 lowerLifecycleStates,
+                 lowerSweepBars,
+                 lowerBeyondCloseCounts,
+                 lowerResolutionBars,
+                 lowerLifecycleTouchBars,
+                 i
+             )
+
+// Rank strongest upside liquidity by Dynamic Gravity with lifecycle eligibility.
+// Distance is already incorporated inside each Gravity score, so aggregate pull must not penalize it again.
+[u1Index, u1Score] = getBestIndex(
+     upperPrices,
+     upperTouches,
+     upperActiveBars,
+     upperSources,
+     upperZoneLows,
+     upperZoneHighs,
+     upperMemberCounts,
+     upperMaxSwingProminences,
+     upperSwingEvidenceCounts,
+     upperVolumeEvidenceSums,
+     upperVolumeEvidenceCounts,
+     upperLifecycleStates,
+     -1,
+     -1,
+     atr,
+     trendBias,
+     1,
+     regime
+ )
+
+[u2Index, u2Score] = getBestIndex(
+     upperPrices,
+     upperTouches,
+     upperActiveBars,
+     upperSources,
+     upperZoneLows,
+     upperZoneHighs,
+     upperMemberCounts,
+     upperMaxSwingProminences,
+     upperSwingEvidenceCounts,
+     upperVolumeEvidenceSums,
+     upperVolumeEvidenceCounts,
+     upperLifecycleStates,
+     u1Index,
+     -1,
+     atr,
+     trendBias,
+     1,
+     regime
+ )
+
+[u3Index, u3Score] = getBestIndex(
+     upperPrices,
+     upperTouches,
+     upperActiveBars,
+     upperSources,
+     upperZoneLows,
+     upperZoneHighs,
+     upperMemberCounts,
+     upperMaxSwingProminences,
+     upperSwingEvidenceCounts,
+     upperVolumeEvidenceSums,
+     upperVolumeEvidenceCounts,
+     upperLifecycleStates,
+     u1Index,
+     u2Index,
+     atr,
+     trendBias,
+     1,
+     regime
+ )
+
+// Find Strongest Downside Liquidity
+[l1Index, l1Score] = getBestIndex(
+     lowerPrices,
+     lowerTouches,
+     lowerActiveBars,
+     lowerSources,
+     lowerZoneLows,
+     lowerZoneHighs,
+     lowerMemberCounts,
+     lowerMaxSwingProminences,
+     lowerSwingEvidenceCounts,
+     lowerVolumeEvidenceSums,
+     lowerVolumeEvidenceCounts,
+     lowerLifecycleStates,
+     -1,
+     -1,
+     atr,
+     trendBias,
+     -1,
+     regime
+ )
+
+[l2Index, l2Score] = getBestIndex(
+     lowerPrices,
+     lowerTouches,
+     lowerActiveBars,
+     lowerSources,
+     lowerZoneLows,
+     lowerZoneHighs,
+     lowerMemberCounts,
+     lowerMaxSwingProminences,
+     lowerSwingEvidenceCounts,
+     lowerVolumeEvidenceSums,
+     lowerVolumeEvidenceCounts,
+     lowerLifecycleStates,
+     l1Index,
+     -1,
+     atr,
+     trendBias,
+     -1,
+     regime
+ )
+
+[l3Index, l3Score] = getBestIndex(
+     lowerPrices,
+     lowerTouches,
+     lowerActiveBars,
+     lowerSources,
+     lowerZoneLows,
+     lowerZoneHighs,
+     lowerMemberCounts,
+     lowerMaxSwingProminences,
+     lowerSwingEvidenceCounts,
+     lowerVolumeEvidenceSums,
+     lowerVolumeEvidenceCounts,
+     lowerLifecycleStates,
+     l1Index,
+     l2Index,
+     atr,
+     trendBias,
+     -1,
+     regime
+ )
+
+// Prices
+u1Price =
+     u1Index >= 0 ?
+     array.get(
+          upperPrices,
+          u1Index
+     ) :
+     na
+
+u2Price =
+     u2Index >= 0 ?
+     array.get(
+          upperPrices,
+          u2Index
+     ) :
+     na
+
+u3Price =
+     u3Index >= 0 ?
+     array.get(
+          upperPrices,
+          u3Index
+     ) :
+     na
+
+l1Price =
+     l1Index >= 0 ?
+     array.get(
+          lowerPrices,
+          l1Index
+     ) :
+     na
+
+l2Price =
+     l2Index >= 0 ?
+     array.get(
+          lowerPrices,
+          l2Index
+     ) :
+     na
+
+l3Price =
+     l3Index >= 0 ?
+     array.get(
+          lowerPrices,
+          l3Index
+     ) :
+     na
+
+// Origin Bars
+u1Bar =
+     u1Index >= 0 ?
+     array.get(
+          upperBars,
+          u1Index
+     ) :
+     bar_index
+
+u2Bar =
+     u2Index >= 0 ?
+     array.get(
+          upperBars,
+          u2Index
+     ) :
+     bar_index
+
+u3Bar =
+     u3Index >= 0 ?
+     array.get(
+          upperBars,
+          u3Index
+     ) :
+     bar_index
+
+l1Bar =
+     l1Index >= 0 ?
+     array.get(
+          lowerBars,
+          l1Index
+     ) :
+     bar_index
+
+l2Bar =
+     l2Index >= 0 ?
+     array.get(
+          lowerBars,
+          l2Index
+     ) :
+     bar_index
+
+l3Bar =
+     l3Index >= 0 ?
+     array.get(
+          lowerBars,
+          l3Index
+     ) :
+     bar_index
+
+// Confirmation / Active Bars
+u1ActiveBar =
+     u1Index >= 0 ?
+     array.get(
+          upperActiveBars,
+          u1Index
+     ) :
+     bar_index
+
+u2ActiveBar =
+     u2Index >= 0 ?
+     array.get(
+          upperActiveBars,
+          u2Index
+     ) :
+     bar_index
+
+u3ActiveBar =
+     u3Index >= 0 ?
+     array.get(
+          upperActiveBars,
+          u3Index
+     ) :
+     bar_index
+
+l1ActiveBar =
+     l1Index >= 0 ?
+     array.get(
+          lowerActiveBars,
+          l1Index
+     ) :
+     bar_index
+
+l2ActiveBar =
+     l2Index >= 0 ?
+     array.get(
+          lowerActiveBars,
+          l2Index
+     ) :
+     bar_index
+
+l3ActiveBar =
+     l3Index >= 0 ?
+     array.get(
+          lowerActiveBars,
+          l3Index
+     ) :
+     bar_index
+
+// Structure Sources
+u1Sources =
+     u1Index >= 0 ?
+     array.get(
+          upperSources,
+          u1Index
+     ) :
+     "-"
+
+l1Sources =
+     l1Index >= 0 ?
+     array.get(
+          lowerSources,
+          l1Index
+     ) :
+     "-"
+
+// Persistent Lifecycle States
+u1State = u1Index >= 0 ? getLifecycleStateName(array.get(upperLifecycleStates, u1Index)) : "-"
+u2State = u2Index >= 0 ? getLifecycleStateName(array.get(upperLifecycleStates, u2Index)) : "-"
+u3State = u3Index >= 0 ? getLifecycleStateName(array.get(upperLifecycleStates, u3Index)) : "-"
+l1State = l1Index >= 0 ? getLifecycleStateName(array.get(lowerLifecycleStates, l1Index)) : "-"
+l2State = l2Index >= 0 ? getLifecycleStateName(array.get(lowerLifecycleStates, l2Index)) : "-"
+l3State = l3Index >= 0 ? getLifecycleStateName(array.get(lowerLifecycleStates, l3Index)) : "-"
+
+// Rank-Weighted Directional Pull
+// Gravity already contains accessibility/distance. Applying another distance divisor here
+// would double-penalize remote targets, so only rank weights are applied.
+upperPrimaryContribution = getRankContribution(
+     u1Score,
+     primaryRankWeight
+ )
+
+upperSecondaryContribution = getRankContribution(
+     u2Score,
+     secondaryRankWeight
+ )
+
+upperTertiaryContribution = getRankContribution(
+     u3Score,
+     tertiaryRankWeight
+ )
+
+lowerPrimaryContribution = getRankContribution(
+     l1Score,
+     primaryRankWeight
+ )
+
+lowerSecondaryContribution = getRankContribution(
+     l2Score,
+     secondaryRankWeight
+ )
+
+lowerTertiaryContribution = getRankContribution(
+     l3Score,
+     tertiaryRankWeight
+ )
+
+upperPull = getRankWeightedPull(
+     u1Score,
+     u2Score,
+     u3Score
+ )
+
+lowerPull = getRankWeightedPull(
+     l1Score,
+     l2Score,
+     l3Score
+ )
+
+totalPull =
+     upperPull +
+     lowerPull
+
+bullishPressure =
+     totalPull > 0 ?
+     upperPull /
+     totalPull *
+     100.0 :
+     50.0
+
+bearishPressure =
+     100.0 -
+     bullishPressure
+
+netGravity =
+     totalPull > 0 ?
+     (
+          upperPull -
+          lowerPull
+     ) /
+     totalPull *
+     100.0 :
+     0.0
+
+// Visual lifecycle event selection. Resolved/sweeping pools remain
+// excluded from target ranking; this only identifies the latest event per side
+// for temporary chart communication.
+[upperEventIndex, upperEventBar] = getLatestLifecycleEventIndex(
+     upperLifecycleStates,
+     upperSweepBars,
+     upperResolutionBars
+ )
+
+[lowerEventIndex, lowerEventBar] = getLatestLifecycleEventIndex(
+     lowerLifecycleStates,
+     lowerSweepBars,
+     lowerResolutionBars
+ )
+
+upperEventState =
+     upperEventIndex >= 0 ?
+     array.get(upperLifecycleStates, upperEventIndex) :
+     LIFECYCLE_RETIRED
+
+lowerEventState =
+     lowerEventIndex >= 0 ?
+     array.get(lowerLifecycleStates, lowerEventIndex) :
+     LIFECYCLE_RETIRED
+
+upperEventPrice =
+     upperEventIndex >= 0 ?
+     array.get(upperPrices, upperEventIndex) :
+     na
+
+upperEventZoneLow =
+     upperEventIndex >= 0 ?
+     array.get(upperZoneLows, upperEventIndex) :
+     na
+
+upperEventZoneHigh =
+     upperEventIndex >= 0 ?
+     array.get(upperZoneHighs, upperEventIndex) :
+     na
+
+lowerEventPrice =
+     lowerEventIndex >= 0 ?
+     array.get(lowerPrices, lowerEventIndex) :
+     na
+
+lowerEventZoneLow =
+     lowerEventIndex >= 0 ?
+     array.get(lowerZoneLows, lowerEventIndex) :
+     na
+
+lowerEventZoneHigh =
+     lowerEventIndex >= 0 ?
+     array.get(lowerZoneHighs, lowerEventIndex) :
+     na
+
+// ~~~~~~~~~~~ DISPLAY ~~~~~~~~~~~ //
+
+if barstate.islast
+
+    // Remove Old Display Objects
+    while array.size(displayLines) > 0
+        line.delete(
+             array.pop(
+                  displayLines
+             )
+         )
+
+    while array.size(displayLabels) > 0
+        label.delete(
+             array.pop(
+                  displayLabels
+             )
+         )
+
+    if not na(upperPath)
+        polyline.delete(
+             upperPath
+         )
+
+    if not na(lowerPath)
+        polyline.delete(
+             lowerPath
+         )
+
+    upperPath := na
+    lowerPath := na
+
+    baseMarkerX =
+         bar_index +
+         projectionBars
+
+    // Collision handling keeps every target at its exact price while
+    // assigning horizontal bar-index lanes only when labels are vertically
+    // close enough to overlap. The dominant side receives first lane priority.
+    array<float> assignedTargetPrices = array.new_float()
+    array<int> assignedTargetLanes = array.new_int()
+
+    int u1Lane = 0
+    int u2Lane = 0
+    int u3Lane = 0
+    int l1Lane = 0
+    int l2Lane = 0
+    int l3Lane = 0
+
+    if netGravity >= 0
+        if displayLevels >= 1
+            u1Lane := reserveTargetLabelLane(u1Price, assignedTargetPrices, assignedTargetLanes, atr)
+            l1Lane := reserveTargetLabelLane(l1Price, assignedTargetPrices, assignedTargetLanes, atr)
+        if displayLevels >= 2
+            u2Lane := reserveTargetLabelLane(u2Price, assignedTargetPrices, assignedTargetLanes, atr)
+            l2Lane := reserveTargetLabelLane(l2Price, assignedTargetPrices, assignedTargetLanes, atr)
+        if displayLevels >= 3
+            u3Lane := reserveTargetLabelLane(u3Price, assignedTargetPrices, assignedTargetLanes, atr)
+            l3Lane := reserveTargetLabelLane(l3Price, assignedTargetPrices, assignedTargetLanes, atr)
+    else
+        if displayLevels >= 1
+            l1Lane := reserveTargetLabelLane(l1Price, assignedTargetPrices, assignedTargetLanes, atr)
+            u1Lane := reserveTargetLabelLane(u1Price, assignedTargetPrices, assignedTargetLanes, atr)
+        if displayLevels >= 2
+            l2Lane := reserveTargetLabelLane(l2Price, assignedTargetPrices, assignedTargetLanes, atr)
+            u2Lane := reserveTargetLabelLane(u2Price, assignedTargetPrices, assignedTargetLanes, atr)
+        if displayLevels >= 3
+            l3Lane := reserveTargetLabelLane(l3Price, assignedTargetPrices, assignedTargetLanes, atr)
+            u3Lane := reserveTargetLabelLane(u3Price, assignedTargetPrices, assignedTargetLanes, atr)
+
+    u1MarkerX = baseMarkerX + getTargetLaneOffsetBars(u1Lane)
+    u2MarkerX = baseMarkerX + getTargetLaneOffsetBars(u2Lane)
+    u3MarkerX = baseMarkerX + getTargetLaneOffsetBars(u3Lane)
+    l1MarkerX = baseMarkerX + getTargetLaneOffsetBars(l1Lane)
+    l2MarkerX = baseMarkerX + getTargetLaneOffsetBars(l2Lane)
+    l3MarkerX = baseMarkerX + getTargetLaneOffsetBars(l3Lane)
+
+    maxTargetLane = math.max(
+         math.max(
+              math.max(u1Lane, u2Lane),
+              math.max(u3Lane, l1Lane)
+         ),
+         math.max(l2Lane, l3Lane)
+     )
+
+    // Upper Liquidity. Lane assignment changes only annotation X positions;
+    // target price, score, zone geometry, ranking, and lifecycle stay untouched.
+    if displayLevels >= 1
+        drawLevel(
+             u1Price,
+             u1Score,
+             "Primary Magnet",
+             u1State,
+             u1Bar,
+             bullColor,
+             u1MarkerX,
+             u1Lane
+         )
+
+    if displayLevels >= 2
+        drawLevel(
+             u2Price,
+             u2Score,
+             "Secondary",
+             u2State,
+             u2Bar,
+             bullColor,
+             u2MarkerX,
+             u2Lane
+         )
+
+    if displayLevels >= 3
+        drawLevel(
+             u3Price,
+             u3Score,
+             "Tertiary",
+             u3State,
+             u3Bar,
+             bullColor,
+             u3MarkerX,
+             u3Lane
+         )
+
+    // Lower Liquidity
+    if displayLevels >= 1
+        drawLevel(
+             l1Price,
+             l1Score,
+             "Primary Magnet",
+             l1State,
+             l1Bar,
+             bearColor,
+             l1MarkerX,
+             l1Lane
+         )
+
+    if displayLevels >= 2
+        drawLevel(
+             l2Price,
+             l2Score,
+             "Secondary",
+             l2State,
+             l2Bar,
+             bearColor,
+             l2MarkerX,
+             l2Lane
+         )
+
+    if displayLevels >= 3
+        drawLevel(
+             l3Price,
+             l3Score,
+             "Tertiary",
+             l3State,
+             l3Bar,
+             bearColor,
+             l3MarkerX,
+             l3Lane
+         )
+
+    // Lifecycle events occupy a separate horizontal annotation region to the
+    // right of all active target lanes. If upper/lower events are themselves
+    // vertically close, the lower-priority event moves one additional lane.
+    lifecycleBaseX =
+         baseMarkerX +
+         getTargetLaneOffsetBars(maxTargetLane) +
+         rankMarkerSpacingBars +
+         lifecycleLabelGapBars
+
+    upperEventMarkerX = lifecycleBaseX
+    lowerEventMarkerX =
+         pricesVisuallyCollide(
+              upperEventPrice,
+              lowerEventPrice,
+              atr
+         ) ?
+         lifecycleBaseX + rankMarkerSpacingBars + 4 :
+         lifecycleBaseX
+
+    // Lifecycle event overlays keep resolved pools excluded from
+    // future-target ranking; only their annotation X position is offset.
+    if upperEventIndex >= 0
+        drawLifecycleEvent(
+             upperEventPrice,
+             upperEventZoneLow,
+             upperEventZoneHigh,
+             upperEventState,
+             upperEventBar,
+             1,
+             upperEventMarkerX,
+             getLifecycleEventColor(1, upperEventState)
+         )
+
+    if lowerEventIndex >= 0
+        drawLifecycleEvent(
+             lowerEventPrice,
+             lowerEventZoneLow,
+             lowerEventZoneHigh,
+             lowerEventState,
+             lowerEventBar,
+             -1,
+             lowerEventMarkerX,
+             getLifecycleEventColor(-1, lowerEventState)
+         )
+
+    // Build the visual obstacles used by automatic Gravity-path badge
+    // placement. Only displayed liquidity/event line prices are considered;
+    // the underlying levels, ranking, and curve geometry are never changed.
+    array<float> pathBadgeObstaclePrices = array.new_float()
+
+    if displayLevels >= 1
+        if not na(u1Price)
+            array.push(pathBadgeObstaclePrices, u1Price)
+        if not na(l1Price)
+            array.push(pathBadgeObstaclePrices, l1Price)
+
+    if displayLevels >= 2
+        if not na(u2Price)
+            array.push(pathBadgeObstaclePrices, u2Price)
+        if not na(l2Price)
+            array.push(pathBadgeObstaclePrices, l2Price)
+
+    if displayLevels >= 3
+        if not na(u3Price)
+            array.push(pathBadgeObstaclePrices, u3Price)
+        if not na(l3Price)
+            array.push(pathBadgeObstaclePrices, l3Price)
+
+    if showLifecycleEvents
+        if upperEventIndex >= 0 and not na(upperEventZoneHigh)
+            array.push(pathBadgeObstaclePrices, upperEventZoneHigh)
+        if lowerEventIndex >= 0 and not na(lowerEventZoneLow)
+            array.push(pathBadgeObstaclePrices, lowerEventZoneLow)
+
+    // Dominant path badge receives placement priority. Subsequent opposing
+    // badges adapt only when their approximate visual footprints collide.
+    array<int> reservedPathBadgeXs = array.new_int()
+    array<float> reservedPathBadgeYs = array.new_float()
+    array<float> reservedPathBadgeHalfHeights = array.new_float()
+
+    // Gravity Paths
+    // Pressure is shown directly on each path for at-a-glance context.
+    // Net Gravity appears only on the dominant path and is omitted when its
+    // displayed whole-number value is neutral (0).
+    roundedNetGravity = math.round(netGravity)
+
+    bullPressurePathText =
+         "Bull Pressure " +
+         str.tostring(
+              bullishPressure,
+              "#"
+         ) +
+         "%"
+
+    bearPressurePathText =
+         "Bear Pressure " +
+         str.tostring(
+              bearishPressure,
+              "#"
+         ) +
+         "%"
+
+    gravityPathText =
+         roundedNetGravity > 0 ?
+         "\nGravity +" +
+         str.tostring(
+              roundedNetGravity,
+              "#"
+         ) :
+         roundedNetGravity < 0 ?
+         "\nGravity " +
+         str.tostring(
+              roundedNetGravity,
+              "#"
+         ) :
+         ""
+
+    if showCurves
+        if netGravity >= 0
+            if not na(u1Price)
+                upperPath := drawCurve(
+                     u1Price,
+                     projectionBars,
+                     pathColor,
+                     "GRAVITY FLOW ↑" +
+                     "\n" +
+                     bullPressurePathText +
+                     gravityPathText,
+                     atr,
+                     l1Price,
+                     roundedNetGravity != 0 ? 3 : 2,
+                     pathBadgeObstaclePrices,
+                     reservedPathBadgeXs,
+                     reservedPathBadgeYs,
+                     reservedPathBadgeHalfHeights
+                 )
+
+            if showOpposingCurve and
+                 not na(l1Price)
+
+                lowerPath := drawCurve(
+                     l1Price,
+                     projectionBars,
+                     color.new(
+                          bearColor,
+                          30
+                     ),
+                     "OPPOSING GRAVITY ↓" +
+                     "\n" +
+                     bearPressurePathText,
+                     atr,
+                     u1Price,
+                     2,
+                     pathBadgeObstaclePrices,
+                     reservedPathBadgeXs,
+                     reservedPathBadgeYs,
+                     reservedPathBadgeHalfHeights
+                 )
+
+        else
+            if not na(l1Price)
+                lowerPath := drawCurve(
+                     l1Price,
+                     projectionBars,
+                     bearColor,
+                     "GRAVITY FLOW ↓" +
+                     "\n" +
+                     bearPressurePathText +
+                     gravityPathText,
+                     atr,
+                     u1Price,
+                     roundedNetGravity != 0 ? 3 : 2,
+                     pathBadgeObstaclePrices,
+                     reservedPathBadgeXs,
+                     reservedPathBadgeYs,
+                     reservedPathBadgeHalfHeights
+                 )
+
+            if showOpposingCurve and
+                 not na(u1Price)
+
+                upperPath := drawCurve(
+                     u1Price,
+                     projectionBars,
+                     color.new(
+                          pathColor,
+                          35
+                     ),
+                     "OPPOSING GRAVITY ↑" +
+                     "\n" +
+                     bullPressurePathText,
+                     atr,
+                     l1Price,
+                     2,
+                     pathBadgeObstaclePrices,
+                     reservedPathBadgeXs,
+                     reservedPathBadgeYs,
+                     reservedPathBadgeHalfHeights
+                 )
+
+// ~~~~~~~~~~~ SUMMARY TABLE ~~~~~~~~~~~ //
+
+if barstate.islast and
+     showTable
+
+    gravityColor =
+         netGravity > 15 ?
+         bullColor :
+         netGravity < -15 ?
+         bearColor :
+         neutralColor
+
+    gravityText =
+         netGravity > 0 ?
+         "+" +
+         str.tostring(
+              netGravity,
+              "#"
+         ) :
+         str.tostring(
+              netGravity,
+              "#"
+         )
+
+    pressureText =
+         str.tostring(
+              bullishPressure,
+              "#"
+         ) +
+         " / " +
+         str.tostring(
+              bearishPressure,
+              "#"
+         )
+
+    table.cell(
+         gravityTable,
+         0,
+         0,
+         "YinYang Market Gravity",
+         text_color = color.white,
+         text_size = tableSmallTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         1,
+         0,
+         "",
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         2,
+         0,
+         regime,
+         text_color = gravityColor,
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         3,
+         0,
+         timeframe.period,
+         text_color = color.new(
+              color.white,
+              40
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         0,
+         1,
+         "Gravity",
+         text_color = color.new(
+              color.white,
+              40
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         1,
+         1,
+         gravityText,
+         text_color = gravityColor,
+         text_size = tableSmallTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         2,
+         1,
+         "Pressure",
+         text_color = color.new(
+              color.white,
+              40
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         3,
+         1,
+         pressureText,
+         text_color = gravityColor,
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         0,
+         2,
+         "Level",
+         text_color = color.new(
+              color.white,
+              55
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         1,
+         2,
+         "Price",
+         text_color = color.new(
+              color.white,
+              55
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         2,
+         2,
+         "Gravity",
+         text_color = color.new(
+              color.white,
+              55
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    table.cell(
+         gravityTable,
+         3,
+         2,
+         "State",
+         text_color = color.new(
+              color.white,
+              55
+         ),
+         text_size = tableTinyTextSize
+     )
+
+    setTableLevel(
+         3,
+         "Primary ↑",
+         u1Price,
+         u1Score,
+         u1State,
+         bullColor
+     )
+
+    setTableLevel(
+         4,
+         "Secondary ↑",
+         u2Price,
+         u2Score,
+         u2State,
+         bullColor
+     )
+
+    setTableLevel(
+         5,
+         "Tertiary ↑",
+         u3Price,
+         u3Score,
+         u3State,
+         bullColor
+     )
+
+    setTableLevel(
+         6,
+         "Primary ↓",
+         l1Price,
+         l1Score,
+         l1State,
+         bearColor
+     )
+
+    setTableLevel(
+         7,
+         "Secondary ↓",
+         l2Price,
+         l2Score,
+         l2State,
+         bearColor
+     )
+
+    setTableLevel(
+         8,
+         "Tertiary ↓",
+         l3Price,
+         l3Score,
+         l3State,
+         bearColor
+     )
+
+// ~~~~~~~~~~~ ALERTS ~~~~~~~~~~~ //
+
+// Public alerts are confirmed-bar events. This keeps alert history aligned
+// with the non-repainting lifecycle contract used by the indicator.
+
+// Primary identity uses the pool's visual origin + operational confirmation bar.
+// A centroid adjustment inside the same pool therefore does not create a false
+// "Primary Magnet Changed" event.
+upperPrimaryChangedRaw =
+     u1Index >= 0 and
+     (
+          u1Bar != u1Bar[1] or
+          u1ActiveBar != u1ActiveBar[1]
+     )
+
+lowerPrimaryChangedRaw =
+     l1Index >= 0 and
+     (
+          l1Bar != l1Bar[1] or
+          l1ActiveBar != l1ActiveBar[1]
+     )
+
+primaryMagnetChanged =
+     barstate.isconfirmed and
+     (upperPrimaryChangedRaw or lowerPrimaryChangedRaw)
+
+// High-Gravity alerts apply to the currently ranked Primary Magnet on each side.
+upperPrimaryGravityCross = ta.crossover(
+     u1Score,
+     primaryGravityAlertLevel
+ )
+
+lowerPrimaryGravityCross = ta.crossover(
+     l1Score,
+     primaryGravityAlertLevel
+ )
+
+upperPrimaryHighGravity =
+     barstate.isconfirmed and
+     upperPrimaryGravityCross
+
+lowerPrimaryHighGravity =
+     barstate.isconfirmed and
+     lowerPrimaryGravityCross
+
+// Approaching alerts fire only when the currently ranked Primary Magnet enters
+// the Approaching state, not on every bar while it remains there.
+upperPrimaryApproachingNow = u1State == "Approaching"
+lowerPrimaryApproachingNow = l1State == "Approaching"
+
+upperPrimaryApproaching =
+     barstate.isconfirmed and
+     upperPrimaryApproachingNow and
+     not upperPrimaryApproachingNow[1]
+
+lowerPrimaryApproaching =
+     barstate.isconfirmed and
+     lowerPrimaryApproachingNow and
+     not lowerPrimaryApproachingNow[1]
+
+// Lifecycle events are already confirmed-bar events from updateLifecycle().
+upperSweepEvent = barstate.isconfirmed and upperLiquiditySwept
+lowerSweepEvent = barstate.isconfirmed and lowerLiquiditySwept
+upperRejectedEvent = barstate.isconfirmed and upperLiquidityRejected
+lowerRejectedEvent = barstate.isconfirmed and lowerLiquidityRejected
+upperAcceptedEvent = barstate.isconfirmed and upperLiquidityAccepted
+lowerAcceptedEvent = barstate.isconfirmed and lowerLiquidityAccepted
+
+// Net Gravity direction and strong-imbalance alerts.
+netGravityBullFlipRaw = ta.crossover(
+     netGravity,
+     0.0
+ )
+
+netGravityBearFlipRaw = ta.crossunder(
+     netGravity,
+     0.0
+ )
+
+bullGravityRaw = ta.crossover(
+     netGravity,
+     gravityAlertLevel
+ )
+
+bearGravityRaw = ta.crossunder(
+     netGravity,
+     -gravityAlertLevel
+ )
+
+netGravityBullFlip = barstate.isconfirmed and netGravityBullFlipRaw
+netGravityBearFlip = barstate.isconfirmed and netGravityBearFlipRaw
+bullGravity = barstate.isconfirmed and bullGravityRaw
+bearGravity = barstate.isconfirmed and bearGravityRaw
+
+alertcondition(
+     primaryMagnetChanged,
+     title = "Primary Magnet Changed",
+     message = "{{ticker}} {{interval}} — Market Gravity selected a new Primary Magnet. Close: {{close}}."
+ )
+
+alertcondition(
+     upperPrimaryHighGravity,
+     title = "High Upside Primary Gravity",
+     message = "{{ticker}} {{interval}} — The upside Primary Magnet crossed the configured High Primary Gravity threshold. Close: {{close}}."
+ )
+
+alertcondition(
+     lowerPrimaryHighGravity,
+     title = "High Downside Primary Gravity",
+     message = "{{ticker}} {{interval}} — The downside Primary Magnet crossed the configured High Primary Gravity threshold. Close: {{close}}."
+ )
+
+alertcondition(
+     upperPrimaryApproaching,
+     title = "Upside Primary Magnet Approaching",
+     message = "{{ticker}} {{interval}} — Price entered the Approaching zone for the upside Primary Magnet. Close: {{close}}."
+ )
+
+alertcondition(
+     lowerPrimaryApproaching,
+     title = "Downside Primary Magnet Approaching",
+     message = "{{ticker}} {{interval}} — Price entered the Approaching zone for the downside Primary Magnet. Close: {{close}}."
+ )
+
+alertcondition(
+     upperSweepEvent,
+     title = "Upper Liquidity Swept",
+     message = "{{ticker}} {{interval}} — Upper liquidity entered the Sweeping lifecycle state. Close: {{close}}."
+ )
+
+alertcondition(
+     lowerSweepEvent,
+     title = "Lower Liquidity Swept",
+     message = "{{ticker}} {{interval}} — Lower liquidity entered the Sweeping lifecycle state. Close: {{close}}."
+ )
+
+alertcondition(
+     upperRejectedEvent,
+     title = "Upper Sweep Rejected",
+     message = "{{ticker}} {{interval}} — An upper-liquidity sweep was Rejected. Close: {{close}}."
+ )
+
+alertcondition(
+     lowerRejectedEvent,
+     title = "Lower Sweep Rejected",
+     message = "{{ticker}} {{interval}} — A lower-liquidity sweep was Rejected. Close: {{close}}."
+ )
+
+alertcondition(
+     upperAcceptedEvent,
+     title = "Upper Liquidity Accepted",
+     message = "{{ticker}} {{interval}} — Price established Acceptance beyond upper liquidity. Close: {{close}}."
+ )
+
+alertcondition(
+     lowerAcceptedEvent,
+     title = "Lower Liquidity Accepted",
+     message = "{{ticker}} {{interval}} — Price established Acceptance beyond lower liquidity. Close: {{close}}."
+ )
+
+alertcondition(
+     netGravityBullFlip,
+     title = "Net Gravity Flipped Bullish",
+     message = "{{ticker}} {{interval}} — Net Gravity crossed above neutral and flipped bullish. Close: {{close}}."
+ )
+
+alertcondition(
+     netGravityBearFlip,
+     title = "Net Gravity Flipped Bearish",
+     message = "{{ticker}} {{interval}} — Net Gravity crossed below neutral and flipped bearish. Close: {{close}}."
+ )
+
+alertcondition(
+     bullGravity,
+     title = "Strong Bullish Market Gravity",
+     message = "{{ticker}} {{interval}} — Net Gravity crossed the configured strong bullish threshold. Close: {{close}}."
+ )
+
+alertcondition(
+     bearGravity,
+     title = "Strong Bearish Market Gravity",
+     message = "{{ticker}} {{interval}} — Net Gravity crossed the configured strong bearish threshold. Close: {{close}}."
+ )
+
+// ~~~~~~~~~~~ END ~~~~~~~~~~~ //

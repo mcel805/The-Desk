@@ -1,0 +1,1 @@
+{"name":"the-desk","private":true,"type":"module","scripts":{"build:pine":"node build-pine.mjs","test:pine":"node --test tests/test_pine.mjs"},"dependencies":{"@luxalgo/vela-pinets":"0.2.15","pinets":"0.11.0"},"devDependencies":{"esbuild":"0.25.12"}}

@@ -59,6 +59,10 @@ Execution and its delivery record commit together. Journal downtime does not und
 
 Desk SQLite, process IDs, backups, tokens and logs live under ignored `data/`. Test state lives under ignored `qa-data/`. QA refuses an occupied journal port so it cannot silently reuse another journal database. Process startup fingerprints prevent stale PID metadata from stopping a reused process; owned Next processes remain stoppable after their process title changes. No migration or backfill of old Count Desk accounts is performed. Their existing databases and journal history remain intact.
 
+## Pine Script indicators
+
+Open **Indicators → Create Pine Script indicator**, paste native Pine v5/v6 source or load Market Gravity, then **Compile & test**. Add tested source to the chart or save it in the local Pine library. Original settings and drawings use Vela; reports and CSV comparison keep runtime success separate from verified TradingView parity. See [PINE-INDICATORS.md](PINE-INDICATORS.md) for the workflow, compatibility boundary, tests and AGPL dependencies.
+
 ## Verification
 
 ```sh
@@ -80,4 +84,4 @@ See [FEATURE-QA.md](FEATURE-QA.md) for the expanded feature matrix, 42 Python an
 - SMA study from `count-dashboard/web/quant-backtest.mjs`, copied to `web/sma-backtest.mjs`.
 - To rebuild the Vela bundle from installed source: `node build-vendor.mjs`. Tree shaking is disabled because native registries depend on module side effects.
 
-TradingView is the functional and interaction comparison baseline. The Desk uses its own branding and licensed Vela source. TradingView's proprietary code/assets, Pine runtime and protected or paid indicators are not copied.
+TradingView is the functional and interaction comparison baseline. The Desk uses its own branding and licensed Vela source. TradingView's proprietary code/assets, proprietary Pine runtime and protected or paid indicators are not copied. Self-contained user-supplied Pine executes through the independent AGPL PineTS runtime.

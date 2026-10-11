@@ -60,7 +60,7 @@ For a stronger paper MVP release, the next build should resolve the two inherite
 
 For the requested full TradingView experience, the product backlog still includes:
 
-- Pine-compatible editor/runtime and general strategy execution, with historical paper replay accounts and order simulation.
+- General Pine strategy execution with historical paper replay accounts and order simulation. The native Pine indicator editor/runtime is now available; see PINE-INDICATORS.md for its compatibility and reference-validation boundary.
 - Advanced alert conditions and delivery channels, cloud accounts/layouts, collaboration and reliable notification workers.
 - Broader assets and entitled historical/realtime data, screeners, news/economic calendars, community publishing and subscriptions.
 - Exchange-specific partial fills, queue/slippage, funding, fee tiers, liquidation and all broker order semantics.
@@ -85,3 +85,14 @@ Use a free isolated journal port. Repeat browser mutation checks in QA, not the 
 The tested fixes were committed locally as `9ac1e51`. The main Desk process was restarted to load them. The original journal was found stopped during the final check and restarted by the launcher. Final health checks: Desk 18880 HTTP 200, `mode=paper`, journal available; original journal 3000 HTTP 200; six market quotes present. The main paper account remains at 100,000 with zero orders, positions and fills. Isolated QA ports 18881 and 3102 were stopped and confirmed closed.
 
 The no-mistakes local review/test/document/lint gate was attempted with rebase/push/PR/CI excluded. Both attempts failed before creating a run: the daemon execution-context classification did not reply within 30 seconds. Doctor reported a running daemon and runnable Codex, but `axi status` still showed zero runs. No automated-review approval, remote CI, push or PR is claimed. The directly executed tests and browser evidence above remain valid. This review tooling failure should be resolved before a formal release.
+
+## Pine indicator update — October 11, 2026
+
+The self-contained Pine v5/v6 editor is available in Indicators, using official Vela PineTS workers. The supplied Market Gravity source runs with all 56 inputs and original drawings. Runtime success remains separate from verified TradingView parity; no TradingView reference export was supplied.
+
+- Focused automated checks: 43 Python tests passed, including the new source-library API roundtrip/limits; 16 Pine tests and the existing 6 SMA tests passed. Vela and Lux Journal dependency suites were not repeated for this update; their earlier results and inherited failures above still apply.
+- Real browser checks: supplied example compilation on Hyperliquid BTC and Coinbase BTC-USD 1h, full input dialog, table visibility, numeric text-size confirmation and reload restoration, local library save/delete, second pasted SMA indicator, invalid-source rejection, cancellation/recovery, built-in RSI add/remove, source/chart removal, CSV export, matching/mismatching local reference fixtures, interval changes, and 390 px mobile rendering without horizontal page overflow. Temporary test studies are excluded from persisted layouts.
+- Test fixes: numeric export now includes tuple-assigned ranked scores; cancellation returns idle context before reporting an error; stopped studies can restart with their prepared source; temporary tests never enter saved workspace state.
+- Original example file bytes match the user attachment. Editor text uses the browser's normal line-ending normalization, and reports fingerprint exactly that pasted text.
+
+See [PINE-INDICATORS.md](PINE-INDICATORS.md) for pinned versions, reproduction, licensing and evidence boundaries. Browser-session Pine events do not become server-owned trading or notification rules.

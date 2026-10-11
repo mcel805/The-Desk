@@ -55,6 +55,18 @@ class HttpTests(unittest.TestCase):
             for key,value in before.items():
                 if key!='appearance':self.assertEqual(after[key],value)
         finally:request('/api/settings',{'appearance':before.get('appearance',{'theme':'dark'})})
+    def test_pine_library_source_roundtrip_and_limits(self):
+        before=request('/api/settings').get('pineLibrary',[])
+        script={'name':'HTTP Pine test','source':'//@version=6\nindicator("Test")\nplot(close)','version':'6'}
+        try:
+            request('/api/settings',{'pineLibrary':[script]})
+            self.assertEqual(request('/api/settings')['pineLibrary'],[script])
+            for invalid in [[script]*7,{},[{'name':'missing source'}],[dict(script,source='x'*250001)]]:
+                with self.subTest(invalid_type=type(invalid).__name__):
+                    with self.assertRaises(HTTPError) as error:request('/api/settings',{'pineLibrary':invalid})
+                    self.assertEqual(error.exception.code,400)
+            self.assertEqual(request('/api/settings')['pineLibrary'],[script])
+        finally:request('/api/settings',{'pineLibrary':before})
     def test_server_retry_endpoint(self):self.assertTrue(request('/api/journal/retry',{})['queued'])
 
 if __name__=='__main__':unittest.main()
