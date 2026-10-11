@@ -75,7 +75,7 @@ python3 launch.py --qa --stop
 
 Two market-data fixtures verify incomplete Coinbase aggregation and the request-time completed-bar cutoff. Engine tests cover order matching, costs, partial exits, bracket quantity, account isolation, reversal, spot inventory, stale quotes, precision, buying power, revision conflicts, restart recovery, one-shot alerts, feed-independent expiry, full export and transaction rollback. The opt-in journal test uses an isolated journal database, verifies seven executions/three closed trades, reconciles fees and balance, simulates delivery failure and lost acknowledgments, and checks origin/content-type/token rejection.
 
-See [FEATURE-QA.md](FEATURE-QA.md) for the expanded feature matrix, 42 Python and 6 SMA test results, inherited Vela failures, and remaining build work. [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) records the initial delivery acceptance. Local workers continue with browser tabs closed while the Python process and awake machine are running; the launcher is not an operating-system service manager.
+See [FEATURE-QA.md](FEATURE-QA.md) for the expanded feature matrix, current validation results, inherited Vela failures, and remaining build work. Pine-specific rebuild and test commands are in [PINE-INDICATORS.md](PINE-INDICATORS.md). [MVP-ACCEPTANCE.md](MVP-ACCEPTANCE.md) records the initial delivery acceptance. Local workers continue with browser tabs closed while the Python process and awake machine are running; the launcher is not an operating-system service manager.
 
 ## Reused source
 
