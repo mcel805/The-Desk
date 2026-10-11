@@ -13,6 +13,13 @@ test('cumulative depth starts at best, scales both sides equally and groups with
   const raw=depthRows(b,11);assert.deepEqual(raw.bids.map(r=>r.total),[1,3,6]);assert.deepEqual(raw.asks.map(r=>r.total),[4,9]);assert.equal(raw.maximum,9);
   const grouped=depthRows(b,11,10,.1);assert.equal(grouped.bids[0].price,99);assert.equal(grouped.bids[0].qty,3);assert.equal(grouped.asks[0].price,101);assert.equal(grouped.asks[0].qty,9);
 });
+test('full depth mode can render all 20 source levels per side',()=>{
+  const bids=Array.from({length:24},(_,i)=>[String(99-i),String(i+1)]);
+  const asks=Array.from({length:24},(_,i)=>[String(101+i),String(i+1)]);
+  const rows=depthRows(normalizeBook({bids,asks}),20);
+  assert.equal(rows.bids.length,20);assert.equal(rows.asks.length,20);
+  assert.equal(rows.bids.at(-1).total,210);assert.equal(rows.asks.at(-1).total,210);
+});
 function harness(){
   const sockets=[],books=[],statuses=[],trades=[];
   const stream=new BookStream({socket:url=>{const s={url,readyState:1,sent:[],send(x){this.sent.push(JSON.parse(x));},close(){this.closed=true;this.onclose?.();}};sockets.push(s);return s;},onBook:b=>books.push(b),onStatus:s=>statuses.push(s),onTrade:t=>trades.push(t),now:()=>2000});

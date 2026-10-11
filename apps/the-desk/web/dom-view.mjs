@@ -4,7 +4,7 @@ export function setupDOM({instrument,quote,stage,account,replay}){
   const $=s=>document.querySelector(s),host=$('#domBook'),status=$('#domStatus'),mode=$('#domMode'),group=$('#domGroup');
   const fmt=n=>Number(n).toLocaleString('en-US',{maximumFractionDigits:8}),size=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
   const saved=(()=>{try{return JSON.parse(localStorage.getItem('the-desk.dom.v1')||'{}');}catch{return {};}})();
-  mode.value=['fast','depth'].includes(saved.mode)?saved.mode:'fast';group.value=['1','10','100'].includes(saved.group)?saved.group:'1';
+  mode.value=['fast','depth'].includes(saved.mode)?saved.mode:'depth';group.value=['1','10','100'].includes(saved.group)?saved.group:'1';
   let active='',book=null,streamState='connecting',frame=0,trade=null,selected=null,pinned=false,shown=[],lastPaint=new Map(),changes=new Map(),renderedInstrument='',fallbackAt='',ticks=0,previousMid=null;
   const rows=new Map();
   host.innerHTML='<div class="dom-labels"><span>Price</span><span id="domSizeLabel">Size</span><span id="domTotalLabel">Total</span></div><div class="dom-asks"></div><div class="dom-spread"><strong id="domMid">—</strong><span id="domSpread">Spread —</span></div><div class="dom-bids"></div><div class="dom-empty">Connecting order book…</div>';
@@ -58,7 +58,7 @@ export function setupDOM({instrument,quote,stage,account,replay}){
     $('#domExecution').textContent=replay()?'Exit replay to trade':serverOK?'Paper ticket ready · server quote '+serverAge.toFixed(1)+'s':'Paper ticket waiting for fresh server quote';
     if(!book){empty.hidden=false;empty.textContent=streamState==='unsupported'?'Order book unavailable for this instrument.':'Connecting order book…';asks.replaceChildren();bids.replaceChildren();rows.clear();renderedInstrument=active;return;}
     empty.hidden=true;
-    const data=depthRows(book,book.mode==='fast'&&active.startsWith('hyperliquid:')?5:11,Number(group.value),Number(q?.tick||.01));
+    const data=depthRows(book,mode.value==='fast'&&active.startsWith('hyperliquid:')?5:20,Number(group.value),Number(q?.tick||.01));
     const ordered=[...data.asks].reverse().concat(data.bids),incoming=new Map(ordered.map(r=>[r.key,r]));
     const now=performance.now();
     for(const r of ordered){const old=lastPaint.get(r.key);if((old!==undefined&&old!==r.qty)||(old===undefined&&lastPaint.size))changes.set(r.key,{time:now,direction:old===undefined||r.qty>old?'up':'down'});lastPaint.set(r.key,r.qty);}
