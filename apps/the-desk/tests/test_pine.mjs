@@ -4,10 +4,17 @@ import fs from 'node:fs/promises';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {pineState,restorePineState} from '../web/pine-state.mjs';
 import {DeskPineEngine} from '../web/pine-runtime.mjs';
-import {checkPineSource,validationSource,plotRows,rowsToCsv,parseCsv,compareReference,sourceHash,drawingCounts} from '../web/pine-validation.mjs';
+import {checkPineSource,validationSource,plotRows,rowsToCsv,parseCsv,compareReference,sourceHash,drawingCounts,timeframeDuration} from '../web/pine-validation.mjs';
 const hour=3600000,day=24*hour,week=7*day;
 const bars=Array.from({length:1000},(_,i)=>{const base=100+Math.sin(i*.15)*8+i*.01;return {time:Date.UTC(2026,7,3)+i*hour,open:base,high:base+2,low:base-2,close:base+Math.sin(i),volume:1000+i%40};});
 const market={symbol:'hyperliquid:BTC',timeframe:'60',symbolInfo:{ticker:'BTC',tickerid:'hyperliquid:BTC',timezone:'UTC',minmov:1,pricescale:1,mintick:1,type:'crypto',currency:'USD'}};
+test('completed-bar duration accepts canonical intraday timeframe labels',()=>{
+ assert.equal(timeframeDuration('60'),hour);
+ assert.equal(timeframeDuration('1h'),hour);
+ assert.equal(timeframeDuration('4h'),4*hour);
+ assert.equal(timeframeDuration('1D'),day);
+ assert.equal(timeframeDuration('W'),week);
+});
 function aggregate(timeframe){const width=timeframe==='W'||timeframe==='1W'?week:day,anchor=width===week?4*day:0;const map=new Map();for(const b of bars){const time=Math.floor((b.time-anchor)/width)*width+anchor;const a=map.get(time);if(!a)map.set(time,{...b,time});else{a.high=Math.max(a.high,b.high);a.low=Math.min(a.low,b.low);a.close=b.close;a.volume+=b.volume;}}return [...map.values()];}
 async function run(source,{inputs={},data=bars,fetchSeries=async(_,tf)=>aggregate(tf)}={}){
  const engine=new PineEngine(),prepared=await engine.prepare(source,'fixture');let model,session;

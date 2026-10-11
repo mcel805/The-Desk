@@ -1,5 +1,15 @@
 // Validation contracts are independent of the chart and Pine compiler.
 export const MAX_SOURCE_BYTES=250000;
+export function timeframeDuration(timeframe){
+ const value=String(timeframe).trim();
+ if(value==='D'||value==='1D'||value==='1d')return 86400000;
+ if(value==='W'||value==='1W'||value==='1w')return 604800000;
+ const minutes=value.match(/^(\d+)(?:m)?$/i);
+ if(minutes)return Number(minutes[1])*60000;
+ const hours=value.match(/^(\d+)h$/i);
+ if(hours)return Number(hours[1])*3600000;
+ throw Error('Unsupported chart timeframe: '+value);
+}
 const RESERVED_PLOT_NAMES=new Set(['time','open','high','low','close','volume']);
 function plotName(name){const value=String(name);return RESERVED_PLOT_NAMES.has(value.toLowerCase())?'Plot: '+value:value;}
 export function checkPineSource(source){

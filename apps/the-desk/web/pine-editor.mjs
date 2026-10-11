@@ -1,7 +1,7 @@
 import {registerWidgetAction,registerStatePersistence,registerLegendAction} from './vendor/vela.js';
 import {pineState,restorePineState} from './pine-state.mjs';
 import {DeskPineEngine} from './pine-runtime.mjs';
-import {checkPineSource,sourceHash,drawingCounts,validationSource,plotRows,rowsToCsv,compareReference} from './pine-validation.mjs';
+import {checkPineSource,sourceHash,drawingCounts,validationSource,plotRows,rowsToCsv,compareReference,timeframeDuration} from './pine-validation.mjs';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const engines=new Set();
@@ -77,7 +77,7 @@ async function testSource(){
    message('Testing comparison outputs…');const diagnosticId='pine-test-'+crypto.randomUUID();const probe=await chart.runIndicator(probeSource.source,{id:diagnosticId,language:'pine'});if(!probe.ok)throw probe.error;testHandle=probe.handle;checkCancelled();diagnostic=engine.records.get(diagnosticId);testHandle.remove();testHandle=null;
   }
   // A time cutoff applies to output export. Forming-bar visuals remain provisional on the chart.
-  const duration=chart.market.timeframe==='D'?86400000:chart.market.timeframe==='W'?604800000:Number(chart.market.timeframe)*60000;
+  const duration=timeframeDuration(chart.market.timeframe);
   const completed=diagnostic.bars.filter(b=>b.time+duration<=asOf);if(!completed.length)throw Error('No completed bars were available for validation.');
   const rows=plotRows(diagnostic.model,diagnostic.bars,completed.at(-1).time);
   report={status:'Runtime test passed; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15',name,market:record.market,bars:record.bars.length,completedBars:completed.length,completedCutoff:completed.at(-1).time,inputs,inputValues,drawings:record.counts,secondary:record.secondary,warnings:snapshot?.warnings||[],comparison:null,visualParity:'unverified',asOf:new Date(asOf).toISOString(),testedAt:new Date().toISOString()};
