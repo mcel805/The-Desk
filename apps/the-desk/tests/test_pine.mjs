@@ -40,6 +40,10 @@ test('source guards reject malformed scope and preserve quoted URL strings',()=>
  for(const source of ['', '//@version=4\nindicator("Old")','//@version=6\nstrategy("Strategy")','//@version=6\nindicator("Import")\nimport user/lib/1 as lib','//@version=6\nindicator("Big")\n'+ ' '.repeat(250000)])assert.throws(()=>checkPineSource(source));
  const source='//@version=6\nindicator("https://example.com")\nplot(close)';assert.equal(checkPineSource(source),source);
 });
+test('plot names cannot overwrite provider OHLCV fields',()=>{
+ const rows=plotRows({series:[{title:'open',points:bars.map(b=>({time:b.time,value:999}))}]},bars,bars[2].time);
+ assert.equal(rows[0].open,bars[0].open);assert.equal(rows[0]['Plot: open'],999);
+});
 test('runtime rejects invalid Pine rather than accepting a conversion',async()=>{await assert.rejects(run('//@version=6\nindicator("Invalid")\nplot(does_not_exist(close))'));});
 const rows=bars.slice(0,4).map((b,i)=>({...b,Result:i?i*1.5:null}));
 test('CSV compares shared completed outputs and fails changed OHLC, missing columns and no overlap',()=>{

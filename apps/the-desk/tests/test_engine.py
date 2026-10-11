@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import sys
 import tempfile
 import time
@@ -85,6 +86,16 @@ class PaperTests(unittest.TestCase):
         self.assertEqual(len(self.e.state(self.a)['alerts']),1);self.assertFalse(self.e.state(b)['alerts'])
         with self.assertRaisesRegex(ValueError,'not found'):self.e.execute('delete-wrong','alert_delete',{'account_id':b,'id':alert['id']})
         self.assertEqual(len(self.e.state(self.a)['alerts']),1)
+
+    def test_legacy_alerts_are_not_assigned_to_an_account(self):
+        legacy_path=self.path.with_name('legacy.db')
+        db=sqlite3.connect(legacy_path)
+        db.executescript("CREATE TABLE accounts(id TEXT PRIMARY KEY,name TEXT NOT NULL,capital TEXT NOT NULL,fee_bps TEXT NOT NULL,leverage TEXT NOT NULL,created_at TEXT NOT NULL); CREATE TABLE alerts(id TEXT PRIMARY KEY,instrument TEXT NOT NULL,condition TEXT NOT NULL,price TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);")
+        db.execute("INSERT INTO accounts VALUES ('legacy-account','Legacy','1000','5','1','2026-01-01T00:00:00Z')")
+        db.execute("INSERT INTO alerts VALUES ('legacy-alert','hyperliquid:BTC','above','105','active','2026-01-01T00:00:00Z')")
+        db.commit();db.close()
+        migrated=Engine(legacy_path)
+        self.assertFalse(migrated.state('legacy-account')['alerts'])
     def test_gap_bracket_rejection_atomic(self):
         self.order(kind='limit',price='99',stop='95',target='110');self.quote(89,90)
         self.assertEqual(self.state()['orders'][0]['status'],'rejected');self.assertFalse(self.state()['fills']);self.assertFalse(self.state()['positions'])

@@ -76,7 +76,7 @@ class Gateway:
                 count=min(300,remaining);start=end-count*native
                 query=urlencode({'granularity':native,'start':start,'end':end})
                 data=http_json('https://api.exchange.coinbase.com/products/'+symbol+'/candles?'+query)
-                for t,l,h,o,c,v in data:raw[int(t)]={'time':int(t)*1000,'open':o,'high':h,'low':l,'close':c,'volume':v}
+                for t,l,h,o,c,v in data:raw[int(t)]={'time':int(t)*1000,'open':float(o),'high':float(h),'low':float(l),'close':float(c),'volume':float(v)}
                 if not data:break
                 end=start-1;remaining-=count
             buckets={};counts={}

@@ -1,5 +1,7 @@
 // Validation contracts are independent of the chart and Pine compiler.
 export const MAX_SOURCE_BYTES=250000;
+const RESERVED_PLOT_NAMES=new Set(['time','open','high','low','close','volume']);
+function plotName(name){const value=String(name);return RESERVED_PLOT_NAMES.has(value.toLowerCase())?'Plot: '+value:value;}
 export function checkPineSource(source){
  if(typeof source!=='string'||!source.trim())throw Error('Paste Pine Script source first.');
  if(new TextEncoder().encode(source).length>MAX_SOURCE_BYTES)throw Error('Source exceeds the 250 KB indicator limit.');
@@ -24,7 +26,7 @@ export function plotRows(model,bars,cutoff){
  const outputs=new Map();
  for(const s of model?.series||[]){
   if(!s.title||!Array.isArray(s.points))continue;
-  for(const p of s.points){if(!outputs.has(p.time))outputs.set(p.time,{});outputs.get(p.time)[s.title]=Number.isFinite(p.value)?p.value:null;}
+  for(const p of s.points){if(!outputs.has(p.time))outputs.set(p.time,{});outputs.get(p.time)[plotName(s.title)]=Number.isFinite(p.value)?p.value:null;}
  }
  return bars.filter(b=>b.time<=cutoff).map(b=>({...b,...outputs.get(b.time)}));
 }
@@ -49,7 +51,7 @@ export function compareReference(rows,csv,{absoluteTolerance=1e-7,relativeTolera
  const ref=parseCsv(csv),headers=Object.keys(ref[0]),key=name=>headers.find(h=>h.toLowerCase()===name),timeKey=key('time')||key('timestamp');
  if(!timeKey||['open','high','low','close'].some(n=>!key(n)))throw Error('Reference CSV must contain time and matching open/high/low/close columns.');
  const base=new Set(['time','open','high','low','close','volume']);
- const outputNames=[...new Set(rows.flatMap(r=>Object.keys(r)))].filter(k=>!base.has(k));
+ const outputNames=[...new Set(rows.flatMap(r=>Object.keys(r)))].filter(k=>!base.has(k.toLowerCase()));
  if(!outputNames.length)throw Error('No numeric plot outputs are available. Use the exported comparison Pine script for drawing-only indicators.');
  const missing=outputNames.filter(n=>!headers.includes(n));if(missing.length)throw Error('Reference CSV is missing outputs: '+missing.join(', '));
  const byTime=new Map(rows.map(r=>[r.time,r])),seen=new Set(),mismatches=[];let matchedBars=0,valuesCompared=0;

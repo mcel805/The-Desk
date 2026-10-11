@@ -47,7 +47,6 @@ class Engine:
             ''')
             if 'account_id' not in {row['name'] for row in db.execute('PRAGMA table_info(alerts)')}:
                 db.execute('ALTER TABLE alerts ADD COLUMN account_id TEXT REFERENCES accounts(id)')
-                db.execute("UPDATE alerts SET account_id=(SELECT id FROM accounts ORDER BY created_at,id LIMIT 1) WHERE account_id IS NULL")
             db.execute('CREATE INDEX IF NOT EXISTS alerts_account ON alerts(account_id,instrument,status)')
 
     @contextmanager
