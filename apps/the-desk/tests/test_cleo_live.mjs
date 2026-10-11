@@ -1,9 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from '../web/pine-compat/nested-security.mjs';
+import {drawingCounts} from '../web/pine-validation.mjs';
 installNestedSecurity();
 const time=Date.now()-600000,bars=Array.from({length:5},(_,i)=>({time:time+i*60000,open:i,high:i+2,low:i-1,close:i+1,volume:10}));
+const cleoSource=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
+const minute=60000,cleosEnd=Date.UTC(2026,9,9,20);
+const duration=tf=>({'D':1440,'1D':1440,'240':240,'60':60,'30':30,'15':15,'5':5,'1':1}[tf])*minute;
+const cleosBars=(tf,count,end=cleosEnd)=>Array.from({length:count},(_,i)=>{const t=end-(count-i)*duration(tf),base=51000+250*Math.sin(t/14400000)+50*Math.sin(t/900000);return {time:t,open:base,high:base+15,low:base-15,close:base+10*Math.sin(i),volume:1000+i%40};});
+const cleoMarket={symbol:'fixture:MYM',timeframe:'1',symbolInfo:{ticker:'MYM',tickerid:'MYM',timezone:'America/Chicago',mintick:1,minmov:1,pricescale:1,type:'futures',currency:'USD'}};
+const withoutIds=value=>JSON.stringify(value,(key,current)=>key==='id'?undefined:current);
+const modelSignature=model=>({outputs:withoutIds(model.series),geometry:withoutIds({lines:model.lines,boxes:model.boxes,labels:model.labels,polylines:model.polylines,linefills:model.linefills,tables:model.tables})});
+const assertGeometry=model=>{const counts=drawingCounts(model);assert.ok(counts.lines>0);assert.ok(counts.labels>0);for(const line of model.lines)assert.ok([line.x1,line.y1,line.x2,line.y2].every(Number.isFinite));};
 const source=`//@version=6\nindicator("Same frame tuple live")\nscale=input.int(2,"Scale")\nf_pair() =>\n    [high*scale,close]\n[a,b]=request.security(syminfo.tickerid,"1",f_pair())\nplot(a,"High")\nplot(b,"Close")`;
 test('same timeframe function tuples, streaming ticks/new bars, input restart and viewport updates',async()=>{
  const engine=new PineEngine(),prepared=await engine.prepare(source,'live');let model,error,session;
@@ -20,4 +30,15 @@ test('dual-use time helpers in function tuple return branches snapshot each comp
  const source=`//@version=6\nindicator("Time tuple")\nf_stamp(bool previous) =>\n    if previous\n        [time[1],time_close[1]]\n    else\n        [time,time_close]\n[a,b]=request.security(syminfo.tickerid,"1",f_stamp(false))\nplot(a,"Open time")\nplot(b-a,"Duration")`;
  const engine=new PineEngine(),prepared=await engine.prepare(source,'tuple-time');let session,model;
  try{await new Promise((resolve,reject)=>{session=engine.execute({prepared,bars,market:{symbol:'fixture:MYM',timeframe:'1'},historyState:'complete',mode:'static'},{onModel:m=>model=m,onDone:resolve,onError:reject});});assert.deepEqual(model.series.find(s=>s.title==='Open time').points.map(p=>p.value),bars.map(b=>b.time));assert.deepEqual(model.series.find(s=>s.title==='Duration').points.map(p=>p.value),bars.map(()=>60000));}finally{session?.stop();}
+});
+test('Cleo Liquidity live mode updates on an intrabar tick and completed 1-minute bar',async()=>{
+ const chartBars=cleosBars('1',600),calls=[];const engine=new PineEngine(),prepared=await engine.prepare(cleoSource,'cleo-live');let model,error,updates=0;const warnings=[];
+ const wait=async predicate=>{const until=Date.now()+30000;while(!predicate()){if(error)throw error;if(Date.now()>until)throw Error('No expected Cleo live model');await new Promise(resolve=>setTimeout(resolve,50));}};
+ const fetchSeries=async(symbol,tf,range)=>{calls.push([tf,range?.limit]);return cleosBars(tf,Math.max(range?.limit||600,600),cleosEnd);};
+ let session;
+ try{session=engine.execute({prepared,getBars:()=>chartBars,market:cleoMarket,inputs:{sourceBars:200,masterBars:500,liqLowerHistory:400},historyState:'complete',mode:'live',fetchSeries},{onModel:next=>{model=next;updates+=1;},onWarning:warning=>warnings.push(warning),onError:next=>{error=next;}});
+ await wait(()=>model&&updates>0);const initial=modelSignature(model);assertGeometry(model);assert.equal(error,undefined);assert.ok(calls.some(([tf])=>tf==='D'));assert.ok(calls.some(([tf])=>tf==='240'));assert.ok(calls.some(([tf])=>tf==='60'));assert.ok(calls.some(([tf])=>tf==='30'));assert.ok(calls.some(([tf])=>tf==='15'));assert.ok(calls.some(([tf])=>tf==='5'));
+ const current=chartBars.at(-1);chartBars[chartBars.length-1]={...current,high:current.high+150,low:current.low-120,close:current.close+140};session.notifyBars('tick');const tickUpdates=updates;await wait(()=>updates>tickUpdates);const tick=modelSignature(model);assert.notDeepEqual(tick.outputs,initial.outputs);assertGeometry(model);assert.equal(error,undefined);
+ const nextTime=current.time+minute;chartBars.push({time:nextTime,open:current.close+140,high:current.high+180,low:current.low-150,close:current.close+170,volume:1200});session.notifyBars('complete');const completedUpdates=updates;await wait(()=>updates>completedUpdates);const completed=modelSignature(model);assert.notDeepEqual(completed.outputs,tick.outputs);assertGeometry(model);assert.ok(model.series.some(series=>series.points.at(-1)?.time===nextTime));assert.equal(error,undefined);assert.ok(warnings.every(w=>!/out.of.bounds|unsupported|error/i.test(w.message)));
+ }finally{session?.stop();}
 });
