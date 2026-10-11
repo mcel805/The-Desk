@@ -172,7 +172,10 @@ def main():
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
                 if path=='/api/command':return self.json(engine.execute(self.headers.get('Idempotency-Key'),p['action'],p['payload']))
                 if path=='/api/settings':
-                    if not isinstance(p,dict) or set(p)-{'workspace','appearance','watchlist','presets','pineLibrary'}:raise ValueError('Unsupported settings')
+                    if not isinstance(p,dict) or set(p)-{'workspace','appearance','watchlist','presets','pineLibrary','trading'}:raise ValueError('Unsupported settings')
+                    if 'trading' in p:
+                        t=p['trading'];keys={'positions','orders','brackets','executions','labels','pnl','reverse','quickButtons','instant','pnlUnit'}
+                        if not isinstance(t,dict) or set(t)-keys or any(type(v) is not bool for k,v in t.items() if k!='pnlUnit') or t.get('pnlUnit','money') not in ('money','ticks','percent'):raise ValueError('Invalid trading settings')
                     if 'pineLibrary' in p:
                         items=p['pineLibrary']
                         if not isinstance(items,list) or len(items)>6:raise ValueError('Pine library accepts at most six indicators')

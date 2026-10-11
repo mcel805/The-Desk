@@ -107,7 +107,7 @@ class Engine:
             if old:
                 if old['hash']!=h: raise ValueError('Idempotency key was reused for a different command.')
                 return json.loads(old['result'])
-            methods={'account':self.create_account,'order':self.create_order,'amend':self.amend,'cancel':self.cancel,'close':self.close,'bracket':self.bracket,'alert':self.create_alert,'alert_delete':self.delete_alert}
+            methods={'account':self.create_account,'order':self.create_order,'amend':self.amend,'cancel':self.cancel,'close':self.close,'bracket':self.bracket,'alert':self.create_alert,'alert_delete':self.delete_alert,'cancel_orders':self.cancel_orders,'flatten':self.flatten,'reverse':self.reverse}
             if action not in methods: raise ValueError('Unknown command')
             result=methods[action](db,payload)
             db.execute('INSERT INTO commands VALUES(?,?,?)',(key,h,json.dumps(result)))
@@ -173,18 +173,23 @@ class Engine:
 
     def amend(self,db,p):
         o=self.owned_order(db,p);q=self.quote(o['instrument']);a=self.account(db,o['account_id'])
+        qty=dec(p.get('qty',o['qty']),True);self.precision(q,qty)
         fields={k:dec(p[k],True) if p.get(k) else None for k in ('price','trigger','stop','target')}
         if o['kind'] in ('limit','stop_limit') and fields['price'] is None:raise ValueError('Limit price is required.')
         if o['kind'] in ('stop','stop_limit') and fields['trigger'] is None:raise ValueError('Trigger is required.')
         entry=fields['price'] or fields['trigger'] or dec(q['ask'] if o['side']=='buy' else q['bid'])
         self.validate_levels(o['side'],entry,fields['stop'],fields['target'])
         for v in fields.values():
-            if v is not None:self.precision(q,dec(o['qty']),v)
+            if v is not None:self.precision(q,qty,v)
+        if o['instrument'].startswith('coinbase:') and o['side']=='sell':
+            longs=sum((dec(r['qty']) for r in db.execute("SELECT qty FROM positions WHERE account_id=? AND instrument=? AND side='buy' AND status='open'",(a['id'],o['instrument']))),Decimal(0))
+            other_sells=sum((dec(r['qty']) for r in db.execute("SELECT qty FROM orders WHERE account_id=? AND instrument=? AND side='sell' AND status IN ('working','triggered') AND id<>?",(a['id'],o['instrument'],o['id']))),Decimal(0))
+            if qty>longs-other_sells:raise ValueError('Coinbase spot amendment exceeds available owned quantity.')
         old_price=dec(o['price'] or o['trigger'] or entry)
         lev=Decimal(1) if o['instrument'].startswith('coinbase:') else dec(a['leverage'])
-        additional=max(Decimal(0),(entry-old_price)*dec(o['qty'])*(1/lev+dec(a['fee_bps'])/10000))
+        additional=max(Decimal(0),(entry*qty-old_price*dec(o['qty']))*(1/lev+dec(a['fee_bps'])/10000))
         if additional>self.funds(db,a)['buying_power']:raise ValueError('Amendment exceeds buying power.')
-        db.execute('UPDATE orders SET price=?,trigger=?,stop=?,target=?,revision=revision+1,updated_at=? WHERE id=?',tuple(str(fields[k]) if fields[k] else None for k in ('price','trigger','stop','target'))+(stamp(),o['id']))
+        db.execute('UPDATE orders SET price=?,trigger=?,stop=?,target=?,qty=?,revision=revision+1,updated_at=? WHERE id=?',tuple(str(fields[k]) if fields[k] else None for k in ('price','trigger','stop','target'))+(str(qty),stamp(),o['id']))
         return dict(db.execute('SELECT * FROM orders WHERE id=?',(o['id'],)).fetchone())
 
     def cancel(self,db,p):
@@ -192,6 +197,44 @@ class Engine:
         db.execute("UPDATE orders SET status='cancelled',revision=revision+1,updated_at=? WHERE id=?",(stamp(),o['id']))
         self.event(db,'cancel',{'account_id':o['account_id'],'message':'Paper order cancelled','order_id':o['id']})
         return {'cancelled':o['id']}
+
+    def scoped_refs(self,db,p,table,key,complete=False):
+        self.account(db,p.get('account_id'));instrument=self.instrument(p.get('instrument'))
+        refs=p.get(key)
+        if not isinstance(refs,list) or len(refs)>100:raise ValueError('A reviewed list of at most 100 items is required.')
+        ids=[];result=[]
+        for ref in refs:
+            if not isinstance(ref,dict) or ref.get('id') in ids:raise ValueError('Invalid or repeated item reference.')
+            row=db.execute('SELECT * FROM '+table+' WHERE id=? AND account_id=? AND instrument=?',(ref.get('id'),p['account_id'],instrument)).fetchone()
+            allowed=('working','triggered') if table=='orders' else ('open',)
+            if not row or row['status'] not in allowed or row['revision']!=ref.get('revision'):raise ValueError('Trading state changed. Refresh and review the action again.')
+            ids.append(row['id']);result.append(row)
+        if complete:
+            condition="status IN ('working','triggered')" if table=='orders' else "status='open'"
+            current={r['id'] for r in db.execute('SELECT id FROM '+table+' WHERE account_id=? AND instrument=? AND '+condition,(p['account_id'],instrument))}
+            if current!=set(ids):raise ValueError('Trading state changed. Refresh and review the action again.')
+        return result
+
+    def cancel_orders(self,db,p):
+        orders=self.scoped_refs(db,p,'orders','orders')
+        for o in orders:self.cancel(db,{'account_id':p['account_id'],'id':o['id'],'revision':o['revision']})
+        return {'cancelled':[o['id'] for o in orders]}
+
+    def flatten(self,db,p):
+        orders=self.scoped_refs(db,p,'orders','orders',True);positions=self.scoped_refs(db,p,'positions','positions',True)
+        if positions:self.quote(p['instrument'])
+        for o in orders:self.cancel(db,{'account_id':p['account_id'],'id':o['id'],'revision':o['revision']})
+        for row in positions:self.close(db,{'account_id':p['account_id'],'id':row['id'],'revision':row['revision']})
+        return {'cancelled':[o['id'] for o in orders],'closed':[row['id'] for row in positions]}
+
+    def reverse(self,db,p):
+        orders=self.scoped_refs(db,p,'orders','orders',True);positions=self.scoped_refs(db,p,'positions','positions',True)
+        if p['instrument'].startswith('coinbase:'):raise ValueError('Spot reversal cannot open a short. Close owned spot quantity instead.')
+        net=sum((dec(row['qty'])*(1 if row['side']=='buy' else -1) for row in positions),Decimal(0))
+        if not net:raise ValueError('No net position to reverse.')
+        self.quote(p['instrument'])
+        for o in orders:self.cancel(db,{'account_id':p['account_id'],'id':o['id'],'revision':o['revision']})
+        return self.create_order(db,{'account_id':p['account_id'],'instrument':p['instrument'],'side':'sell' if net>0 else 'buy','kind':'market','qty':str(abs(net)*2)})
 
     def cash(self,db,aid,amount,kind):
         db.execute('INSERT INTO cash VALUES(?,?,?,?,?)',(uid('cash'),aid,str(amount),kind,stamp()))

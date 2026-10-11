@@ -1,4 +1,7 @@
 import {VelaWorkspace,CoinbaseProvider,HyperliquidProvider} from './vendor/vela.js';
+import {marketIdentity,tradingConfig,tradingDefaults} from './trading-model.mjs';
+import {setupDOMTrader} from './dom-trader.mjs';
+import {setupChartTrader} from './chart-trader.mjs';
 import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
@@ -17,13 +20,9 @@ function toast(text,error=false){$('#toast').textContent=text;$('#toast').classL
 async function command(action,payload,key=($('#dialog').open?dialogKey:crypto.randomUUID())){
  const result=await api('/api/command',{action,payload},{'Idempotency-Key':key});await refresh();return result;
 }
-function instrument(){
- const m=ws?.chart?.market;if(!m)return 'hyperliquid:BTC';
- const symbol=m.symbol||'hyperliquid:BTC';const resolved=ws.chart.data?.resolve?.(symbol);
- const provider=String(resolved?.provider?.name||resolved?.provider||m.provider||symbol.split(':')[0]).toLowerCase();
- const base=String(resolved?.ticker||symbol.split(':').at(-1));
- return (provider.includes('coinbase')?'coinbase':'hyperliquid')+':'+base;
-}
+function instrument(){return marketIdentity(ws?.chart);}
+function tradeConfig(){return tradingConfig(settings.trading);}
+function stageTrade(next,kind='market',price){stage(next,kind,price);if(tradeConfig().instant&&!ws.replay.state.active)$('#orderForm').requestSubmit();}
 function account(){return state?.accounts.find(a=>a.id===activeAccount);}
 function quote(){return state?.quotes[instrument()];}
 function snap(v){const tick=Number(quote()?.tick||.01);return Number((Math.round(Number(v)/tick)*tick).toPrecision(12));}
@@ -65,7 +64,7 @@ function stage(nextSide,kind='market',price){
  draft=true;commandKey=null;$('#orderError').textContent='';document.body.classList.remove('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','true');updateTicket();
 }
 $('#sideBuy').onclick=()=>setSide('buy');$('#sideSell').onclick=()=>setSide('sell');
-$('#quickBuy').onclick=()=>stage('buy');$('#quickSell').onclick=()=>stage('sell');
+$('#quickBuy').onclick=()=>stageTrade('buy');$('#quickSell').onclick=()=>stageTrade('sell');
 $('#orderForm').oninput=()=>{draft=true;commandKey=null;updateTicket();};
 $('#orderKind').onchange=()=>{if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
 $('#orderForm').onsubmit=async e=>{
@@ -95,8 +94,9 @@ function drawWatch(){
  $('#watchlist').innerHTML=instruments.map(i=>{const q=state?.quotes[i];return `<button class="watch-row ${i===instrument()?'active':''}" data-instrument="${esc(i)}"><span><span class="ticker">${esc(i.split(':')[1].replace('-USD',''))}</span><br><small>${i.startsWith('coinbase')?'COINBASE · SPOT':'HYPERLIQUID · PERP'}</small></span><span class="watch-value">${q?number(q.last):'—'}</span><span class="muted small">${q&&q.age<15?'●':'○'}</span></button>`;}).join('');
  $('#watchlist').querySelectorAll('button').forEach(b=>b.onclick=async()=>{draft=false;commandKey=null;try{await ws.chart.setMarket({symbol:b.dataset.instrument});updateTicket();drawWatch();}catch(e){toast(e.message,true);}});
 }
-const dom=setupDOM({instrument,quote,stage,account,replay:()=>!!ws?.replay?.state?.active});
-function drawDOM(){dom.sync();}
+const dom=setupDOM({instrument,quote,stage:stageTrade,account,replay:()=>!!ws?.replay?.state?.active});
+const domTrader=setupDOMTrader({state:()=>state,instrument,quote,accountId:()=>activeAccount,replay:()=>!!ws?.replay?.state?.active,stage:stageTrade,book:()=>dom.book(),editOrder,closePosition,editBracket,showDialog,command,toast,config:tradeConfig});
+function drawDOM(){dom.sync();domTrader.paint();}
 document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{
  rail=b.dataset.rail;$('#watchPanel').hidden=rail!=='watch';$('#domPanel').hidden=rail!=='dom';
  document.body.classList.toggle('dom-open',rail==='dom');
@@ -145,10 +145,10 @@ function renderManager(){
  if(ws?.replay.state.active)host.querySelectorAll('[data-close],[data-reverse],[data-bracket],[data-edit],[data-cancel]').forEach(b=>b.disabled=true);
 }
 function levelInputs(item){return `<div class="two-col"><label>Limit price<input name="price" type="number" step="any" value="${esc(item.price||'')}" ${item.kind?.includes('limit')?'required':''}></label><label>Stop trigger<input name="trigger" type="number" step="any" value="${esc(item.trigger||'')}" ${item.kind?.includes('stop')?'required':''}></label></div><div class="two-col"><label>Stop loss<input name="stop" type="number" step="any" value="${esc(item.stop||'')}"></label><label>Take profit<input name="target" type="number" step="any" value="${esc(item.target||'')}"></label></div>`;}
-function editOrder(o,changes={}){showDialog('Modify paper '+o.kind.replace('_',' '),`<p>${esc(o.instrument.toUpperCase())} · ${esc(account()?.name)}</p>${levelInputs({...o,...changes})}`,async fd=>{await command('amend',{id:o.id,account_id:o.account_id,revision:o.revision,...Object.fromEntries(fd)});toast('Paper amendment accepted.');});}
+function editOrder(o,changes={}){showDialog('Modify paper '+o.kind.replace('_',' '),`<p>${esc(o.instrument.toUpperCase())} · ${esc(account()?.name)}</p>${levelInputs({...o,...changes})}<label>Quantity<input name="qty" type="number" min="0.00000001" step="any" value="${esc(changes.qty??o.qty)}" required></label>`,async fd=>{await command('amend',{id:o.id,account_id:o.account_id,revision:o.revision,...Object.fromEntries(fd)});toast('Paper amendment accepted.');});}
 function editBracket(p,changes={}){showDialog('Position protection',`<p>${esc(p.instrument.toUpperCase())} · ${fmt(p.qty)} units · server-managed paper bracket</p><div class="two-col"><label>Stop loss<input name="stop" type="number" step="any" value="${esc(changes.stop??p.stop??'')}"></label><label>Take profit<input name="target" type="number" step="any" value="${esc(changes.target??p.target??'')}"></label></div>`,async fd=>{await command('bracket',{id:p.id,account_id:p.account_id,revision:p.revision,...Object.fromEntries(fd)});toast('Paper protection updated.');});}
 function closePosition(p){showDialog('Close paper position',`<p>${esc(p.instrument.toUpperCase())} · ${p.side==='buy'?'Long':'Short'} · ${fmt(p.qty)} open</p><label>Quantity to close<input name="qty" type="number" min="0.00000001" step="any" max="${esc(p.qty)}" value="${esc(p.qty)}" required></label>`,async fd=>{await command('close',{id:p.id,account_id:p.account_id,revision:p.revision,qty:fd.get('qty')});toast('Paper exit accepted; journal event queued.');});}
-function reversePosition(p){showDialog('Reverse paper position',`<p>Net ${esc(p.instrument.toUpperCase())} from ${p.side==='buy'?'long to short':'short to long'} using a market order of ${fmt(Number(p.qty)*2)} units.</p><p class="muted">The server closes the current exposure and opens the opposite remainder. Coinbase spot cannot become short.</p>`,async()=>{await command('order',{account_id:p.account_id,instrument:p.instrument,side:p.side==='buy'?'sell':'buy',kind:'market',qty:String(Number(p.qty)*2)});toast('Paper reversal accepted.');});}
+function reversePosition(p){const scoped={account_id:p.account_id,instrument:p.instrument,orders:state.orders.filter(o=>o.instrument===p.instrument&&['working','triggered'].includes(o.status)).map(({id,revision})=>({id,revision})),positions:state.positions.filter(x=>x.instrument===p.instrument).map(({id,revision})=>({id,revision}))};showDialog('Reverse paper instrument',`<p>Cancel ${scoped.orders.length} working orders and reverse the net ${esc(p.instrument.toUpperCase())} position at the current server quote.</p><p>Coinbase spot cannot become short.</p>`,async()=>{await command('reverse',scoped);toast('Paper reversal accepted.');});}
 
 $('#alertButton').onclick=()=>showDialog('Create price alert',`<p>${esc(instrument().toUpperCase())} · server evaluation</p><label>Condition<select name="condition"><option value="above">At or above</option><option value="below">At or below</option></select></label><label>Price<input name="price" type="number" min="0.00000001" step="any" value="${snap(quote()?.last||0)}" required></label><p class="muted small">One trigger. Browser closure does not stop evaluation; a missing feed pauses it.</p>`,async fd=>{await command('alert',{account_id:activeAccount,instrument:instrument(),...Object.fromEntries(fd)});setPanel('alerts');toast('Server price alert created.');});
 
@@ -189,54 +189,20 @@ async function refresh(){
  finally{polling=false;}
 }
 
-const overlayNodes=new Map();let dragging=null;
-function attachChart(cell){
- if(cell.deskAttached)return;cell.deskAttached=true;
- const c=cell.chart;
- c.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});
- c.ready().then(()=>{
-  const native=c.renderer.renderer;if(!native?.plot)return;
-  const overlay=document.createElement('div');overlay.className='trade-overlay';native.plot.append(overlay);overlayNodes.set(cell.id,{overlay,nodes:new Map(),native});
-  native.plot.addEventListener('contextmenu',e=>{
-    if(e.target.closest('.trade-line'))return;
-    const pane=native.scene.panes.get('price'),rect=native.plot.getBoundingClientRect();if(!pane)return;
-    menuPrice=native.coords.yToPrice(e.clientY-rect.top,pane.scale,pane.bounds);if(!Number.isFinite(menuPrice)||menuPrice<=0)return;
-    e.preventDefault();e.stopImmediatePropagation();ws.setActiveCell(cell.id);
-    $('#chartMenu').innerHTML=`<button data-menu-side="buy">Buy limit at ${fmt(snap(menuPrice))} · PAPER</button><button data-menu-side="sell">Sell limit at ${fmt(snap(menuPrice))} · PAPER</button><button id="menuAlert">Create alert at ${fmt(snap(menuPrice))}</button>`;
-    $('#chartMenu').hidden=false;$('#chartMenu').style.left=Math.min(e.clientX,window.innerWidth-260)+'px';$('#chartMenu').style.top=Math.min(e.clientY,window.innerHeight-140)+'px';
-    $('#chartMenu').querySelectorAll('[data-menu-side]').forEach(b=>b.onclick=()=>{stage(b.dataset.menuSide,'limit',menuPrice);$('#chartMenu').hidden=true;});$('#menuAlert').onclick=()=>{$('#chartMenu').hidden=true;$('#alertButton').click();$('#dialogBody input[name=price]').value=snap(menuPrice);};
-  },true);
- }).catch(e=>toast('Chart initialization: '+e.message,true));
+function cancelChartOrder(o){showDialog('Cancel chart order',`<p>${esc(o.side.toUpperCase()+' '+o.kind+' '+o.qty+' · '+o.instrument)} · PAPER</p>`,async()=>{await command('cancel',{id:o.id,account_id:o.account_id,revision:o.revision});toast('Paper order cancelled.');});}
+function chartMenu(price,x,y){
+ menuPrice=snap(price);const kinds=['limit','stop','stop_limit'];
+ $('#chartMenu').innerHTML=kinds.flatMap(kind=>['buy','sell'].map(next=>`<button data-menu-side="${next}" data-kind="${kind}">${next==='buy'?'Buy':'Sell'} ${kind.replace('_',' ')} at ${fmt(menuPrice)} · PAPER</button>`)).join('')+'<button id="menuAlert">Create alert at '+fmt(menuPrice)+'</button>';
+ $('#chartMenu').hidden=false;$('#chartMenu').style.left=Math.min(x,window.innerWidth-280)+'px';$('#chartMenu').style.top=Math.max(0,Math.min(y,window.innerHeight-290))+'px';
+ $('#chartMenu').querySelectorAll('[data-menu-side]').forEach(b=>b.onclick=()=>{stageTrade(b.dataset.menuSide,b.dataset.kind,menuPrice);$('#chartMenu').hidden=true;});$('#menuAlert').onclick=()=>{$('#chartMenu').hidden=true;$('#alertButton').click();$('#dialogBody input[name=price]').value=menuPrice;};
 }
+const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,toast,draftLevels:()=>{
+ if(!draft)return [];return [['entry','DRAFT','#aeb9d0',entryReference()],['trigger','DRAFT TRIGGER','#e3b75d',$('#orderKind').value==='stop_limit'?$('#triggerPrice').value:0],['stop','DRAFT SL','#f23645',$('#stopPrice').value],['target','DRAFT TP','#089981',$('#targetPrice').value]].filter(x=>Number(x[3])>0).map(([field,label,color,price])=>({key:'draft'+field,field,price:Number(price),label,color,kind:'draft',amend:value=>{const target=field==='entry'&&$('#orderKind').value==='stop'?'triggerPrice':({entry:'entryPrice',trigger:'triggerPrice',stop:'stopPrice',target:'targetPrice'}[field]);$('#'+target).value=value;if(field==='entry'&&$('#orderKind').value==='market')$('#orderKind').value='limit';commandKey=null;updateTicket();}}));
+}});
+function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
-function overlayFrame(){
- if(ws&&state){
-  for(const cell of ws.cells()){
-   const wrap=overlayNodes.get(cell.id);if(!wrap)continue;
-   const {overlay,nodes,native}=wrap,pane=native.scene?.panes.get('price');if(!pane)continue;
-   const symbol=String(cell.chart.market.symbol).toLowerCase();const matches=i=>i.toLowerCase()===symbol;
-   const levels=[];
-   if(!ws.replay.state.active){
-    for(const o of state.orders.filter(x=>matches(x.instrument)&&['working','triggered'].includes(x.status))){for(const [field,label,color] of [['price','LIMIT','#5b9bff'],['trigger','TRIGGER','#e3b75d'],['stop','SL','#f23645'],['target','TP','#089981']])if(o[field])levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:label+' '+fmt(o.qty),color,kind:'order'});}
-    for(const p of state.positions.filter(x=>matches(x.instrument))){for(const [field,label,color] of [['entry','POSITION','#5b9bff'],['stop','SL','#f23645'],['target','TP','#089981']])if(p[field])levels.push({key:p.id+field,item:p,field,price:Number(p[field]),label:label+' '+fmt(p.qty),color,kind:'position'});}
-   }
-   if(draft&&cell.id===ws.active.id&&!ws.replay.state.active){for(const [field,label,color,val] of [['entry','DRAFT','#aeb9d0',entryReference()],['stop','DRAFT SL','#f23645',$('#stopPrice').value],['target','DRAFT TP','#089981',$('#targetPrice').value]])if(Number(val)>0)levels.push({key:'draft'+field,field,price:Number(val),label,color,kind:'draft'});}
-   const live=new Set(levels.map(l=>l.key));for(const [key,node] of nodes)if(!live.has(key)&&dragging?.node!==node){node.remove();nodes.delete(key);}
-   for(const level of levels){
-    let node=nodes.get(level.key);if(!node){node=document.createElement('div');node.className='trade-line';node.innerHTML='<button></button>';overlay.append(node);nodes.set(level.key,node);
-     node.querySelector('button').onpointerdown=e=>{const l=node.level;if(e.button!==0||l.kind==='position'&&l.field==='entry')return;e.preventDefault();e.stopPropagation();dragging={node,level:l,startY:e.clientY,startPrice:l.price,price:l.price,native,pane};e.target.setPointerCapture(e.pointerId);};
-     node.querySelector('button').onpointermove=e=>{if(dragging?.node!==node)return;const d=dragging;d.price=snap(d.native.coords.yToPrice(d.native.coords.priceToY(d.startPrice,d.pane.scale,d.pane.bounds)+e.clientY-d.startY,d.pane.scale,d.pane.bounds));node.style.top=d.native.coords.priceToY(d.price,d.pane.scale,d.pane.bounds)+'px';e.target.textContent='Release to review '+fmt(d.price);};
-     node.querySelector('button').onpointerup=e=>{if(dragging?.node!==node)return;const d=dragging;dragging=null;if(Math.abs(e.clientY-d.startY)<3){if(d.level.kind==='order')editOrder(d.level.item);return;}if(d.level.kind==='draft'){$('#'+({entry:'entryPrice',stop:'stopPrice',target:'targetPrice'}[d.level.field])).value=d.price;if(d.level.field==='entry')$('#orderKind').value='limit';updateTicket();}else if(d.level.kind==='order')editOrder(d.level.item,{[d.level.field]:String(d.price)});else editBracket(d.level.item,{[d.level.field]:String(d.price)});};
-     node.querySelector('button').onpointercancel=()=>{dragging=null;};
-     node.querySelector('button').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();if(node.level.kind==='order')editOrder(node.level.item);else if(node.level.kind==='position')editBracket(node.level.item);}};
-    }
-    node.level=level;if(dragging?.node===node)continue;const y=native.coords.priceToY(level.price,pane.scale,pane.bounds);node.style.display=Number.isFinite(y)&&y>pane.bounds.top&&y<pane.bounds.top+pane.bounds.height?'':'none';node.style.top=y+'px';node.style.setProperty('--level',level.color);node.classList.toggle('draft',level.kind==='draft');node.querySelector('button').textContent=level.label+' · '+fmt(level.price);node.querySelector('button').setAttribute('aria-label',level.label+' at '+fmt(level.price)+'. Drag to modify or press Enter to edit.');
-   }
-  }
- }
- requestAnimationFrame(overlayFrame);
-}
+$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executions:'Execution markers',labels:'Execution quantities',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. One-click placement affects new paper entries; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
 
 setupPineEditor({saveSettings});
 
@@ -244,8 +210,8 @@ async function boot(){
  try{settings=await api('/api/settings');templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   ws=new VelaWorkspace('#workspace',{layout:'1',symbol:'hyperliquid:BTC',timeframe:'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider()},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
-  ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>{for(const [id,v] of overlayNodes)if(!ws.cells().some(c=>c.id===id)){v.overlay.remove();overlayNodes.delete(id);}});ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
-  await refresh();setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);overlayFrame();
+  ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
+  await refresh();setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});
   if(window.innerWidth<700){document.body.classList.add('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','false');}
  }catch(e){$('#saveStatus').textContent='Initialization failed';toast(e.message,true);}

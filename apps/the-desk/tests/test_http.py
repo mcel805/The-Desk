@@ -7,7 +7,9 @@ import unittest
 import uuid
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
-BASE='http://127.0.0.1:18881'
+QA_PORT=int(os.environ.get('QA_DESK_PORT','18881'))
+if QA_PORT==18880:raise ValueError('HTTP QA cannot target the installed Desk port.')
+BASE='http://127.0.0.1:'+str(QA_PORT)
 ROOT=Path(__file__).resolve().parents[1]
 def request(path,payload=None,headers=None,raw=None):
     data=raw if raw is not None else json.dumps(payload).encode() if payload is not None else None

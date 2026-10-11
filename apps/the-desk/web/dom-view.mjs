@@ -28,10 +28,10 @@ export function setupDOM({instrument,quote,stage,account,replay}){
     if(next!==active){active=next;book=null;trade=null;selected=null;previousMid=null;ticks=0;fallbackAt='';pinned=false;shown=[];changes.clear();lastPaint.clear();$('#domSelection').textContent='Click a price to stage a paper limit';stream.start(active,mode.value);}
     useFallback();schedule();
   }
-  function pick(side,price,sourceInstrument){
+  function pick(side,price,sourceInstrument,stop=false){
     if(sourceInstrument!==instrument()||sourceInstrument!==active)return;
-    selected={side,price};stage(side,'limit',price);
-    $('#domSelection').textContent=(side==='buy'?'Buy':'Sell')+' limit '+fmt(price)+' · review in ticket';schedule();
+    selected={side,price};stage(side,stop?'stop':'limit',price);
+    $('#domSelection').textContent=(side==='buy'?'Buy':'Sell')+(stop?' stop ':' limit ')+fmt(price)+' · review in ticket';schedule();
   }
   function makeRow(r){
     const button=document.createElement('button');button.className='dom-row '+r.kind;button.type='button';
@@ -39,7 +39,7 @@ export function setupDOM({instrument,quote,stage,account,replay}){
     button.dataset.price=r.price;button.dataset.side=r.kind==='bid'?'buy':'sell';button.dataset.instrument=active;
     let pressed=null;
     button.onpointerdown=e=>{if(e.button===0)pressed={side:button.dataset.side,price:Number(button.dataset.price),instrument:button.dataset.instrument};};
-    button.onclick=()=>{const p=pressed||{side:button.dataset.side,price:Number(button.dataset.price),instrument:button.dataset.instrument};pressed=null;pick(p.side,p.price,p.instrument);};
+    button.onclick=e=>{const p=pressed||{side:button.dataset.side,price:Number(button.dataset.price),instrument:button.dataset.instrument};pressed=null;pick(p.side,p.price,p.instrument,e.ctrlKey||e.metaKey);};
     button.onpointercancel=()=>{pressed=null;};
     return button;
   }
@@ -97,5 +97,5 @@ export function setupDOM({instrument,quote,stage,account,replay}){
   $('#domBuy').onclick=()=>stage('buy','market');$('#domSell').onclick=()=>stage('sell','market');
   setInterval(()=>{useFallback();schedule();},500);
   window.addEventListener('pagehide',()=>stream.stop());window.addEventListener('pageshow',()=>{if(active)stream.start(active,mode.value);});
-  return {sync};
+  return {sync,book:()=>book};
 }

@@ -97,3 +97,17 @@ The stream reconnects with bounded backoff, rejects crossed/invalid books and ol
 Reference APIs: [Hyperliquid subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [Coinbase channels](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels).
 
 Run `node --test tests/test_dom.mjs`. DOM tests cover cumulative grouping, crossed/invalid books, provider identity, fast/depth subscriptions, Coinbase snapshot/delta/delete semantics, out-of-order rejection and disconnect/switch cleanup.
+
+## DOM and chart trader
+
+The DOM has a **Trading ladder** view with fixed price rows, separate buy/sell cells, visible streamed bid/ask quantities and quantity-change flashes. Click to stage a limit; Command/Control-click stages a stop. Right-click a cell for market/limit/stop/stop-limit entry. Center and tick grouping reposition the ladder; ordinary book updates leave target prices fixed. Available provider depth is shown; missing levels are marked with an em dash. The original Hyperliquid-style market book remains the default.
+
+Working-order cards allow quantity/price/protection amendments, cancellation and dragging onto a ladder row. CXL buy/sell/limit/stop/all acts on reviewed orders for the selected account and instrument. Flatten cancels that instrument's working orders and closes its positions; Reverse cancels its orders and reverses net perpetual exposure. Both use atomic transactions, revision-checked snapshots and fresh server quotes for execution. Cancellation remains available when quotes are stale. Coinbase spot cannot reverse into a short.
+
+Chart trader shows exact position entries/quantities, executable-quote gross P&L, working orders, stop/target levels and actual execution markers. Drag a working order or protection label to review a price amendment; click or Enter opens editing. Position controls protect, reverse or close partially/fully; order controls cancel. Chart buy/sell buttons and the price-axis plus/context menu stage new entries. Each chart cell filters its own instrument, and account switching replaces all overlays.
+
+**Trading settings** persist line, bracket, marker, label, P&L, reverse-button and quick-button visibility plus money/tick/percent P&L units. Review-before-submission is the default. Explicitly enable one-click **PAPER** placement to submit entries using current ticket quantity and protection; closing/amending/reversing still requires review. Replay hides current trading overlays and blocks new entries and management controls while server working orders remain active.
+
+Run `python3 -m unittest discover -s tests -p 'test_*.py'` and `node --test tests/test_dom.mjs tests/test_trading_model.mjs`. The isolated HTTP suite accepts `QA_DESK_PORT` (default 18881), refuses installed port 18880, and requires `DESK_QA_HTTP=1`. Batch-command tests execute idempotency, rollback on state/revision/scope changes, stale-quote rules, quantity precision/buying power and spot inventory restrictions.
+
+These implement the core paper interactions described in [TradingView's DOM guide](https://www.tradingview.com/support/solutions/43000516459-depth-of-market-dom-what-it-is-and-how-traders-can-use-it/). This is an independent Vela-based paper trader, not the licensed TradingView brokerage terminal. Live routing, exchange queue priority, partial liquidity fills, funding, broker-specific order types and keyboard hotkey parity are not established. Public streaming depth does not replace the server's approximately three-second REST quote matching model.
