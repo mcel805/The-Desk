@@ -54,8 +54,9 @@ test('plot names cannot overwrite provider OHLCV fields',()=>{
 test('runtime rejects invalid Pine rather than accepting a conversion',async()=>{await assert.rejects(run('//@version=6\nindicator("Invalid")\nplot(does_not_exist(close))'));});
 test('nested compatibility routing is limited to the exact Cleo Liquidity source',async()=>{
  const cleo=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
- assert.ok(pineWorkerOptions(cleo).workerUrl instanceof URL);
- const renamed=cleo.replace('indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"','indicator("Unrelated study", "Unrelated study"');
+ const textareaSource=cleo.replace(/\r\n?/g,'\n');
+ assert.match(pineWorkerOptions(textareaSource).workerUrl,/pine-compatible-worker\.js$/);
+ const renamed=textareaSource.replace('indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"','indicator("Unrelated study", "Unrelated study"');
  assert.deepEqual(pineWorkerOptions(renamed),{});
  const similar='//@version=6\nindicator("Unrelated study")\nf_confirmedMaster() => close\nf_marketSource(int tfId, bool confirmed) => close';
  assert.deepEqual(pineWorkerOptions(similar),{});
