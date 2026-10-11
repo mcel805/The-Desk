@@ -40,11 +40,15 @@ class Engine:
             CREATE TABLE IF NOT EXISTS outbox(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_attempt REAL NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',journal_account TEXT);
             CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY,hash TEXT NOT NULL,result TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS alerts(id TEXT PRIMARY KEY,instrument TEXT NOT NULL,condition TEXT NOT NULL,price TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS alerts(id TEXT PRIMARY KEY,account_id TEXT NOT NULL REFERENCES accounts(id),instrument TEXT NOT NULL,condition TEXT NOT NULL,price TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS orders_working ON orders(status,instrument);
             CREATE INDEX IF NOT EXISTS positions_open ON positions(status,account_id,instrument);
             ''')
+            if 'account_id' not in {row['name'] for row in db.execute('PRAGMA table_info(alerts)')}:
+                db.execute('ALTER TABLE alerts ADD COLUMN account_id TEXT REFERENCES accounts(id)')
+                db.execute("UPDATE alerts SET account_id=(SELECT id FROM accounts ORDER BY created_at,id LIMIT 1) WHERE account_id IS NULL")
+            db.execute('CREATE INDEX IF NOT EXISTS alerts_account ON alerts(account_id,instrument,status)')
 
     @contextmanager
     def db(self):
@@ -257,13 +261,16 @@ class Engine:
         return {'updated':row['id']}
 
     def create_alert(self,db,p):
+        self.account(db,p.get('account_id'))
         instrument=self.instrument(p.get('instrument'));price=dec(p.get('price'),True);condition=p.get('condition')
         if condition not in ('above','below'):raise ValueError('Choose above or below.')
-        aid=uid('alert');db.execute('INSERT INTO alerts VALUES(?,?,?,?,?,?)',(aid,instrument,condition,str(price),'active',stamp()))
+        aid=uid('alert');db.execute('INSERT INTO alerts(id,account_id,instrument,condition,price,status,created_at) VALUES(?,?,?,?,?,?,?)',(aid,p['account_id'],instrument,condition,str(price),'active',stamp()))
         return {'id':aid}
 
     def delete_alert(self,db,p):
-        db.execute('DELETE FROM alerts WHERE id=?',(p.get('id'),));return {'deleted':p.get('id')}
+        self.account(db,p.get('account_id'))
+        if not db.execute('SELECT 1 FROM alerts WHERE id=? AND account_id=?',(p.get('id'),p.get('account_id'))).fetchone():raise ValueError('Alert not found for selected account.')
+        db.execute('DELETE FROM alerts WHERE id=? AND account_id=?',(p.get('id'),p.get('account_id')));return {'deleted':p.get('id')}
 
     def expire(self,now=None):
         with self.lock, self.db() as db:
@@ -312,11 +319,11 @@ class Engine:
                     loss=p['stop'] and (px<=dec(p['stop']) if p['side']=='buy' else px>=dec(p['stop']))
                     profit=p['target'] and (px>=dec(p['target']) if p['side']=='buy' else px<=dec(p['target']))
                     if loss or profit:self.exit_position(db,p,dec(p['qty']),px,'stop loss' if loss else 'take profit')
-                for a in db.execute("SELECT * FROM alerts WHERE instrument=? AND status='active'",(instrument,)).fetchall():
+                for a in db.execute("SELECT * FROM alerts WHERE instrument=? AND status='active' AND account_id IS NOT NULL",(instrument,)).fetchall():
                     mid=(bid+ask)/2;hit=mid>=dec(a['price']) if a['condition']=='above' else mid<=dec(a['price'])
                     if hit:
                         db.execute("UPDATE alerts SET status='triggered' WHERE id=?",(a['id'],))
-                        self.event(db,'alert',{'message':instrument+' '+a['condition']+' '+a['price'],'alert_id':a['id']})
+                        self.event(db,'alert',{'account_id':a['account_id'],'message':instrument+' '+a['condition']+' '+a['price'],'alert_id':a['id']})
 
     def state(self,account_id=None):
         with self.lock, self.db() as db:
@@ -327,7 +334,7 @@ class Engine:
             status={'pending':db.execute("SELECT COUNT(*) FROM outbox WHERE status='pending'").fetchone()[0],'delivered':db.execute("SELECT COUNT(*) FROM outbox WHERE status='delivered'").fetchone()[0]}
             status['last_error']=next((r['error'] for r in db.execute("SELECT error FROM outbox WHERE status='pending' AND error<>'' ORDER BY sequence DESC LIMIT 1")),None)
             journal_account=next((r['journal_account'] for r in db.execute('SELECT journal_account FROM outbox WHERE journal_account IS NOT NULL AND json_extract(payload,\'$.account.id\')=? ORDER BY sequence DESC LIMIT 1',(aid,))),None)
-            return {'accounts':accounts,'active_account':aid,'orders':[dict(r) for r in db.execute('SELECT * FROM orders WHERE account_id=? ORDER BY created_at DESC LIMIT 100',(aid,))], 'positions':[dict(r) for r in db.execute("SELECT * FROM positions WHERE account_id=? AND status='open' ORDER BY opened_at DESC",(aid,))], 'fills':[dict(r) for r in db.execute('SELECT * FROM fills WHERE account_id=? ORDER BY executed_at DESC LIMIT 100',(aid,))], 'quotes':{k:{**v,'age':time.time()-v['received_at']} for k,v in self.quotes.items()}, 'alerts':[dict(r) for r in db.execute('SELECT * FROM alerts ORDER BY created_at DESC')], 'events':[dict(r) for r in db.execute('SELECT * FROM events WHERE json_extract(content,\'$.account_id\')=? OR kind=\'alert\' ORDER BY id DESC LIMIT 60',(aid,))], 'journal':{**status,'account_id':journal_account},'mode':'PAPER · SIMULATED','matching_model':'Server bid/ask · full quantity modeled, no queue or partial-fill claims','cost_model':'Configured commission + observed spread; slippage/funding not modeled'}
+            return {'accounts':accounts,'active_account':aid,'orders':[dict(r) for r in db.execute('SELECT * FROM orders WHERE account_id=? ORDER BY created_at DESC LIMIT 100',(aid,))], 'positions':[dict(r) for r in db.execute("SELECT * FROM positions WHERE account_id=? AND status='open' ORDER BY opened_at DESC",(aid,))], 'fills':[dict(r) for r in db.execute('SELECT * FROM fills WHERE account_id=? ORDER BY executed_at DESC LIMIT 100',(aid,))], 'quotes':{k:{**v,'age':time.time()-v['received_at']} for k,v in self.quotes.items()}, 'alerts':[dict(r) for r in db.execute('SELECT * FROM alerts WHERE account_id=? ORDER BY created_at DESC',(aid,))], 'events':[dict(r) for r in db.execute('SELECT * FROM events WHERE json_extract(content,\'$.account_id\')=? ORDER BY id DESC LIMIT 60',(aid,))], 'journal':{**status,'account_id':journal_account},'mode':'PAPER · SIMULATED','matching_model':'Server bid/ask · full quantity modeled, no queue or partial-fill claims','cost_model':'Configured commission + observed spread; slippage/funding not modeled'}
 
     def export(self,account_id):
         with self.lock, self.db() as db:

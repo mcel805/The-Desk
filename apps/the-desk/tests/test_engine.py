@@ -76,8 +76,15 @@ class PaperTests(unittest.TestCase):
         self.order(kind='limit',price='95');self.e=Engine(self.path);self.quote(89,90)
         self.assertEqual(self.state()['orders'][0]['status'],'filled');self.assertEqual(len(self.state()['fills']),1)
     def test_alert_is_durable_and_one_shot(self):
-        self.e.execute('alert','alert',{'instrument':self.i,'condition':'above','price':'105'});self.e=Engine(self.path);self.quote(106,107);self.quote(108,109)
+        self.e.execute('alert','alert',{'account_id':self.a,'instrument':self.i,'condition':'above','price':'105'});self.e=Engine(self.path);self.quote(106,107);self.quote(108,109)
         self.assertEqual(self.state()['alerts'][0]['status'],'triggered');self.assertEqual(sum(e['kind']=='alert' for e in self.state()['events']),1)
+
+    def test_alerts_are_account_scoped(self):
+        b=self.e.execute('account-b','account',{'name':'Other','capital':'1000'})['id']
+        alert=self.e.execute('alert-scoped','alert',{'account_id':self.a,'instrument':self.i,'condition':'above','price':'105'})
+        self.assertEqual(len(self.e.state(self.a)['alerts']),1);self.assertFalse(self.e.state(b)['alerts'])
+        with self.assertRaisesRegex(ValueError,'not found'):self.e.execute('delete-wrong','alert_delete',{'account_id':b,'id':alert['id']})
+        self.assertEqual(len(self.e.state(self.a)['alerts']),1)
     def test_gap_bracket_rejection_atomic(self):
         self.order(kind='limit',price='99',stop='95',target='110');self.quote(89,90)
         self.assertEqual(self.state()['orders'][0]['status'],'rejected');self.assertFalse(self.state()['fills']);self.assertFalse(self.state()['positions'])

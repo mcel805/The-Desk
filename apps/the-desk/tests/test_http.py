@@ -61,7 +61,7 @@ class HttpTests(unittest.TestCase):
         try:
             request('/api/settings',{'pineLibrary':[script]})
             self.assertEqual(request('/api/settings')['pineLibrary'],[script])
-            for invalid in [[script]*7,{},[{'name':'missing source'}],[dict(script,source='x'*250001)]]:
+            for invalid in [[script]*7,{},[{'name':'missing source'}],[dict(script,source='x'*250001)],[dict(script,source='//@version=6\nstrategy("No")')],[dict(script,source='//@version=6\nindicator("No")\nimport user/lib/1 as lib')]]:
                 with self.subTest(invalid_type=type(invalid).__name__):
                     with self.assertRaises(HTTPError) as error:request('/api/settings',{'pineLibrary':invalid})
                     self.assertEqual(error.exception.code,400)

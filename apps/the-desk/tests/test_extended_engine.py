@@ -69,9 +69,9 @@ class ExtendedPaperTests(unittest.TestCase):
         p=self.state()['positions'][0];self.e.execute('close','close',{'account_id':self.a,'id':p['id'],'revision':1})
         self.q(111,112,i);self.assertEqual(self.state()['orders'][0]['status'],'rejected');self.assertEqual(len(self.state()['fills']),2)
     def test_below_alert_delete_and_boundary_once(self):
-        a=self.e.execute('alert','alert',{'instrument':self.i,'condition':'below','price':'95'})
+        a=self.e.execute('alert','alert',{'account_id':self.a,'instrument':self.i,'condition':'below','price':'95'})
         self.q(94,96);self.q(93,95);self.assertEqual(sum(x['kind']=='alert' for x in self.state()['events']),1)
-        self.e.execute('delete','alert_delete',{'id':a['id']});self.assertFalse(self.state()['alerts'])
+        self.e.execute('delete','alert_delete',{'account_id':self.a,'id':a['id']});self.assertFalse(self.state()['alerts'])
     def test_invalid_values_roll_back(self):
         for n,fields in enumerate([{'qty':'NaN'},{'qty':'-1'},{'side':'oops'},{'kind':'oops'},{'instrument':'coinbase:X'},{'ttl_seconds':23},{'stop':'110'},{'target':'90'}]):
             with self.subTest(fields=fields):

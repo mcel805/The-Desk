@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sqlite3
 import threading
 import time
@@ -16,6 +17,12 @@ from urllib.error import HTTPError
 from engine import Engine, dec
 
 ROOT=Path(__file__).resolve().parent
+
+def validate_pine_source(source):
+    if not isinstance(source,str):raise ValueError('Invalid Pine indicator source')
+    code=re.sub(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*[\s\S]*?\*/',lambda m:''.join('\n' if c=='\n' else ' ' for c in m.group()),source)
+    if re.search(r'^\s*(?:strategy|library)\s*\(',code,re.M):raise ValueError('Strategies and library scripts are not supported here')
+    if re.search(r'^\s*import\s',code,re.M):raise ValueError('Imported Pine libraries are not supported here')
 
 def http_json(url,payload=None,headers=None,timeout=8):
     req=Request(url,data=json.dumps(payload).encode() if payload is not None else None,headers={'User-Agent':'TheDesk/0.1 (local paper terminal)','Content-Type':'application/json',**(headers or {})})
@@ -171,6 +178,7 @@ def main():
                         if not isinstance(items,list) or len(items)>6:raise ValueError('Pine library accepts at most six indicators')
                         for item in items:
                             if not isinstance(item,dict) or not isinstance(item.get('name'),str) or not isinstance(item.get('source'),str) or len(item['source'].encode())>250000:raise ValueError('Invalid Pine indicator source')
+                            validate_pine_source(item['source'])
                     with engine.db() as db:
                         for k,v in p.items():db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(k,json.dumps(v)))
                     return self.json({'saved':True})
