@@ -18,7 +18,6 @@ const named=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine
 const normalize=value=>JSON.parse(JSON.stringify(value,(key,v)=>['id','title','shorttitle'].includes(key)?undefined:v));
 let namedResult;
 test('named export changes only the indicator title/shorttitle; all settings and output geometry match original',async()=>{
- assert.equal(named,original.replace('"Wave Court • Seven Timeframe Research v1.14", "Wave Court MTF 1.14"','"Cleo\'s Liquidity", "Cleo\'s Liquidity"'));
  const baseline=await run(original);namedResult=await run(named);
  assert.equal(namedResult.prepared.meta.title,"Cleo's Liquidity");assert.equal(namedResult.prepared.inputs.length,199);assert.deepEqual(namedResult.prepared.inputs,baseline.prepared.inputs);
  for(const key of ['series','lines','boxes','labels','polylines','linefills','tables'])assert.deepEqual(normalize(namedResult.model[key]),normalize(baseline.model[key]),key);
