@@ -49,5 +49,4 @@ test('manual anchors create original candidate and Fibonacci geometry',async()=>
 });
 test('1M chart executes the canonical master directly and retains source timeframe colors and tiny merged tags',async()=>{
  const result=await run(named,{tf:'1'});assert.ok(result.model.lines.length>0);assert.ok(result.model.labels.length>0);const labels=result.model.labels.filter(l=>/^(D|240|60|30|15|5|1)(\/(D|240|60|30|15|5|1))*$/.test(String(l.text)));assert.ok(labels.length>0,'liquidity timeframe tags must render');
- await fs.writeFile(new URL('../qa-cleos-liquidity-model.json',import.meta.url),JSON.stringify({counts:drawingCounts(result.model),milliseconds:result.milliseconds,model:result.model,context:result.context},null,2));
 });
