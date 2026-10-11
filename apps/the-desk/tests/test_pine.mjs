@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {pineState,restorePineState} from '../web/pine-state.mjs';
-import {DeskPineEngine} from '../web/pine-runtime.mjs';
+import {DeskPineEngine,pineWorkerOptions} from '../web/pine-runtime.mjs';
 import {checkPineSource,validationSource,plotRows,rowsToCsv,parseCsv,compareReference,sourceHash,drawingCounts,timeframeDuration} from '../web/pine-validation.mjs';
 const hour=3600000,day=24*hour,week=7*day;
 const bars=Array.from({length:1000},(_,i)=>{const base=100+Math.sin(i*.15)*8+i*.01;return {time:Date.UTC(2026,7,3)+i*hour,open:base,high:base+2,low:base-2,close:base+Math.sin(i),volume:1000+i%40};});
@@ -52,6 +52,14 @@ test('plot names cannot overwrite provider OHLCV fields',()=>{
  assert.equal(rows[0].open,bars[0].open);assert.equal(rows[0]['Plot: open'],999);
 });
 test('runtime rejects invalid Pine rather than accepting a conversion',async()=>{await assert.rejects(run('//@version=6\nindicator("Invalid")\nplot(does_not_exist(close))'));});
+test('nested compatibility routing is limited to the exact Cleo Liquidity source',async()=>{
+ const cleo=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
+ assert.ok(pineWorkerOptions(cleo).workerUrl instanceof URL);
+ const renamed=cleo.replace('indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"','indicator("Unrelated study", "Unrelated study"');
+ assert.deepEqual(pineWorkerOptions(renamed),{});
+ const similar='//@version=6\nindicator("Unrelated study")\nf_confirmedMaster() => close\nf_marketSource(int tfId, bool confirmed) => close';
+ assert.deepEqual(pineWorkerOptions(similar),{});
+});
 const rows=bars.slice(0,4).map((b,i)=>({...b,Result:i?i*1.5:null}));
 test('CSV compares shared completed outputs and fails changed OHLC, missing columns and no overlap',()=>{
  assert.equal(compareReference(rows,rowsToCsv(rows)).matched,true);assert.equal(parseCsv(rowsToCsv([{time:1,label:'a,"b"\nc'}]))[0].label,'a,"b"\nc');

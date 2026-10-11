@@ -1,10 +1,16 @@
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 import {checkPineSource,drawingCounts} from './pine-validation.mjs';
 
+const CLEO_SOURCE_SIGNATURE='38a6712d';
+const CLEO_INDICATOR_DECL='indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"';
+const sourceSignature=source=>{let hash=2166136261;for(const character of source){hash^=character.codePointAt(0);hash=Math.imul(hash,16777619);}return (hash>>>0).toString(16).padStart(8,'0');};
+const isCleoLiquiditySource=source=>typeof source==='string'&&source.includes(CLEO_INDICATOR_DECL)&&sourceSignature(source)===CLEO_SOURCE_SIGNATURE;
+export const pineWorkerOptions=source=>isCleoLiquiditySource(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
+
 // Each study owns a worker. Cancelling a test cannot stop installed studies.
 export class DeskPineEngine {
  language='pine';capabilities={streaming:true,visibleRange:true,inputs:true,props:true};
- constructor({factory=source=>new PineWorkerEngine(/f_confirmedMaster\s*\(/.test(source)&&/f_marketSource\s*\(/.test(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{}),compileTimeout=15000,executionTimeout=30000}={}){this.factory=factory;this.compileTimeout=compileTimeout;this.executionTimeout=executionTimeout;this.records=new Map();this.active=new Map();this.workers=new Map();}
+ constructor({factory=source=>new PineWorkerEngine(pineWorkerOptions(source)),compileTimeout=15000,executionTimeout=30000}={}){this.factory=factory;this.compileTimeout=compileTimeout;this.executionTimeout=executionTimeout;this.records=new Map();this.active=new Map();this.workers=new Map();}
  async prepare(source,id){
   checkPineSource(source);const worker=this.factory(source);let timer,rejectPending;
   const entry={worker,cancel:()=>rejectPending?.(Error('Pine test cancelled.'))};this.workers.set(id,entry);
