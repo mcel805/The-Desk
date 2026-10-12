@@ -116,7 +116,7 @@ These implement the core paper interactions described in [TradingView's DOM guid
 
 ## Chart limit-order brackets
 
-Right-click the chart and choose **Buy limit** or **Sell limit** to stage an entry with editable stop-loss and take-profit lines. Buy entries are blue, sells red, stops amber and targets teal. Each line has an exact price-axis badge; protection labels show quantity and signed tick distance from the entry. These context-menu actions always stage a draft for review, including when one-click placement is enabled for other shortcuts.
+Right-click the chart and choose **Buy limit** or **Sell limit** to stage an entry with editable stop-loss and take-profit lines. Limit entries are cyan, stops red and targets teal. Labels read Entry, Stop Loss and Take Profit; protection labels include only the signed tick distance from entry. Each line keeps its exact price-axis badge. These context-menu actions always stage a draft for review, including when one-click placement is enabled for other shortcuts.
 
 Starter protection offsets come from the chart's visible price scale (with tick-aligned fallback spacing). They are editable UI defaults, not recommended trading or risk levels. Valid existing ticket protection is retained. Dragging the draft entry moves its attached stop and target by the same price difference; dragging either protection changes only that leg and keeps it on the correct side of entry. The ticket receives the final prices on release. Remove a draft protection with its × control, or discard the whole bracket with the entry ×, Discard projection or Escape.
 

@@ -26,15 +26,15 @@ test('protection dragging cannot cross the entry and snaps to the instrument tic
  assert.deepEqual(moveDraftBracket({entry:100,side:'buy'},'stop',95.24,.5),{stop:95});
  assert.deepEqual(moveDraftBracket({entry:100,side:'buy'},'target',NaN,.5),{});
 });
-test('draft and working orders share side colors, tick labels and lifecycle filtering',()=>{
+test('draft and working orders use compact labels, cyan entries, red stops and lifecycle filtering',()=>{
  const item={id:'o',instrument:'hyperliquid:BTC',status:'working',kind:'limit',entry:100,price:100,qty:2,side:'sell',stop:105,target:90};
  const q={tick:.5},levels=draftTradingLevels(item,q,()=>{},()=>{});
- assert.equal(levels.length,3);assert.equal(levels[0].color,tradeColors.sell);
- assert.match(levels[1].label,/Stop loss · −10 ticks/);assert.match(levels[2].label,/Take profit · \+20 ticks/);
+ assert.equal(levels.length,3);assert.equal(levels[0].color,tradeColors.entry);
+ assert.equal(levels[0].label,'Entry');assert.equal(levels[1].label,'Stop Loss · −10 ticks');assert.equal(levels[2].label,'Take Profit · +20 ticks');assert.equal(levels[1].color,'#f23645');assert.equal(levels[2].color,'#089981');
  const state={orders:[item,{...item,id:'done',status:'filled'},{...item,id:'other',instrument:'coinbase:BTC-USD'}],positions:[],quotes:{[item.instrument]:q}};
  assert.equal(tradingLevels(state,item.instrument,tradingConfig()).length,3);
- assert.equal(tradingLevels(state,item.instrument,tradingConfig())[0].color,tradeColors.sell);
+ assert.equal(tradingLevels(state,item.instrument,tradingConfig())[0].color,tradeColors.entry);
  assert.equal(tradingLevels(state,item.instrument,tradingConfig({brackets:false})).length,1);
- assert.equal(draftTradingLevels({...item,side:'buy'},q,()=>{},()=>{})[0].color,tradeColors.buy);
- assert.equal(bracketLabel({...item,entry:undefined,price:null,trigger:100,kind:'stop'},'trigger',q),'2 · Sell stop');
+ assert.equal(draftTradingLevels({...item,side:'buy'},q,()=>{},()=>{})[0].color,tradeColors.entry);
+ assert.equal(bracketLabel({...item,entry:undefined,price:null,trigger:100,kind:'stop'},'trigger',q),'Entry');
 });

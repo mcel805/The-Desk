@@ -47,8 +47,8 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
       const live=new Set(levels.map(l=>l.key));if(drag?.cellId===cell.id&&!live.has(drag.level.key))drag=null;for(const [key,node] of nodes)if(!live.has(key)){node.remove();nodes.delete(key);}
       const occupied=[],preview=drag?.level.kind==='draft'?moveDraftBracket(drag.level.item,drag.level.field,drag.price,Number(quote?.tick||.01)):null;
       for(let level of levels){const dragging=drag?.level.key===level.key;
-        if(level.kind==='draft'&&preview&&preview[level.field]!=null){const item={...level.item,...preview};level={...level,price:preview[level.field],label:bracketLabel(item,level.field,quote)+' · DRAFT'};}
-        else if(dragging){const item={...level.item,[level.field]:drag.price};level={...level,price:drag.price,label:bracketLabel(item,level.field,quote)+' · Release to review'};}
+        if(level.kind==='draft'&&preview&&preview[level.field]!=null){const item={...level.item,...preview};level={...level,price:preview[level.field],label:bracketLabel(item,level.field,quote)};}
+        else if(dragging){const item={...level.item,[level.field]:drag.price};level={...level,price:drag.price,label:bracketLabel(item,level.field,quote)};}
         let node=nodes.get(level.key);if(!node){node=createLine(level,wrap,cell,pane);nodes.set(level.key,node);}node.level=level;node.dataset.price=level.price;node.dataset.kind=level.kind;node.dataset.field=level.field;node.dataset.itemId=level.item?.id||'';
         const y=native.coords.priceToY(level.price,pane.scale,pane.bounds);node.style.display=Number.isFinite(y)&&y>pane.bounds.top&&y<pane.bounds.top+pane.bounds.height?'':'none';node.style.top=y+'px';node.style.right=Math.max(0,overlay.clientWidth-native.coords.width)+'px';node.style.left='0px';node.style.setProperty('--level',level.color);node.classList.toggle('draft',level.kind==='draft');
         node.classList.toggle('protection',['stop','target'].includes(level.field));node.classList.toggle('dragging',dragging);
@@ -56,7 +56,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
         let labelY=Math.max(pane.bounds.top+13,Math.min(y,pane.bounds.top+pane.bounds.height-13));
         for(let i=0;i<levels.length*2;i++){const candidate=labelY+(i%2?1:-1)*Math.ceil(i/2)*26;if(candidate>=pane.bounds.top+13&&candidate<=pane.bounds.top+pane.bounds.height-13&&!occupied.some(v=>Math.abs(v-candidate)<25)){labelY=candidate;break;}}
         occupied.push(labelY);node.querySelector('.trade-line-controls').style.transform='translateY('+(labelY-y)+'px)';
-        const label=node.querySelector('.trade-line-label');label.textContent=level.label;label.setAttribute('aria-label',level.label+' at '+level.price+'. Drag or press Enter to edit.');
+        const label=node.querySelector('.trade-line-label');label.textContent=level.label;label.title=(level.kind==='draft'?'Draft':'Paper')+' · '+level.item.side+' '+level.item.qty+(dragging?' · Release to '+(level.kind==='draft'?'update ticket':'review amendment'):'');label.setAttribute('aria-label',level.label+' at '+level.price+'. Drag or press Enter to edit.');
         const reverse=node.querySelector('[data-action=reverse]');if(reverse){reverse.hidden=!c.reverse;reverse.disabled=market.startsWith('coinbase:');reverse.title=market.startsWith('coinbase:')?'Spot reversal would create an unsupported short':'Reverse paper position';}
       }
       const executions=!replay&&c.executions?s.fills.filter(f=>f.instrument===market).slice(0,100):[],ids=new Set(executions.map(f=>f.id));for(const [id,n] of wrap.fills)if(!ids.has(id)){n.remove();wrap.fills.delete(id);}

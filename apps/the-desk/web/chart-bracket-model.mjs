@@ -1,4 +1,4 @@
-export const tradeColors=Object.freeze({buy:'#2962ff',sell:'#f23645',stop:'#e3b75d',target:'#089981'});
+export const tradeColors=Object.freeze({entry:'#00bcd4',buy:'#2962ff',sell:'#f23645',stop:'#f23645',target:'#089981'});
 const positive=value=>Number.isFinite(Number(value))&&Number(value)>0;
 export function snapPrice(value,tick){return Number((Math.round(Number(value)/tick)*tick).toPrecision(12));}
 
@@ -34,16 +34,16 @@ export function moveDraftBracket(item,field,value,tick){
 }
 
 export function bracketLabel(item,field,{tick}={}){
-  const qty=Number(item.qty).toLocaleString('en-US',{maximumFractionDigits:8}),entry=Number(item.entry??item.price??item.trigger);
+  const entry=Number(item.entry??item.price??item.trigger);
   if(field==='stop'||field==='target'){
     const distance=(Number(item[field])-entry)*(item.side==='buy'?1:-1);
     const ticks=positive(tick)?' · '+(distance<0?'−':'+')+Math.abs(distance/Number(tick)).toLocaleString('en-US',{maximumFractionDigits:2})+' ticks':'';
-    return qty+' · '+(field==='stop'?'Stop loss':'Take profit')+ticks;
+    return (field==='stop'?'Stop Loss':'Take Profit')+ticks;
   }
-  return qty+' · '+(item.side==='buy'?'Buy':'Sell')+' '+({limit:'limit',market:'market',stop:'stop',stop_limit:field==='trigger'?'stop trigger':'stop limit'}[item.kind]||'limit');
+  return 'Entry';
 }
 
 export function draftTradingLevels(item,quote,amend,remove){
-  const fields=[['entry',tradeColors[item.side]],['trigger',tradeColors.stop],['stop',tradeColors.stop],['target',tradeColors.target]];
-  return fields.filter(([f])=>positive(item[f])&&(f!=='trigger'||item.kind==='stop_limit')).map(([field,color])=>({key:'draft'+field,field,price:Number(item[field]),label:bracketLabel(item,field,quote)+' · DRAFT',color,kind:'draft',item,amend:value=>amend(field,value),remove:()=>remove(field)}));
+  const fields=[['entry',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]];
+  return fields.filter(([f])=>positive(item[f])&&(f!=='trigger'||item.kind==='stop_limit')).map(([field,color])=>({key:'draft'+field,field,price:Number(item[field]),label:bracketLabel(item,field,quote),color,kind:'draft',item,amend:value=>amend(field,value),remove:()=>remove(field)}));
 }

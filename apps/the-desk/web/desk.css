@@ -11,7 +11,7 @@
 .trade-line .trade-line-controls button+button{border-left:1px solid var(--level);cursor:pointer;flex:none}
 .trade-line-controls button:hover{background:color-mix(in srgb,var(--level) 15%,transparent)}
 .trade-price-badge{position:absolute;left:100%;top:-10px;height:20px;display:flex;align-items:center;justify-content:center;background:var(--level);color:#fff;font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
-.trade-line.protection[data-field=stop] .trade-price-badge{color:#131722}
+.trade-line[data-kind=order]:not(.protection) .trade-price-badge,.trade-line.draft:not(.protection) .trade-price-badge{color:#131722}
 .trade-line.dragging{z-index:3}
 .trade-line.dragging .trade-line-controls{box-shadow:0 0 0 2px color-mix(in srgb,var(--level) 25%,transparent)}
 
