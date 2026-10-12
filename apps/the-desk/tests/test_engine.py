@@ -112,6 +112,34 @@ class PaperTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):self.order()
         self.e.queue=original
         self.assertFalse(self.state()['orders']);self.assertFalse(self.state()['fills']);self.assertEqual(self.state()['accounts'][0]['balance'],'10000')
+
+    def test_reset_generation_survives_restart_and_new_fills(self):
+        self.order()
+        self.e.execute('reset-journal','account_reset',{'account_id':self.a,'reset_journal':True})
+        with self.e.db() as db:
+            reset=json.loads(db.execute("SELECT payload FROM outbox WHERE event_id LIKE 'journal-reset-%'").fetchone()[0])
+        self.assertEqual(reset['account']['resetGeneration'],1)
+        self.e=Engine(self.path);self.quote(100,101)
+        self.order('after-reset')
+        with self.e.db() as db:
+            fill=json.loads(db.execute("SELECT payload FROM outbox WHERE event_id=?",(self.e.state(self.a)['fills'][0]['id'],)).fetchone()[0])
+        self.assertEqual(fill['account']['resetGeneration'],1)
+
+    def test_legacy_pending_reset_outbox_is_migrated_to_ordered_generation(self):
+        account={'id':self.a,'name':'Test A · The Desk PAPER','currency':'USD','initialBalance':10000}
+        with self.e.db() as db:
+            db.execute('UPDATE accounts SET journal_generation=0 WHERE id=?',(self.a,))
+            db.execute('DELETE FROM outbox')
+            db.execute('INSERT INTO outbox(event_id,payload) VALUES(?,?)',('legacy-fill',json.dumps({
+                'eventId':'legacy-fill','eventType':'execution','account':account})))
+            db.execute('INSERT INTO outbox(event_id,payload) VALUES(?,?)',('legacy-reset',json.dumps({
+                'eventId':'legacy-reset','eventType':'reset','account':account})))
+        self.e=Engine(self.path)
+        with self.e.db() as db:
+            rows=[json.loads(row['payload']) for row in db.execute('SELECT payload FROM outbox ORDER BY sequence')]
+        self.assertEqual(rows[0]['account']['resetGeneration'],0)
+        self.assertEqual(rows[1]['account']['resetGeneration'],1)
+        self.assertEqual(self.e.state(self.a)['accounts'][0]['journal_generation'],1)
     def test_expiry_without_market_feed(self):
         o=self.order(kind='limit',price='95',ttl_seconds=60)
         self.e=Engine(self.path)

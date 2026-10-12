@@ -32,7 +32,7 @@ class Engine:
         with self.db() as db:
             db.executescript('''
             PRAGMA journal_mode=WAL;
-            CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,name TEXT NOT NULL,capital TEXT NOT NULL,fee_bps TEXT NOT NULL,leverage TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,name TEXT NOT NULL,capital TEXT NOT NULL,fee_bps TEXT NOT NULL,leverage TEXT NOT NULL,created_at TEXT NOT NULL,journal_generation INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,account_id TEXT NOT NULL REFERENCES accounts(id),instrument TEXT NOT NULL,side TEXT NOT NULL,kind TEXT NOT NULL,qty TEXT NOT NULL,price TEXT,trigger TEXT,stop TEXT,target TEXT,status TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,created_at REAL NOT NULL,updated_at TEXT NOT NULL,triggered_at REAL,filled_price TEXT,position_id TEXT,expires_at REAL);
             CREATE TABLE IF NOT EXISTS positions(id TEXT PRIMARY KEY,account_id TEXT NOT NULL REFERENCES accounts(id),instrument TEXT NOT NULL,side TEXT NOT NULL,qty TEXT NOT NULL,entry TEXT NOT NULL,stop TEXT,target TEXT,status TEXT NOT NULL,opened_at TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS fills(id TEXT PRIMARY KEY,order_id TEXT,account_id TEXT NOT NULL REFERENCES accounts(id),position_id TEXT,instrument TEXT NOT NULL,side TEXT NOT NULL,qty TEXT NOT NULL,price TEXT NOT NULL,fee TEXT NOT NULL,realized TEXT NOT NULL,reason TEXT NOT NULL,executed_at TEXT NOT NULL);
@@ -47,6 +47,9 @@ class Engine:
             ''')
             if 'account_id' not in {row['name'] for row in db.execute('PRAGMA table_info(alerts)')}:
                 db.execute('ALTER TABLE alerts ADD COLUMN account_id TEXT REFERENCES accounts(id)')
+            if 'journal_generation' not in {row['name'] for row in db.execute('PRAGMA table_info(accounts)')}:
+                db.execute('ALTER TABLE accounts ADD COLUMN journal_generation INTEGER NOT NULL DEFAULT 0')
+            self.migrate_journal_generations(db)
             db.execute('CREATE INDEX IF NOT EXISTS alerts_account ON alerts(account_id,instrument,status)')
 
     @contextmanager
@@ -61,11 +64,31 @@ class Engine:
     def event(self,db,kind,content):
         db.execute('INSERT INTO events(kind,content,created_at) VALUES(?,?,?)',(kind,json.dumps(content),stamp()))
 
+    def migrate_journal_generations(self,db):
+        accounts={row['id']: row for row in db.execute('SELECT id,journal_generation FROM accounts')}
+        for account_id, account in accounts.items():
+            generation=int(account['journal_generation'] or 0)
+            rows=db.execute("SELECT sequence,payload FROM outbox WHERE json_extract(payload,'$.account.id')=? ORDER BY sequence",(account_id,)).fetchall()
+            for row in rows:
+                payload=json.loads(row['payload'])
+                account_payload=payload.setdefault('account',{})
+                event_generation=account_payload.get('resetGeneration')
+                if isinstance(event_generation,int) and event_generation >= 0:
+                    generation=max(generation,event_generation)
+                elif payload.get('eventType') == 'reset':
+                    generation+=1
+                    account_payload['resetGeneration']=generation
+                else:
+                    account_payload['resetGeneration']=generation
+                db.execute('UPDATE outbox SET payload=? WHERE sequence=?',(json.dumps(payload),row['sequence']))
+            db.execute('UPDATE accounts SET journal_generation=? WHERE id=?',(generation,account_id))
+
     def queue(self,db,event_id,payload):
         db.execute('INSERT OR IGNORE INTO outbox(event_id,payload) VALUES(?,?)',(event_id,json.dumps(payload)))
 
     def account_payload(self,a):
-        return {'id':a['id'],'name':a['name']+' · The Desk PAPER','currency':'USD','initialBalance':float(dec(a['capital']))}
+        return {'id':a['id'],'name':a['name']+' · The Desk PAPER','currency':'USD','initialBalance':float(dec(a['capital'])),
+                'resetGeneration':int(a['journal_generation'] or 0)}
 
     def instrument(self, value):
         if value not in ('coinbase:BTC-USD','coinbase:ETH-USD','coinbase:SOL-USD','hyperliquid:BTC','hyperliquid:ETH','hyperliquid:SOL'):
@@ -118,14 +141,16 @@ class Engine:
         if not name or len(name)>80: raise ValueError('Account name must contain 1–80 characters.')
         capital=dec(p.get('capital'),True);fee=dec(p.get('fee_bps',5));lev=dec(p.get('leverage',1),True)
         if capital>Decimal('1000000000') or not 0<=fee<=1000 or not 1<=lev<=20: raise ValueError('Capital, fees or paper leverage are outside supported limits.')
-        a={'id':uid('desk-paper'),'name':name,'capital':str(capital),'fee_bps':str(fee),'leverage':str(lev),'created_at':stamp()}
-        db.execute('INSERT INTO accounts VALUES(:id,:name,:capital,:fee_bps,:leverage,:created_at)',a)
+        a={'id':uid('desk-paper'),'name':name,'capital':str(capital),'fee_bps':str(fee),'leverage':str(lev),'created_at':stamp(),'journal_generation':0}
+        db.execute('INSERT INTO accounts(id,name,capital,fee_bps,leverage,created_at,journal_generation) VALUES(:id,:name,:capital,:fee_bps,:leverage,:created_at,0)',a)
         self.queue(db,a['id']+':account',{'eventId':a['id']+':account','eventType':'account','account':self.account_payload(a)})
         self.event(db,'account',{'account_id':a['id'],'message':'Paper account created: '+name})
         return a
 
     def reset_journal(self,db,a):
         db.execute("DELETE FROM outbox WHERE status='pending' AND json_extract(payload,'$.account.id')=?",(a['id'],))
+        db.execute('UPDATE accounts SET journal_generation=journal_generation+1 WHERE id=?',(a['id'],))
+        a=db.execute('SELECT * FROM accounts WHERE id=?',(a['id'],)).fetchone()
         event_id=uid('journal-reset')
         self.queue(db,event_id,{'eventId':event_id,'eventType':'reset','account':self.account_payload(a)})
 

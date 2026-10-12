@@ -33,6 +33,32 @@ afterAll(() => {
 });
 
 describe("Count Desk reset deduplication", () => {
+  it("drops an unseen pre-reset execution but accepts the next generation", async () => {
+    const account = { id: "paper-account", name: "QA", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
+    expect((await post({ eventId: "account-1", eventType: "account", account })).status).toBe(200);
+    expect((await post({ eventId: "reset-1", eventType: "reset",
+      account: { ...account, resetGeneration: 1 } })).status).toBe(200);
+
+    const oldExecution = {
+      eventId: "execution-before-reset", eventType: "execution", account,
+      execution: { id: "fill-old", symbol: "BTC", side: "buy", quantity: 1, price: 100, fee: 0,
+        executedAt: "2026-10-01T00:00:00Z", multiplier: 1 },
+    };
+    const stale = await post(oldExecution);
+    expect(stale.status).toBe(200);
+    expect(await stale.json()).toMatchObject({ accepted: true, stale: true });
+    expect(db.select().from(executions).all()).toHaveLength(0);
+    const retry = await post(oldExecution);
+    expect(await retry.json()).toMatchObject({ accepted: true, duplicate: true });
+    expect(db.select().from(executions).all()).toHaveLength(0);
+
+    const next = await post({ ...oldExecution, eventId: "execution-after-reset",
+      account: { ...account, resetGeneration: 1 }, execution: { ...oldExecution.execution, id: "fill-new" } });
+    expect(next.status).toBe(200);
+    expect(await next.json()).toMatchObject({ accepted: true, stale: false });
+    expect(db.select().from(executions).all()).toHaveLength(1);
+  });
+
   it("rejects a pre-reset execution replay after clearing executions", async () => {
     const account = { id: "paper-account", name: "QA", currency: "USD", initialBalance: 1000 };
     expect((await post({ eventId: "account-1", eventType: "account", account })).status).toBe(200);
@@ -43,12 +69,27 @@ describe("Count Desk reset deduplication", () => {
     };
     expect((await post(execution)).status).toBe(200);
     expect(db.select().from(executions).all()).toHaveLength(1);
-    expect((await post({ eventId: "reset-1", eventType: "reset", account })).status).toBe(200);
+    expect((await post({ eventId: "reset-1", eventType: "reset",
+      account: { ...account, resetGeneration: 1 } })).status).toBe(200);
     expect(db.select().from(executions).all()).toHaveLength(0);
     const replay = await post(execution);
     expect(replay.status).toBe(200);
     expect(await replay.json()).toMatchObject({ accepted: true, duplicate: true });
     expect(db.select().from(executions).all()).toHaveLength(0);
     expect(db.select().from(externalEventReceipts).all()).toHaveLength(3);
+  });
+
+  it("keeps reset generations isolated between paper accounts", async () => {
+    const first = { id: "paper-first", name: "First", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
+    const second = { id: "paper-second", name: "Second", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
+    expect((await post({ eventId: "first-account", eventType: "account", account: first })).status).toBe(200);
+    expect((await post({ eventId: "second-account", eventType: "account", account: second })).status).toBe(200);
+    expect((await post({ eventId: "first-reset", eventType: "reset",
+      account: { ...first, resetGeneration: 1 } })).status).toBe(200);
+    const secondExecution = await post({ eventId: "second-fill", eventType: "execution", account: second,
+      execution: { id: "second-fill", symbol: "ETH", side: "buy", quantity: 1, price: 10, fee: 0,
+        executedAt: "2026-10-01T00:00:00Z", multiplier: 1 } });
+    expect(secondExecution.status).toBe(200);
+    expect(db.select().from(executions).all()).toHaveLength(1);
   });
 });

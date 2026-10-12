@@ -50,7 +50,8 @@ def queue_account(db: sqlite3.Connection, account: sqlite3.Row | dict) -> None:
     enqueue(db, f"account:{account_id}", "account", {
         "eventId": f"account:{account_id}", "eventType": "account",
         "account": {"id": account_id, "name": row["name"], "currency": row["currency"],
-                    "initialBalance": row["starting_balance"]},
+                    "initialBalance": row["starting_balance"],
+                    "resetGeneration": int(row.get("journal_generation", 0) or 0)},
     })
 
 
@@ -72,7 +73,8 @@ def queue_execution(db: sqlite3.Connection, position: sqlite3.Row | dict, leg: s
     payload = {
         "eventId": event_id, "eventType": "execution",
         "account": {"id": account["account_id"], "name": account["name"],
-                    "currency": account["currency"], "initialBalance": account["starting_balance"]},
+                    "currency": account["currency"], "initialBalance": account["starting_balance"],
+                    "resetGeneration": int(account["journal_generation"] or 0)},
         "execution": {"id": event_id, "symbol": symbol, "side": side,
                       "quantity": row["quantity"], "price": price, "fee": 0,
                       "executedAt": executed_at, "multiplier": row["multiplier"],

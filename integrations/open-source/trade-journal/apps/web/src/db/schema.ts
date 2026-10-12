@@ -116,6 +116,17 @@ export const externalEventReceipts = sqliteTable("external_event_receipts", {
   createdAt: text("created_at").notNull(),
 }, (table) => [uniqueIndex("external_event_receipts_pk").on(table.source, table.eventId)]);
 
+export const externalEventWatermarks = sqliteTable("external_event_watermarks", {
+  source: text("source").notNull(),
+  externalAccountId: text("external_account_id").notNull(),
+  accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  resetGeneration: integer("reset_generation").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("external_event_watermarks_pk").on(table.source, table.externalAccountId),
+  index("external_event_watermarks_account").on(table.accountId),
+]);
+
 /**
  * Materialized round trips. Computed columns are overwritten on every rebuild;
  * annotation columns (notes → reviewedAt) belong to the user and survive

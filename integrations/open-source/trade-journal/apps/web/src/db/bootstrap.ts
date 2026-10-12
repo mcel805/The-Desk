@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS executions (
 CREATE UNIQUE INDEX IF NOT EXISTS executions_account_hash ON executions (account_id, content_hash);
 CREATE INDEX IF NOT EXISTS executions_account_symbol ON executions (account_id, symbol);
 
+CREATE TABLE IF NOT EXISTS external_event_watermarks (
+  source TEXT NOT NULL,
+  external_account_id TEXT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  reset_generation INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source, external_account_id)
+);
+CREATE INDEX IF NOT EXISTS external_event_watermarks_account ON external_event_watermarks(account_id);
+
 CREATE TABLE IF NOT EXISTS external_event_receipts (
  source TEXT NOT NULL, event_id TEXT NOT NULL, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
  created_at TEXT NOT NULL, UNIQUE(source,event_id)

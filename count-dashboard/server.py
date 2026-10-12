@@ -454,7 +454,8 @@ CREATE TABLE IF NOT EXISTS chart_sim_accounts (
   name TEXT NOT NULL,
   starting_balance REAL NOT NULL CHECK(starting_balance > 0),
   currency TEXT NOT NULL DEFAULT 'USD',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  journal_generation INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS chart_sim_orders (
   order_id TEXT PRIMARY KEY,
@@ -602,6 +603,9 @@ def connect(path: Path) -> sqlite3.Connection:
         db.execute("ALTER TABLE chart_sim_positions ADD COLUMN bracket_checked_through_time INTEGER")
     if "exit_reason" not in sim_columns:
         db.execute("ALTER TABLE chart_sim_positions ADD COLUMN exit_reason TEXT")
+    account_columns = {row["name"] for row in db.execute("PRAGMA table_info(chart_sim_accounts)")}
+    if "journal_generation" not in account_columns:
+        db.execute("ALTER TABLE chart_sim_accounts ADD COLUMN journal_generation INTEGER NOT NULL DEFAULT 0")
     for table in ("chart_sim_orders", "chart_sim_positions"):
         columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
         if "account_id" not in columns:
@@ -835,7 +839,7 @@ def create_chart_sim_account(db: sqlite3.Connection, payload: dict) -> dict:
     if balance is None or balance > 1_000_000_000:
         raise ValueError("Starting virtual balance is out of range")
     account_id = "paper-" + secrets.token_hex(12)
-    db.execute("INSERT INTO chart_sim_accounts VALUES (?,?,?,?,?)",
+    db.execute("INSERT INTO chart_sim_accounts(account_id,name,starting_balance,currency,created_at,journal_generation) VALUES (?,?,?,?,?,0)",
                (account_id, name, balance, "USD", utc_now()))
     queue_paper_journal_account(db, db.execute("SELECT * FROM chart_sim_accounts WHERE account_id=?", (account_id,)).fetchone())
     db.commit()

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { accounts, db, executions, externalEventReceipts, notes } from "@/db";
+import { accounts, db, executions, externalEventReceipts, externalEventWatermarks, notes } from "@/db";
 import { bad, handler, ok, requireValue } from "@/server/api";
 import { executionHash, newId, nowIso } from "@/server/ids";
 import { rebuildAccount } from "@/server/rebuild";
@@ -9,7 +9,7 @@ type EventBody = {
   eventId?: string;
   eventType?: "account" | "execution" | "session" | "reset";
   session?: { id?: string; title?: string; content?: string; startedAt?: string };
-  account?: { id?: string; name?: string; currency?: string; initialBalance?: number };
+  account?: { id?: string; name?: string; currency?: string; initialBalance?: number; resetGeneration?: number };
   execution?: {
     id?: string; symbol?: string; side?: "buy" | "sell"; quantity?: number;
     price?: number; fee?: number; executedAt?: string; multiplier?: number;
@@ -32,6 +32,9 @@ export const POST = handler(async (request: Request) => {
     requireValue(externalId.length > 0 && externalId.length <= 200, "A source account ID is required.");
     requireValue(eventId.length > 0 && eventId.length <= 240, "A stable event ID is required.");
     requireValue(["account", "execution", "session", "reset"].includes(payload.eventType ?? ""), "Unsupported event type.");
+    const requestedGeneration = payload.account?.resetGeneration;
+    requireValue(requestedGeneration == null || (Number.isInteger(requestedGeneration) && requestedGeneration >= 0),
+      "Reset generation must be a non-negative integer.");
     if (payload.eventType === "session") {
       requireValue(Boolean(payload.session?.id?.match(/^hunt-[a-f0-9]{32}$/)), "Session identity is invalid.");
       requireValue(typeof payload.session?.content === "string" && payload.session.content.length <= 2000000, "Session content is too large.");
@@ -68,6 +71,7 @@ export const POST = handler(async (request: Request) => {
 
     let accountId = "";
     let duplicate = false;
+    let stale = false;
     db.transaction((tx) => {
       let account = tx.select().from(accounts).where(eq(accounts.externalAccountId, externalId)).get();
       if (!account) {
@@ -85,9 +89,35 @@ export const POST = handler(async (request: Request) => {
       }
       requireValue(Boolean(account), "Paper journal account could not be created.");
       accountId = account!.id;
+      let watermark = tx.select().from(externalEventWatermarks).where(
+        and(eq(externalEventWatermarks.source, "count_desk"), eq(externalEventWatermarks.externalAccountId, externalId)),
+      ).get();
+      const hadWatermark = Boolean(watermark);
+      if (!watermark) {
+        tx.insert(externalEventWatermarks).values({
+          source: "count_desk", externalAccountId: externalId, accountId, resetGeneration: 0, updatedAt: nowIso(),
+        }).run();
+        watermark = tx.select().from(externalEventWatermarks).where(
+          and(eq(externalEventWatermarks.source, "count_desk"), eq(externalEventWatermarks.externalAccountId, externalId)),
+        ).get();
+      }
       const exists = tx.select({ eventId: externalEventReceipts.eventId }).from(externalEventReceipts)
         .where(and(eq(externalEventReceipts.source, "count_desk"), eq(externalEventReceipts.eventId, eventId))).get();
       if (exists) { duplicate = true; return; }
+      let generation = requestedGeneration ?? 0;
+      if (payload.eventType === "reset" && requestedGeneration == null && !hadWatermark) generation = 1;
+      const currentGeneration = watermark!.resetGeneration;
+      if (generation < currentGeneration) {
+        tx.insert(externalEventReceipts).values({ source: "count_desk", eventId, accountId, createdAt: nowIso() }).run();
+        stale = true;
+        return;
+      }
+      requireValue(
+        generation === currentGeneration || (payload.eventType === "reset" && generation === currentGeneration + 1),
+        "The journal reset marker must be delivered before this event.",
+      );
+      requireValue(payload.eventType !== "reset" || generation > currentGeneration,
+        "A journal reset must advance its reset generation.");
       if (payload.eventType === "account" || payload.eventType === "reset") {
         const initialBalance = Number(payload.account?.initialBalance ?? 0);
         requireValue(Number.isFinite(initialBalance) && initialBalance >= 0, "Initial virtual balance is invalid.");
@@ -128,8 +158,14 @@ export const POST = handler(async (request: Request) => {
         else tx.insert(notes).values({id, folderId: "my-notes", ...values,
           dayDate: session.startedAt!.slice(0, 10), createdAt: nowIso()}).run();
       }
+      tx.update(externalEventWatermarks).set({
+        resetGeneration: generation, updatedAt: nowIso(),
+      }).where(and(
+        eq(externalEventWatermarks.source, "count_desk"),
+        eq(externalEventWatermarks.externalAccountId, externalId),
+      )).run();
       tx.insert(externalEventReceipts).values({ source: "count_desk", eventId, accountId, createdAt: nowIso() }).run();
     });
-    if (payload.eventType === "execution" || payload.eventType === "reset") rebuildAccount(accountId);
-    return ok({ accepted: true, duplicate, accountId });
+    if (!stale && (payload.eventType === "execution" || payload.eventType === "reset")) rebuildAccount(accountId);
+    return ok({ accepted: true, duplicate, stale, accountId });
 }, { public: true });

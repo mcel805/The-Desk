@@ -43,7 +43,7 @@ def cycle_account(trading_db):
     account_id = 'crypto-month-' + month
     existing=trading_db.execute('SELECT 1 FROM chart_sim_accounts WHERE account_id=?',(account_id,)).fetchone()
     inserted=0 if existing else trading_db.execute(
-        'INSERT OR IGNORE INTO chart_sim_accounts VALUES(?,?,?,?,?)',
+        'INSERT OR IGNORE INTO chart_sim_accounts(account_id,name,starting_balance,currency,created_at,journal_generation) VALUES(?,?,?,?,?,0)',
         (account_id, 'Wave Court · month ' + month, 500.0, 'USD', datetime.now(timezone.utc).isoformat())
     ).rowcount
     account = dict(trading_db.execute('SELECT * FROM chart_sim_accounts WHERE account_id=?', (account_id,)).fetchone())
