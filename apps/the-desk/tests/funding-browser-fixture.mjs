@@ -40,7 +40,7 @@ window.fetch=async(path,options)=>{
     if(String(path)==='/api/robinhood/submit')return Response.json({message:'TEST ONLY · mock submit recorded. No broker call.'});
     throw new Error('Broker endpoint is not available in this synthetic fixture.');
   }
-  if(String(path)==='/api/integrations/hyperliquid/requests')return Response.json({network:new URL(path,location.origin).searchParams.get('network')||'testnet',requests:fixtureHLRequests});
+  if(new URL(path,location.origin).pathname==='/api/integrations/hyperliquid/requests'){const network=new URL(path,location.origin).searchParams.get('network')||'testnet';return Response.json({network,requests:fixtureHLRequests.filter(r=>r.network===network&&['reserved','submitting','uncertain'].includes(r.state))});}
   if(String(path)==='/api/integrations/hyperliquid/reserve'){const body=JSON.parse(options.body);fixtureHLRequests.push({network:body.network,clientOrderId:body.clientOrderId,intent:body.intent,state:'reserved'});return Response.json({request:fixtureHLRequests.at(-1)});}
   if(String(path)==='/api/integrations/hyperliquid/submitting'){const body=JSON.parse(options.body);const item=fixtureHLRequests.find(x=>x.clientOrderId===body.clientOrderId);if(item)item.state='submitting';return Response.json({request:item});}
   if(String(path)==='/api/integrations/hyperliquid/uncertain'){const body=JSON.parse(options.body);const item=fixtureHLRequests.find(x=>x.clientOrderId===body.clientOrderId);if(item)item.state='uncertain';return Response.json({request:item});}

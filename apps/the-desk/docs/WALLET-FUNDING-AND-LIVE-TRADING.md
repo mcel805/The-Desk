@@ -13,7 +13,7 @@ The drawer provides three separate account views:
 
 | Account | Where funds reside | Implemented actions | Delivery status |
 |---|---|---|---|
-| Base wallet | User-controlled address on Base | Signed login, ETH/native USDC balances, receive address, reviewed ETH/USDC send | Implemented; real extension acceptance pending |
+| Base wallet | User-controlled address on Base | Signed login, ETH/native USDC balances, receive address, reviewed ETH/USDC send | Implemented; user confirmed one real extension login |
 | Hyperliquid | HyperCore spot balances and perpetual collateral | Account snapshot, perpetual GTC limit order, reduce only, order cancellation, positions/fills | SDK signing and mock transport tested; funded testnet acceptance pending |
 | Robinhood | Broker custody | Official OAuth/PKCE login, masked accounts, separate stock/crypto buying power, reviewed stock/crypto limit-order requests | Public discovery and client registration verified; app OAuth completion and execution pending |
 | Paper account | Local simulated ledger | Existing chart/DOM tickets and paper journal | Continues separately |
@@ -144,14 +144,15 @@ expiry, origin and signer rejection, cookie lifecycle, wallet/network changes,
 exact ETH/USDC encoding, EIP-6963 coexistence, pinned SDK order signing through a
 mock exchange, provider response classification, OAuth/PKCE session binding,
 account masking, trade eligibility, broker alerts, confirmation, preview expiry,
-   idempotency, unknown-outcome handling, persistent Hyperliquid reconciliation,
-   wallet/network scope isolation, and the distinct Robinhood RHC display versus
-   RHS routing IDs. All financial tests use synthetic keys
+idempotency, unknown-outcome handling, persistent Hyperliquid reconciliation,
+wallet/network scope isolation, and the distinct Robinhood RHC display versus
+RHS routing IDs. All financial tests use synthetic keys
 or mock provider calls. HTTP tests own an ephemeral server and disposable data.
 
-Acceptance still requires a human wallet signature in Rabby and MetaMask,
+The user confirmed a successful real extension connection and signed login.
+This is user-reported evidence; separate coverage of both Rabby and MetaMask,
 Hyperliquid funded-testnet order/cancel/fill reconciliation, and Robinhood's own
-OAuth consent and account capability response from this app. Mainnet settlement
+OAuth consent and account capability response from this app remain acceptance steps. Mainnet settlement
 has not been tested. No funds were moved or live orders placed during this work.
 
 After those pass, add receipt polling and a durable live-order audit/journal,
@@ -176,10 +177,13 @@ Dependency versions: `@nktkas/hyperliquid 0.33.3`, `viem 2.57.4`,
 ## Local validation evidence — 12 October 2026
 
 - `npm run test:wallet`: 10 behavioral tests pass.
-- Wallet-enabled Python `unittest discover -s tests -p 'test_funding*.py'`: 14 tests pass; no dependency skips.
+- Wallet-enabled Python `unittest discover -s tests -p 'test_funding*.py'`: 17 tests pass; no dependency skips.
+- `unittest discover -s tests -p 'test_hyperliquid_requests.py'`: 4 durable request-store tests pass.
 - Existing chart-menu, trading-model, DOM and chart-bracket Node checks: 19 pass.
 - Chrome: real UI at `http://127.0.0.1:18882/` inspected at desktop and 500 px width; no horizontal drawer overflow. Missing-extension state, disconnected refresh and venue tabs verified.
 - Disposable browser fixture at port 18883: two providers discovered, a real synthetic signature accepted by the server, ETH/USDC balances and receive address rendered, rejected signature and account-change revocation verified. Hyperliquid testnet review and disabled mainnet review verified. Broker fixture exercises the real Robinhood form and preserves its quote disclosure with the exact limit-order fields; no provider writes are available.
+- Durable recovery QA uses a synthetic wallet, real HTTP routes and a real SQLite request store with mocked venue status. Duplicate reservation, fresh login, network isolation, actual server restart and unknown-result holds pass. Chrome restores the hold after reload, keeps order review disabled for unknown status, and re-enables it when a venue-confirmed order is reconciled. No exchange write is available in this fixture.
+- Independent no-mistakes code review passed at `db684ef`. The test agent also reported focused checks passing, then exited at the account usage limit before finishing browser validation, documentation and lint stages. The pipeline is incomplete; this is not a full validation pass.
 - Official Robinhood OAuth discovery and dynamic registration accepted. The app's user consent, token exchange and actual account catalog still require acceptance.
 - Broader Python regression has a pre-existing Lux Journal failure (`pending 8 != 0`), reproduced against the unchanged baseline server; it prevents an all-suite green claim.
 - Preview server has workers disabled, so its server quote and companion Lux Journal are unavailable. Client chart data does not establish execution readiness.
