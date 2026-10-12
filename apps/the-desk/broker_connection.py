@@ -72,13 +72,16 @@ class Robinhood:
         with self.lock:
             self.sessions.pop(key,None)
             self.pending={k:v for k,v in self.pending.items() if v['key']!=key}
-    def start(self,key):
+    def start(self,key,host=None):
         with self.lock:
             metadata=self.http(DISCOVERY)
             if any(metadata.get(k)!=v for k,v in [('issuer',ISSUER),('authorization_endpoint',AUTH),('token_endpoint',TOKEN),('registration_endpoint',REGISTER)]):
                 raise ValueError('Robinhood OAuth metadata changed. Review the integration before connecting.')
             if 'S256' not in metadata.get('code_challenge_methods_supported',[]): raise ValueError('Robinhood PKCE support unavailable.')
-            redirect=f'http://127.0.0.1:{self.port}/api/robinhood/callback'
+            host=host or f'127.0.0.1:{self.port}'
+            if host not in (f'127.0.0.1:{self.port}',f'localhost:{self.port}'):
+                raise ValueError('Robinhood login requires a trusted loopback host.')
+            redirect=f'http://{host}/api/robinhood/callback'
             if not self.client_id:
                 registered=self.http(REGISTER,{'client_name':'The Desk local trading workspace','redirect_uris':[redirect],'grant_types':['authorization_code','refresh_token'],'response_types':['code'],'token_endpoint_auth_method':'none'})
                 self.client_id=registered.get('client_id','')
@@ -136,7 +139,7 @@ class Robinhood:
             public=[]
             for a in sorted((a for a in accounts if isinstance(a,dict)),key=lambda a:(not a.get('is_default'),not a.get('agentic_allowed'))):
                 aid=hashlib.sha256((key+str(a['account_number'])).encode()).hexdigest()[:24];s['accounts'][aid]=a
-                public.append({'id':aid,'account':'••••'+str(a['account_number'])[-4:],'cryptoAccount':'••••'+str(a['rhc_account_number'])[-4:] if a.get('rhc_account_number') else None,'name':a.get('nickname') or a.get('brokerage_account_type','Account'),'type':a.get('brokerage_account_type'),'tradingType':a.get('type'),'default':a.get('is_default',False),'tradable':a.get('agentic_allowed') is True and a.get('state')=='active' and not a.get('deactivated') and not a.get('permanently_deactivated'),'optionsApproved':a.get('option_level') in ('option_level_2','option_level_3')})
+                public.append({'id':aid,'account':'••••'+str(a['account_number'])[-4:],'cryptoAccount':'••••'+str(a['rhs_account_number'])[-4:] if a.get('rhs_account_number') else None,'name':a.get('nickname') or a.get('brokerage_account_type','Account'),'type':a.get('brokerage_account_type'),'tradingType':a.get('type'),'default':a.get('is_default',False),'tradable':a.get('agentic_allowed') is True and a.get('state')=='active' and not a.get('deactivated') and not a.get('permanently_deactivated'),'optionsApproved':a.get('option_level') in ('option_level_2','option_level_3')})
             names=s['tools']
             return {'connected':True,'accounts':public,'equities':all(t in names for t in ['review_equity_order','place_equity_order']),'crypto':all(t in names for t in ['preview_crypto_order','place_crypto_order']),'options':False,'futures':False,'liveEnabled':self.live,'observedAt':time.time()}
     def account(self,key,aid,trade=False):
@@ -165,7 +168,7 @@ class Robinhood:
                 if p.get('market_hours','regular_hours') not in ('regular_hours','extended_hours','all_day_hours'): raise ValueError('Invalid trading session.')
                 args.update(account_number=a['account_number'],market_hours=p.get('market_hours','regular_hours'))
             else:
-                if not a.get('rhc_account_number'): raise ValueError('No crypto account is linked.')
+                if not a.get('rhs_account_number'): raise ValueError('No crypto account is linked.')
                 args['rhs_account_number']=a['rhs_account_number']
             result=self.call(key,'review_equity_order' if asset=='equity' else 'preview_crypto_order',args)
             echo=result.get('order',result)
@@ -178,7 +181,7 @@ class Robinhood:
             self.sessions[key]['previews'][preview_id]={'args':args,'aid':p['accountId'],'asset':asset,'result':None,'blocked':blocked,'expires':time.time()+30,'ref':ref,'attempted':False}
             # Preserve provider review and mandatory quote disclosure; redact any account identifiers.
             public=json.dumps(result)
-            for field in ('account_number','rhs_account_number','rhc_account_number'):
+            for field in ('account_number','rhs_account_number'):
                 if a.get(field): public=public.replace(str(a[field]),'••••'+str(a[field])[-4:])
             return {'id':preview_id,'ref':ref,'review':json.loads(public),'blocked':blocked,'expiresAt':time.time()+30}
     def submit(self,key,p):

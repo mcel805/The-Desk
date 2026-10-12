@@ -50,6 +50,7 @@ class BrokerTests(unittest.TestCase):
             if name=='get_accounts':data={'accounts':[{'account_number':'12345678','rhs_account_number':'12345678','state':'active','agentic_allowed':True,'type':'limited_margin','is_default':True,'brokerage_account_type':'individual'},{'account_number':'98765432','rhs_account_number':'98765432','state':'active','agentic_allowed':False,'type':'margin'}]}
             elif name=='get_portfolio':data={'total_value':'100','buying_power':{'buying_power':'50'},'currency':'USD'}
             elif name=='review_equity_order':data={**args,'order_checks':self.alerts,'customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
+            elif name=='preview_crypto_order':data={**args,'customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
             elif name=='place_equity_order':
                 if self.fail_place:raise TimeoutError('Simulated lost response')
                 data={'status':'approval_required'}
@@ -70,6 +71,13 @@ class BrokerTests(unittest.TestCase):
         s=self.broker.callback('wallet-session',q['state'][0],'code',ISSUER)
         self.assertEqual(s['accounts'][0]['account'],'••••5678');self.assertFalse(s['futures']);self.assertFalse(s['options'])
         with self.assertRaises(ValueError):self.broker.callback('wallet-session',q['state'][0],'code',ISSUER)
+
+    def test_login_redirect_matches_initiating_loopback_host(self):
+        from urllib.parse import urlparse,parse_qs
+        url=self.broker.start('wallet-session','localhost:18882')['url'];params=parse_qs(urlparse(url).query)
+        self.assertEqual(params['redirect_uri'],['http://localhost:18882/api/robinhood/callback'])
+        registration=next(payload for url,payload,headers in self.calls if url==REGISTER)
+        self.assertEqual(registration['redirect_uris'],['http://localhost:18882/api/robinhood/callback'])
     def test_preview_submit_confirmation_idempotency_and_no_auto_trade(self):
         p=self.draft();preview=self.broker.preview('wallet-session',p)
         self.assertEqual(preview['review']['market_data_disclosure'],'Exact quote disclosure')
@@ -78,6 +86,13 @@ class BrokerTests(unittest.TestCase):
         args={'id':preview['id'],'confirmation':'PLACE LIVE ORDER'}
         one=self.broker.submit('wallet-session',args);two=self.broker.submit('wallet-session',args);self.assertEqual(one,two)
         self.assertEqual(sum((c[1] or {}).get('params',{}).get('name')=='place_equity_order' for c in self.calls),1)
+
+    def test_crypto_preview_uses_verified_rhs_account(self):
+        s=self.connect();p={'accountId':s['accounts'][0]['id'],'asset':'crypto','symbol':'BTC-USD','side':'buy','type':'limit','quantity':'1','limit_price':'50'}
+        preview=self.broker.preview('wallet-session',p)
+        self.assertFalse(preview['blocked'])
+        call=next(payload for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='preview_crypto_order')
+        self.assertEqual(call['params']['arguments']['rhs_account_number'],'12345678')
     def test_read_only_account_and_broker_alerts_block_submit(self):
         p=self.draft();p['accountId']=list(self.broker.sessions['wallet-session']['accounts'])[1]
         with self.assertRaises(ValueError):self.broker.preview('wallet-session',p)

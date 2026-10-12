@@ -68,7 +68,7 @@ class FundingRoutes:
             if token:self.broker.disconnect(hashlib.sha256(token.encode()).hexdigest());wallet.revoke_session(token)
             self.cookie(h,clear=True);h.json({'authenticated':False});return True
         session,key=self.identity(h)
-        if path=='/api/robinhood/connect':h.json(self.broker.start(key));return True
+        if path=='/api/robinhood/connect':h.json(self.broker.start(key,h.headers.get('Host','')));return True
         if path=='/api/robinhood/disconnect':self.broker.disconnect(key);h.json({'connected':False});return True
         if path=='/api/robinhood/preview':h.json(self.broker.preview(key,p));return True
         if path=='/api/robinhood/submit':h.json(self.broker.submit(key,p));return True
