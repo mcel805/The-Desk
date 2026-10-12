@@ -1,10 +1,8 @@
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 import {checkPineSource,drawingCounts} from './pine-validation.mjs';
 
-const CLEO_SOURCE_SIGNATURE='91c4db62';
 const CLEO_INDICATOR_DECL='indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"';
-const sourceSignature=source=>{let hash=2166136261;for(const character of source.replace(/\r\n?/g,'\n')){hash^=character.codePointAt(0);hash=Math.imul(hash,16777619);}return (hash>>>0).toString(16).padStart(8,'0');};
-const isCleoLiquiditySource=source=>typeof source==='string'&&source.includes(CLEO_INDICATOR_DECL)&&sourceSignature(source)===CLEO_SOURCE_SIGNATURE;
+const isCleoLiquiditySource=source=>typeof source==='string'&&source.includes(CLEO_INDICATOR_DECL)&&/f_confirmedMaster\s*\(/.test(source)&&/f_marketSource\s*\(/.test(source);
 const CLEO_EXECUTION_TIMEOUT=120000;
 export const pineWorkerOptions=source=>isCleoLiquiditySource(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
 
