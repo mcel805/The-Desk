@@ -148,7 +148,7 @@ class Engine:
         return a
 
     def reset_journal(self,db,a):
-        db.execute("DELETE FROM outbox WHERE status='pending' AND json_extract(payload,'$.account.id')=?",(a['id'],))
+        db.execute("DELETE FROM outbox WHERE status='pending' AND json_extract(payload,'$.account.id')=? AND json_extract(payload,'$.eventType')<>'reset'",(a['id'],))
         db.execute('UPDATE accounts SET journal_generation=journal_generation+1 WHERE id=?',(a['id'],))
         a=db.execute('SELECT * FROM accounts WHERE id=?',(a['id'],)).fetchone()
         event_id=uid('journal-reset')

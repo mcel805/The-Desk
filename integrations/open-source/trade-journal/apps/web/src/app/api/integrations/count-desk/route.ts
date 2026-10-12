@@ -57,18 +57,6 @@ export const POST = handler(async (request: Request) => {
       if (payload.eventType === "execution" || payload.eventType === "reset") rebuildAccount(priorReceipt.accountId);
       return ok({ accepted: true, duplicate: true });
     }
-    if (payload.eventType === "execution") {
-      const symbol = execution!.symbol!.trim().toUpperCase();
-      const multipliers = getMultipliers();
-      const configured = multipliers[symbol];
-      requireValue(configured == null || Math.abs(configured - execution!.multiplier!) < 1e-9,
-        `Journal multiplier for ${symbol} differs from the simulator; resolve it before importing this fill.`);
-      if (configured == null) {
-        multipliers[symbol] = execution!.multiplier!;
-        setSetting("multipliers", JSON.stringify(multipliers));
-      }
-    }
-
     let accountId = "";
     let duplicate = false;
     let stale = false;
@@ -118,6 +106,17 @@ export const POST = handler(async (request: Request) => {
       );
       requireValue(payload.eventType !== "reset" || generation > currentGeneration,
         "A journal reset must advance its reset generation.");
+      if (payload.eventType === "execution") {
+        const symbol = execution!.symbol!.trim().toUpperCase();
+        const multipliers = getMultipliers();
+        const configured = multipliers[symbol];
+        requireValue(configured == null || Math.abs(configured - execution!.multiplier!) < 1e-9,
+          `Journal multiplier for ${symbol} differs from the simulator; resolve it before importing this fill.`);
+        if (configured == null) {
+          multipliers[symbol] = execution!.multiplier!;
+          setSetting("multipliers", JSON.stringify(multipliers));
+        }
+      }
       if (payload.eventType === "account" || payload.eventType === "reset") {
         const initialBalance = Number(payload.account?.initialBalance ?? 0);
         requireValue(Number.isFinite(initialBalance) && initialBalance >= 0, "Initial virtual balance is invalid.");

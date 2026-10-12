@@ -63,8 +63,8 @@ describe("Count Desk reset deduplication", () => {
 
     const oldExecution = {
       eventId: "execution-before-reset", eventType: "execution", account,
-      execution: { id: "fill-old", symbol: "BTC", side: "buy", quantity: 1, price: 100, fee: 0,
-        executedAt: "2026-10-01T00:00:00Z", multiplier: 1 },
+      execution: { id: "fill-old", symbol: "STALE", side: "buy", quantity: 1, price: 100, fee: 0,
+        executedAt: "2026-10-01T00:00:00Z", multiplier: 7 },
     };
     const stale = await post(oldExecution);
     expect(stale.status).toBe(200);
@@ -75,7 +75,7 @@ describe("Count Desk reset deduplication", () => {
     expect(db.select().from(executions).all()).toHaveLength(0);
 
     const next = await post({ ...oldExecution, eventId: "execution-after-reset",
-      account: { ...account, resetGeneration: 1 }, execution: { ...oldExecution.execution, id: "fill-new" } });
+      account: { ...account, resetGeneration: 1 }, execution: { ...oldExecution.execution, id: "fill-new", multiplier: 1 } });
     expect(next.status).toBe(200);
     expect(await next.json()).toMatchObject({ accepted: true, stale: false });
     expect(db.select().from(executions).all()).toHaveLength(1);

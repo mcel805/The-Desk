@@ -125,6 +125,14 @@ class PaperTests(unittest.TestCase):
             fill=json.loads(db.execute("SELECT payload FROM outbox WHERE event_id=?",(self.e.state(self.a)['fills'][0]['id'],)).fetchone()[0])
         self.assertEqual(fill['account']['resetGeneration'],1)
 
+    def test_offline_resets_keep_each_pending_generation_marker(self):
+        self.e.execute('reset-journal-1','account_reset',{'account_id':self.a,'reset_journal':True})
+        self.e.execute('reset-journal-2','account_reset',{'account_id':self.a,'reset_journal':True})
+        with self.e.db() as db:
+            rows=[json.loads(row['payload']) for row in db.execute("SELECT payload FROM outbox WHERE status='pending' ORDER BY sequence")]
+        self.assertEqual([row['eventType'] for row in rows],['reset','reset'])
+        self.assertEqual([row['account']['resetGeneration'] for row in rows],[1,2])
+
     def test_legacy_pending_reset_outbox_is_migrated_to_ordered_generation(self):
         account={'id':self.a,'name':'Test A · The Desk PAPER','currency':'USD','initialBalance':10000}
         with self.e.db() as db:
