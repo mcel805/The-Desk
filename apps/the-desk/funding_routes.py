@@ -5,6 +5,7 @@ configuration; loading a page or signing in never sends an order or transfer.
 """
 import hashlib
 from http.cookies import SimpleCookie, CookieError
+import math
 from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.request import Request, urlopen
@@ -38,6 +39,11 @@ class FundingRoutes:
     @staticmethod
     def hyperliquid_url(network):
         return 'https://api.hyperliquid-testnet.xyz/info' if network=='testnet' else 'https://api.hyperliquid.xyz/info'
+    @staticmethod
+    def valid_scalar(value):
+        if value is None or isinstance(value,bool):return False
+        if isinstance(value,str):return bool(value.strip())
+        return isinstance(value,(int,float)) and math.isfinite(value)
     def hyperliquid_info(self,network,payload):
         req=Request(self.hyperliquid_url(network),data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
         with urlopen(req,timeout=12) as response:return json.load(response)
@@ -101,7 +107,7 @@ class FundingRoutes:
             wrapper=observed.get('order') if isinstance(observed,dict) else None
             order=wrapper.get('order') if isinstance(wrapper,dict) else None
             venue_state=wrapper.get('status') if isinstance(wrapper,dict) else None
-            if isinstance(order,dict) and venue_state and order.get('oid') is not None:
+            if isinstance(order,dict) and self.valid_scalar(venue_state) and self.valid_scalar(order.get('oid')):
                 request=self.hyperliquid_requests.acknowledge(session['address'],network,client_order_id,venue_state,order['oid'],observed)
                 h.json({'found':True,'request':request});return True
             request=self.hyperliquid_requests.uncertain(session['address'],network,client_order_id,observed)

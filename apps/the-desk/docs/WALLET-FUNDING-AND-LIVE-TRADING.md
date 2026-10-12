@@ -114,15 +114,14 @@ wallet/network/client-order scope, order intent, and venue status. It never
 stores keys, signatures, access tokens or broker identifiers. Restarting the
 server preserves unresolved requests in the configured data directory.
 
-Executable tests cover real synthetic wallet signature verification, replay,
-expiry, origin and signer rejection, cookie lifecycle, wallet/network changes,
-exact ETH/USDC encoding, EIP-6963 coexistence, pinned SDK order signing through a
-mock exchange, provider response classification, OAuth/PKCE session binding,
-account masking, trade eligibility, broker alerts, confirmation, preview expiry,
-idempotency, unknown-outcome handling, persistent Hyperliquid reconciliation,
-wallet/network scope isolation, and the distinct Robinhood RHC display versus
-RHS routing IDs. All financial tests use synthetic keys
-or mock provider calls. HTTP tests own an ephemeral server and disposable data.
+Executable tests cover synthetic wallet identity verification, replay, expiry,
+origin and signer rejection, cookie lifecycle, wallet/network changes, exact
+ETH/USDC encoding, EIP-6963 coexistence, read-only provider previews, OAuth/PKCE
+session binding, account masking, account eligibility, broker alerts, paper-only
+write-route rejection, persistent Hyperliquid reconciliation, wallet/network
+scope isolation, malformed authoritative responses, and the distinct Robinhood
+RHC display versus RHS routing IDs. All financial tests use synthetic keys or
+mock provider calls. HTTP tests own an ephemeral server and disposable data.
 
 The user confirmed a successful real extension connection and signed login.
 This is user-reported evidence; separate coverage of both Rabby and MetaMask,

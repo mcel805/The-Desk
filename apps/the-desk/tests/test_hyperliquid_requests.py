@@ -66,5 +66,19 @@ class HyperliquidRequestStoreTests(unittest.TestCase):
         self.assertEqual(request.full_url,'https://api.hyperliquid-testnet.xyz/info')
         self.assertEqual(json.loads(request.data),{'type':'orderStatus','user':ADDRESS,'oid':CLOID})
 
+    def test_malformed_authoritative_order_status_remains_uncertain(self):
+        class Handler:
+            headers={'Host':'127.0.0.1:18882','Origin':'http://127.0.0.1:18882'}
+            def json(self,obj,status=200):self.response=(obj,status)
+        routes=FundingRoutes(18882,self.temp.name)
+        routes.hyperliquid_requests.reserve(ADDRESS,'testnet',CLOID,INTENT)
+        routes.identity=lambda handler:({'address':ADDRESS},'session')
+        routes.hyperliquid_info=lambda network,payload:{'order':{'status':{},'order':{'oid':{}}}}
+        handler=Handler()
+        self.assertTrue(routes.post(handler,'/api/integrations/hyperliquid/reconcile',{'network':'testnet','clientOrderId':CLOID}))
+        self.assertFalse(handler.response[0]['found'])
+        self.assertEqual(handler.response[0]['request']['state'],'uncertain')
+        self.assertEqual(routes.hyperliquid_requests.open(ADDRESS,'testnet')[0]['state'],'uncertain')
+
 
 if __name__=='__main__':unittest.main()
