@@ -2,6 +2,8 @@ import {VelaWorkspace,CoinbaseProvider,HyperliquidProvider} from './vendor/vela.
 import {marketIdentity,tradingConfig,tradingDefaults} from './trading-model.mjs';
 import {setupDOMTrader} from './dom-trader.mjs';
 import {setupChartTrader} from './chart-trader.mjs';
+import {starterBracket,moveDraftBracket,draftTradingLevels} from './chart-bracket-model.mjs';
+import {buildChartMenuActions} from './chart-menu-actions.mjs';
 import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
@@ -23,6 +25,16 @@ async function command(action,payload,key=($('#dialog').open?dialogKey:crypto.ra
 function instrument(){return marketIdentity(ws?.chart);}
 function tradeConfig(){return tradingConfig(settings.trading);}
 function stageTrade(next,kind='market',price){stage(next,kind,price);if(tradeConfig().instant&&!ws.replay.state.active)$('#orderForm').requestSubmit();}
+function stageChartTrade(next,kind='limit',price){
+ stage(next,kind,price);if(!draft||ws.replay.state.active)return;
+ const q=quote();if(!q)return;
+ const native=ws.chart.renderer.renderer,pane=native?.scene?.panes.get('price'),entry=entryReference();
+ const y=pane?native.coords.priceToY(entry,pane.scale,pane.bounds):null;
+ const distance=Number.isFinite(y)?Math.abs(entry-native.coords.yToPrice(y+40,pane.scale,pane.bounds)):undefined;
+ const levels=starterBracket({entry,side,tick:q.tick,stop:$('#stopPrice').value,target:$('#targetPrice').value,distance});
+ for(const field of ['stop','target'])if(levels[field])$('#'+field+'Price').value=levels[field];
+ updateTicket();toast('Drag the entry, stop loss and take profit to adjust. Review the starter levels before placing the paper order.');
+}
 function account(){return state?.accounts.find(a=>a.id===activeAccount);}
 function quote(){return state?.quotes[instrument()];}
 function snap(v){const tick=Number(quote()?.tick||.01);return Number((Math.round(Number(v)/tick)*tick).toPrecision(12));}
@@ -233,19 +245,30 @@ async function refresh(){
 }
 
 function cancelChartOrder(o){showDialog('Cancel chart order',`<p>${esc(o.side.toUpperCase()+' '+o.kind+' '+o.qty+' · '+o.instrument)} · PAPER</p>`,async()=>{await command('cancel',{id:o.id,account_id:o.account_id,revision:o.revision});toast('Paper order cancelled.');});}
-function chartMenu(price,x,y){
- menuPrice=snap(price);const kinds=['limit','stop','stop_limit'];
- $('#chartMenu').innerHTML=kinds.flatMap(kind=>['buy','sell'].map(next=>`<button data-menu-side="${next}" data-kind="${kind}">${next==='buy'?'Buy':'Sell'} ${kind.replace('_',' ')} at ${fmt(menuPrice)} · PAPER</button>`)).join('')+'<button id="menuAlert">Create alert at '+fmt(menuPrice)+'</button>';
- $('#chartMenu').hidden=false;$('#chartMenu').style.left=Math.min(x,window.innerWidth-280)+'px';$('#chartMenu').style.top=Math.max(0,Math.min(y,window.innerHeight-290))+'px';
- $('#chartMenu').querySelectorAll('[data-menu-side]').forEach(b=>b.onclick=()=>{stageTrade(b.dataset.menuSide,b.dataset.kind,menuPrice);$('#chartMenu').hidden=true;});$('#menuAlert').onclick=()=>{$('#chartMenu').hidden=true;$('#alertButton').click();$('#dialogBody input[name=price]').value=menuPrice;};
+function chartMenu(price,x,y,cell,cursorTime){
+ menuPrice=snap(price);const host=$('#chartMenu'),chart=cell?.chart;
+ const actions=buildChartMenuActions({chart,cell,price:menuPrice,priceLabel:fmt(menuPrice),cursorTime,workspace:ws,copyPrice:copyChartPrice,openAlert:openChartAlert,stageTrade:stageChartTrade,side,openTemplates:()=>$('#templatesButton').click(),toast});
+ host.replaceChildren();for(const item of actions){if(['reset','alert','lock-time','table','remove-drawings','settings'].includes(item.id)){const sep=document.createElement('div');sep.className='chart-menu-separator';sep.setAttribute('aria-hidden','true');sep.style.cssText='height:1px;background:var(--line);margin:4px 2px';host.append(sep);}const b=document.createElement('button');b.type='button';b.dataset.action=item.id;b.textContent=item.label;b.disabled=item.disabled===true;host.append(b);}
+ host.hidden=false;host.style.left=Math.max(0,Math.min(x,window.innerWidth-300))+'px';host.style.top=Math.max(0,Math.min(y,window.innerHeight-host.offsetHeight-8))+'px';
+ host.querySelectorAll('[data-action]').forEach(button=>button.onclick=async()=>{host.hidden=true;try{await actions.find(item=>item.id===button.dataset.action)?.run();}catch(error){toast(error.message||'Chart action failed.',true);}});
 }
-const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,toast,draftLevels:()=>{
- if(!draft)return [];return [['entry','DRAFT','#aeb9d0',entryReference()],['trigger','DRAFT TRIGGER','#e3b75d',$('#orderKind').value==='stop_limit'?$('#triggerPrice').value:0],['stop','DRAFT SL','#f23645',$('#stopPrice').value],['target','DRAFT TP','#089981',$('#targetPrice').value]].filter(x=>Number(x[3])>0).map(([field,label,color,price])=>({key:'draft'+field,field,price:Number(price),label,color,kind:'draft',amend:value=>{const target=field==='entry'&&$('#orderKind').value==='stop'?'triggerPrice':({entry:'entryPrice',trigger:'triggerPrice',stop:'stopPrice',target:'targetPrice'}[field]);$('#'+target).value=value;if(field==='entry'&&$('#orderKind').value==='market')$('#orderKind').value='limit';commandKey=null;updateTicket();}}));
-}});
+async function copyChartPrice(price){try{await navigator.clipboard.writeText(String(price));}catch{const input=document.createElement('textarea');input.value=String(price);document.body.append(input);input.select();document.execCommand('copy');input.remove();}toast('Price copied.');}
+function openChartAlert(price){$('#alertButton').click();const field=$('#dialogBody input[name=price]');if(field)field.value=price;}
+function draftBracket(){return {entry:entryReference(),side,kind:$('#orderKind').value,qty:quantity(),trigger:$('#triggerPrice').value,stop:$('#stopPrice').value,target:$('#targetPrice').value};}
+function amendDraft(field,value){
+ const changes=moveDraftBracket(draftBracket(),field,value,Number(quote()?.tick||.01));
+ for(const [key,price] of Object.entries(changes)){
+  const id=key==='entry'&&$('#orderKind').value==='stop'?'triggerPrice':({entry:'entryPrice',trigger:'triggerPrice',stop:'stopPrice',target:'targetPrice'}[key]);$('#'+id).value=price;
+ }
+ if(field==='entry'&&$('#orderKind').value==='market')$('#orderKind').value='limit';commandKey=null;updateTicket();
+}
+function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';commandKey=null;updateTicket();}
+function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
+const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
 function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
-$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executions:'Execution markers',labels:'Execution quantities',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. One-click placement affects new paper entries; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
+$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executions:'Execution markers',labels:'Execution quantities',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. Chart context-menu brackets always stage in the ticket for review. One-click placement affects other paper-entry shortcuts; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
 
 setupPineEditor({saveSettings});
 

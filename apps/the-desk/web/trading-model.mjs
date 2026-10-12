@@ -1,3 +1,4 @@
+import {tradeColors,bracketLabel} from './chart-bracket-model.mjs';
 export const tradingDefaults=Object.freeze({positions:true,orders:true,brackets:true,executions:true,labels:true,pnl:true,reverse:true,quickButtons:true,instant:false,pnlUnit:'money'});
 export function tradingConfig(input={}){const c={...tradingDefaults};for(const k of Object.keys(c))if(typeof input[k]==='boolean'&&k!=='pnlUnit')c[k]=input[k];if(['money','ticks','percent'].includes(input.pnlUnit))c.pnlUnit=input.pnlUnit;return c;}
 export function marketIdentity(chart){
@@ -21,11 +22,11 @@ export function formatPnl(metrics){const {value,unit}=metrics,n=Math.abs(value).
 export function tradingLevels(state,market,config){
   const levels=[];
   if(config.orders)for(const o of state.orders.filter(x=>x.instrument===market&&['working','triggered'].includes(x.status))){
-    for(const [field,label,color] of [['price',o.kind==='stop_limit'?'STOP LIMIT':'LIMIT','#5b9bff'],['trigger','STOP','#e3b75d'],['stop','SL','#f23645'],['target','TP','#089981']])if(o[field]&&(config.brackets||!['stop','target'].includes(field)))levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:o.side.toUpperCase()+' '+label+' '+o.qty,color,kind:'order'});
+    for(const [field,color] of [['price',tradeColors[o.side]],['trigger',tradeColors[o.side]],['stop',tradeColors.stop],['target',tradeColors.target]])if(o[field]&&(config.brackets||!['stop','target'].includes(field)))levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:bracketLabel(o,field,state.quotes[market]),color,kind:'order'});
   }
   if(config.positions)for(const p of state.positions.filter(x=>x.instrument===market)){
     const metrics=positionMetrics(p,state.quotes[market],config.pnlUnit);
-    for(const [field,label,color] of [['entry',(p.side==='buy'?'LONG':'SHORT')+' '+p.qty+(config.pnl?' · '+formatPnl(metrics):''),'#5b9bff'],['stop','SL '+p.qty,'#f23645'],['target','TP '+p.qty,'#089981']])if(p[field]&&(config.brackets||field==='entry'))levels.push({key:p.id+field,item:p,field,price:Number(p[field]),label,color,kind:'position'});
+    for(const [field,label,color] of [['entry',(p.side==='buy'?'LONG':'SHORT')+' '+p.qty+(config.pnl?' · '+formatPnl(metrics):''),tradeColors[p.side]],['stop',bracketLabel(p,'stop',state.quotes[market]),tradeColors.stop],['target',bracketLabel(p,'target',state.quotes[market]),tradeColors.target]])if(p[field]&&(config.brackets||field==='entry'))levels.push({key:p.id+field,item:p,field,price:Number(p[field]),label,color,kind:'position'});
   }
   return levels;
 }
