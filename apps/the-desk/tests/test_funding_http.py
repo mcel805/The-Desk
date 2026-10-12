@@ -45,11 +45,16 @@ class FundingHttpTests(unittest.TestCase):
         cookie=next(iter(self.cookies));self.assertIn('HttpOnly',cookie._rest);self.assertEqual(cookie._rest['SameSite'],'Lax')
         self.assertEqual(self.request('/api/health')['mode'],'paper')
         self.request('/api/wallet/logout',{});self.assertFalse(self.request('/api/wallet/session')['authenticated'])
-    def test_api_never_exposes_token_and_does_not_enable_live_routing(self):
+    def test_live_submit_and_client_acknowledgement_routes_are_unavailable(self):
         self.login();settings=self.request('/api/integrations');self.assertFalse(settings['liveEnabled']);self.assertTrue(settings['walletVerificationAvailable'])
         self.assertNotIn('token',self.request('/api/wallet/session'))
-        with self.assertRaises(HTTPError) as e:self.request('/api/robinhood/submit',{'id':'invented','confirmation':'PLACE LIVE ORDER'})
-        self.assertEqual(e.exception.code,400)
+        for path,payload in [
+            ('/api/robinhood/submit',{'id':'invented','confirmation':'PLACE LIVE ORDER'}),
+            ('/api/integrations/hyperliquid/acknowledge',{'network':'testnet','clientOrderId':'0x'+'a'*32,'state':'filled','venueOrderId':'1'}),
+        ]:
+            with self.subTest(path=path):
+                with self.assertRaises(HTTPError) as e:self.request(path,payload)
+                self.assertEqual(e.exception.code,404)
     def test_foreign_origin_cannot_issue_challenges_or_begin_broker_login(self):
         for path in ['/api/wallet/challenge','/api/robinhood/connect']:
             with self.assertRaises(HTTPError) as e:self.request(path,{'address':self.wallet.address},headers={'Origin':'https://other.example'})

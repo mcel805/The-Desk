@@ -36,7 +36,7 @@ class WalletTests(unittest.TestCase):
 
 class BrokerTests(unittest.TestCase):
     def setUp(self):
-        self.calls=[];self.alerts={};self.fail_place=False
+        self.calls=[];self.alerts={}
         def http(url,payload=None,headers=None,form=False):
             self.calls.append((url,payload,headers))
             if url==DISCOVERY:return {'issuer':ISSUER,'authorization_endpoint':AUTH,'token_endpoint':TOKEN,'registration_endpoint':REGISTER,'code_challenge_methods_supported':['S256']}
@@ -51,13 +51,9 @@ class BrokerTests(unittest.TestCase):
             elif name=='get_portfolio':data={'total_value':'100','buying_power':{'buying_power':'50'},'currency':'USD'}
             elif name=='review_equity_order':data={**args,'order_checks':self.alerts,'customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
             elif name=='preview_crypto_order':data={**args,'rhc_account_number':'RHC98765432','customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
-            elif name=='place_equity_order':
-                if self.fail_place:raise TimeoutError('Simulated lost response')
-                data={'status':'approval_required'}
-            elif name=='place_crypto_order':data={'status':'approval_required'}
             else:raise ValueError(name)
             return {'result':{'structuredContent':{'data':data}}}
-        self.broker=Robinhood(18882,http=http,live=True)
+        self.broker=Robinhood(18882,http=http)
     def connect(self,key='wallet-session'):
         from urllib.parse import urlparse,parse_qs
         url=self.broker.start(key)['url'];params=parse_qs(urlparse(url).query)
@@ -87,14 +83,10 @@ class BrokerTests(unittest.TestCase):
         self.broker.callback('wallet-session',second['state'][0],'code',ISSUER)
         token_calls=[payload for url,payload,headers in self.calls if url==TOKEN]
         self.assertEqual(token_calls[-1]['client_id'],'desk-test-2')
-    def test_preview_submit_confirmation_idempotency_and_no_auto_trade(self):
+    def test_provider_preview_is_read_only_and_never_places_an_order(self):
         p=self.draft();preview=self.broker.preview('wallet-session',p)
         self.assertEqual(preview['review']['market_data_disclosure'],'Exact quote disclosure')
         self.assertFalse(any((c[1] or {}).get('params',{}).get('name')=='place_equity_order' for c in self.calls))
-        with self.assertRaises(ValueError):self.broker.submit('wallet-session',{'id':preview['id']})
-        args={'id':preview['id'],'confirmation':'PLACE LIVE ORDER'}
-        one=self.broker.submit('wallet-session',args);two=self.broker.submit('wallet-session',args);self.assertEqual(one,two)
-        self.assertEqual(sum((c[1] or {}).get('params',{}).get('name')=='place_equity_order' for c in self.calls),1)
 
     def test_crypto_preview_uses_verified_rhs_account(self):
         s=self.connect();p={'accountId':s['accounts'][0]['id'],'asset':'crypto','symbol':'BTC-USD','side':'buy','type':'limit','quantity':'1','limit_price':'50'}
@@ -103,10 +95,7 @@ class BrokerTests(unittest.TestCase):
         self.assertIn('••••5432',str(preview['review']));self.assertNotIn('RHC98765432',str(preview['review']))
         call=next(payload for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='preview_crypto_order')
         self.assertEqual(call['params']['arguments']['rhs_account_number'],'55667788')
-        result=self.broker.submit('wallet-session',{'id':preview['id'],'confirmation':'PLACE LIVE ORDER'})
-        self.assertTrue(result['submitted'])
-        place=next(payload for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='place_crypto_order')
-        self.assertEqual(place['params']['arguments']['rhs_account_number'],'55667788');self.assertNotIn('rhc_account_number',place['params']['arguments'])
+        self.assertFalse(any((c[1] or {}).get('params',{}).get('name')=='place_crypto_order' for c in self.calls))
 
     def test_crypto_requires_both_linked_rhc_and_numeric_rhs(self):
         s=self.connect()
@@ -115,24 +104,15 @@ class BrokerTests(unittest.TestCase):
             with self.subTest(account=account['account']):
                 with self.assertRaisesRegex(ValueError,'linked crypto routing'):
                     self.broker.preview('wallet-session',{'accountId':account['id'],'asset':'crypto','symbol':'BTC-USD','side':'buy','type':'limit','quantity':'1','limit_price':'50'})
-    def test_read_only_account_and_broker_alerts_block_submit(self):
+    def test_read_only_account_and_broker_alerts_block_preview(self):
         p=self.draft();p['accountId']=next(a['id'] for a in self.broker.status('wallet-session')['accounts'] if not a['tradable'])
         with self.assertRaises(ValueError):self.broker.preview('wallet-session',p)
         p['accountId']=list(self.broker.sessions['wallet-session']['accounts'])[0];self.alerts={'alert_type':'INSUFFICIENT_BUYING_POWER'}
         preview=self.broker.preview('wallet-session',p);self.assertTrue(preview['blocked'])
-        with self.assertRaises(ValueError):self.broker.submit('wallet-session',{'id':preview['id'],'confirmation':'PLACE LIVE ORDER'})
-    def test_timeout_does_not_duplicate_write(self):
-        p=self.draft();preview=self.broker.preview('wallet-session',p);self.fail_place=True
-        args={'id':preview['id'],'confirmation':'PLACE LIVE ORDER'}
-        with self.assertRaises(TimeoutError):self.broker.submit('wallet-session',args)
-        with self.assertRaisesRegex(ValueError,'unknown'):self.broker.submit('wallet-session',args)
-        self.assertEqual(sum((c[1] or {}).get('params',{}).get('name')=='place_equity_order' for c in self.calls),1)
-    def test_live_disabled_and_expired_preview(self):
-        p=self.draft();self.broker.live=False
-        with self.assertRaises(ValueError):self.broker.preview('wallet-session',p)
-        self.broker.live=True;preview=self.broker.preview('wallet-session',p)
-        self.broker.sessions['wallet-session']['previews'][preview['id']]['expires']=0
-        with self.assertRaisesRegex(ValueError,'expired'):self.broker.submit('wallet-session',{'id':preview['id'],'confirmation':'PLACE LIVE ORDER'})
+    def test_preview_runtime_never_enables_live_routing(self):
+        p=self.draft();self.broker.preview('wallet-session',p)
+        self.assertFalse(self.broker.status('wallet-session')['liveEnabled'])
+        self.assertNotIn('place_equity_order',[c[1].get('params',{}).get('name') for c in self.calls if c[1]])
     def test_disconnect_clears_tokens_accounts_and_previews(self):
         self.draft();self.broker.disconnect('wallet-session');self.assertFalse(self.broker.status('wallet-session')['connected'])
 

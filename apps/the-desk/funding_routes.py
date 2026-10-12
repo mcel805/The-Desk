@@ -5,7 +5,6 @@ configuration; loading a page or signing in never sends an order or transfer.
 """
 import hashlib
 from http.cookies import SimpleCookie, CookieError
-import os
 from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.request import Request, urlopen
@@ -17,8 +16,8 @@ from hyperliquid_requests import HyperliquidRequestStore
 class FundingRoutes:
     def __init__(self,port,data_dir=None):
         self.port=port
-        self.live=os.environ.get('DESK_LIVE_ENABLED')=='1'
-        self.broker=Robinhood(port,live=self.live)
+        self.live=False
+        self.broker=Robinhood(port)
         root=Path(data_dir) if data_dir else Path(__file__).resolve().parent/'data'
         self.hyperliquid_requests=HyperliquidRequestStore(root/'hyperliquid-requests.sqlite3')
     def token(self,h):
@@ -84,7 +83,6 @@ class FundingRoutes:
         if path=='/api/robinhood/connect':h.json(self.broker.start(key,h.headers.get('Host','')));return True
         if path=='/api/robinhood/disconnect':self.broker.disconnect(key);h.json({'connected':False});return True
         if path=='/api/robinhood/preview':h.json(self.broker.preview(key,p));return True
-        if path=='/api/robinhood/submit':h.json(self.broker.submit(key,p));return True
         if path=='/api/integrations/hyperliquid/reserve':
             session,key=self.identity(h);h.json({'request':self.hyperliquid_requests.reserve(session['address'],self.network(p.get('network')),p.get('clientOrderId'),p.get('intent'))});return True
         if path=='/api/integrations/hyperliquid/submitting':
@@ -93,12 +91,6 @@ class FundingRoutes:
             session,key=self.identity(h);h.json({'request':self.hyperliquid_requests.release(session['address'],self.network(p.get('network')),p.get('clientOrderId'))});return True
         if path=='/api/integrations/hyperliquid/uncertain':
             session,key=self.identity(h);observed=p.get('observed') if isinstance(p.get('observed'),dict) else {'state':'uncertain'};h.json({'request':self.hyperliquid_requests.uncertain(session['address'],self.network(p.get('network')),p.get('clientOrderId'),observed)});return True
-        if path=='/api/integrations/hyperliquid/acknowledge':
-            session,key=self.identity(h)
-            state=p.get('state');
-            if state not in ('resting','filled','rejected'):raise ValueError('Invalid Hyperliquid order outcome.')
-            observed=p.get('observed') if isinstance(p.get('observed'),dict) else {'state':state,'venueOrderId':p.get('venueOrderId')}
-            h.json({'request':self.hyperliquid_requests.acknowledge(session['address'],self.network(p.get('network')),p.get('clientOrderId'),state,p.get('venueOrderId'),observed)});return True
         if path=='/api/integrations/hyperliquid/reconcile':
             session,key=self.identity(h);network=self.network(p.get('network'));client_order_id=p.get('clientOrderId')
             request=self.hyperliquid_requests.get(session['address'],network,client_order_id)

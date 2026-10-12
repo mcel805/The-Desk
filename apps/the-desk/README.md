@@ -128,4 +128,4 @@ Run transient-touch/recovery checks with `python3 -m unittest discover -s tests 
 
 ## Wallet, funding and connected venues
 
-The header wallet drawer provides Base sign-in, ETH/native USDC balances and reviewed funding controls, plus Hyperliquid wallet-signed limit tickets and official Robinhood OAuth/PKCE. Mainnet writes default to disabled; the chart/DOM engine remains paper. See [setup, scope and acceptance](docs/WALLET-FUNDING-AND-LIVE-TRADING.md). Build with `npm run build:wallet`, test with `npm run test:wallet` and `python -m unittest discover -s tests -p 'test_funding*.py'` using the server Python with `requirements-wallet.txt` installed.
+The header wallet drawer provides Base sign-in, ETH/native USDC balances, read-only venue snapshots and official Robinhood OAuth/PKCE. Venue orders and Base transfers are disabled; the chart/DOM engine remains paper. See [setup, scope and acceptance](docs/WALLET-FUNDING-AND-LIVE-TRADING.md). Build with `npm run build:wallet`, test with `npm run test:wallet` and `python -m unittest discover -s tests -p 'test_funding*.py'` using the server Python with `requirements-wallet.txt` installed.

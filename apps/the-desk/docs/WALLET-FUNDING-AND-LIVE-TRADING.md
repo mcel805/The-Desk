@@ -1,4 +1,4 @@
-# The Desk: Base wallet, funding and live venues
+# The Desk: Base wallet, funding and paper venue research
 
 Plan and implementation status, 12 October 2026.
 
@@ -13,9 +13,9 @@ The drawer provides three separate account views:
 
 | Account | Where funds reside | Implemented actions | Delivery status |
 |---|---|---|---|
-| Base wallet | User-controlled address on Base | Signed login, ETH/native USDC balances, receive address, reviewed ETH/USDC send | Implemented; user confirmed one real extension login |
-| Hyperliquid | HyperCore spot balances and perpetual collateral | Account snapshot, perpetual GTC limit order, reduce only, order cancellation, positions/fills | SDK signing and mock transport tested; funded testnet acceptance pending |
-| Robinhood | Broker custody | Official OAuth/PKCE login, masked accounts, separate stock/crypto buying power, reviewed stock/crypto limit-order requests | Public discovery and client registration verified; app OAuth completion and execution pending |
+| Base wallet | User-controlled address on Base | Signed login, ETH/native USDC balances and receive address | Implemented; user confirmed one real extension login; transfers disabled |
+| Hyperliquid | HyperCore spot balances and perpetual collateral | Read-only account snapshot, positions, working orders and fills; reconciliation of legacy requests | Public snapshot and authoritative reconciliation remain available; venue writes disabled |
+| Robinhood | Broker custody | Official OAuth/PKCE login, masked accounts and read-only buying-power data | Public discovery and client registration verified; order writes disabled |
 | Paper account | Local simulated ledger | Existing chart/DOM tickets and paper journal | Continues separately |
 
 This makes Base the wallet and funding integration. It does not deploy The Desk
@@ -33,32 +33,20 @@ need a named Base venue and its own quote, swap, simulation and settlement adapt
    network and disconnect events invalidate identity and discard pending reviews.
 2. **Wallet funding:** Receive shows the connected address and Base native USDC
    contract. ETH pays gas. Read ETH and USDC balances at the same block.
-   Send uses exact integer amounts, checks recipient/precision, estimates gas,
-   shows a review and asks the extension to sign. Submission is displayed as
-   pending with an explorer link, never as settled. Swap and bridge controls open
-   established provider interfaces; they are not embedded swap engines.
+   Base transfers are disabled in this paper runtime. Swap and bridge controls
+   open established provider interfaces; they are not embedded swap engines.
 3. **Hyperliquid funding:** Open its official deposit/withdraw flow, which
    determines the supported source asset, route, fees and destination. Do not
    reuse a guessed deposit address or assume Base USDC is immediately available
    as HyperCore collateral. The current documentation supports CCTP and multiple
    source chains; the Arbitrum USDC route remains a documented option.
-4. **Hyperliquid trading:** Choose testnet or mainnet explicitly. Refresh venue
-   metadata, collateral, positions and orders. Enter coin, side, quantity and
-   price. The review shows notional, reduce-only state, network and existing
-   position leverage when reported. The pinned SDK signs through the selected
-   extension and sends directly to the selected exchange. A unique client order
-   ID identifies each intent. Rejections stay errors; resting and filled are
-   distinguished. Unknown outcomes require reconciliation before another order.
-   This ticket uses existing venue leverage/margin settings and does not expose
-   leverage changes, market orders, trigger orders or spot orders yet.
-   Before wallet signing, The Desk stores the intent in a separate
-   `hyperliquid-requests.sqlite3` database under the runtime data directory.
-   One unresolved request blocks another order for the same wallet and network.
-   A definite wallet rejection releases that reservation; exchange timeouts,
-   parse failures and crash windows remain blocked. Reconciliation sends the
-   exact wallet and client order ID to Hyperliquid's official `orderStatus` info
-   query. A found venue order records its venue ID and state; a missing response
-   does not release the request.
+4. **Hyperliquid research:** Choose testnet or mainnet explicitly and refresh
+   public venue metadata, collateral, positions, working orders and fills. No
+   wallet-signed order or cancellation is sent by The Desk. Existing durable
+   requests remain blocked until the server performs authoritative `orderStatus`
+   reconciliation for the exact wallet and client order ID. A found venue order
+   records its venue ID and state; a missing response does not release the
+   request. Client-supplied acknowledgement is not an available route.
 5. **Robinhood connection:** Sign in with the Base wallet first, then click
    **Sign in to Robinhood**. The server discovers the official issuer, registers
    a public OAuth client, generates a state and PKCE S256 verifier, and redirects
@@ -68,18 +56,14 @@ need a named Base venue and its own quote, swap, simulation and settlement adapt
 6. **Robinhood funding:** Fund the eligible account in Robinhood. Brokerage
    buying power and cash-only crypto buying power are separate authoritative
    figures. The chat's Robinhood grant is independent of the Desk app's grant.
-7. **Robinhood trading:** Select an eligible active account and enter a stock/ETF
-   or crypto GTC limit order. The backend rejects read-only accounts and malformed
-   amounts, invokes the provider preview, preserves quote disclosures and broker
-   alerts, and blocks unsupported preview shapes. A server-held preview expires
-   after 30 seconds. Explicit confirmation sends exactly that request with a
-   retained UUID. The broker may require approval in Robinhood. Sending a request
-   is not a fill. Unknown submission outcomes are not automatically retried.
+7. **Robinhood research:** Account status and portfolio data are read-only in
+   this runtime. The Desk does not preview or submit broker orders; use the
+   official Robinhood interface for any trading activity.
 
 ## Rabby scope and provider limits
 
 The drawer follows Rabby's useful account pattern: address, chain, assets,
-receive, send, swap/bridge links, activity, and disconnect. Rabby/MetaMask still
+receive, swap/bridge links, activity, and disconnect. Rabby/MetaMask still
 provide key custody, transaction simulation, wallet security checks and their
 full token/NFT/multichain histories. This is not a fork of the Rabby extension or
 a claim of full Rabby feature parity. QR receive, embedded swaps/bridges, full
@@ -111,19 +95,11 @@ The launcher uses `DESK_PYTHON_BIN` when configured, then the Desk venv, then th
 existing Count Desk venv, then the caller Python. Missing signature dependencies
 leave paper routes working and report wallet verification as unavailable.
 
-Mainnet orders and Base transfers default to disabled. After wallet/venue
-acceptance, an operator may start a separate live runtime explicitly:
-
-```sh
-   DESK_LIVE_ENABLED=1 .venv/bin/python server.py --port 18882 --data-dir /private/tmp/desk-live
-```
-
-   This enables mainnet request controls but is not evidence of a verified live
-deployment. It never submits an order automatically. Do not change this variable
-in the paper launcher or claim that the chart ticket is live. Production serving
-requires HTTPS, explicit deployed origin/redirect configuration, persistent
-encrypted token custody, rate limits, audit retention and reviewed data rights;
-the current server deliberately only accepts loopback origins.
+Venue orders and Base transfers are unconditionally disabled in this build. There
+is no live runtime switch. Production serving would require HTTPS, explicit
+deployed origin/redirect configuration, persistent encrypted token custody, rate
+limits, audit retention and reviewed data rights; the current server deliberately
+only accepts loopback origins.
 
 Optional `DESK_ROBINHOOD_CLIENT_ID` must belong to an approved client whose
 redirect URI matches the runtime port. Dynamic registration is verified, but

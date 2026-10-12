@@ -66,8 +66,8 @@ def decimal(value):
     return amount
 
 class Robinhood:
-    def __init__(self, port, http=fetch_json, live=False):
-        self.port=port;self.http=http;self.live=live;self.pending={};self.sessions={};self.lock=threading.RLock();self.client_id=os.environ.get('DESK_ROBINHOOD_CLIENT_ID','');self.client_ids={}
+    def __init__(self, port, http=fetch_json):
+        self.port=port;self.http=http;self.pending={};self.sessions={};self.lock=threading.RLock();self.client_id=os.environ.get('DESK_ROBINHOOD_CLIENT_ID','');self.client_ids={}
     def disconnect(self, key):
         with self.lock:
             self.sessions.pop(key,None)
@@ -135,7 +135,7 @@ class Robinhood:
     def status(self,key):
         with self.lock:
             s=self.sessions.get(key)
-            if not s: return {'connected':False,'futures':False,'liveEnabled':self.live}
+            if not s: return {'connected':False,'futures':False,'liveEnabled':False}
             accounts=self.call(key,'get_accounts',{}).get('accounts') or []
             s['accounts']={}
             public=[]
@@ -143,7 +143,7 @@ class Robinhood:
                 aid=hashlib.sha256((key+str(a['account_number'])).encode()).hexdigest()[:24];s['accounts'][aid]=a
                 public.append({'id':aid,'account':'••••'+str(a['account_number'])[-4:],'cryptoAccount':'••••'+str(a['rhc_account_number'])[-4:] if a.get('rhc_account_number') else None,'name':a.get('nickname') or a.get('brokerage_account_type','Account'),'type':a.get('brokerage_account_type'),'tradingType':a.get('type'),'default':a.get('is_default',False),'tradable':a.get('agentic_allowed') is True and a.get('state')=='active' and not a.get('deactivated') and not a.get('permanently_deactivated'),'optionsApproved':a.get('option_level') in ('option_level_2','option_level_3')})
             names=s['tools']
-            return {'connected':True,'accounts':public,'equities':all(t in names for t in ['review_equity_order','place_equity_order']),'crypto':all(t in names for t in ['preview_crypto_order','place_crypto_order']),'options':False,'futures':False,'liveEnabled':self.live,'observedAt':time.time()}
+            return {'connected':True,'accounts':public,'equities':'review_equity_order' in names,'crypto':'preview_crypto_order' in names,'options':False,'futures':False,'liveEnabled':False,'observedAt':time.time()}
     def account(self,key,aid,trade=False):
         a=self.sessions.get(key,{}).get('accounts',{}).get(aid)
         if not a: raise ValueError('Select a connected Robinhood account.')
@@ -156,7 +156,6 @@ class Robinhood:
             return {k:p.get(k) for k in ('buying_power','crypto_buying_power','total_value','cash','currency','pending_deposits')}
     def preview(self,key,p):
         with self.lock:
-            if not self.live: raise ValueError('Live order routing is disabled in this Desk runtime.')
             a=self.account(key,p.get('accountId'),True)
             asset=p.get('asset')
             if asset not in ('equity','crypto'): raise ValueError('Native tickets currently support stocks/ETFs and crypto. Options and futures use Robinhood.')
@@ -180,25 +179,9 @@ class Robinhood:
             if not valid_echo or not valid_checks: result={**result,'validation_errors':'Provider preview schema is unverified; submit is blocked.'}
             preview_id=secrets.token_urlsafe(24);ref=str(uuid.uuid4())
             self.sessions[key]['previews']={k:v for k,v in self.sessions[key]['previews'].items() if v['expires']>time.time()}
-            self.sessions[key]['previews'][preview_id]={'args':args,'aid':p['accountId'],'asset':asset,'result':None,'blocked':blocked,'expires':time.time()+30,'ref':ref,'attempted':False}
+            self.sessions[key]['previews'][preview_id]={'args':args,'aid':p['accountId'],'asset':asset,'blocked':blocked,'expires':time.time()+30,'ref':ref}
             # Preserve provider review and mandatory quote disclosure; redact any account identifiers.
             public=json.dumps(result)
             for field in ('account_number','rhs_account_number','rhc_account_number'):
                 if a.get(field): public=public.replace(str(a[field]),'••••'+str(a[field])[-4:])
             return {'id':preview_id,'ref':ref,'review':json.loads(public),'blocked':blocked,'expiresAt':time.time()+30}
-    def submit(self,key,p):
-        with self.lock:
-            if not self.live or p.get('confirmation')!='PLACE LIVE ORDER': raise ValueError('Review and explicitly confirm the live order.')
-            order=self.sessions.get(key,{}).get('previews',{}).get(p.get('id'))
-            if not order or order['blocked']: raise ValueError('This preview cannot be submitted. Review the broker alerts.')
-            if order['result'] is not None: return order['result']
-            if order['attempted']: raise ValueError('Order outcome is unknown. Reconcile in Robinhood before submitting another order.')
-            if order['expires']<=time.time(): raise ValueError('Order preview expired. Review again.')
-            self.status(key)
-            self.account(key,order['aid'],True)
-            order['attempted']=True
-            # Never auto-retry a write; the retained ref is available for reconciliation.
-            result=self.call(key,'place_equity_order' if order['asset']=='equity' else 'place_crypto_order',{**order['args'],'ref_id':order['ref']})
-            if result.get('error') or result.get('errors'): raise ValueError('Robinhood did not accept the request. Check the broker order history.')
-            order['result']={'submitted':True,'ref':order['ref'],'approvalRequired':None,'message':'Request sent to Robinhood. Check Robinhood for approval, order status and fills.'}
-            return order['result']
