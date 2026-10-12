@@ -14,12 +14,12 @@ test('chart limit brackets: staging, all three drags, review, removal and discar
   await page.route('**/api/command',r=>{commands++;return r.abort();});
   await page.goto(url);await page.locator('.trade-overlay').waitFor({state:'attached'});await page.waitForTimeout(3000);
   const entry=page.locator('.trade-line[data-key=draftentry]'),stop=page.locator('.trade-line[data-key=draftstop]'),target=page.locator('.trade-line[data-key=drafttarget]');
-  async function stage(side){const box=await page.locator('.trade-overlay').first().boundingBox();await page.mouse.click(box.x+box.width*.5,box.y+box.height*.4,{button:'right'});await page.locator('#chartMenu [data-action='+side+']').click();for(const line of [entry,stop,target])await line.waitFor({state:'visible'});}
+  async function stage(side){const box=await page.locator('.trade-overlay').first().boundingBox();await page.mouse.click(box.x+box.width*.5,box.y+box.height*.4,{button:'right'});await page.locator('#chartMenu [data-action='+side+']').click();await page.getByRole('heading',{name:'Place paper '+side+' limit'}).waitFor();assert.equal(commands,0);await page.getByRole('button',{name:'Edit on chart'}).click();for(const line of [entry,stop,target])await line.waitFor({state:'visible'});}
   async function values(){return page.evaluate(()=>Object.fromEntries(['entry','stop','target'].map(f=>[f,Number(document.querySelector('#'+f+'Price').value)])));}
   async function drag(line,dy){const label=line.locator('.trade-line-label');await label.hover();const box=await label.boundingBox();await page.mouse.down();await page.mouse.move(box.x+box.width/2,box.y+box.height/2+dy,{steps:8});await page.mouse.up();await page.waitForTimeout(150);}
   await stage('sell');assert.equal(await entry.evaluate(e=>e.style.getPropertyValue('--level')),'#00bcd4');
-  assert.match(await stop.innerText(),/^Stop Loss · −[\d,.]+ ticks/);assert.match(await target.innerText(),/^Take Profit · \+[\d,.]+ ticks/);
-  assert.equal(await entry.locator('.trade-line-label').innerText(),'Entry');assert.equal(await stop.evaluate(e=>e.style.getPropertyValue('--level')),'#f23645');
+  assert.match(await stop.innerText(),/^DRAFT · Stop Loss · −[\d,.]+ ticks/);assert.match(await target.innerText(),/^DRAFT · Take Profit · \+[\d,.]+ ticks/);
+  assert.equal(await entry.locator('.trade-line-label').innerText(),'DRAFT · not placed');assert.equal(await stop.evaluate(e=>e.style.getPropertyValue('--level')),'#f23645');
   if(process.env.DESK_CHART_SCREENSHOT)await page.screenshot({path:process.env.DESK_CHART_SCREENSHOT});
   const initial=await values();await drag(entry,25);const moved=await values();assert.notEqual(moved.entry,initial.entry);assert.equal(moved.stop-moved.entry,initial.stop-initial.entry);assert.equal(moved.entry-moved.target,initial.entry-initial.target);
   await drag(stop,-18);const next=await values();assert.notEqual(next.stop,moved.stop);assert.equal(next.entry,moved.entry);assert.equal(next.target,moved.target);

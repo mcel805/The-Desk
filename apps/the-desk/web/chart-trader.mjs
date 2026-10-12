@@ -1,7 +1,7 @@
 import {marketIdentity,tradingLevels,tradeLevelPlacement} from './trading-model.mjs';
 import {moveDraftBracket,bracketLabel} from './chart-bracket-model.mjs';
 
-export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,toast}){
+export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,placeDraft,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,toast}){
   const wraps=new Map();let drag=null;
   function validDrag(d){const ws=workspace(),s=state();return !!ws&&!!s&&!ws.replay.state.active&&s.active_account===d.account&&ws.active.id===d.cellId&&marketIdentity(ws.active.chart)===d.market;}
   function attach(cell){
@@ -30,6 +30,9 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
     node.oncontextmenu=e=>{e.preventDefault();e.stopPropagation();edit(node.level);};
     label.onclick=()=>{if(node.offscale)edit(node.level);else if(node.level.kind==='position'&&node.level.field==='entry')editBracket(node.level.item);};
     if(level.kind==='draft'||level.kind==='order'||['stop','target'].includes(level.field)){const cancel=document.createElement('button');cancel.textContent='×';cancel.dataset.action='cancel';cancel.setAttribute('aria-label',level.kind==='draft'?'Remove draft '+level.field:['stop','target'].includes(level.field)?'Remove '+level.field:'Cancel chart order');cancel.onclick=()=>{const l=node.level;if(l.kind==='draft')l.remove?.();else if(['stop','target'].includes(l.field))removeProtection(l);else cancelOrder(l.item);};group.append(cancel);}
+    if(level.kind==='draft'&&level.field==='entry'&&level.item.kind==='limit'){
+      const b=document.createElement('button');b.textContent='Place';b.dataset.action='place';b.setAttribute('aria-label','Review and place draft paper order');b.onclick=()=>placeDraft?.();group.append(b);
+    }
     if(level.kind==='position'&&level.field==='entry'){
       for(const [action,text] of [['protect','SL/TP'],['reverse','⇄'],['close','×']]){const b=document.createElement('button');b.textContent=text;b.dataset.action=action;b.setAttribute('aria-label',action==='close'?'Close chart position':action==='reverse'?'Reverse chart position':'Protect chart position');b.onclick=()=>action==='close'?closePosition(node.level.item):action==='reverse'?reversePosition(node.level.item):editBracket(node.level.item);group.append(b);}
     }
@@ -47,8 +50,8 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
       const live=new Set(levels.map(l=>l.key));if(drag?.cellId===cell.id&&!live.has(drag.level.key))drag=null;for(const [key,node] of nodes)if(!live.has(key)){node.remove();nodes.delete(key);}
       const occupied=[],preview=drag?.level.kind==='draft'?moveDraftBracket(drag.level.item,drag.level.field,drag.price,Number(quote?.tick||.01)):null;
       for(let level of levels){const dragging=drag?.level.key===level.key;
-        if(level.kind==='draft'&&preview&&preview[level.field]!=null){const item={...level.item,...preview};level={...level,price:preview[level.field],label:bracketLabel(item,level.field,quote)};}
-        else if(dragging){const item={...level.item,[level.field]:drag.price};level={...level,price:drag.price,label:bracketLabel(item,level.field,quote)};}
+        if(level.kind==='draft'&&preview&&preview[level.field]!=null){const item={...level.item,...preview};level={...level,price:preview[level.field],label:level.field==='entry'?'DRAFT · not placed':'DRAFT · '+bracketLabel(item,level.field,quote)};}
+        else if(dragging){const item={...level.item,[level.field]:drag.price};level={...level,price:drag.price,label:(level.kind==='draft'?'DRAFT · ':'')+bracketLabel(item,level.field,quote)};}
         let node=nodes.get(level.key);if(!node){node=createLine(level,wrap,cell,pane);nodes.set(level.key,node);}node.level=level;node.dataset.price=level.price;node.dataset.kind=level.kind;node.dataset.field=level.field;node.dataset.itemId=level.item?.id||'';
         const placement=tradeLevelPlacement(native.coords.priceToY(level.price,pane.scale,pane.bounds),pane.bounds),y=placement?.y;
         node.offscale=placement?.edge||null;node.classList.toggle('offscale',!!node.offscale);node.dataset.edge=node.offscale||'';

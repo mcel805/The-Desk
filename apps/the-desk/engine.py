@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -315,24 +316,26 @@ class Engine:
     def cash(self,db,aid,amount,kind):
         db.execute('INSERT INTO cash VALUES(?,?,?,?,?)',(uid('cash'),aid,str(amount),kind,stamp()))
 
-    def record_fill(self,db,a,order_id,pos,instrument,side,qty,price,realized,reason):
+    def record_fill(self,db,a,order_id,pos,instrument,side,qty,price,realized,reason,evidence=None):
         fee=qty*price*dec(a['fee_bps'])/10000;fid=uid('fill');when=stamp()
         db.execute('INSERT INTO fills VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(fid,order_id,a['id'],pos,instrument,side,str(qty),str(price),str(fee),str(realized),reason,when))
         self.cash(db,a['id'],realized-fee,'fill')
         symbol=instrument.upper()+('-PERP' if instrument.startswith('hyperliquid:') else '')
         payload={'eventId':fid,'eventType':'execution','account':self.account_payload(a),'execution':{'id':fid,'symbol':symbol,'side':side,'quantity':float(qty),'price':float(price),'fee':float(fee),'executedAt':when,'multiplier':1,'assetClass':'crypto'},'provenance':{'positionId':pos,'source':instrument+' bid/ask quote · PAPER SIMULATED','timeframe':'quote','simulation':True}}
+        if evidence:
+            payload['provenance'].update(source=instrument+' public trade touch · PAPER SIMULATED',timeframe='trade',market_event=evidence)
         self.queue(db,fid,payload)
-        self.event(db,'fill',{'account_id':a['id'],'message':side.upper()+' '+str(qty)+' '+instrument+' @ '+str(price)+' · '+reason,'fill_id':fid})
+        self.event(db,'fill',{'account_id':a['id'],'message':side.upper()+' '+str(qty)+' '+instrument+' @ '+str(price)+' · '+reason,'fill_id':fid,**({'market_event':evidence} if evidence else {})})
 
-    def exit_position(self,db,p,qty,price,reason,order_id=None):
+    def exit_position(self,db,p,qty,price,reason,order_id=None,evidence=None):
         a=self.account(db,p['account_id']);qty=min(qty,dec(p['qty']))
         side='sell' if p['side']=='buy' else 'buy'
         realized=(price-dec(p['entry']))*qty*(1 if p['side']=='buy' else -1)
-        self.record_fill(db,a,order_id,p['id'],p['instrument'],side,qty,price,realized,reason)
+        self.record_fill(db,a,order_id,p['id'],p['instrument'],side,qty,price,realized,reason,evidence)
         remain=dec(p['qty'])-qty
         db.execute('UPDATE positions SET qty=?,status=?,revision=revision+1 WHERE id=?',(str(remain),'open' if remain else 'closed',p['id']))
 
-    def fill_order(self,db,o,price):
+    def fill_order(self,db,o,price,evidence=None):
         a=self.account(db,o['account_id']);remain=dec(o['qty']);posid=None
         # Revalidate spot inventory at fill time; another exit may have consumed it.
         if o['instrument'].startswith('coinbase:') and o['side']=='sell':
@@ -342,7 +345,7 @@ class Engine:
                 self.event(db,'rejection',{'account_id':a['id'],'message':'Spot inventory changed before fill','order_id':o['id']});return
         for p in db.execute("SELECT * FROM positions WHERE account_id=? AND instrument=? AND side<>? AND status='open' ORDER BY opened_at,id",(a['id'],o['instrument'],o['side'])).fetchall():
             if not remain:break
-            close_qty=min(remain,dec(p['qty']));self.exit_position(db,p,close_qty,price,'netting',o['id']);remain-=close_qty
+            close_qty=min(remain,dec(p['qty']));self.exit_position(db,p,close_qty,price,'netting',o['id'],evidence);remain-=close_qty
         if remain:
             q=self.quotes.get(o['instrument'],{});lev=Decimal(1) if o['instrument'].startswith('coinbase:') else dec(a['leverage'])
             # Remove this order's reserved margin for the final fill-time check.
@@ -354,7 +357,7 @@ class Engine:
             # A gap beyond a bracket invalidates that protection; reject before opening.
             self.validate_levels(o['side'],price,dec(o['stop']) if o['stop'] else None,dec(o['target']) if o['target'] else None)
             db.execute('INSERT INTO positions VALUES(?,?,?,?,?,?,?,?,?,?,?)',(posid,a['id'],o['instrument'],o['side'],str(remain),str(price),o['stop'],o['target'],'open',stamp(),1))
-            self.record_fill(db,a,o['id'],posid,o['instrument'],o['side'],remain,price,Decimal(0),'entry')
+            self.record_fill(db,a,o['id'],posid,o['instrument'],o['side'],remain,price,Decimal(0),'entry',evidence)
         db.execute("UPDATE orders SET status='filled',filled_price=?,position_id=?,revision=revision+1,updated_at=? WHERE id=?",(str(price),posid,stamp(),o['id']))
 
     def close(self,db,p):
@@ -404,6 +407,11 @@ class Engine:
         if ask<bid:raise ValueError('Crossed order book')
         when=received_at or time.time()
         with self.lock:
+            source=(metadata or {}).get('source_time')
+            market_at=float(source)/1000 if source is not None else when
+            if source is not None:
+                previous=self.quotes.get(instrument,{}).get('source_time')
+                if not math.isfinite(market_at) or market_at>time.time()+5 or time.time()-market_at>15 or (previous is not None and source<previous):return
             q={'bid':str(bid),'ask':str(ask),'last':str((bid+ask)/2),'received_at':when,'source':'public exchange bid/ask','tick':'0.01','qty_step':'0.000001',**(metadata or {})}
             self.quotes[instrument]=q
             if time.time()-when>15:return
@@ -413,7 +421,7 @@ class Engine:
                     if o['expires_at'] and time.time()>=o['expires_at']:
                         db.execute("UPDATE orders SET status='expired',revision=revision+1,updated_at=? WHERE id=?",(stamp(),o['id']))
                         self.event(db,'expiry',{'account_id':o['account_id'],'order_id':o['id'],'message':'Paper order expired'});continue
-                    if when<=o['created_at']:continue
+                    if market_at<=max(o['created_at'],datetime.fromisoformat(o['updated_at'].replace('Z','+00:00')).timestamp()):continue
                     px=ask if o['side']=='buy' else bid;triggered=o['status']=='triggered'
                     if o['kind'] in ('stop','stop_limit') and not triggered:
                         hit=px>=dec(o['trigger']) if o['side']=='buy' else px<=dec(o['trigger'])
@@ -443,6 +451,34 @@ class Engine:
                         db.execute("UPDATE alerts SET status='triggered' WHERE id=?",(a['id'],))
                         self.event(db,'alert',{'account_id':a['account_id'],'message':instrument+' '+a['condition']+' '+a['price'],'alert_id':a['id']})
 
+    def ingest_trade(self,instrument,price,event_at,event_id):
+        """Conservative paper resting-limit touch; never invent a bid/ask from a print."""
+        self.instrument(instrument);price=dec(price,True);event_at=float(event_at)
+        if not math.isfinite(event_at) or not isinstance(event_id,str) or not event_id:return
+        now=time.time()
+        if now-event_at>15 or event_at>now+5:return
+        with self.lock:
+            try:self.quote(instrument)
+            except ValueError:return
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                rows=db.execute("SELECT * FROM orders WHERE instrument=? AND (kind='limit' AND status='working' OR kind='stop_limit' AND status='triggered') ORDER BY created_at,id",(instrument,)).fetchall()
+                for o in rows:
+                    accepted=max(o['created_at'],datetime.fromisoformat(o['updated_at'].replace('Z','+00:00')).timestamp())
+                    if event_at<=accepted or (o['expires_at'] and now>=o['expires_at']):continue
+                    if o['kind']=='stop_limit' and event_at<=(o['triggered_at'] or 0):continue
+                    limit=dec(o['price'])
+                    if not (price<=limit if o['side']=='buy' else price>=limit):continue
+                    evidence={'id':event_id,'time':event_at,'price':str(price),'instrument':instrument}
+                    db.execute('SAVEPOINT match_trade')
+                    try:
+                        self.fill_order(db,o,limit,evidence)
+                        db.execute('RELEASE match_trade')
+                    except ValueError as e:
+                        db.execute('ROLLBACK TO match_trade');db.execute('RELEASE match_trade')
+                        db.execute("UPDATE orders SET status='rejected',revision=revision+1,updated_at=? WHERE id=?",(stamp(),o['id']))
+                        self.event(db,'rejection',{'account_id':o['account_id'],'order_id':o['id'],'message':str(e)})
+
     def state(self,account_id=None):
         with self.lock, self.db() as db:
             accounts=[]
@@ -461,11 +497,11 @@ class Engine:
                         ORDER BY created_at DESC LIMIT 100
                     )
                 ) ORDER BY created_at DESC""",(aid,aid)).fetchall()
-            return {'accounts':accounts,'active_account':aid,'orders':[dict(r) for r in orders], 'positions':[dict(r) for r in db.execute("SELECT * FROM positions WHERE account_id=? AND status='open' ORDER BY opened_at DESC",(aid,))], 'fills':[dict(r) for r in db.execute('SELECT * FROM fills WHERE account_id=? ORDER BY executed_at DESC LIMIT 100',(aid,))], 'quotes':{k:{**v,'age':time.time()-v['received_at']} for k,v in self.quotes.items()}, 'alerts':[dict(r) for r in db.execute('SELECT * FROM alerts WHERE account_id=? ORDER BY created_at DESC',(aid,))], 'events':[dict(r) for r in db.execute('SELECT * FROM events WHERE json_extract(content,\'$.account_id\')=? ORDER BY id DESC LIMIT 60',(aid,))], 'journal':{**status,'account_id':journal_account},'mode':'PAPER · SIMULATED','matching_model':'Server bid/ask · full quantity modeled, no queue or partial-fill claims','cost_model':'Configured commission + observed spread; slippage/funding not modeled'}
+            return {'accounts':accounts,'active_account':aid,'orders':[dict(r) for r in orders], 'positions':[dict(r) for r in db.execute("SELECT * FROM positions WHERE account_id=? AND status='open' ORDER BY opened_at DESC",(aid,))], 'fills':[dict(r) for r in db.execute('SELECT * FROM fills WHERE account_id=? ORDER BY executed_at DESC LIMIT 100',(aid,))], 'quotes':{k:{**v,'age':time.time()-v['received_at']} for k,v in self.quotes.items()}, 'alerts':[dict(r) for r in db.execute('SELECT * FROM alerts WHERE account_id=? ORDER BY created_at DESC',(aid,))], 'events':[dict(r) for r in db.execute('SELECT * FROM events WHERE json_extract(content,\'$.account_id\')=? ORDER BY id DESC LIMIT 60',(aid,))], 'journal':{**status,'account_id':journal_account},'mode':'PAPER · SIMULATED','matching_model':'Public bid/ask + fresh Hyperliquid limit touches · full quantity modeled, no queue or partial-fill claims','cost_model':'Configured commission + observed spread; slippage/funding not modeled'}
 
     def export(self,account_id):
         with self.lock, self.db() as db:
             a=self.account(db,account_id)
             records={name:[dict(r) for r in db.execute('SELECT * FROM '+name+' WHERE account_id=?',(account_id,))] for name in ('orders','positions','fills','cash')}
             events=[dict(r) for r in db.execute("SELECT * FROM events WHERE json_extract(content,'$.account_id')=? ORDER BY id",(account_id,))]
-            return {'schema':'the-desk.account-export.v1','mode':'PAPER · SIMULATED','exported_at':stamp(),'timezone':'UTC','account':{**dict(a),**{k:str(v) for k,v in self.funds(db,a).items()}},**records,'events':events,'matching_model':'Public exchange bid/ask; full quantity modeled','cost_model':'Configured commission + observed spread; no slippage/funding/liquidation model'}
+            return {'schema':'the-desk.account-export.v1','mode':'PAPER · SIMULATED','exported_at':stamp(),'timezone':'UTC','account':{**dict(a),**{k:str(v) for k,v in self.funds(db,a).items()}},**records,'events':events,'matching_model':'Public bid/ask + fresh Hyperliquid limit touches; full quantity modeled','cost_model':'Configured commission + observed spread; no slippage/funding/liquidation model'}
