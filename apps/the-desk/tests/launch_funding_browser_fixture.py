@@ -14,7 +14,6 @@ with tempfile.TemporaryDirectory(prefix='desk-wallet-browser-') as tmp:
     target=Path(tmp);(target/'web/vendor').mkdir(parents=True)
     for name in ['server.py','engine.py','market_stream.py','wallet_auth.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
     for name in ['funding-ui.mjs','wallet-model.mjs','funding.css','desk.css']:shutil.copyfile(root/'web'/name,target/'web'/name)
-    shutil.copyfile(root/'web/vendor/hyperliquid-wallet.js',target/'web/vendor/hyperliquid-wallet.js')
     # Compile the fixture with the installed pinned viem dependency.
     subprocess.run(['node',str(root/'node_modules/esbuild/bin/esbuild'),str(root/'tests/funding-browser-fixture.mjs'),'--bundle','--format=esm','--external:../web/funding-ui.mjs','--outfile='+str(target/'web/fixture.mjs')],check=True)
     p=target/'web/fixture.mjs';p.write_text(p.read_text().replace("../web/funding-ui.mjs","./funding-ui.mjs"))

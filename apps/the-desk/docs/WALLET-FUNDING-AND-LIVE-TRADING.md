@@ -87,7 +87,6 @@ cd '/Users/markceleste/Documents/ChatGPT/The Trader - a trading company/apps/the
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-wallet.txt
 npm ci
-npm run build:wallet
 .venv/bin/python server.py --port 18882 --data-dir /private/tmp/desk-funding-review
 ```
 
@@ -147,8 +146,7 @@ Keep paper and live IDs, ledgers, execution workers and journal records separate
 - Robinhood public OAuth discovery and dynamic registration were read directly
   at `agent.robinhood.com`; the registered consent URL uses `robinhood.com/oauth`.
 
-Dependency versions: `@nktkas/hyperliquid 0.33.3`, `viem 2.57.4`,
-`eth-account 0.13.7`. Bundle licenses accompany the checked-in browser bundle.
+Dependency versions: `viem 2.57.4`, `eth-account 0.13.7`.
 
 ## Local validation evidence — 12 October 2026
 
