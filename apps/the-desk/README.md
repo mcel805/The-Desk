@@ -27,7 +27,7 @@ Python 3.9+ and Node 22 are available on this machine. The checked-in Vela brows
 | Watchlist and DOM | Six market rows, streaming price/size/cumulative-total book, red/green depth bars and change highlights, source switching, click-to-stage limits, adjacent paper ticket |
 | Ticket | Buy/sell, market/limit/stop market/stop limit, units/USD notional/percentage/risk sizing, commission/risk/reward estimates, optional SL/TP, GTC or timed expiry |
 | Chart trader | Draft/working/position/protection lines aligned with the native price pane; context menu staging, drag amendment review, keyboard Enter editing |
-| Account manager | Separate virtual balances and ledgers; edit account settings, reset or delete accounts, and choose whether to reset the linked Lux Journal; orders, open positions, executions, event history, partial close, reversal, SL/TP amendment and cancellation |
+| Account manager | Separate virtual balances and ledgers; orders, open positions, executions, event history, partial close, reversal, SL/TP amendment and cancellation |
 | Paper backend | Server-owned matching/timers, quote freshness and precision checks, spot inventory, virtual buying power, fees/realized cash, atomic receipts/outbox, idempotent commands and revision checks |
 | Alerts | Durable one-shot above/below alerts evaluated by the server; visible event/toast when this account workspace is open |
 | Replay | Vela historical chart start/step/play/pause/exit; current submission and position editing controls disabled while replay is active |
@@ -61,7 +61,7 @@ Desk SQLite, process IDs, backups, tokens and logs live under ignored `data/`. T
 
 ## Pine Script indicators
 
-**Cleo's Liquidity** is available in **Indicators → Cleo's Liquidity → Open & test**. The supplied Wave Court v1.14 source keeps all 199 inputs and original calculations/drawings; only its declaration name changes. See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for installation, validation and the TradingView reference boundary.
+**Cleo's Liquidity** is available in **Indicators → Cleo's Liquidity → Open & test**. It keeps the supplied Wave Court v1.14 calculations and all 199 inputs, with chart-and-higher liquidity and nearest-level defaults for a readable price view. See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for display settings, 4H runtime validation and the TradingView reference boundary.
 
 Open **Indicators → Create Pine Script indicator**, paste native Pine v5/v6 source or load Market Gravity, then **Compile & test**. Add tested source to the chart or save it in the local Pine library. Original settings and drawings use Vela; reports and CSV comparison keep runtime success separate from verified TradingView parity. See [PINE-INDICATORS.md](PINE-INDICATORS.md) for the workflow, compatibility boundary, tests and AGPL dependencies.
 

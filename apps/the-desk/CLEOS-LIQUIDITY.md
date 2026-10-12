@@ -7,16 +7,20 @@ Then **Add to chart**; **Save indicator** adds the source to the local library.
 Open the study's **Settings** to configure the original 199 inputs.
 Settings, visibility, source, and manual price/date anchors persist with the chart.
 
-The supplied Wave Court v1.14 Pine v6 source is executed directly. The only
-source change is its declaration title and short title: `Cleo's Liquidity`.
-Original timeframe colors, labels, merged tiny timeframe numbers, micro
-structure, wick channels, Fibonacci lifecycle, candidate projections, panels,
-liquidity/convergence, manual anchors, completed 1M master and alert rules remain
+The supplied Wave Court v1.14 Pine v6 source is executed directly, with its
+original calculations and 199 inputs retained. The declaration is named
+`Cleo's Liquidity`. The display defaults select liquidity at the chart timeframe
+and higher, show the nearest active pools plus a bounded set of recently broken
+levels, and omit timeframe tags from broken levels. The original
+`1H + 30M + 15M`, `Core`, `HTF + core`, and `All seven` scope choices and the
+`All retained` line mode remain available. Original timeframe colors, labels,
+micro structure, wick channels, Fibonacci lifecycle, candidate projections,
+panels, convergence, manual anchors, completed 1M master and alert rules remain
 in the source. The internal panel heading and alert names retain their original
-Wave Court wording to preserve the requested source behavior.
+Wave Court wording.
 
-Defaults are the supplied defaults, including Fib/projections/pockets disabled.
-A screenshot may show custom settings or other studies; those are not silently
+The supplied Fib/projection/pocket settings remain disabled by default. A
+screenshot may show custom settings or other studies; those are not silently
 substituted for the source's defaults. Price candles and chart chrome belong to
 the chart's own settings.
 
@@ -39,9 +43,9 @@ the chart's own settings.
 ## Runtime compatibility
 
 Pinned `@luxalgo/vela-pinets 0.2.15` / `pinets 0.11.0` are unchanged. The original
-nested security transport needs a scoped worker extension. Only scripts with
-both Wave Court transport functions select `pine-compatible-worker.js`; other
-Pine indicators keep the existing worker.
+nested security transport needs a scoped worker extension. Only the exact named
+Cleo source with its normalized source signature selects
+`pine-compatible-worker.js`; other Pine indicators keep the existing worker.
 
 `web/pine-compat/` applies host fixes to generated JavaScript, without rewriting
 Pine calculations: lazy requested expressions; shared independent requested
@@ -52,6 +56,11 @@ Safe immutable request slices reduce work; stateful expressions use the full
 capture path. This adapter is scoped to the supplied source, not a promise of
 universal Pine compatibility. Worker stop/cancel and host execution deadlines
 prevent failed studies from holding the UI.
+
+Cleo runs in its own worker with a 120-second execution limit to accommodate the
+canonical 1M master on slower or higher-timeframe charts. The 4H fixture check
+uses the app's 600-bar chart history and confirms the study draws without
+timing out.
 
 The copied sampling helpers and extension carry AGPL-3.0-only notices. Original
 runtime licenses and source links remain in `web/vendor/`. Rebuild from the

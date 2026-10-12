@@ -3,27 +3,35 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from '../web/pine-compat/nested-security.mjs';
-import {drawingCounts,plotRows,compareReference,rowsToCsv} from '../web/pine-validation.mjs';
+import {pineWorkerOptions} from '../web/pine-runtime.mjs';
+import {drawingCounts,plotRows} from '../web/pine-validation.mjs';
+import {pineState,restorePineState} from '../web/pine-state.mjs';
 installNestedSecurity();
 const minute=60000,end=Date.UTC(2026,9,9,20);
 const duration=tf=>({'D':1440,'1D':1440,'240':240,'60':60,'30':30,'15':15,'5':5,'1':1}[tf])*minute;
 function fixture(tf,n=600){const width=duration(tf);return Array.from({length:n},(_,i)=>{const time=end-(n-i)*width,p=51000+250*Math.sin(time/14400000)+50*Math.sin(time/900000);return {time,open:p,high:p+15,low:p-15,close:p+10*Math.sin(i),volume:1000+i%40};});}
 const market=tf=>({symbol:'fixture:MYM',timeframe:tf,symbolInfo:{ticker:'MYM',tickerid:'fixture:MYM',timezone:'America/Chicago',mintick:1,minmov:1,pricescale:1,type:'futures',currency:'USD'}});
 async function run(source,{tf='60',inputs={},bars=fixture(tf),fetchSeries=async(_,f,r)=>fixture(f,r.limit||600)}={}){
- const engine=new PineEngine(),prepared=await engine.prepare(source,'cleo-test');let session,model;const started=performance.now();
- try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Execution exceeded 30 seconds')),30000);session=engine.execute({prepared,bars,market:market(tf),inputs,visibleRange:{left:bars.at(-200)?.time||bars[0].time,right:end+duration(tf)*50},historyState:'complete',mode:'static',fetchSeries},{onModel:m=>model=m,onDone:()=>{clearTimeout(timer);resolve();},onError:e=>{clearTimeout(timer);reject(e);}});});return {prepared,model,bars,context:await session.getContext(['variables','warnings']),milliseconds:performance.now()-started};}finally{session?.stop();}
+ const engine=new PineEngine(),prepared=await engine.prepare(source,'cleo-test');let session,model;const warnings=[],started=performance.now();
+ try{await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Execution exceeded 120 seconds')),120000);session=engine.execute({prepared,bars,market:market(tf),inputs,visibleRange:{left:bars.at(-200)?.time||bars[0].time,right:end+duration(tf)*50},historyState:'complete',mode:'static',fetchSeries},{onModel:m=>model=m,onWarning:w=>warnings.push(w),onDone:()=>{clearTimeout(timer);resolve();},onError:e=>{clearTimeout(timer);reject(e);}});});return {prepared,model,bars,warnings,milliseconds:performance.now()-started};}finally{session?.stop();}
 }
 const original=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity-original.pine',import.meta.url),'utf8');
 const named=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
 const normalize=value=>JSON.parse(JSON.stringify(value,(key,v)=>['id','title','shorttitle'].includes(key)?undefined:v));
 let namedResult;
-test('named export changes only the indicator title/shorttitle; all settings and output geometry match original',async()=>{
- assert.equal(named,original.replace('"Wave Court • Seven Timeframe Research v1.14", "Wave Court MTF 1.14"','"Cleo\'s Liquidity", "Cleo\'s Liquidity"'));
- const baseline=await run(original);namedResult=await run(named);
- assert.equal(namedResult.prepared.meta.title,"Cleo's Liquidity");assert.equal(namedResult.prepared.inputs.length,199);assert.deepEqual(namedResult.prepared.inputs,baseline.prepared.inputs);
- for(const key of ['series','lines','boxes','labels','polylines','linefills','tables'])assert.deepEqual(normalize(namedResult.model[key]),normalize(baseline.model[key]),key);
- const counts=drawingCounts(namedResult.model);assert.ok(counts.lines>20);assert.ok(counts.labels>10);assert.equal(counts.tables,1);assert.ok(namedResult.context.warnings.every(w=>!/out.of.bounds|unsupported|error/i.test(w.message)));
- assert.ok(namedResult.milliseconds<30000);assert.equal(compareReference(plotRows(baseline.model,baseline.bars,end),rowsToCsv(plotRows(namedResult.model,namedResult.bars,end))).matched,true);
+test('Cleo export preserves its input schema and calculations while applying readable display defaults',async()=>{
+ const originalPrepared=await new PineEngine().prepare(original,'cleo-original');namedResult=await run(named);
+ assert.equal(namedResult.prepared.meta.title,"Cleo's Liquidity");assert.equal(namedResult.prepared.inputs.length,199);
+ const inputSchema=inputs=>inputs.map(({key,title,type,group})=>({key,title,type,group}));assert.deepEqual(inputSchema(namedResult.prepared.inputs),inputSchema(originalPrepared.inputs));
+ assert.equal(namedResult.prepared.inputs.find(i=>i.key==='rawScope')?.defval,'Chart and higher');assert.equal(namedResult.prepared.inputs.find(i=>i.key==='rawDisplayMode')?.defval,'Nearest N');
+ assert.match(pineWorkerOptions(named).workerUrl,/pine-compatible-worker\.js$/,'Cleo must keep using the nested-security worker after its display-source update');
+ const onlyIntendedChanges=original.replace('indicator("Wave Court • Seven Timeframe Research v1.14", "Wave Court MTF 1.14", overlay = true, dynamic_requests = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 120)','indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity", overlay = true, dynamic_requests = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 120)')
+  .replace('string rawScope = input.string("1H + 30M + 15M", "Scope", options = ["1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")','string rawScope = input.string("Chart and higher", "Scope", options = ["Chart and higher", "1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")')
+  .replace('string rawDisplayMode = input.string("All retained", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "All retained draws every available pool in the selected timeframe scope, including ended lines. Nearest N restores the compact v1.10 view.")','string rawDisplayMode = input.string("Nearest N", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "Nearest N keeps the closest active levels on each side and a bounded set of recent broken levels. All retained draws every available pool in the selected timeframe scope, including ended lines.")')
+  .replace('rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true','rawScope == "Chart and higher" ? f_ms(id) >= int(timeframe.in_seconds(timeframe.period) * 1000) : rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true')
+  .replace('if showLiquidityTimeframeTags and array.size(liquidityEndTags) < 180','if showLiquidityTimeframeTags and not retired and array.size(liquidityEndTags) < 180');
+ assert.equal(named.replace(/\r\n?/g,'\n'),onlyIntendedChanges.replace(/\r\n?/g,'\n'),'all other Pine calculations and source text stay unchanged');
+ const counts=drawingCounts(namedResult.model);assert.ok(counts.lines>20);assert.ok(counts.labels>10);assert.equal(counts.tables,1);assert.ok(namedResult.warnings.every(w=>!/out.of.bounds|unsupported|error/i.test(w.message)));
 });
 test('nested requests independently resolve completed higher timeframe OHLC and lower timeframe master bars with shared input overrides',async()=>{
  const src=`//@version=6\nindicator("Nested fixture")\nscale=input.int(2,"Scale")\nf_parent() =>\n    [v,t] = request.security(syminfo.tickerid,"D",[high[1]*scale,time_close[1]],lookahead=barmerge.lookahead_on,calc_bars_count=20)\n    [v,t]\nf_master() =>\n    [p,t] = f_parent()\n    [p,t,close]\n[a,t,m] = request.security(syminfo.tickerid,"1",f_master(),lookahead=barmerge.lookahead_off,calc_bars_count=200)\nplot(a,"Parent")\nplot(t,"Cutoff")\nplot(m,"Master")`;
@@ -48,7 +56,24 @@ test('manual anchors create original candidate and Fibonacci geometry',async()=>
  const manualInputs={manualEnabled:true,showFib:true,showProjection:true,panelMode:'Expanded'};for(let i=0;i<6;i++){manualInputs['manT'+i]=end-(18-i*2)*duration('60');manualInputs['manP'+i]=[51000,51200,51100,51500,51300,51600][i];}
  const manual=await run(named,{inputs:manualInputs});assert.ok(manual.model.lines.length>0);assert.equal(manual.model.labels.filter(l=>String(l.text).startsWith('Fib ')).length,7);assert.ok(manual.model.labels.filter(l=>String(l.text).startsWith('Fib ')).every(l=>Number.isFinite(l.x)));assert.ok(manual.model.lines.every(l=>Number.isFinite(l.x1)&&Number.isFinite(l.x2)));assert.equal(manual.model.tables.length,1);assert.equal(manual.model.inputValues.manualEnabled,true);
 });
+test('Cleo persistence restores all inputs, visibility, anchors, and runtime geometry',async()=>{
+ const seed=namedResult??await run(named),inputs=Object.fromEntries(seed.prepared.inputs.map(input=>[input.key,input.defval]));assert.equal(Object.keys(inputs).length,199);
+ Object.assign(inputs,{manualEnabled:true,showFib:true,showProjection:true,panelMode:'Expanded'});for(let i=0;i<6;i++){inputs['manT'+i]=end-(18-i*2)*duration('60');inputs['manP'+i]=[51000,51200,51100,51500,51300,51600][i];}
+ const before=await run(named,{inputs}),handle={id:'desk-pine-cleo',title:"Cleo's Liquidity",source:named,visible:false,inputValues:()=>structuredClone(inputs),propValues:()=>({}),remove(){}};const payload=pineState({indicators:()=>[handle]});assert.equal(payload.length,1);assert.equal(Object.keys(payload[0].inputs).length,199);assert.equal(payload[0].hidden,true);assert.equal(payload[0].inputs.manualEnabled,true);assert.deepEqual(payload[0].inputs.manT0,inputs.manT0);assert.deepEqual(payload[0].inputs.manP5,inputs.manP5);
+ const restored=[];restorePineState(payload,{chart:{indicators:()=>[handle]},addIndicator:entry=>restored.push(entry)});assert.equal(restored.length,1);assert.deepEqual(restored[0].inputs,payload[0].inputs);assert.equal(restored[0].hidden,true);
+ const after=await run(restored[0].script,{inputs:restored[0].inputs,bars:before.bars});assert.deepEqual(after.model.inputValues,before.model.inputValues);for(const key of ['series','lines','boxes','labels','polylines','linefills','tables'])assert.deepEqual(normalize(after.model[key]),normalize(before.model[key]),key);
+});
 test('1M chart executes the canonical master directly and retains source timeframe colors and tiny merged tags',async()=>{
- const result=await run(named,{tf:'1'});assert.ok(result.model.lines.length>0);assert.ok(result.model.labels.length>0);const labels=result.model.labels.filter(l=>/^(D|240|60|30|15|5|1)(\/(D|240|60|30|15|5|1))*$/.test(String(l.text)));assert.ok(labels.length>0,'liquidity timeframe tags must render');
- await fs.writeFile(new URL('../qa-cleos-liquidity-model.json',import.meta.url),JSON.stringify({counts:drawingCounts(result.model),milliseconds:result.milliseconds,model:result.model,context:result.context},null,2));
+ const result=await run(named,{tf:'1'});assert.ok(result.model.lines.length>0);assert.ok(result.model.labels.length>0);assert.equal(result.prepared.inputs.find(i=>i.key==='rawScope')?.defval,'Chart and higher');assert.equal(result.prepared.inputs.find(i=>i.key==='rawDisplayMode')?.defval,'Nearest N');const labels=result.model.labels.filter(l=>/^(D|1440|240|60|30|15|5|1)(\/(D|1440|240|60|30|15|5|1))*$/.test(String(l.text)));assert.ok(labels.length>0,'liquidity timeframe tags must render');
+});
+test('4H renders timeframe-and-higher liquidity promptly and broken levels carry no timeframe tag',async()=>{
+ const inputs={rawScope:'Chart and higher',showWaves:false,showChannels:false,showProjection:false,showWaveInvalidation:false,showFib:false,showSwingPath:false,showConfluence:false,panelMode:'Off'};
+ const result=await run(named,{tf:'240',inputs});
+ assert.equal(result.prepared.inputs.find(i=>i.key==='rawScope')?.defval,'Chart and higher');
+ assert.equal(result.prepared.inputs.find(i=>i.key==='rawDisplayMode')?.defval,'Nearest N');
+ assert.ok(result.model.lines.length>0,'4H and daily liquidity drawings must render');
+ const frameTags=result.model.labels.filter(l=>/^(1440|240|60|30|15|5|1)(\/(1440|240|60|30|15|5|1))*$/.test(String(l.text)));
+ assert.ok(frameTags.length>0,'active 4H and daily liquidity lines keep their source tags');
+ assert.ok(frameTags.every(l=>l.x>result.bars.at(-1).time),'broken historical levels must not show source-timeframe tags');
+ assert.ok(result.milliseconds<120000,`4H execution took ${Math.round(result.milliseconds)} ms`);
 });

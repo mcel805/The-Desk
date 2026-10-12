@@ -77,7 +77,7 @@ bool showProjection = input.bool(false, "Conditional projections", group = G_VIE
 bool showWaveInvalidation = input.bool(false, "Candidate origin / non-overlap invalidation references", group = G_VIEW)
 bool showFib = input.bool(false, "Critical Fib swing lines", group = G_VIEW)
 bool showRaw = input.bool(true, "Raw liquidity", group = G_VIEW, inline = "lq")
-string rawScope = input.string("1H + 30M + 15M", "Scope", options = ["1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")
+string rawScope = input.string("Chart and higher", "Scope", options = ["Chart and higher", "1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")
 bool showLiquidityTimeframeTags = input.bool(true, "Small timeframe numbers at liquidity ends", group = G_VIEW, tooltip = "White 8 px labels sit just beyond each active or ended source line. Nearby endpoints merge into one tag such as 60/30; turn this off for the fully text-free view.")
 bool showLiquidityPockets = input.bool(false, "Shade liquidity pockets", group = G_VIEW, tooltip = "Off by default for a clean chart. When on, a faint pocket uses its source timeframe color.")
 bool showConfluence = input.bool(true, "Shared purple convergence zones", group = G_VIEW)
@@ -143,7 +143,7 @@ bool requireHTF = input.bool(false, "Require Daily or 4H contributor", group = G
 int zoneDisplay = input.int(10, "Maximum zones displayed", minval = 1, maxval = 20, group = G_CON)
 string zoneRank = input.string("Strength", "Display ranking", options = ["Strength", "Distance"], group = G_CON)
 int rawPrimaryPerSide = input.int(1, "Raw primary pools / side / timeframe", minval = 1, maxval = 3, group = G_LIQ)
-string rawDisplayMode = input.string("All retained", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "All retained draws every available pool in the selected timeframe scope, including ended lines. Nearest N restores the compact v1.10 view.")
+string rawDisplayMode = input.string("Nearest N", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "Nearest N keeps the closest active levels on each side and a bounded set of recent broken levels. All retained draws every available pool in the selected timeframe scope, including ended lines.")
 int pocketTicks = input.int(8, "Optional liquidity pocket depth · ticks", minval = 1, maxval = 100, group = G_LIQ)
 int pocketTransparency = input.int(87, "Optional liquidity pocket transparency", minval = 50, maxval = 98, group = G_LIQ)
 int brokenCoreShown = input.int(1, "Recent broken core lines / timeframe", minval = 0, maxval = 3, group = G_LIQ)
@@ -1945,7 +1945,7 @@ f_drawStructure() =>
 // Scope selects timeframes. In All retained mode it does not suppress any
 // available active or retired pool within those selected source packets.
 f_liqScope(int id, int coreId) =>
-    rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true
+    rawScope == "Chart and higher" ? f_ms(id) >= int(timeframe.in_seconds(timeframe.period) * 1000) : rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true
 
 f_liqTag(int id) =>
     switch id
@@ -2050,7 +2050,7 @@ f_coreLine(Pool p, int rightAt) =>
         if p.tf == 6 or p.tf == 1
             f_line(p.t, p.p, endAt, p.p, color.new(color.white, retired ? 90 : 72), coreLineWidth + 2, stroke, false)
         f_line(p.t, p.p, endAt, p.p, ink, coreLineWidth, stroke, false)
-        if showLiquidityTimeframeTags and array.size(liquidityEndTags) < 180
+        if showLiquidityTimeframeTags and not retired and array.size(liquidityEndTags) < 180
             array.push(liquidityEndTags, LiquidityEndTag.new(endAt, p.p, f_bit(p.tf), 1))
     true
 
