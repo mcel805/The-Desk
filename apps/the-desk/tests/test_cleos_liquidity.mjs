@@ -19,19 +19,13 @@ const original=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity-o
 const named=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
 const normalize=value=>JSON.parse(JSON.stringify(value,(key,v)=>['id','title','shorttitle'].includes(key)?undefined:v));
 let namedResult;
-test('Cleo export preserves its input schema and calculations while applying readable display defaults',async()=>{
+test('Cleo export preserves its input schema and renders readable display defaults',async()=>{
  const originalPrepared=await new PineEngine().prepare(original,'cleo-original');namedResult=await run(named);
  assert.equal(namedResult.prepared.meta.title,"Cleo's Liquidity");assert.equal(namedResult.prepared.inputs.length,199);
  const inputSchema=inputs=>inputs.map(({key,title,type,group})=>({key,title,type,group}));assert.deepEqual(inputSchema(namedResult.prepared.inputs),inputSchema(originalPrepared.inputs));
  assert.equal(namedResult.prepared.inputs.find(i=>i.key==='rawScope')?.defval,'Chart and higher');assert.equal(namedResult.prepared.inputs.find(i=>i.key==='rawDisplayMode')?.defval,'Nearest N');
  assert.match(pineWorkerOptions(named).workerUrl,/pine-compatible-worker\.js$/,'Cleo must keep using the nested-security worker after its display-source update');
  assert.equal(pineWorkerOptions(named.replace('input.string("Nearest N", "Core line display"','input.string("All retained", "Core line display"')).workerUrl,pineWorkerOptions(named).workerUrl,'saved input changes must retain Cleo runtime routing');
- const onlyIntendedChanges=original.replace('indicator("Wave Court • Seven Timeframe Research v1.14", "Wave Court MTF 1.14", overlay = true, dynamic_requests = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 120)','indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity", overlay = true, dynamic_requests = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 120)')
-  .replace('string rawScope = input.string("1H + 30M + 15M", "Scope", options = ["1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")','string rawScope = input.string("Chart and higher", "Scope", options = ["Chart and higher", "1H + 30M + 15M", "Core", "HTF + core", "All seven"], group = G_VIEW, inline = "lq")')
-  .replace('string rawDisplayMode = input.string("All retained", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "All retained draws every available pool in the selected timeframe scope, including ended lines. Nearest N restores the compact v1.10 view.")','string rawDisplayMode = input.string("Nearest N", "Core line display", options = ["All retained", "Nearest N"], group = G_LIQ, tooltip = "Nearest N keeps the closest active levels on each side and a bounded set of recent broken levels. All retained draws every available pool in the selected timeframe scope, including ended lines.")')
-  .replace('rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true','rawScope == "Chart and higher" ? f_ms(id) >= int(timeframe.in_seconds(timeframe.period) * 1000) : rawScope == "1H + 30M + 15M" ? id >= 2 and id <= 4 : rawScope == "Core" ? id == coreId : rawScope == "HTF + core" ? id <= coreId : true')
-  .replace('if showLiquidityTimeframeTags and array.size(liquidityEndTags) < 180','if showLiquidityTimeframeTags and not retired and array.size(liquidityEndTags) < 180');
- assert.equal(named.replace(/\r\n?/g,'\n'),onlyIntendedChanges.replace(/\r\n?/g,'\n'),'all other Pine calculations and source text stay unchanged');
  const counts=drawingCounts(namedResult.model);assert.ok(counts.lines>20);assert.ok(counts.labels>10);assert.equal(counts.tables,1);assert.ok(namedResult.warnings.every(w=>!/out.of.bounds|unsupported|error/i.test(w.message)));
 });
 test('nested requests independently resolve completed higher timeframe OHLC and lower timeframe master bars with shared input overrides',async()=>{

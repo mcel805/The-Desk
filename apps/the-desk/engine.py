@@ -415,7 +415,16 @@ class Engine:
             status={'pending':db.execute("SELECT COUNT(*) FROM outbox WHERE status='pending'").fetchone()[0],'delivered':db.execute("SELECT COUNT(*) FROM outbox WHERE status='delivered'").fetchone()[0]}
             status['last_error']=next((r['error'] for r in db.execute("SELECT error FROM outbox WHERE status='pending' AND error<>'' ORDER BY sequence DESC LIMIT 1")),None)
             journal_account=next((r['journal_account'] for r in db.execute('SELECT journal_account FROM outbox WHERE journal_account IS NOT NULL AND json_extract(payload,\'$.account.id\')=? ORDER BY sequence DESC LIMIT 1',(aid,))),None)
-            return {'accounts':accounts,'active_account':aid,'orders':[dict(r) for r in db.execute('SELECT * FROM orders WHERE account_id=? ORDER BY created_at DESC LIMIT 100',(aid,))], 'positions':[dict(r) for r in db.execute("SELECT * FROM positions WHERE account_id=? AND status='open' ORDER BY opened_at DESC",(aid,))], 'fills':[dict(r) for r in db.execute('SELECT * FROM fills WHERE account_id=? ORDER BY executed_at DESC LIMIT 100',(aid,))], 'quotes':{k:{**v,'age':time.time()-v['received_at']} for k,v in self.quotes.items()}, 'alerts':[dict(r) for r in db.execute('SELECT * FROM alerts WHERE account_id=? ORDER BY created_at DESC',(aid,))], 'events':[dict(r) for r in db.execute('SELECT * FROM events WHERE json_extract(content,\'$.account_id\')=? ORDER BY id DESC LIMIT 60',(aid,))], 'journal':{**status,'account_id':journal_account},'mode':'PAPER · SIMULATED','matching_model':'Server bid/ask · full quantity modeled, no queue or partial-fill claims','cost_model':'Configured commission + observed spread; slippage/funding not modeled'}
+            orders=db.execute("""SELECT * FROM orders
+                WHERE account_id=? AND (
+                    status IN ('working','triggered')
+                    OR id IN (
+                        SELECT id FROM orders
+                        WHERE account_id=? AND status NOT IN ('working','triggered')
+                        ORDER BY created_at DESC LIMIT 100
+                    )
+                ) ORDER BY created_at DESC""",(aid,aid)).fetchall()
+            return {'accounts':accounts,'active_account':aid,'orders':[dict(r) for r in orders], 'positions':[dict(r) for r in db.execute("SELECT * FROM positions WHERE account_id=? AND status='open' ORDER BY opened_at DESC",(aid,))], 'fills':[dict(r) for r in db.execute('SELECT * FROM fills WHERE account_id=? ORDER BY executed_at DESC LIMIT 100',(aid,))], 'quotes':{k:{**v,'age':time.time()-v['received_at']} for k,v in self.quotes.items()}, 'alerts':[dict(r) for r in db.execute('SELECT * FROM alerts WHERE account_id=? ORDER BY created_at DESC',(aid,))], 'events':[dict(r) for r in db.execute('SELECT * FROM events WHERE json_extract(content,\'$.account_id\')=? ORDER BY id DESC LIMIT 60',(aid,))], 'journal':{**status,'account_id':journal_account},'mode':'PAPER · SIMULATED','matching_model':'Server bid/ask · full quantity modeled, no queue or partial-fill claims','cost_model':'Configured commission + observed spread; slippage/funding not modeled'}
 
     def export(self,account_id):
         with self.lock, self.db() as db:

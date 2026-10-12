@@ -76,6 +76,12 @@ class PaperTests(unittest.TestCase):
     def test_restart_recovery_and_order_matching(self):
         self.order(kind='limit',price='95');self.e=Engine(self.path);self.quote(89,90)
         self.assertEqual(self.state()['orders'][0]['status'],'filled');self.assertEqual(len(self.state()['fills']),1)
+    def test_pending_orders_survive_terminal_history_limit(self):
+        pending=self.order('pending',kind='limit',price='90')
+        for i in range(101):self.order('filled-'+str(i),qty='.001')
+        orders=self.state()['orders']
+        self.assertEqual(next(o for o in orders if o['id']==pending['id'])['status'],'working')
+        self.assertEqual(sum(o['status']=='filled' for o in orders),100)
     def test_alert_is_durable_and_one_shot(self):
         self.e.execute('alert','alert',{'account_id':self.a,'instrument':self.i,'condition':'above','price':'105'});self.e=Engine(self.path);self.quote(106,107);self.quote(108,109)
         self.assertEqual(self.state()['alerts'][0]['status'],'triggered');self.assertEqual(sum(e['kind']=='alert' for e in self.state()['events']),1)

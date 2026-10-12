@@ -99,9 +99,6 @@ export const POST = handler(async (request: Request) => {
       }
       if (payload.eventType === "reset") {
         tx.delete(executions).where(eq(executions.accountId, accountId)).run();
-        tx.delete(externalEventReceipts).where(and(
-          eq(externalEventReceipts.source, "count_desk"), eq(externalEventReceipts.accountId, accountId),
-        )).run();
       }
       if (payload.eventType === "execution") {
         const row = execution!;
