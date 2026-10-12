@@ -7,7 +7,7 @@ import { getMultipliers, setSetting } from "@/server/settings";
 
 type EventBody = {
   eventId?: string;
-  eventType?: "account" | "execution" | "session" | "reset";
+  eventType?: "account" | "execution" | "session" | "reset" | "watermark";
   session?: { id?: string; title?: string; content?: string; startedAt?: string };
   account?: { id?: string; name?: string; currency?: string; initialBalance?: number; resetGeneration?: number };
   execution?: {
@@ -31,7 +31,7 @@ export const POST = handler(async (request: Request) => {
     const eventId = payload.eventId?.trim() ?? "";
     requireValue(externalId.length > 0 && externalId.length <= 200, "A source account ID is required.");
     requireValue(eventId.length > 0 && eventId.length <= 240, "A stable event ID is required.");
-    requireValue(["account", "execution", "session", "reset"].includes(payload.eventType ?? ""), "Unsupported event type.");
+    requireValue(["account", "execution", "session", "reset", "watermark"].includes(payload.eventType ?? ""), "Unsupported event type.");
     const requestedGeneration = payload.account?.resetGeneration;
     requireValue(requestedGeneration == null || (Number.isInteger(requestedGeneration) && requestedGeneration >= 0),
       "Reset generation must be a non-negative integer.");
@@ -101,11 +101,11 @@ export const POST = handler(async (request: Request) => {
         return;
       }
       requireValue(
-        generation === currentGeneration || (payload.eventType === "reset" && generation === currentGeneration + 1),
+        generation === currentGeneration || (["reset", "watermark"].includes(payload.eventType ?? "") && generation === currentGeneration + 1),
         "The journal reset marker must be delivered before this event.",
       );
-      requireValue(payload.eventType !== "reset" || generation > currentGeneration,
-        "A journal reset must advance its reset generation.");
+      requireValue(!["reset", "watermark"].includes(payload.eventType ?? "") || generation > currentGeneration,
+        "A journal reset marker must advance its reset generation.");
       if (payload.eventType === "execution") {
         const symbol = execution!.symbol!.trim().toUpperCase();
         const multipliers = getMultipliers();

@@ -47,9 +47,10 @@ class Engine:
             ''')
             if 'account_id' not in {row['name'] for row in db.execute('PRAGMA table_info(alerts)')}:
                 db.execute('ALTER TABLE alerts ADD COLUMN account_id TEXT REFERENCES accounts(id)')
-            if 'journal_generation' not in {row['name'] for row in db.execute('PRAGMA table_info(accounts)')}:
+            legacy_generations='journal_generation' not in {row['name'] for row in db.execute('PRAGMA table_info(accounts)')}
+            if legacy_generations:
                 db.execute('ALTER TABLE accounts ADD COLUMN journal_generation INTEGER NOT NULL DEFAULT 0')
-            self.migrate_journal_generations(db)
+            self.migrate_journal_generations(db,legacy_generations)
             db.execute('CREATE INDEX IF NOT EXISTS alerts_account ON alerts(account_id,instrument,status)')
 
     @contextmanager
@@ -64,11 +65,12 @@ class Engine:
     def event(self,db,kind,content):
         db.execute('INSERT INTO events(kind,content,created_at) VALUES(?,?,?)',(kind,json.dumps(content),stamp()))
 
-    def migrate_journal_generations(self,db):
+    def migrate_journal_generations(self,db,legacy_generations=False):
         accounts={row['id']: row for row in db.execute('SELECT id,journal_generation FROM accounts')}
+        anchors=[]
         for account_id, account in accounts.items():
             generation=int(account['journal_generation'] or 0)
-            rows=db.execute("SELECT sequence,payload FROM outbox WHERE json_extract(payload,'$.account.id')=? ORDER BY sequence",(account_id,)).fetchall()
+            rows=db.execute("SELECT sequence,status,payload FROM outbox WHERE json_extract(payload,'$.account.id')=? ORDER BY sequence",(account_id,)).fetchall()
             for row in rows:
                 payload=json.loads(row['payload'])
                 account_payload=payload.setdefault('account',{})
@@ -78,10 +80,20 @@ class Engine:
                 elif payload.get('eventType') == 'reset':
                     generation+=1
                     account_payload['resetGeneration']=generation
+                    if legacy_generations and row['status']=='delivered':
+                        anchors.append((account_id,generation,account_payload.copy()))
                 else:
                     account_payload['resetGeneration']=generation
                 db.execute('UPDATE outbox SET payload=? WHERE sequence=?',(json.dumps(payload),row['sequence']))
             db.execute('UPDATE accounts SET journal_generation=? WHERE id=?',(generation,account_id))
+        if anchors:
+            first_sequence=db.execute('SELECT COALESCE(MIN(sequence),1) FROM outbox').fetchone()[0]
+            sequence=first_sequence-len(anchors)
+            for account_id,generation,account_payload in anchors:
+                event_id=f'{account_id}:journal-watermark:{generation}'
+                payload={'eventId':event_id,'eventType':'watermark','account':account_payload}
+                db.execute("INSERT OR IGNORE INTO outbox(sequence,event_id,payload,status,attempts,next_attempt,error,journal_account) VALUES(?,?,?,'pending',0,0,'',NULL)",(sequence,event_id,json.dumps(payload)))
+                sequence+=1
 
     def queue(self,db,event_id,payload):
         db.execute('INSERT OR IGNORE INTO outbox(event_id,payload) VALUES(?,?)',(event_id,json.dumps(payload)))
@@ -148,7 +160,7 @@ class Engine:
         return a
 
     def reset_journal(self,db,a):
-        db.execute("DELETE FROM outbox WHERE status='pending' AND json_extract(payload,'$.account.id')=? AND json_extract(payload,'$.eventType')<>'reset'",(a['id'],))
+        db.execute("DELETE FROM outbox WHERE status='pending' AND json_extract(payload,'$.account.id')=? AND json_extract(payload,'$.eventType') NOT IN ('reset','watermark')",(a['id'],))
         db.execute('UPDATE accounts SET journal_generation=journal_generation+1 WHERE id=?',(a['id'],))
         a=db.execute('SELECT * FROM accounts WHERE id=?',(a['id'],)).fetchone()
         event_id=uid('journal-reset')

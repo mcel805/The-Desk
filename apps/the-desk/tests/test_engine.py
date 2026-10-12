@@ -148,6 +148,30 @@ class PaperTests(unittest.TestCase):
         self.assertEqual(rows[0]['account']['resetGeneration'],0)
         self.assertEqual(rows[1]['account']['resetGeneration'],1)
         self.assertEqual(self.e.state(self.a)['accounts'][0]['journal_generation'],1)
+
+    def test_legacy_delivered_reset_gets_non_destructive_watermark_anchor(self):
+        legacy_path=self.path.with_name('legacy-watermark.db')
+        db=sqlite3.connect(legacy_path)
+        db.executescript("""
+            CREATE TABLE accounts(id TEXT PRIMARY KEY,name TEXT NOT NULL,capital TEXT NOT NULL,fee_bps TEXT NOT NULL,leverage TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE outbox(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_attempt REAL NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',journal_account TEXT);
+        """)
+        account={'id':'legacy-account','name':'Legacy · The Desk PAPER','currency':'USD','initialBalance':10000}
+        db.execute('INSERT INTO accounts VALUES (?,?,?,?,?,?)',('legacy-account','Legacy','10000','5','1','2026-01-01T00:00:00Z'))
+        db.execute('INSERT INTO outbox(event_id,payload,status) VALUES(?,?,?)',('legacy-reset',json.dumps({'eventId':'legacy-reset','eventType':'reset','account':account}),'delivered'))
+        db.execute('INSERT INTO outbox(event_id,payload,status) VALUES(?,?,?)',('legacy-fill',json.dumps({'eventId':'legacy-fill','eventType':'execution','account':account}),'delivered'))
+        db.commit();db.close()
+        migrated=Engine(legacy_path)
+        with migrated.db() as db:
+            rows=[(row['status'],json.loads(row['payload'])) for row in db.execute('SELECT status,payload FROM outbox ORDER BY sequence')]
+        self.assertEqual(rows[0][1]['eventType'],'watermark')
+        self.assertEqual(rows[0][1]['account']['resetGeneration'],1)
+        self.assertEqual(rows[0][0],'pending')
+        self.assertEqual(rows[1][1]['account']['resetGeneration'],1)
+        self.assertEqual(migrated.state('legacy-account')['accounts'][0]['journal_generation'],1)
+        migrated=Engine(legacy_path)
+        with migrated.db() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM outbox WHERE json_extract(payload,'$.eventType')='watermark'").fetchone()[0],1)
     def test_expiry_without_market_feed(self):
         o=self.order(kind='limit',price='95',ttl_seconds=60)
         self.e=Engine(self.path)

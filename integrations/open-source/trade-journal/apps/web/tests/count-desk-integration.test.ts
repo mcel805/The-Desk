@@ -8,7 +8,7 @@ const originalToken = process.env.COUNT_DESK_JOURNAL_BRIDGE_TOKEN;
 const scratch = mkdtempSync(join(tmpdir(), "count-desk-integration-test-"));
 process.env.JOURNAL_DATA_DIR = scratch;
 process.env.COUNT_DESK_JOURNAL_BRIDGE_TOKEN = "test-token";
-const { db, accounts, executions, externalEventReceipts, trades } = await import("../src/db");
+const { db, accounts, executions, externalEventReceipts, externalEventWatermarks, trades } = await import("../src/db");
 const { POST } = await import("../src/app/api/integrations/count-desk/route");
 
 const post = (body: Record<string, unknown>) => POST(new Request("http://localhost/api/integrations/count-desk", {
@@ -21,6 +21,7 @@ beforeEach(() => {
   db.delete(executions).run();
   db.delete(trades).run();
   db.delete(externalEventReceipts).run();
+  db.delete(externalEventWatermarks).run();
   db.delete(accounts).run();
 });
 
@@ -34,6 +35,49 @@ afterAll(() => {
 });
 
 describe("Count Desk reset deduplication", () => {
+  it("anchors a legacy generation without deleting executions or projections", async () => {
+    const account = { id: "legacy-account", name: "Legacy", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
+    expect((await post({ eventId: "legacy-account-1", eventType: "account", account })).status).toBe(200);
+    const existing = await post({ eventId: "legacy-fill", eventType: "execution", account,
+      execution: { id: "legacy-fill", symbol: "LEGACY", side: "buy", quantity: 1, price: 100, fee: 0,
+        executedAt: "2026-10-01T00:00:00Z", multiplier: 1 } });
+    expect(existing.status).toBe(200);
+    const before = db.select().from(executions).all().length;
+    const tradesBefore = db.select().from(trades).all().length;
+    db.delete(externalEventWatermarks).run();
+    const anchor = await post({ eventId: "legacy-watermark-1", eventType: "watermark",
+      account: { ...account, resetGeneration: 1 } });
+    expect(await anchor.json()).toMatchObject({ accepted: true });
+    expect(db.select().from(executions).all()).toHaveLength(before);
+    expect(db.select().from(trades).all()).toHaveLength(tradesBefore);
+
+    const next = await post({ eventId: "legacy-fill-after-upgrade", eventType: "execution",
+      account: { ...account, resetGeneration: 1 }, execution: { id: "legacy-fill-after-upgrade", symbol: "LEGACY", side: "sell", quantity: 1, price: 110, fee: 0,
+        executedAt: "2026-10-01T00:01:00Z", multiplier: 1 } });
+    expect(next.status).toBe(200);
+    const delayed = await post({ eventId: "legacy-delayed-fill", eventType: "execution", account,
+      execution: { id: "legacy-delayed-fill", symbol: "DELAYED", side: "buy", quantity: 1, price: 90, fee: 0,
+        executedAt: "2026-10-01T00:00:30Z", multiplier: 7 } });
+    expect(await delayed.json()).toMatchObject({ accepted: true, stale: true });
+    expect(db.select().from(executions).all()).toHaveLength(before + 1);
+  });
+
+  it("does not register a multiplier until a new generation marker is accepted", async () => {
+    const account = { id: "ahead-account", name: "Ahead", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
+    expect((await post({ eventId: "ahead-account-1", eventType: "account", account })).status).toBe(200);
+    const ahead = await post({ eventId: "ahead-fill", eventType: "execution",
+      account: { ...account, resetGeneration: 1 }, execution: { id: "ahead-fill", symbol: "AHEAD", side: "buy", quantity: 1, price: 100, fee: 0,
+        executedAt: "2026-10-01T00:00:00Z", multiplier: 7 } });
+    expect(ahead.status).toBe(400);
+    const anchor = await post({ eventId: "ahead-watermark-1", eventType: "watermark",
+      account: { ...account, resetGeneration: 1 } });
+    expect(anchor.status).toBe(200);
+    const accepted = await post({ eventId: "ahead-fill-after-marker", eventType: "execution",
+      account: { ...account, resetGeneration: 1 }, execution: { id: "ahead-fill-after-marker", symbol: "AHEAD", side: "buy", quantity: 1, price: 100, fee: 0,
+        executedAt: "2026-10-01T00:00:00Z", multiplier: 1 } });
+    expect(accepted.status).toBe(200);
+  });
+
   it("rebuilds away stale trades when a committed reset is retried", async () => {
     const account = { id: "paper-account", name: "QA", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
     expect((await post({ eventId: "account-1", eventType: "account", account })).status).toBe(200);
