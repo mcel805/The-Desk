@@ -17,8 +17,12 @@ test('SDK signs testnet order with an isolated synthetic key and mock transport'
  assert.equal(orderResult(result).state,'resting');assert.equal(sent.length,1);assert.equal(sent[0][0],'exchange');assert.equal(sent[0][1].action.type,'order');assert.match(sent[0][1].signature.r,/^0x[0-9a-f]{64}$/);assert.equal(sent[0][1].action.orders[0].c,cloid);
 });
 test('exchange rejection and unknown responses never count as fills',()=>{
- assert.throws(()=>orderResult({status:'err',response:'not funded'}),/not funded/);
- assert.throws(()=>orderResult({status:'ok',response:{data:{statuses:[{error:'invalid size'}]}}}),/invalid size/);
- assert.throws(()=>orderResult({status:'ok',response:{}}),/Unknown/);
- assert.deepEqual(orderResult({status:'ok',response:{data:{statuses:[{filled:{oid:3,totalSz:'1',avgPx:'2'}}]}}}),{state:'filled',oid:3,size:'1',price:'2'});
+  assert.throws(()=>orderResult({status:'err',response:'not funded'}),/not funded/);
+  assert.throws(()=>orderResult({status:'ok',response:{data:{statuses:[{error:'invalid size'}]}}}),/invalid size/);
+  assert.throws(()=>orderResult({status:'ok',response:{}}),/Unknown/);
+  for(const response of [
+    {resting:{oid:undefined}},
+    {filled:{oid:{value:3},totalSz:'1',avgPx:'2'}},
+  ]) assert.throws(()=>orderResult({status:'ok',response:{data:{statuses:[response]}}}),/Unknown/);
+  assert.deepEqual(orderResult({status:'ok',response:{data:{statuses:[{filled:{oid:3,totalSz:'1',avgPx:'2'}}]}}}),{state:'filled',oid:3,size:'1',price:'2'});
 });

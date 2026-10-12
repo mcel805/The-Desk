@@ -23,8 +23,9 @@ export function orderResult(response) {
   const statuses=response.response?.data?.statuses;
   if(!Array.isArray(statuses) || statuses.length!==1) throw new Error('Unknown exchange response. Reconcile orders before retrying.');
   const value=statuses[0];
+  const orderId=value=>typeof value==='number'&&Number.isFinite(value)||typeof value==='string'&&value.trim()!==''?value:null;
   if(value.error) throw new Error(value.error);
-  if(value.resting) return {state:'resting',oid:value.resting.oid};
-  if(value.filled) return {state:'filled',oid:value.filled.oid,size:value.filled.totalSz,price:value.filled.avgPx};
+  if(value.resting){const oid=orderId(value.resting.oid);if(oid===null)throw new Error('Unknown order status. Reconcile orders before retrying.');return {state:'resting',oid};}
+  if(value.filled){const oid=orderId(value.filled.oid);if(oid===null)throw new Error('Unknown order status. Reconcile orders before retrying.');return {state:'filled',oid,size:value.filled.totalSz,price:value.filled.avgPx};}
   throw new Error('Unknown order status. Reconcile orders before retrying.');
 }
