@@ -51,6 +51,14 @@ need a named Base venue and its own quote, swap, simulation and settlement adapt
    distinguished. Unknown outcomes require reconciliation before another order.
    This ticket uses existing venue leverage/margin settings and does not expose
    leverage changes, market orders, trigger orders or spot orders yet.
+   Before wallet signing, The Desk stores the intent in a separate
+   `hyperliquid-requests.sqlite3` database under the runtime data directory.
+   One unresolved request blocks another order for the same wallet and network.
+   A definite wallet rejection releases that reservation; exchange timeouts,
+   parse failures and crash windows remain blocked. Reconciliation sends the
+   exact wallet and client order ID to Hyperliquid's official `orderStatus` info
+   query. A found venue order records its venue ID and state; a missing response
+   does not release the request.
 5. **Robinhood connection:** Sign in with the Base wallet first, then click
    **Sign in to Robinhood**. The server discovers the official issuer, registers
    a public OAuth client, generates a state and PKCE S256 verifier, and redirects
@@ -107,10 +115,10 @@ Mainnet orders and Base transfers default to disabled. After wallet/venue
 acceptance, an operator may start a separate live runtime explicitly:
 
 ```sh
-DESK_LIVE_ENABLED=1 .venv/bin/python server.py --port 18882 --data-dir /private/tmp/desk-live
+   DESK_LIVE_ENABLED=1 .venv/bin/python server.py --port 18882 --data-dir /private/tmp/desk-live
 ```
 
-This enables mainnet request controls but is not evidence of a verified live
+   This enables mainnet request controls but is not evidence of a verified live
 deployment. It never submits an order automatically. Do not change this variable
 in the paper launcher or claim that the chart ticket is live. Production serving
 requires HTTPS, explicit deployed origin/redirect configuration, persistent
@@ -126,12 +134,19 @@ that grant completely.
 
 ## Validation and remaining acceptance
 
+The request store is separate from the paper engine database and contains only
+wallet/network/client-order scope, order intent, and venue status. It never
+stores keys, signatures, access tokens or broker identifiers. Restarting the
+server preserves unresolved requests in the configured data directory.
+
 Executable tests cover real synthetic wallet signature verification, replay,
 expiry, origin and signer rejection, cookie lifecycle, wallet/network changes,
 exact ETH/USDC encoding, EIP-6963 coexistence, pinned SDK order signing through a
 mock exchange, provider response classification, OAuth/PKCE session binding,
 account masking, trade eligibility, broker alerts, confirmation, preview expiry,
-idempotency and unknown-outcome handling. All financial tests use synthetic keys
+   idempotency, unknown-outcome handling, persistent Hyperliquid reconciliation,
+   wallet/network scope isolation, and the distinct Robinhood RHC display versus
+   RHS routing IDs. All financial tests use synthetic keys
 or mock provider calls. HTTP tests own an ephemeral server and disposable data.
 
 Acceptance still requires a human wallet signature in Rabby and MetaMask,

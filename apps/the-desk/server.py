@@ -135,7 +135,7 @@ class Workers:
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=str(ROOT/'data'));parser.add_argument('--no-workers',action='store_true');args=parser.parse_args()
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
-    engine=Engine(data/'desk.sqlite3');gateway=Gateway();funding=FundingRoutes(args.port)
+    engine=Engine(data/'desk.sqlite3');gateway=Gateway();funding=FundingRoutes(args.port,data)
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
     if not args.no_workers:workers.start()

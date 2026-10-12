@@ -26,7 +26,8 @@ drawer.innerHTML=`<div class="funding-heading"><div><span class="funding-eyebrow
 <div class="funding-card"><h3>Options & futures</h3><p>Use Robinhood’s own interface for options and futures. This Desk ticket does not yet support options. No futures order tool is verified for the official MCP connection.</p><a href="https://robinhood.com/" target="_blank" rel="noopener noreferrer">Open Robinhood ↗</a></div></section>
 <section id="fundingReview" class="funding-review" hidden><h3 id="reviewTitle">Review</h3><div id="reviewDetails"></div><p id="reviewNote"></p><label id="liveConfirmationLabel" hidden>Type PLACE LIVE ORDER<input id="liveConfirmation" autocomplete="off"></label><div class="funding-actions"><button id="reviewCancel">Cancel</button><button id="reviewConfirm" class="primary">Confirm</button></div></section>`;
 document.body.append(drawer);
-let wallets=[],config={},hl=null,rh=null,pending=null,operation=false,sending=false;
+const hlPanel=document.createElement('div');hlPanel.id='hlRequestsPanel';hlPanel.className='funding-card';hlPanel.hidden=true;hlPanel.innerHTML='<h3>Pending venue requests</h3><p class="muted">An unresolved request blocks another order for this wallet and network until the venue confirms its state.</p><div id="hlRequests"></div>';document.querySelector('[data-funding-panel="hyperliquid"]').insertBefore(hlPanel,$('#hlOrder'));
+let wallets=[],config={},hl=null,hlRequests=[],rh=null,pending=null,operation=false,sending=false;
 const controller=new WalletController(api,()=>{
   $('#walletButton').textContent=shortAddress(controller.session?.address);
   $('#connectedWallet').textContent=controller.session?.authenticated?controller.session.address:'Connect your wallet';
@@ -43,8 +44,8 @@ $('#fundingClose').onclick=()=>drawer.close();
 drawer.addEventListener('click',e=>{if(e.target===drawer){const r=drawer.getBoundingClientRect();if(e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom)drawer.close();}});
 document.querySelectorAll('[data-funding-tab]').forEach(button=>button.onclick=()=>{document.querySelectorAll('[data-funding-tab]').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-current',b===button?'page':'false');});document.querySelectorAll('[data-funding-panel]').forEach(p=>p.hidden=p.dataset.fundingPanel!==button.dataset.fundingTab);pending=null;$('#fundingReview').hidden=true;});
 discoverWallets(window,items=>{wallets=items;const value=$('#walletProviders').value;$('#walletProviders').innerHTML=items.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');if(items.some(x=>x.id===value))$('#walletProviders').value=value;$('#walletInstall').hidden=items.length>0;$('#walletConnect').disabled=!items.length || controller.busy;const last=sessionStorage.getItem('desk-wallet-provider');const chosen=items.find(x=>x.id===last);if(chosen && !controller.provider)controller.bind(chosen.provider);});
-$('#walletConnect').onclick=()=>run(async()=>{const chosen=wallets.find(x=>x.id===$('#walletProviders').value);if(!chosen)throw new Error('Select an installed wallet.');status('Review the one-time sign-in message in your wallet.');await controller.login(chosen.provider);sessionStorage.setItem('desk-wallet-provider',chosen.id);status('Signed in. Refresh balances or connect a trading venue.');await refreshBalances();});
-$('#walletLogout').onclick=()=>run(async()=>{await controller.invalidate();status('Disconnected.');});
+$('#walletConnect').onclick=()=>run(async()=>{const chosen=wallets.find(x=>x.id===$('#walletProviders').value);if(!chosen)throw new Error('Select an installed wallet.');status('Review the one-time sign-in message in your wallet.');await controller.login(chosen.provider);sessionStorage.setItem('desk-wallet-provider',chosen.id);status('Signed in. Refresh balances or connect a trading venue.');await refreshBalances();await loadHLRequests();});
+$('#walletLogout').onclick=()=>run(async()=>{await controller.invalidate();hlRequests=[];renderHLRequests();status('Disconnected.');});
 async function refreshBalances(){const b=await controller.balances();$('#walletETH').textContent=b.eth;$('#walletUSDC').textContent=b.usdc;$('#balanceAsOf').textContent=`Base block ${BigInt(b.block)} · ${new Date(b.observedAt).toLocaleTimeString()} · Refresh for current balances`;}
 $('#refreshWallet').onclick=()=>run(refreshBalances);
 $('#receiveWallet').onclick=()=>run(async()=>{const address=await controller.assertIdentity();$('#receiveAddress').textContent=address;$('#receivePanel').hidden=false;$('#sendForm').hidden=true;});
@@ -72,9 +73,12 @@ $('#sendForm').onsubmit=e=>{e.preventDefault();void run(async()=>{
 });};
 function hlNetwork(){return $('#hlNetwork').value;}
 function networkChanged(){hl=null;pending=null;$('#fundingReview').hidden=true;$('#hlValue').textContent='—';$('#hlAvailable').textContent='—';$('#hlOrders').textContent='Refresh this network to load orders.';$('#hlPositions').textContent='No snapshot loaded.';$('#hlFills').textContent='';$('#hlAsOf').textContent='No snapshot for this network.';$('#hlFundingLink').href=hlNetwork()==='testnet'?'https://app.hyperliquid-testnet.xyz/':'https://app.hyperliquid.xyz/trade';$('#hlReviewButton').textContent=hlNetwork()==='testnet'?'Review testnet order':'Review live order';}
-$('#hlNetwork').onchange=networkChanged;
+$('#hlNetwork').onchange=()=>{networkChanged();void loadHLRequests();};
+function renderHLRequests(){const panel=$('#hlRequestsPanel'),body=$('#hlRequests');panel.hidden=!hlRequests.length;body.innerHTML=hlRequests.map(r=>`<div class="funding-order"><span>${esc(r.network.toUpperCase())} · ${esc(r.intent.side.toUpperCase())} ${esc(r.intent.quantity)} ${esc(r.intent.coin)} @ $${esc(r.intent.price)} · ${esc(r.state)} · ${esc(r.clientOrderId)}</span><button data-hl-reconcile="${esc(r.clientOrderId)}">Reconcile</button></div>`).join('');document.querySelectorAll('[data-hl-reconcile]').forEach(button=>button.onclick=()=>run(()=>reconcileHL(button.dataset.hlReconcile,hlNetwork())));$('#hlReviewButton').disabled=hlRequests.length>0;}
+async function loadHLRequests(){if(!controller.session?.authenticated){hlRequests=[];renderHLRequests();return;}const epoch=controller.epoch,network=hlNetwork(),value=await api('/api/integrations/hyperliquid/requests?network='+network);if(epoch!==controller.epoch||network!==hlNetwork())return;hlRequests=value.requests||[];renderHLRequests();}
+async function reconcileHL(clientOrderId,network){if(network!==hlNetwork())throw new Error('Network changed. Review again.');const result=await api('/api/integrations/hyperliquid/reconcile',{network,clientOrderId});status(result.found?'Venue state recorded. Refresh the account snapshot.':'The venue returned no matching order yet; this request remains blocked.',!result.found);await loadHLRequests();if(result.found)await refreshHL();}
 async function refreshHL(){
-  const epoch=controller.epoch,network=hlNetwork();await controller.assertIdentity();
+  const epoch=controller.epoch,network=hlNetwork();await controller.assertIdentity();await loadHLRequests();
   const value=await api('/api/integrations/hyperliquid?network='+network);
   if(epoch!==controller.epoch || network!==hlNetwork())return;
   hl=value;$('#hlValue').textContent=hl.perps.marginSummary?.accountValue??'Unavailable';$('#hlAvailable').textContent=hl.perps.withdrawable??'Unavailable';$('#hlAsOf').textContent=network.toUpperCase()+' · '+new Date(hl.observedAt*1000).toLocaleTimeString();
@@ -90,19 +94,31 @@ async function refreshHL(){
   }));
 }
 $('#hlRefresh').onclick=()=>run(refreshHL);
+function walletRejected(error){return error?.code===4001||/user rejected|denied|declined/i.test(String(error?.message||''));}
+function definiteExchangeRejection(response){const statuses=response?.response?.data?.statuses;return !!response&&(response.status!=='ok'||Array.isArray(statuses)&&statuses.length===1&&!!statuses[0]?.error);}
 $('#hlOrder').onsubmit=e=>{e.preventDefault();void run(async()=>{
   const network=hlNetwork();if(network==='mainnet' && !config.liveEnabled)throw new Error('Mainnet order routing is disabled in this runtime.');
   await refreshHL();if(!hl || hl.network!==network)throw new Error('Refresh the selected network first.');
+  await loadHLRequests();if(hlRequests.length)throw new Error('Reconcile the pending Hyperliquid request before placing another order.');
   const data=Object.fromEntries(new FormData(e.target)),cloid='0x'+crypto.randomUUID().replaceAll('-',''),order=limitOrder({...data,reduceOnly:data.reduceOnly==='on',cloid},hl.meta),address=await controller.assertIdentity();
-  const cap=Number(hl.perps.withdrawable);
-  if(!data.reduceOnly && !(cap>0))throw new Error('Fund this Hyperliquid account before opening a position.');
+  const cap=Number(hl.perps.withdrawable);if(!data.reduceOnly && !(cap>0))throw new Error('Fund this Hyperliquid account before opening a position.');
   const notional=Number(data.quantity)*Number(data.price);
   review(network==='testnet'?'Testnet limit order':'LIVE Hyperliquid limit order',`<p>${esc(data.side.toUpperCase())} ${esc(data.quantity)} ${esc(data.coin)} @ $${esc(data.price)}</p><p>Notional $${esc(notional.toFixed(2))} · GTC · ${order.r?'Reduce only':'Open / increase position'} · ${esc(network.toUpperCase())}</p><p>Existing ${esc(data.coin)} position leverage: ${esc(hl.perps.assetPositions.find(x=>x.position.coin===data.coin)?.position.leverage?.value??'Check venue settings')}.</p>`,'Signing submits this order to Hyperliquid. A limit order may fill immediately. Fees and margin are determined by the venue.',async()=>{
     await controller.assertIdentity(address);if(hlNetwork()!==network)throw new Error('Network changed. Review again.');
+    await api('/api/integrations/hyperliquid/reserve',{network,clientOrderId:cloid,intent:{coin:data.coin,side:data.side,quantity:data.quantity,price:data.price,reduceOnly:order.r}});
+    let response=null,submissionMarked=false;
+    const signingProvider={request:async request=>{const result=await controller.provider.request(request);if(['eth_signTypedData','eth_signTypedData_v4'].includes(request.method)){await api('/api/integrations/hyperliquid/submitting',{network,clientOrderId:cloid});submissionMarked=true;}return result;}};
     status('Waiting for wallet signature and exchange response…');
-    try{const result=orderResult(await exchangeFor(controller.provider,address,network==='testnet').order({orders:[order],grouping:'na'}));status(`${network.toUpperCase()} order ${result.state} · ID ${result.oid}`);}
-    catch(error){status('Order not confirmed: '+error.message+' Check venue orders and fills before placing another order. Reference '+cloid,true);throw error;}
-    await refreshHL();
+    try{
+      response=await exchangeFor(signingProvider,address,network==='testnet').order({orders:[order],grouping:'na'});
+      const result=orderResult(response);await api('/api/integrations/hyperliquid/acknowledge',{network,clientOrderId:cloid,state:result.state,venueOrderId:String(result.oid),observed:{state:result.state,venueOrderId:String(result.oid)}});status(`${network.toUpperCase()} order ${result.state} · ID ${result.oid}`);
+    }catch(error){
+      if(!submissionMarked&&walletRejected(error)){await api('/api/integrations/hyperliquid/release',{network,clientOrderId:cloid});status('Wallet signature declined. The order reservation was released.');return;}
+      if(definiteExchangeRejection(response))await api('/api/integrations/hyperliquid/acknowledge',{network,clientOrderId:cloid,state:'rejected',observed:{state:'rejected'}});
+      else await api('/api/integrations/hyperliquid/uncertain',{network,clientOrderId:cloid,observed:{state:'uncertain'}});
+      status('Order not confirmed. Reconcile the request before placing another order. Reference '+cloid,true);await loadHLRequests();return;
+    }
+    await loadHLRequests();await refreshHL();
   },network==='mainnet');
 });};
 function renderRH(){
@@ -127,4 +143,4 @@ $('#rhOrder').onsubmit=e=>{e.preventDefault();void run(async()=>{
   if(preview.blocked){status('Broker review blocked this order: '+JSON.stringify(alerts),true);return;}
   review('LIVE Robinhood limit order',`<p>${esc(fields.side.toUpperCase())} ${esc(fields.quantity)} ${esc(fields.symbol.toUpperCase())} @ $${esc(fields.limit_price)}</p><p>${esc(rh.accounts.find(a=>a.id===fields.accountId)?.name)} · ${esc(rh.accounts.find(a=>a.id===fields.accountId)?.account)}</p>${disclosure?'<p>'+esc(disclosure)+'</p>':''}<pre>${esc(JSON.stringify(preview.review,null,2))}</pre>`,'This preview expires in 30 seconds. Confirmation sends the request to Robinhood; any required Robinhood approval and final order status appear there.',async()=>{if(fields.accountId!==$('#rhAccounts').value)throw new Error('Account changed. Review again.');const result=await api('/api/robinhood/submit',{id:preview.id,confirmation:$('#liveConfirmation').value});status(result.message);},true);
 });};
-await run(async()=>{config=await api('/api/integrations');$('#fundingRuntime').textContent=config.liveEnabled?'Live requests enabled · each order and transfer requires your review':'Preview runtime · mainnet orders and Base transfers disabled · testnet ticket available';if(!config.walletVerificationAvailable)status('Wallet verification dependency missing. Install requirements-wallet.txt using the server Python.',true);await controller.restore();if(controller.session?.authenticated){status('Wallet session restored. Select your extension if it is locked.');if(location.search.includes('connection=robinhood'))await refreshRH();}});
+await run(async()=>{config=await api('/api/integrations');$('#fundingRuntime').textContent=config.liveEnabled?'Live requests enabled · each order and transfer requires your review':'Preview runtime · mainnet orders and Base transfers disabled · testnet ticket available';if(!config.walletVerificationAvailable)status('Wallet verification dependency missing. Install requirements-wallet.txt using the server Python.',true);await controller.restore();if(controller.session?.authenticated){status('Wallet session restored. Select your extension if it is locked.');await loadHLRequests();if(location.search.includes('connection=robinhood'))await refreshRH();}});

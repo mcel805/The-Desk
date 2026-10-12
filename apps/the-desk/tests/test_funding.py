@@ -47,13 +47,14 @@ class BrokerTests(unittest.TestCase):
             if method=='notifications/initialized':return {}
             if method=='tools/list':return {'result':{'tools':[{'name':n} for n in ['get_accounts','get_portfolio','review_equity_order','place_equity_order','preview_crypto_order','place_crypto_order']]}}
             name=payload['params']['name'];args=payload['params']['arguments']
-            if name=='get_accounts':data={'accounts':[{'account_number':'12345678','rhs_account_number':'12345678','state':'active','agentic_allowed':True,'type':'limited_margin','is_default':True,'brokerage_account_type':'individual'},{'account_number':'98765432','rhs_account_number':'98765432','state':'active','agentic_allowed':False,'type':'margin'}]}
+            if name=='get_accounts':data={'accounts':[{'account_number':'12345678','rhs_account_number':'55667788','rhc_account_number':'RHC98765432','state':'active','agentic_allowed':True,'type':'limited_margin','is_default':True,'brokerage_account_type':'individual'},{'account_number':'98765432','rhs_account_number':'88776655','state':'active','agentic_allowed':True,'type':'margin'},{'account_number':'11223344','rhc_account_number':'RHC11223344','state':'active','agentic_allowed':True,'type':'limited_margin'},{'account_number':'44556677','state':'active','agentic_allowed':False,'type':'margin'}]}
             elif name=='get_portfolio':data={'total_value':'100','buying_power':{'buying_power':'50'},'currency':'USD'}
             elif name=='review_equity_order':data={**args,'order_checks':self.alerts,'customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
-            elif name=='preview_crypto_order':data={**args,'customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
+            elif name=='preview_crypto_order':data={**args,'rhc_account_number':'RHC98765432','customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
             elif name=='place_equity_order':
                 if self.fail_place:raise TimeoutError('Simulated lost response')
                 data={'status':'approval_required'}
+            elif name=='place_crypto_order':data={'status':'approval_required'}
             else:raise ValueError(name)
             return {'result':{'structuredContent':{'data':data}}}
         self.broker=Robinhood(18882,http=http,live=True)
@@ -69,7 +70,7 @@ class BrokerTests(unittest.TestCase):
         q=parse_qs(urlparse(self.broker.start('wallet-session')['url']).query)
         with self.assertRaises(ValueError):self.broker.callback('other-wallet',q['state'][0],'code',ISSUER)
         s=self.broker.callback('wallet-session',q['state'][0],'code',ISSUER)
-        self.assertEqual(s['accounts'][0]['account'],'••••5678');self.assertFalse(s['futures']);self.assertFalse(s['options'])
+        self.assertEqual(s['accounts'][0]['account'],'••••5678');self.assertEqual(s['accounts'][0]['cryptoAccount'],'••••5432');self.assertFalse(s['futures']);self.assertFalse(s['options'])
         with self.assertRaises(ValueError):self.broker.callback('wallet-session',q['state'][0],'code',ISSUER)
 
     def test_login_redirect_matches_initiating_loopback_host(self):
@@ -99,10 +100,23 @@ class BrokerTests(unittest.TestCase):
         s=self.connect();p={'accountId':s['accounts'][0]['id'],'asset':'crypto','symbol':'BTC-USD','side':'buy','type':'limit','quantity':'1','limit_price':'50'}
         preview=self.broker.preview('wallet-session',p)
         self.assertFalse(preview['blocked'])
+        self.assertIn('••••5432',str(preview['review']));self.assertNotIn('RHC98765432',str(preview['review']))
         call=next(payload for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='preview_crypto_order')
-        self.assertEqual(call['params']['arguments']['rhs_account_number'],'12345678')
+        self.assertEqual(call['params']['arguments']['rhs_account_number'],'55667788')
+        result=self.broker.submit('wallet-session',{'id':preview['id'],'confirmation':'PLACE LIVE ORDER'})
+        self.assertTrue(result['submitted'])
+        place=next(payload for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='place_crypto_order')
+        self.assertEqual(place['params']['arguments']['rhs_account_number'],'55667788');self.assertNotIn('rhc_account_number',place['params']['arguments'])
+
+    def test_crypto_requires_both_linked_rhc_and_numeric_rhs(self):
+        s=self.connect()
+        for account in s['accounts']:
+            if account['account'] not in ('••••7655','••••3344'):continue
+            with self.subTest(account=account['account']):
+                with self.assertRaisesRegex(ValueError,'linked crypto routing'):
+                    self.broker.preview('wallet-session',{'accountId':account['id'],'asset':'crypto','symbol':'BTC-USD','side':'buy','type':'limit','quantity':'1','limit_price':'50'})
     def test_read_only_account_and_broker_alerts_block_submit(self):
-        p=self.draft();p['accountId']=list(self.broker.sessions['wallet-session']['accounts'])[1]
+        p=self.draft();p['accountId']=next(a['id'] for a in self.broker.status('wallet-session')['accounts'] if not a['tradable'])
         with self.assertRaises(ValueError):self.broker.preview('wallet-session',p)
         p['accountId']=list(self.broker.sessions['wallet-session']['accounts'])[0];self.alerts={'alert_type':'INSUFFICIENT_BUYING_POWER'}
         preview=self.broker.preview('wallet-session',p);self.assertTrue(preview['blocked'])

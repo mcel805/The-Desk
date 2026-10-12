@@ -6,17 +6,21 @@ configuration; loading a page or signing in never sends an order or transfer.
 import hashlib
 from http.cookies import SimpleCookie, CookieError
 import os
+from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.request import Request, urlopen
 import json
 import wallet_auth as wallet
 from broker_connection import Robinhood
+from hyperliquid_requests import HyperliquidRequestStore
 
 class FundingRoutes:
-    def __init__(self,port):
+    def __init__(self,port,data_dir=None):
         self.port=port
         self.live=os.environ.get('DESK_LIVE_ENABLED')=='1'
         self.broker=Robinhood(port,live=self.live)
+        root=Path(data_dir) if data_dir else Path(__file__).resolve().parent/'data'
+        self.hyperliquid_requests=HyperliquidRequestStore(root/'hyperliquid-requests.sqlite3')
     def token(self,h):
         try:
             cookies=SimpleCookie();cookies.load(h.headers.get('Cookie',''))
@@ -28,6 +32,16 @@ class FundingRoutes:
         return session,hashlib.sha256(token.encode()).hexdigest()
     def cookie(self,h,token='',clear=False):
         h.wallet_cookie=f'{wallet.SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={0 if clear else wallet.SESSION_TTL_SECONDS}'
+    @staticmethod
+    def network(value):
+        if value not in ('testnet','mainnet'): raise ValueError('Choose testnet or mainnet.')
+        return value
+    @staticmethod
+    def hyperliquid_url(network):
+        return 'https://api.hyperliquid-testnet.xyz/info' if network=='testnet' else 'https://api.hyperliquid.xyz/info'
+    def hyperliquid_info(self,network,payload):
+        req=Request(self.hyperliquid_url(network),data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
+        with urlopen(req,timeout=12) as response:return json.load(response)
     def get(self,h,path,q):
         if path=='/api/integrations':
             h.json({'baseChainId':8453,'liveEnabled':self.live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
@@ -43,17 +57,16 @@ class FundingRoutes:
             session,key=self.identity(h);h.json(self.broker.status(key));return True
         if path=='/api/robinhood/portfolio':
             session,key=self.identity(h);h.json(self.broker.portfolio(key,q.get('accountId',[''])[0]));return True
+        if path=='/api/integrations/hyperliquid/requests':
+            session,key=self.identity(h);h.json({'network':self.network(q.get('network',['testnet'])[0]),'requests':self.hyperliquid_requests.open(session['address'],q.get('network',['testnet'])[0])});return True
         if path=='/api/integrations/hyperliquid':
-            session,key=self.identity(h);testnet=q.get('network',['testnet'])[0]
-            if testnet not in ('testnet','mainnet'):raise ValueError('Choose mainnet or testnet.')
-            url='https://api.hyperliquid-testnet.xyz/info' if testnet=='testnet' else 'https://api.hyperliquid.xyz/info'
+            session,key=self.identity(h);testnet=self.network(q.get('network',['testnet'])[0])
             def info(type):
-                req=Request(url,data=json.dumps({'type':type,'user':session['address']}).encode(),headers={'Content-Type':'application/json'})
-                with urlopen(req,timeout=12) as r:return json.load(r)
+                return self.hyperliquid_info(testnet,{'type':type,'user':session['address']})
             h.json({'network':testnet,'address':session['address'],'perps':info('clearinghouseState'),'spot':info('spotClearinghouseState'),'orders':info('openOrders'),'fills':info('userFills'),'meta':info('meta'),'observedAt':__import__('time').time()});return True
         return False
     def post(self,h,path,p):
-        if not (path.startswith('/api/wallet/') or path.startswith('/api/robinhood/')):return False
+        if not (path.startswith('/api/wallet/') or path.startswith('/api/robinhood/') or path.startswith('/api/integrations/hyperliquid/')):return False
         wallet.validate_local_origin(h.headers.get('Host',''),self.port,h.headers.get('Origin'))
         if not isinstance(p,dict):raise ValueError('JSON object required.')
         if path=='/api/wallet/challenge':
@@ -72,4 +85,33 @@ class FundingRoutes:
         if path=='/api/robinhood/disconnect':self.broker.disconnect(key);h.json({'connected':False});return True
         if path=='/api/robinhood/preview':h.json(self.broker.preview(key,p));return True
         if path=='/api/robinhood/submit':h.json(self.broker.submit(key,p));return True
+        if path=='/api/integrations/hyperliquid/reserve':
+            session,key=self.identity(h);h.json({'request':self.hyperliquid_requests.reserve(session['address'],self.network(p.get('network')),p.get('clientOrderId'),p.get('intent'))});return True
+        if path=='/api/integrations/hyperliquid/submitting':
+            session,key=self.identity(h);h.json({'request':self.hyperliquid_requests.mark_submitting(session['address'],self.network(p.get('network')),p.get('clientOrderId'))});return True
+        if path=='/api/integrations/hyperliquid/release':
+            session,key=self.identity(h);h.json({'request':self.hyperliquid_requests.release(session['address'],self.network(p.get('network')),p.get('clientOrderId'))});return True
+        if path=='/api/integrations/hyperliquid/uncertain':
+            session,key=self.identity(h);observed=p.get('observed') if isinstance(p.get('observed'),dict) else {'state':'uncertain'};h.json({'request':self.hyperliquid_requests.uncertain(session['address'],self.network(p.get('network')),p.get('clientOrderId'),observed)});return True
+        if path=='/api/integrations/hyperliquid/acknowledge':
+            session,key=self.identity(h)
+            state=p.get('state');
+            if state not in ('resting','filled','rejected'):raise ValueError('Invalid Hyperliquid order outcome.')
+            observed=p.get('observed') if isinstance(p.get('observed'),dict) else {'state':state,'venueOrderId':p.get('venueOrderId')}
+            h.json({'request':self.hyperliquid_requests.acknowledge(session['address'],self.network(p.get('network')),p.get('clientOrderId'),state,p.get('venueOrderId'),observed)});return True
+        if path=='/api/integrations/hyperliquid/reconcile':
+            session,key=self.identity(h);network=self.network(p.get('network'));client_order_id=p.get('clientOrderId')
+            request=self.hyperliquid_requests.get(session['address'],network,client_order_id)
+            if not request:raise ValueError('Hyperliquid request is not recorded.')
+            try:observed=self.hyperliquid_info(network,{'type':'orderStatus','user':session['address'],'oid':client_order_id})
+            except Exception:
+                h.json({'error':'Reconciliation unavailable; this request remains blocked.'},503);return True
+            wrapper=observed.get('order') if isinstance(observed,dict) else None
+            order=wrapper.get('order') if isinstance(wrapper,dict) else None
+            venue_state=wrapper.get('status') if isinstance(wrapper,dict) else None
+            if isinstance(order,dict) and venue_state and order.get('oid') is not None:
+                request=self.hyperliquid_requests.acknowledge(session['address'],network,client_order_id,venue_state,order['oid'],observed)
+                h.json({'found':True,'request':request});return True
+            request=self.hyperliquid_requests.uncertain(session['address'],network,client_order_id,observed)
+            h.json({'found':False,'request':request});return True
         return False
