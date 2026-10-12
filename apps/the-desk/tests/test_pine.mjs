@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {pineState,restorePineState} from '../web/pine-state.mjs';
-import {DeskPineEngine} from '../web/pine-runtime.mjs';
+import {DeskPineEngine,pineWorkerOptions} from '../web/pine-runtime.mjs';
 import {checkPineSource,validationSource,plotRows,rowsToCsv,parseCsv,compareReference,sourceHash,drawingCounts,timeframeDuration} from '../web/pine-validation.mjs';
 const hour=3600000,day=24*hour,week=7*day;
 const bars=Array.from({length:1000},(_,i)=>{const base=100+Math.sin(i*.15)*8+i*.01;return {time:Date.UTC(2026,7,3)+i*hour,open:base,high:base+2,low:base-2,close:base+Math.sin(i),volume:1000+i%40};});
@@ -52,6 +52,15 @@ test('plot names cannot overwrite provider OHLCV fields',()=>{
  assert.equal(rows[0].open,bars[0].open);assert.equal(rows[0]['Plot: open'],999);
 });
 test('runtime rejects invalid Pine rather than accepting a conversion',async()=>{await assert.rejects(run('//@version=6\nindicator("Invalid")\nplot(does_not_exist(close))'));});
+test('nested compatibility routing requires the named Cleo functions',async()=>{
+ const cleo=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
+ const textareaSource=cleo.replace(/\r\n?/g,'\n');
+ assert.match(pineWorkerOptions(textareaSource).workerUrl,/pine-compatible-worker\.js$/);
+ const renamed=textareaSource.replace('indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"','indicator("Unrelated study", "Unrelated study"');
+ assert.deepEqual(pineWorkerOptions(renamed),{});
+ const similar='//@version=6\nindicator("Unrelated study")\nf_confirmedMaster() => close\nf_marketSource(int tfId, bool confirmed) => close';
+ assert.deepEqual(pineWorkerOptions(similar),{});
+});
 const rows=bars.slice(0,4).map((b,i)=>({...b,Result:i?i*1.5:null}));
 test('CSV compares shared completed outputs and fails changed OHLC, missing columns and no overlap',()=>{
  assert.equal(compareReference(rows,rowsToCsv(rows)).matched,true);assert.equal(parseCsv(rowsToCsv([{time:1,label:'a,"b"\nc'}]))[0].label,'a,"b"\nc');
@@ -63,7 +72,7 @@ test('CSV compares shared completed outputs and fails changed OHLC, missing colu
  assert.equal(compareReference(rows,rowsToCsv(rows.map(r=>({...r,Result:null})))).matched,false);
 });
 test('source fingerprints bind the untouched source and export excludes bars after the cutoff',async()=>{assert.equal((await sourceHash(simple)).length,64);assert.notEqual(await sourceHash(simple),await sourceHash(simple+'\n'));assert.equal(plotRows({series:[]},bars,bars[9].time).length,10);});
-function fakeFactory(){const workers=[];const factory=()=>{const worker={terminate(){this.terminated=true;},async prepare(source,id){return {token:{instanceId:id}};},execute(req,h){this.handlers=h;return {stop(){},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}};workers.push(worker);return worker;};return {factory,workers};}
+function fakeFactory(){const workers=[];const factory=()=>{const worker={terminate(){this.terminated=true;},async prepare(source,id){return {token:{instanceId:id,source}};},execute(req,h){this.handlers=h;return {stop(){},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}};workers.push(worker);return worker;};return {factory,workers};}
 test('cancelling a test leaves an installed study running and resolves the test error',async()=>{
  const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory,executionTimeout:1000});const real=await engine.prepare(simple,'installed'),temp=await engine.prepare(simple,'pine-test-1');let error;
  engine.execute({prepared:real,bars,market,historyState:'backfill'},{onModel(){}});engine.execute({prepared:temp,bars,market},{onModel(){},onError:e=>error=e});engine.cancelTests();assert.match(error.message,/cancelled/);assert.equal(workers[0].terminated,undefined);assert.equal(workers[1].terminated,true);engine.terminate();
@@ -84,6 +93,11 @@ test('saved Cleo sources keep all drawings while excluding them from candle auto
   session.stop();
  }
  engine.terminate();
+});
+test('named Cleo source gets a longer watchdog without widening ordinary studies',async()=>{
+ const cleo=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');let timer;
+ const factory=()=>({terminate(){clearTimeout(timer);},async prepare(source,id){return {token:{instanceId:id,source}};},execute(req,h){timer=setTimeout(()=>h.onModel({}),25);return {stop(){clearTimeout(timer);},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}});
+ const engine=new DeskPineEngine({factory,executionTimeout:10}),prepared=await engine.prepare(cleo,'pine-test-cleo');await new Promise((resolve,reject)=>engine.execute({prepared,bars,market},{onModel:resolve,onError:reject}));engine.terminate();
 });
 
 test('show/reload can execute a previously prepared source after its session was stopped',async()=>{const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory});const prepared=await engine.prepare(simple,'installed');const request={prepared,bars,market,historyState:'backfill'};engine.execute(request,{onModel(){}}).stop();assert.equal(engine.workers.size,0);engine.execute(request,{onModel(){}});assert.equal(workers.length,2);assert.equal(engine.active.size,1);engine.terminate();});
