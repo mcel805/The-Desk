@@ -45,5 +45,5 @@ export function bracketLabel(item,field,{tick}={}){
 
 export function draftTradingLevels(item,quote,amend,remove){
   const fields=[['entry',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]];
-  return fields.filter(([f])=>positive(item[f])&&(f!=='trigger'||item.kind==='stop_limit')).map(([field,color])=>({key:'draft'+field,field,price:Number(item[field]),label:bracketLabel(item,field,quote),color,kind:'draft',item,amend:value=>amend(field,value),remove:()=>remove(field)}));
+  return fields.filter(([f])=>positive(item[f])&&(f!=='trigger'||item.kind==='stop_limit')).map(([field,color])=>({key:'draft'+field,field,price:Number(item[field]),label:field==='entry'?'DRAFT · not placed':'DRAFT · '+bracketLabel(item,field,quote),color,kind:'draft',item,amend:value=>amend(field,value),remove:()=>remove(field)}));
 }

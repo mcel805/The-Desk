@@ -33,7 +33,24 @@ function stageChartTrade(next,kind='limit',price){
  const distance=Number.isFinite(y)?Math.abs(entry-native.coords.yToPrice(y+40,pane.scale,pane.bounds)):undefined;
  const levels=starterBracket({entry,side,tick:q.tick,stop:$('#stopPrice').value,target:$('#targetPrice').value,distance});
  for(const field of ['stop','target'])if(levels[field])$('#'+field+'Price').value=levels[field];
- updateTicket();toast('Drag the entry, stop loss and take profit to adjust. Review the starter levels before placing the paper order.');
+ updateTicket();reviewChartOrder();
+}
+function reviewChartOrder(){
+ if(!draft||ws.replay.state.active||$('#orderKind').value!=='limit')return;
+ const p=payload(),scope={account:activeAccount,instrument:instrument()},a=account();
+ showDialog('Place paper '+p.side+' '+p.kind,
+  `<p>${esc(p.instrument)} · ${esc(a?.name)} · PAPER</p><p class="muted">This is a draft. Confirm placement to create a working order.</p>`+
+  `<label>Quantity<input name="qty" type="number" min="0" step="any" value="${esc(p.qty)}" required></label>`+
+  `<label>Limit price<input name="price" type="number" min="0" step="any" value="${esc(p.price)}" required></label>`+
+  `<div class="two-col"><label>Stop loss<input name="stop" type="number" min="0" step="any" value="${esc(p.stop||'')}"></label><label>Take profit<input name="target" type="number" min="0" step="any" value="${esc(p.target||'')}"></label></div>`,async fd=>{
+   if(scope.account!==activeAccount||scope.instrument!==instrument()||ws.replay.state.active)throw Error('Account or chart changed. Review the order again.');
+   const result=await command('order',{...p,...Object.fromEntries(fd)});
+   if(!['working','filled','triggered'].includes(result.status))throw Error('Order was not accepted. Refresh the ledger.');
+   $('#sizeMode').value='units';$('#quantity').value=fd.get('qty');
+   for(const [key,id] of [['price','entryPrice'],['stop','stopPrice'],['target','targetPrice']])$('#'+id).value=fd.get(key)||'';
+   draft=false;commandKey=null;updateTicket();setPanel(result.status==='filled'?'positions':'orders');
+   toast(result.status==='filled'?'Paper order filled.':'Paper '+p.side+' limit accepted · WORKING.');
+  },{submitLabel:'Place paper '+p.side+' limit',cancelLabel:'Edit on chart'});
 }
 function account(){return state?.accounts.find(a=>a.id===activeAccount);}
 function quote(){return state?.quotes[instrument()];}
@@ -91,9 +108,9 @@ $('#orderForm').onsubmit=async e=>{
 $('#discardDraft').onclick=()=>{draft=false;commandKey=null;$('#orderError').textContent='';toast('Order projection discarded.');};
 $('#tradeButton').onclick=()=>{document.body.classList.toggle('rail-hidden');$('#tradeButton').setAttribute('aria-expanded',!document.body.classList.contains('rail-hidden'));ws.cells().forEach(c=>c.chart.resize());};
 
-function showDialog(title,body,submit){
+function showDialog(title,body,submit,{submitLabel='Confirm',cancelLabel='Cancel'}={}){
  dialogKey=crypto.randomUUID();
- $('#dialogBody').innerHTML=`<h2>${esc(title)}</h2><form id="dialogForm">${body}<p class="error" role="alert" id="dialogError"></p><div class="dialog-actions"><button type="button" id="dialogCancel">Cancel</button>${submit?'<button class="primary" type="submit">Confirm</button>':''}</div></form>`;
+ $('#dialogBody').innerHTML=`<h2>${esc(title)}</h2><form id="dialogForm">${body}<p class="error" role="alert" id="dialogError"></p><div class="dialog-actions"><button type="button" id="dialogCancel">${esc(cancelLabel)}</button>${submit?'<button class="primary" type="submit">'+esc(submitLabel)+'</button>':''}</div></form>`;
  $('#dialogCancel').onclick=()=>$('#dialog').close();
  $('#dialogForm').oninput=()=>{dialogKey=crypto.randomUUID();};
  $('#dialogForm').onsubmit=async e=>{e.preventDefault();const b=e.submitter;if(b)b.disabled=true;try{await submit(new FormData(e.target));$('#dialog').close();}catch(err){$('#dialogError').textContent=err.message;}finally{if(b)b.disabled=false;}};
@@ -264,11 +281,11 @@ function amendDraft(field,value){
 }
 function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';commandKey=null;updateTicket();}
 function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
-const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
+const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
 function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
-$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executions:'Execution markers',labels:'Execution quantities',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. Chart context-menu brackets always stage in the ticket for review. One-click placement affects other paper-entry shortcuts; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
+$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executions:'Execution markers',labels:'Execution quantities',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. Chart context-menu limits open a placement review. Drafts do not execute until submitted. One-click placement affects other paper-entry shortcuts; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
 
 setupPineEditor({saveSettings});
 

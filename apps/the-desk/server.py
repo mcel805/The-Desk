@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from engine import Engine, dec
+from market_stream import HyperliquidStream
 from funding_routes import FundingRoutes
 
 ROOT=Path(__file__).resolve().parent
@@ -97,21 +98,26 @@ class Gateway:
 class Workers:
     def __init__(self,engine,gateway,journal_url,token):
         self.engine=engine;self.gateway=gateway;self.journal_url=journal_url.rstrip('/');self.token=token;self.journal_health=False;self.stop=threading.Event();self.market_cycles=0
+        self.stream=HyperliquidStream(engine,gateway,self.stop)
     def start(self):
-        for fn in (self.market,self.journal,self.timers):threading.Thread(target=fn,daemon=True).start()
+        for fn in (self.market,self.stream.run,self.journal,self.timers):threading.Thread(target=fn,daemon=True).start()
     def timers(self):
         while not self.stop.is_set():
             self.engine.expire();self.stop.wait(1)
     def market(self):
         instruments=[p+':'+s for p,symbols in [('coinbase',['BTC-USD','ETH-USD','SOL-USD']),('hyperliquid',['BTC','ETH','SOL'])] for s in symbols]
         def load(i):
-            try:
-                bid,ask,meta=self.gateway.quote(i);self.engine.ingest(i,bid,ask,meta)
-                self.gateway.errors.pop(i,None)
-            except Exception as e:self.gateway.errors[i]=type(e).__name__+': market feed unavailable'
-        with ThreadPoolExecutor(max_workers=6) as pool:
             while not self.stop.is_set():
-                list(pool.map(load,instruments));self.market_cycles+=1;self.stop.wait(3)
+                try:
+                    if not self.stream.healthy(i):
+                        bid,ask,meta=self.gateway.quote(i)
+                        if i.startswith('hyperliquid:'):meta={**meta,'transport':'REST fallback · brief trade touches may be missed'}
+                        self.engine.ingest(i,bid,ask,meta)
+                    self.gateway.errors.pop(i,None);self.market_cycles+=1
+                except Exception as e:self.gateway.errors[i]=type(e).__name__+': market feed unavailable'
+                self.stop.wait(3)
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(load,instruments))
     def dispatch(self):
         with self.engine.db() as db:
             rows=db.execute("SELECT * FROM outbox WHERE status='pending' AND next_attempt<=? ORDER BY sequence LIMIT 12",(time.time(),)).fetchall()
@@ -159,8 +165,8 @@ def main():
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
                 if funding.get(self,parsed.path,q):return
-                if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'journal_available':workers.journal_health})
-                if parsed.path=='/api/state':return self.json({**engine.state(value('account_id')), 'feed_errors':gateway.errors,'journal_url':workers.journal_url,'journal_available':workers.journal_health})
+                if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'market_stream':workers.stream.status,'journal_available':workers.journal_health})
+                if parsed.path=='/api/state':return self.json({**engine.state(value('account_id')), 'market_stream':workers.stream.status,'feed_errors':gateway.errors,'journal_url':workers.journal_url,'journal_available':workers.journal_health})
                 if parsed.path=='/api/bars':return self.json(gateway.bars(engine.instrument(value('instrument','hyperliquid:BTC')),value('timeframe','1h'),min(1000,max(50,int(value('limit','600'))))))
                 if parsed.path=='/api/settings':
                     with engine.db() as db:return self.json({r['key']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')})

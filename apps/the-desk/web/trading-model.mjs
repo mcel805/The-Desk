@@ -22,7 +22,7 @@ export function formatPnl(metrics){const {value,unit}=metrics,n=Math.abs(value).
 export function tradingLevels(state,market,config){
   const levels=[];
   if(config.orders)for(const o of state.orders.filter(x=>x.instrument===market&&['working','triggered'].includes(x.status))){
-    for(const [field,color] of [['price',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]])if(o[field]&&(config.brackets||!['stop','target'].includes(field)))levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:bracketLabel(o,field,state.quotes[market]),color,kind:'order'});
+    for(const [field,color] of [['price',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]])if(o[field]&&(config.brackets||!['stop','target'].includes(field)))levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:['price','trigger'].includes(field)?o.side.toUpperCase()+' '+o.kind+' · '+o.qty+' · '+o.status.toUpperCase():bracketLabel(o,field,state.quotes[market]),color,kind:'order'});
   }
   if(config.positions)for(const p of state.positions.filter(x=>x.instrument===market)){
     const metrics=positionMetrics(p,state.quotes[market],config.pnlUnit);
