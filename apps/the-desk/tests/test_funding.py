@@ -40,7 +40,7 @@ class BrokerTests(unittest.TestCase):
         def http(url,payload=None,headers=None,form=False):
             self.calls.append((url,payload,headers))
             if url==DISCOVERY:return {'issuer':ISSUER,'authorization_endpoint':AUTH,'token_endpoint':TOKEN,'registration_endpoint':REGISTER,'code_challenge_methods_supported':['S256']}
-            if url==REGISTER:return {'client_id':'desk-test'}
+            if url==REGISTER:return {'client_id':'desk-test-'+str(sum(call[0]==REGISTER for call in self.calls))}
             if url==TOKEN:return {'access_token':'test-only','expires_in':3600}
             method=payload['method']
             if method=='initialize':return {'result':{'protocolVersion':'2025-03-26'}}
@@ -74,10 +74,18 @@ class BrokerTests(unittest.TestCase):
 
     def test_login_redirect_matches_initiating_loopback_host(self):
         from urllib.parse import urlparse,parse_qs
-        url=self.broker.start('wallet-session','localhost:18882')['url'];params=parse_qs(urlparse(url).query)
-        self.assertEqual(params['redirect_uri'],['http://localhost:18882/api/robinhood/callback'])
-        registration=next(payload for url,payload,headers in self.calls if url==REGISTER)
-        self.assertEqual(registration['redirect_uris'],['http://localhost:18882/api/robinhood/callback'])
+        first=parse_qs(urlparse(self.broker.start('wallet-session','127.0.0.1:18882')['url']).query)
+        second=parse_qs(urlparse(self.broker.start('wallet-session','localhost:18882')['url']).query)
+        self.assertEqual(first['redirect_uri'],['http://127.0.0.1:18882/api/robinhood/callback'])
+        self.assertEqual(second['redirect_uri'],['http://localhost:18882/api/robinhood/callback'])
+        registrations=[payload for url,payload,headers in self.calls if url==REGISTER]
+        self.assertEqual([p['redirect_uris'][0] for p in registrations],['http://127.0.0.1:18882/api/robinhood/callback','http://localhost:18882/api/robinhood/callback'])
+        self.broker.callback('wallet-session',first['state'][0],'code',ISSUER)
+        first_token=next(payload for url,payload,headers in self.calls if url==TOKEN)
+        self.assertEqual(first_token['client_id'],'desk-test-1')
+        self.broker.callback('wallet-session',second['state'][0],'code',ISSUER)
+        token_calls=[payload for url,payload,headers in self.calls if url==TOKEN]
+        self.assertEqual(token_calls[-1]['client_id'],'desk-test-2')
     def test_preview_submit_confirmation_idempotency_and_no_auto_trade(self):
         p=self.draft();preview=self.broker.preview('wallet-session',p)
         self.assertEqual(preview['review']['market_data_disclosure'],'Exact quote disclosure')

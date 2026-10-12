@@ -67,7 +67,7 @@ def decimal(value):
 
 class Robinhood:
     def __init__(self, port, http=fetch_json, live=False):
-        self.port=port;self.http=http;self.live=live;self.pending={};self.sessions={};self.lock=threading.RLock();self.client_id=os.environ.get('DESK_ROBINHOOD_CLIENT_ID','')
+        self.port=port;self.http=http;self.live=live;self.pending={};self.sessions={};self.lock=threading.RLock();self.client_id=os.environ.get('DESK_ROBINHOOD_CLIENT_ID','');self.client_ids={}
     def disconnect(self, key):
         with self.lock:
             self.sessions.pop(key,None)
@@ -82,25 +82,27 @@ class Robinhood:
             if host not in (f'127.0.0.1:{self.port}',f'localhost:{self.port}'):
                 raise ValueError('Robinhood login requires a trusted loopback host.')
             redirect=f'http://{host}/api/robinhood/callback'
-            if not self.client_id:
+            client_id=self.client_id or self.client_ids.get(redirect)
+            if not client_id:
                 registered=self.http(REGISTER,{'client_name':'The Desk local trading workspace','redirect_uris':[redirect],'grant_types':['authorization_code','refresh_token'],'response_types':['code'],'token_endpoint_auth_method':'none'})
-                self.client_id=registered.get('client_id','')
-            if not self.client_id: raise ValueError('Robinhood client registration is unavailable. Configure an approved client ID.')
+                client_id=registered.get('client_id','')
+                if client_id:self.client_ids[redirect]=client_id
+            if not client_id: raise ValueError('Robinhood client registration is unavailable. Configure an approved client ID.')
             self.pending={k:v for k,v in self.pending.items() if v['expires']>time.time()}
             if len(self.pending)>=128: raise ValueError('Too many login attempts. Retry shortly.')
             state=secrets.token_urlsafe(32);verifier=secrets.token_urlsafe(48)
             challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
-            self.pending[state]={'key':key,'verifier':verifier,'redirect':redirect,'expires':time.time()+300}
-            return {'url':AUTH+'?'+urlencode({'client_id':self.client_id,'response_type':'code','redirect_uri':redirect,'state':state,'code_challenge':challenge,'code_challenge_method':'S256','scope':'internal','resource':RESOURCE})}
+            self.pending[state]={'key':key,'verifier':verifier,'redirect':redirect,'client_id':client_id,'expires':time.time()+300}
+            return {'url':AUTH+'?'+urlencode({'client_id':client_id,'response_type':'code','redirect_uri':redirect,'state':state,'code_challenge':challenge,'code_challenge_method':'S256','scope':'internal','resource':RESOURCE})}
     def callback(self,key,state,code,issuer):
         with self.lock:
             p=self.pending.get(state)
             if not p or p['key']!=key or p['expires']<=time.time(): raise ValueError('Robinhood login expired or does not belong to this wallet session.')
             if issuer!=ISSUER or not code: raise ValueError('Robinhood login issuer or code is invalid.')
             self.pending.pop(state)
-            token=self.http(TOKEN,{'grant_type':'authorization_code','code':code,'redirect_uri':p['redirect'],'client_id':self.client_id,'code_verifier':p['verifier'],'resource':RESOURCE},form=True)
+            token=self.http(TOKEN,{'grant_type':'authorization_code','code':code,'redirect_uri':p['redirect'],'client_id':p['client_id'],'code_verifier':p['verifier'],'resource':RESOURCE},form=True)
             if not token.get('access_token'): raise ValueError('Robinhood did not return a session.')
-            self.sessions[key]={'token':token,'expires':time.time()+float(token.get('expires_in',300)),'tools':{},'accounts':{},'previews':{}}
+            self.sessions[key]={'token':token,'client_id':p['client_id'],'expires':time.time()+float(token.get('expires_in',300)),'tools':{},'accounts':{},'previews':{}}
             self.rpc(key,'initialize',{'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'The Desk','version':'0.1'}})
             self.rpc(key,'notifications/initialized',{},notification=True)
             tools={};cursor=None
@@ -117,7 +119,7 @@ class Robinhood:
         if s['expires']<=time.time():
             refresh=s['token'].get('refresh_token')
             if not refresh: self.disconnect(key);raise ValueError('Robinhood session expired. Sign in again.')
-            token=self.http(TOKEN,{'grant_type':'refresh_token','refresh_token':refresh,'client_id':self.client_id,'resource':RESOURCE},form=True)
+            token=self.http(TOKEN,{'grant_type':'refresh_token','refresh_token':refresh,'client_id':s['client_id'],'resource':RESOURCE},form=True)
             if not token.get('access_token'): self.disconnect(key);raise ValueError('Robinhood session expired. Sign in again.')
             s['token']={**s['token'],**token};s['expires']=time.time()+float(token.get('expires_in',300))
         body={'jsonrpc':'2.0','method':method,'params':params}
