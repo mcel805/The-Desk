@@ -24,10 +24,15 @@ screenshot may show custom settings or other studies; those are not silently
 substituted for the source's defaults. Price candles and chart chrome belong to
 the chart's own settings.
 
+Cleo's drawings share the candle price coordinates but do not expand the automatic
+price scale. Distant higher-timeframe levels remain in the model and appear when
+you pan or zoom the price axis to them. This also applies to previously saved Cleo
+sources and `All retained` mode; no source replacement or settings reset is needed.
+
 ## Source and data contract
 
 - `web/pine-examples/cleos-liquidity-original.pine`: supplied source, byte exact.
-- `web/pine-examples/cleos-liquidity.pine`: name-only port.
+- `web/pine-examples/cleos-liquidity.pine`: named port with the display changes above.
 - Provider, symbol, timeframe and cutoff come from the active chart; requests use
   that provider. Required missing secondary data fails visibly.
 - Supported Desk markets are Coinbase/Hyperliquid crypto. This app has no MYM
@@ -43,8 +48,8 @@ the chart's own settings.
 ## Runtime compatibility
 
 Pinned `@luxalgo/vela-pinets 0.2.15` / `pinets 0.11.0` are unchanged. The original
-nested security transport needs a scoped worker extension. Only the exact named
-Cleo source with its normalized source signature selects
+nested security transport needs a scoped worker extension. Named Cleo sources
+with the original master and market functions, including edited saved copies, select
 `pine-compatible-worker.js`; other Pine indicators keep the existing worker.
 
 `web/pine-compat/` applies host fixes to generated JavaScript, without rewriting
@@ -56,6 +61,10 @@ Safe immutable request slices reduce work; stateful expressions use the full
 capture path. This adapter is scoped to the supplied source, not a promise of
 universal Pine compatibility. Worker stop/cancel and host execution deadlines
 prevent failed studies from holding the UI.
+
+The compatibility worker serializes static recalculations and acknowledges
+deferred startup. Viewport changes and forming-bar updates cannot overlap
+full-history runs; consecutive updates are coalesced with all input edits retained.
 
 Cleo runs in its own worker with a 120-second execution limit to accommodate the
 canonical 1M master on slower or higher-timeframe charts. The 4H fixture check
@@ -73,6 +82,18 @@ node --test tests/test_cleos_liquidity.mjs tests/test_cleo_live.mjs
 node --test tests/test_pine.mjs tests/test_sma.mjs
 python3 -m unittest discover -s tests -v
 ```
+
+For browser acceptance, start an isolated Desk server and a dedicated Chrome
+debugging session, then run:
+
+```sh
+node tests/verify_cleo_browser.mjs http://127.0.0.1:18882/ http://127.0.0.1:9226 /private/tmp/cleo-browser-report.json
+```
+
+This check uses real Hyperliquid BTC bars on 1M and 4H, installs `All retained`
+mode, measures the rendered candle scale, saves and reloads all 199 inputs, and
+captures both charts. Use an isolated data directory: the check edits that test
+workspace. It fails when distant liquidity drawings stretch the price scale.
 
 The Cleo fixture suite compares original and renamed executions: all inputs,
 nine numeric outputs, lines, labels, boxes, linefills, tables and their geometry

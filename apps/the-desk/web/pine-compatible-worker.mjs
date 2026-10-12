@@ -1,5 +1,6 @@
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from './pine-compat/nested-security.mjs';
+import {executeSerial} from './pine-compat/serial-execution.mjs';
 installNestedSecurity();
 const engine=new PineEngine(),sessions=new Map(),fetches=new Map();let requestId=0;
 const post=m=>self.postMessage(m);
@@ -7,7 +8,7 @@ const fetchSeries=(symbol,timeframe,range)=>new Promise((resolve,reject)=>{const
 self.addEventListener('message',async({data:m})=>{
  try{switch(m.kind){
   case 'prepare':try{post({kind:'prepared',reqId:m.reqId,prepared:await engine.prepare(m.source,m.instanceId)});}catch(e){post({kind:'prepared',reqId:m.reqId,error:e.message});}break;
-  case 'execute':{const entry={bars:m.bars,mode:m.mode,session:null};sessions.set(m.sessionId,entry);entry.session=engine.execute({...m,getBars:()=>entry.bars,fetchSeries},{onModel:model=>{post({kind:'reactsToViewport',sessionId:m.sessionId,value:m.prepared.reactsToViewport});post({kind:'model',sessionId:m.sessionId,model});},onDone:()=>post({kind:'done',sessionId:m.sessionId}),onAlert:alert=>post({kind:'alert',sessionId:m.sessionId,alert}),onWarning:warning=>post({kind:'warning',sessionId:m.sessionId,warning}),onError:e=>post({kind:'error',sessionId:m.sessionId,message:e.message})});break;}
+  case 'execute':{const entry={bars:m.bars,mode:m.mode,session:null};sessions.set(m.sessionId,entry);entry.session=executeSerial(engine,{...m,getBars:()=>entry.bars,fetchSeries},{onModel:model=>{post({kind:'reactsToViewport',sessionId:m.sessionId,value:m.prepared.reactsToViewport});post({kind:'model',sessionId:m.sessionId,model});},onDone:()=>post({kind:'done',sessionId:m.sessionId}),onAlert:alert=>post({kind:'alert',sessionId:m.sessionId,alert}),onWarning:warning=>post({kind:'warning',sessionId:m.sessionId,warning}),onError:e=>post({kind:'error',sessionId:m.sessionId,message:e.message})});break;}
   case 'update':sessions.get(m.sessionId)?.session.update(m.inputs,m.props);break;
   case 'setVisibleRange':sessions.get(m.sessionId)?.session.setVisibleRange(m.range);break;
   case 'notifyBars':{const e=sessions.get(m.sessionId);if(e){e.bars=m.bars;e.session.notifyBars('complete');}break;}

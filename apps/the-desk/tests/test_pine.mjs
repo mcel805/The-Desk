@@ -70,6 +70,22 @@ test('cancelling a test leaves an installed study running and resolves the test 
 });
 test('execution watchdog terminates only the timed-out worker',async()=>{const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory,executionTimeout:10});const prepared=await engine.prepare(simple,'pine-test-timeout');const error=await new Promise(resolve=>engine.execute({prepared,bars,market},{onModel(){},onError:resolve}));assert.match(error.message,/execution exceeded/);assert.equal(workers[0].terminated,true);assert.equal(engine.active.size,0);});
 
+test('saved Cleo sources keep all drawings while excluding them from candle autoscale on every model update',async()=>{
+ const source=await fs.readFile(new URL('../web/pine-examples/cleos-liquidity.pine',import.meta.url),'utf8');
+ const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory});
+ for(const [id,text,expected] of [['saved',source.replace('"Nearest N"','"All retained"'),false],['ordinary',simple,undefined]]){
+  const prepared=await engine.prepare(text,id);prepared.token.source=text;
+  const outputs=[];const session=engine.execute({prepared,bars,market},{onModel:m=>outputs.push(m)});
+  const worker=workers.at(-1),model={series:[],lines:[{id:'daily',y1:58000,y2:58000}],labels:[{id:'daily-tag',text:'D'}],boxes:[{id:'zone',top:88000,bottom:87900}]};
+  worker.handlers.onModel(model);session.update({close:82763});worker.handlers.onModel({...model});
+  assert.equal(outputs.length,2);
+  for(const output of outputs){assert.equal(output.drawingAutoscale,expected);for(const key of ['lines','labels','boxes'])assert.deepEqual(output[key],model[key]);}
+  assert.equal(engine.records.get(id).model.drawingAutoscale,expected);
+  session.stop();
+ }
+ engine.terminate();
+});
+
 test('show/reload can execute a previously prepared source after its session was stopped',async()=>{const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory});const prepared=await engine.prepare(simple,'installed');const request={prepared,bars,market,historyState:'backfill'};engine.execute(request,{onModel(){}}).stop();assert.equal(engine.workers.size,0);engine.execute(request,{onModel(){}});assert.equal(workers.length,2);assert.equal(engine.active.size,1);engine.terminate();});
 test('compile watchdog rejects a hung preparation and releases its worker',async()=>{let terminated=false;const engine=new DeskPineEngine({compileTimeout:10,factory:()=>({prepare:()=>new Promise(()=>{}),terminate:()=>terminated=true})});await assert.rejects(engine.prepare(simple,'pine-test-hung'),/compilation exceeded/);assert.equal(terminated,true);assert.equal(engine.workers.size,0);});
 test('cancel during compilation rejects the pending preparation',async()=>{let terminated=false;const engine=new DeskPineEngine({factory:()=>({prepare:()=>new Promise(()=>{}),terminate:()=>terminated=true})});const pending=engine.prepare(simple,'pine-test-compiling');engine.cancelTests();await assert.rejects(pending,/cancelled/);assert.equal(terminated,true);});
