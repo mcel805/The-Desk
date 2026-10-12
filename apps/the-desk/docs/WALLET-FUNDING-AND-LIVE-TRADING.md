@@ -1,0 +1,174 @@
+# The Desk: Base wallet, funding and live venues
+
+Plan and implementation status, 12 October 2026.
+
+## Product behavior
+
+The user opens The Desk, clicks **Connect wallet**, selects Rabby or MetaMask,
+switches to Base, and signs a one-time login message. The header becomes a
+clickable address that opens **Wallet & funding**. No order is submitted by
+connecting. Keys remain in the extension; The Desk never asks for a seed phrase.
+
+The drawer provides three separate account views:
+
+| Account | Where funds reside | Implemented actions | Delivery status |
+|---|---|---|---|
+| Base wallet | User-controlled address on Base | Signed login, ETH/native USDC balances, receive address, reviewed ETH/USDC send | Implemented; real extension acceptance pending |
+| Hyperliquid | HyperCore spot balances and perpetual collateral | Account snapshot, perpetual GTC limit order, reduce only, order cancellation, positions/fills | SDK signing and mock transport tested; funded testnet acceptance pending |
+| Robinhood | Broker custody | Official OAuth/PKCE login, masked accounts, separate stock/crypto buying power, reviewed stock/crypto limit-order requests | Public discovery and client registration verified; app OAuth completion and execution pending |
+| Paper account | Local simulated ledger | Existing chart/DOM tickets and paper journal | Continues separately |
+
+This makes Base the wallet and funding integration. It does not deploy The Desk
+as a smart contract or turn Hyperliquid and Robinhood into Base applications.
+No new token, pooled custody vault, or contract deployment is required for this
+first implementation. A Base-native trading product beyond wallet funding would
+need a named Base venue and its own quote, swap, simulation and settlement adapter.
+
+## Funding and trading flow
+
+1. **Identity:** EIP-6963 discovers multiple extensions without conflicting
+   injected providers. EIP-4361-style sign-in binds address, Base chain, origin,
+   nonce and five-minute expiry. The server verifies the signature and sets an
+   eight-hour HttpOnly SameSite cookie. Logout revokes local sessions; account,
+   network and disconnect events invalidate identity and discard pending reviews.
+2. **Wallet funding:** Receive shows the connected address and Base native USDC
+   contract. ETH pays gas. Read ETH and USDC balances at the same block.
+   Send uses exact integer amounts, checks recipient/precision, estimates gas,
+   shows a review and asks the extension to sign. Submission is displayed as
+   pending with an explorer link, never as settled. Swap and bridge controls open
+   established provider interfaces; they are not embedded swap engines.
+3. **Hyperliquid funding:** Open its official deposit/withdraw flow, which
+   determines the supported source asset, route, fees and destination. Do not
+   reuse a guessed deposit address or assume Base USDC is immediately available
+   as HyperCore collateral. The current documentation supports CCTP and multiple
+   source chains; the Arbitrum USDC route remains a documented option.
+4. **Hyperliquid trading:** Choose testnet or mainnet explicitly. Refresh venue
+   metadata, collateral, positions and orders. Enter coin, side, quantity and
+   price. The review shows notional, reduce-only state, network and existing
+   position leverage when reported. The pinned SDK signs through the selected
+   extension and sends directly to the selected exchange. A unique client order
+   ID identifies each intent. Rejections stay errors; resting and filled are
+   distinguished. Unknown outcomes require reconciliation before another order.
+   This ticket uses existing venue leverage/margin settings and does not expose
+   leverage changes, market orders, trigger orders or spot orders yet.
+5. **Robinhood connection:** Sign in with the Base wallet first, then click
+   **Sign in to Robinhood**. The server discovers the official issuer, registers
+   a public OAuth client, generates a state and PKCE S256 verifier, and redirects
+   to Robinhood's consent screen. The callback verifies state, wallet session,
+   issuer and expiry, exchanges the code server-side and lists MCP capabilities.
+   Tokens stay in server memory and never enter page storage or Git.
+6. **Robinhood funding:** Fund the eligible account in Robinhood. Brokerage
+   buying power and cash-only crypto buying power are separate authoritative
+   figures. The chat's Robinhood grant is independent of the Desk app's grant.
+7. **Robinhood trading:** Select an eligible active account and enter a stock/ETF
+   or crypto GTC limit order. The backend rejects read-only accounts and malformed
+   amounts, invokes the provider preview, preserves quote disclosures and broker
+   alerts, and blocks unsupported preview shapes. A server-held preview expires
+   after 30 seconds. Explicit confirmation sends exactly that request with a
+   retained UUID. The broker may require approval in Robinhood. Sending a request
+   is not a fill. Unknown submission outcomes are not automatically retried.
+
+## Rabby scope and provider limits
+
+The drawer follows Rabby's useful account pattern: address, chain, assets,
+receive, send, swap/bridge links, activity, and disconnect. Rabby/MetaMask still
+provide key custody, transaction simulation, wallet security checks and their
+full token/NFT/multichain histories. This is not a fork of the Rabby extension or
+a claim of full Rabby feature parity. QR receive, embedded swaps/bridges, full
+token discovery and receipt polling are subsequent work.
+
+Robinhood's official external-agent tools list equities, options and crypto.
+The tool catalog available during implementation has no futures order tool.
+Therefore **Robinhood futures are unavailable in The Desk**. Futures can be
+traded in Robinhood's interface when the user's account is eligible. Enabling a
+future native ticket requires an actual supported provider interface, futures
+account approval, contract/tick/expiry metadata, margin, order review, routing
+and confirmed fill reconciliation. A futures portfolio value is not routing
+authority. Options tools exist, but this implementation does not yet provide a
+native options ticket; its contract selector, approval and strategy validation
+are separate work.
+
+## Run and configuration
+
+```sh
+cd '/Users/markceleste/Documents/ChatGPT/The Trader - a trading company/apps/the-desk'
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-wallet.txt
+npm ci
+npm run build:wallet
+.venv/bin/python server.py --port 18882 --data-dir /private/tmp/desk-funding-review
+```
+
+The launcher uses `DESK_PYTHON_BIN` when configured, then the Desk venv, then the
+existing Count Desk venv, then the caller Python. Missing signature dependencies
+leave paper routes working and report wallet verification as unavailable.
+
+Mainnet orders and Base transfers default to disabled. After wallet/venue
+acceptance, an operator may start a separate live runtime explicitly:
+
+```sh
+DESK_LIVE_ENABLED=1 .venv/bin/python server.py --port 18882 --data-dir /private/tmp/desk-live
+```
+
+This enables mainnet request controls but is not evidence of a verified live
+deployment. It never submits an order automatically. Do not change this variable
+in the paper launcher or claim that the chart ticket is live. Production serving
+requires HTTPS, explicit deployed origin/redirect configuration, persistent
+encrypted token custody, rate limits, audit retention and reviewed data rights;
+the current server deliberately only accepts loopback origins.
+
+Optional `DESK_ROBINHOOD_CLIENT_ID` must belong to an approved client whose
+redirect URI matches the runtime port. Dynamic registration is verified, but
+actual user consent/approval may still require provider onboarding. Restarting
+the server clears wallet and broker sessions and previews. Disconnecting The
+Desk clears its local token; revoke the provider grant in Robinhood to remove
+that grant completely.
+
+## Validation and remaining acceptance
+
+Executable tests cover real synthetic wallet signature verification, replay,
+expiry, origin and signer rejection, cookie lifecycle, wallet/network changes,
+exact ETH/USDC encoding, EIP-6963 coexistence, pinned SDK order signing through a
+mock exchange, provider response classification, OAuth/PKCE session binding,
+account masking, trade eligibility, broker alerts, confirmation, preview expiry,
+idempotency and unknown-outcome handling. All financial tests use synthetic keys
+or mock provider calls. HTTP tests own an ephemeral server and disposable data.
+
+Acceptance still requires a human wallet signature in Rabby and MetaMask,
+Hyperliquid funded-testnet order/cancel/fill reconciliation, and Robinhood's own
+OAuth consent and account capability response from this app. Mainnet settlement
+has not been tested. No funds were moved or live orders placed during this work.
+
+After those pass, add receipt polling and a durable live-order audit/journal,
+then progressively expose spot, stops/brackets, leverage changes and options.
+Keep paper and live IDs, ledgers, execution workers and journal records separate.
+
+## Sources verified during implementation
+
+- [RabbyKit provider support](https://rabbykit.rabby.io/)
+- [Base funding routes](https://docs.base.org/base-chain/network-information/ecosystem-bridges)
+- [Circle native USDC contracts](https://developers.circle.com/stablecoins/usdc-contract-addresses)
+- [Hyperliquid onboarding and funding](https://hyperliquid.gitbook.io/hyperliquid-docs/onboarding/how-to-start-trading)
+- [Hyperliquid signing guidance](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/signing)
+- [Robinhood external-agent onboarding and capabilities](https://robinhood.com/us/en/support/articles/onboarding-an-external-agent/)
+- [Robinhood Crypto API](https://robinhood.com/us/en/support/articles/crypto-api/)
+- Robinhood public OAuth discovery and dynamic registration were read directly
+  at `agent.robinhood.com`; the registered consent URL uses `robinhood.com/oauth`.
+
+Dependency versions: `@nktkas/hyperliquid 0.33.3`, `viem 2.57.4`,
+`eth-account 0.13.7`. Bundle licenses accompany the checked-in browser bundle.
+
+## Local validation evidence — 12 October 2026
+
+- `npm run test:wallet`: 10 behavioral tests pass.
+- Wallet-enabled Python `unittest discover -s tests -p 'test_funding*.py'`: 14 tests pass; no dependency skips.
+- Existing chart-menu, trading-model, DOM and chart-bracket Node checks: 19 pass.
+- Chrome: real UI at `http://127.0.0.1:18882/` inspected at desktop and 500 px width; no horizontal drawer overflow. Missing-extension state, disconnected refresh and venue tabs verified.
+- Disposable browser fixture at port 18883: two providers discovered, a real synthetic signature accepted by the server, ETH/USDC balances and receive address rendered, rejected signature and account-change revocation verified. Hyperliquid testnet review and disabled mainnet review verified. Broker fixture exercises the real Robinhood form and preserves its quote disclosure with the exact limit-order fields; no provider writes are available.
+- Official Robinhood OAuth discovery and dynamic registration accepted. The app's user consent, token exchange and actual account catalog still require acceptance.
+- Broader Python regression has a pre-existing Lux Journal failure (`pending 8 != 0`), reproduced against the unchanged baseline server; it prevents an all-suite green claim.
+- Preview server has workers disabled, so its server quote and companion Lux Journal are unavailable. Client chart data does not establish execution readiness.
+
+The interactive plan uses The Desk's existing design tokens and includes separate
+funding walkthroughs, scope and release gates. Dark/light and narrow layouts were
+visually inspected. No funds were moved or live orders placed.

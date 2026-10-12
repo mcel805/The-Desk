@@ -93,7 +93,9 @@ def main():
             time.sleep(.5)
         else:raise RuntimeError('Lux journal readiness timeout')
     log=open(data/'desk.log','ab')
-    proc=subprocess.Popen([sys.executable,str(ROOT/'server.py'),'--port',str(args.port),'--data-dir',str(data)],cwd=str(ROOT),env=env,stdout=log,stderr=log,start_new_session=True);children.append(proc);owned.append(proc.pid)
+    candidates=[ROOT/'.venv/bin/python',TRADER/'count-dashboard/.venv/bin/python']
+    server_python=os.environ.get('DESK_PYTHON_BIN') or next((str(p) for p in candidates if p.is_file()),sys.executable)
+    proc=subprocess.Popen([server_python,str(ROOT/'server.py'),'--port',str(args.port),'--data-dir',str(data)],cwd=str(ROOT),env=env,stdout=log,stderr=log,start_new_session=True);children.append(proc);owned.append(proc.pid)
     pidfile.write_text(json.dumps({'owned':owned,'starts':{str(pid):process_start(pid) for pid in owned},'desk_url':desk_url,'journal_url':journal_url}))
     for _ in range(30):
         if reachable(desk_url+'/api/health'):break
