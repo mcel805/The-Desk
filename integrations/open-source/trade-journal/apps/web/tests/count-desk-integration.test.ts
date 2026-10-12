@@ -8,7 +8,7 @@ const originalToken = process.env.COUNT_DESK_JOURNAL_BRIDGE_TOKEN;
 const scratch = mkdtempSync(join(tmpdir(), "count-desk-integration-test-"));
 process.env.JOURNAL_DATA_DIR = scratch;
 process.env.COUNT_DESK_JOURNAL_BRIDGE_TOKEN = "test-token";
-const { db, accounts, executions, externalEventReceipts } = await import("../src/db");
+const { db, accounts, executions, externalEventReceipts, trades } = await import("../src/db");
 const { POST } = await import("../src/app/api/integrations/count-desk/route");
 
 const post = (body: Record<string, unknown>) => POST(new Request("http://localhost/api/integrations/count-desk", {
@@ -19,6 +19,7 @@ const post = (body: Record<string, unknown>) => POST(new Request("http://localho
 
 beforeEach(() => {
   db.delete(executions).run();
+  db.delete(trades).run();
   db.delete(externalEventReceipts).run();
   db.delete(accounts).run();
 });
@@ -33,6 +34,27 @@ afterAll(() => {
 });
 
 describe("Count Desk reset deduplication", () => {
+  it("rebuilds away stale trades when a committed reset is retried", async () => {
+    const account = { id: "paper-account", name: "QA", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
+    expect((await post({ eventId: "account-1", eventType: "account", account })).status).toBe(200);
+    expect((await post({ eventId: "reset-1", eventType: "reset",
+      account: { ...account, resetGeneration: 1 } })).status).toBe(200);
+    const journalAccount = db.select().from(accounts).get();
+    expect(journalAccount).toBeTruthy();
+    db.insert(trades).values({
+      key: "stale-trade", accountId: journalAccount!.id, symbol: "BTC", assetClass: "crypto",
+      direction: "long", status: "win", openedAt: "2026-10-01T00:00:00Z", closedAt: "2026-10-01T00:01:00Z",
+      quantity: 1, openQuantity: 0, avgEntry: 100, avgExit: 110, grossPnl: 10, fees: 0, netPnl: 10,
+      executionCount: 2, executionIdsJson: "[]", exitsJson: "[]", durationMs: 60000,
+    }).run();
+    expect(db.select().from(trades).all()).toHaveLength(1);
+
+    const retry = await post({ eventId: "reset-1", eventType: "reset",
+      account: { ...account, resetGeneration: 1 } });
+    expect(await retry.json()).toMatchObject({ accepted: true, duplicate: true });
+    expect(db.select().from(trades).all()).toHaveLength(0);
+  });
+
   it("drops an unseen pre-reset execution but accepts the next generation", async () => {
     const account = { id: "paper-account", name: "QA", currency: "USD", initialBalance: 1000, resetGeneration: 0 };
     expect((await post({ eventId: "account-1", eventType: "account", account })).status).toBe(200);

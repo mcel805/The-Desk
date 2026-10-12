@@ -54,7 +54,7 @@ export const POST = handler(async (request: Request) => {
     if (priorReceipt) {
       // Also repairs the materialized trade projection if the server stopped
       // after recording the receipt but before rebuilding the account.
-      if (payload.eventType === "execution") rebuildAccount(priorReceipt.accountId);
+      if (payload.eventType === "execution" || payload.eventType === "reset") rebuildAccount(priorReceipt.accountId);
       return ok({ accepted: true, duplicate: true });
     }
     if (payload.eventType === "execution") {
