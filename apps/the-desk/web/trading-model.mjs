@@ -30,4 +30,11 @@ export function tradingLevels(state,market,config){
   }
   return levels;
 }
+// A resting order belongs to the instrument/account, not the visible candle range.
+// Keep off-scale controls accessible without drawing a false line at the pane edge.
+export function tradeLevelPlacement(y,{top,height}){
+  if(!Number.isFinite(y)||!Number.isFinite(top)||!Number.isFinite(height)||height<=0)return null;
+  const bottom=top+height,edge=y<=top?'top':y>=bottom?'bottom':null;
+  return {y:edge==='top'?Math.min(top+46,bottom-13):edge==='bottom'?Math.max(top+13,bottom-13):y,edge};
+}
 export function ladderPrices(center,tick,multiplier=1,count=25){const step=tick*multiplier,base=Math.round(center/step);return Array.from({length:count},(_,i)=>Number(((base+Math.floor(count/2)-i)*step).toPrecision(12))).filter(x=>x>0);}

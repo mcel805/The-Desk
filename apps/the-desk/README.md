@@ -45,6 +45,8 @@ Matching uses public server bid/ask snapshots, refreshed approximately every thr
 
 This MVP assumes full quantity fills at the observed quote. It does not model exchange queue priority, partial liquidity fills, slippage beyond observed spread, funding, margin liquidation or venue-specific fee tiers. Virtual fee settings are user-configurable assumptions. It is not suitable for predicting actual venue execution. Stale position valuation can reflect the last received quote; inspect the quote-age indicator.
 
+Working orders and positions follow the selected paper account and exchange-qualified instrument across chart timeframes. When a level is outside the visible price scale, an arrow badge keeps its exact price and edit/cancel controls accessible. The badge explicitly says **off scale**; it does not draw a false horizontal price line at the chart edge. Levels return to their actual price coordinates when the visible scale includes them.
+
 Replay is **chart study only**. Previously accepted server paper orders remain active on current quotes while the chart replays. It does not create a second historical trading ledger. The SMA study is long-only with one unit, realized closed-trade drawdown, and no funding/slippage; an open study position is excluded from realized P&L. Missing bars cause the study to stop rather than invent data.
 
 Both native chart providers can expose additional search results, but the MVP paper engine intentionally accepts only the six listed instruments. Other instrument tickets remain unavailable without a server quote. History is provider-bounded, not a guaranteed complete historical archive.

@@ -18,3 +18,6 @@
 .trade-overlay .trade-line{z-index:2}
 .trade-overlay .trade-line.dragging{z-index:3}
 .trade-overlay .chart-execution{z-index:1}
+.trade-overlay .trade-line.offscale{border-top:0}
+.trade-line.offscale .trade-price-badge{display:none}
+.trade-line.offscale .trade-line-controls .trade-line-label{cursor:pointer;max-width:none}
