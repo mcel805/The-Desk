@@ -72,9 +72,8 @@ permissions. No automatic driver, firmware or operating-system changes occur.
   native USDC `balanceOf`. It cannot call arbitrary contracts or broadcast.
 - The native worker exposes no transaction, typed-data, raw APDU or arbitrary
   message signing operation. Hardware exchange order signing is not available;
-  the UI disables venue order actions for this provider. Optional extension
-  identity remains supported, but venue writes stay disabled in the paper
-  runtime and unresolved request state retains its reconciliation protections.
+  the UI disables the Hyperliquid ticket for this provider. Existing extension
+  signing remains optional and retains its venue reconciliation protections.
 
 ## Validation and acceptance
 
