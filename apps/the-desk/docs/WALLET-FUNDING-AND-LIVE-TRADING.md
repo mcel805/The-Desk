@@ -4,10 +4,9 @@ Plan and implementation status, 12 October 2026.
 
 ## Product behavior
 
-The user opens The Desk, clicks **Connect wallet**, selects Rabby or MetaMask,
-switches to Base, and signs a one-time login message. The header becomes a
+The user opens The Desk, clicks **Connect wallet**, selects the default **Ledger · direct USB** connection (no extension), confirms their account address on the device, and signs a one-time Base login message. Rabby and MetaMask remain optional browser-wallet choices. The header becomes a
 clickable address that opens **Wallet & funding**. No order is submitted by
-connecting. Keys remain in the extension; The Desk never asks for a seed phrase.
+connecting. Keys remain in the selected signer; The Desk never asks for a seed phrase. See [direct USB architecture and setup](BASE-HARDWARE-WALLET.md).
 
 The drawer provides three separate account views:
 

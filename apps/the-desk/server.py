@@ -151,6 +151,8 @@ def main():
         def end_headers(self):
             if getattr(self,'wallet_cookie',None):
                 self.send_header('Set-Cookie',self.wallet_cookie);self.wallet_cookie=None
+            if getattr(self,'hardware_cookie',None):
+                self.send_header('Set-Cookie',self.hardware_cookie);self.hardware_cookie=None
             self.send_header('Referrer-Policy','no-referrer')
             self.send_header('X-Content-Type-Options','nosniff');self.send_header('Cache-Control','no-store');super().end_headers()
         def json(self,obj,status=200):

@@ -32,6 +32,17 @@ window.fixtureReconcileFound=false;
 window.fixtureBrokerRequests=[];
 const original=window.fetch.bind(window);
 window.fetch=async(path,options)=>{
+  if(String(path).startsWith('/api/wallet/hardware/')) {
+    const p=options?.body?JSON.parse(options.body):{};
+    document.querySelector('#fixtureCalls').textContent+=' '+String(path).split('/').at(-1);
+    if(String(path).endsWith('/capabilities'))return Response.json({available:true,device:'Ledger',transport:'synthetic-test-only'});
+    if(String(path).endsWith('/discover'))return Response.json({devices:[{id:'a'.repeat(64),name:'Ledger · SYNTHETIC USB DEVICE'}]});
+    if(String(path).endsWith('/connect')||String(path).endsWith('/selected'))return Response.json({address:changed?'0x'+'2'.repeat(40):wallet.address,path:"44'/60'/0'/0/0",chainId:8453});
+    if(String(path).endsWith('/sign-login'))return reject?Response.json({error:'Device request declined.'},{status:400}):Response.json({signature:await wallet.signMessage({message:p.message})});
+    if(String(path).endsWith('/rpc'))return Response.json({result:p.method==='eth_blockNumber'?'0x10':p.method==='eth_getBalance'?'0xde0b6b3a7640000':'0x12d687'});
+    if(String(path).endsWith('/disconnect'))return Response.json({connected:false});
+    throw new Error('Unsupported hardware fixture request.');
+  }
   if(String(path)==='/api/integrations')return Response.json({liveEnabled:false,hyperliquidLiveEnabled:false,walletVerificationAvailable:true});
   if(brokerFixture && String(path).startsWith('/api/robinhood/')) {
     const body=options?.body?JSON.parse(options.body):null;

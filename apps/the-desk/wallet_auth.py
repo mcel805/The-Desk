@@ -90,6 +90,19 @@ def issue_challenge(address: str, host: str, port: int, origin: str | None) -> d
     return {"nonce": nonce, "message": message, "expiresAt": _rfc3339(expires)}
 
 
+def validate_pending_challenge(address, nonce, message, host, port, origin):
+    """Check the exact issued challenge before allowing the USB device to sign it."""
+    domain, _uri = _local_origin(host, port, origin)
+    if not isinstance(nonce, str) or not isinstance(message, str):
+        raise ValueError("A pending Base sign-in challenge is required.")
+    with _lock:
+        challenge = _challenges.get(nonce)
+        if not challenge or float(challenge["expires_epoch"]) <= time.time():
+            raise ValueError("Wallet sign-in request expired. Start again.")
+        if challenge["domain"] != domain or challenge["message"] != message or str(challenge["address"]).lower() != address.lower():
+            raise ValueError("Only this wallet's exact Base sign-in challenge can be signed.")
+
+
 def verify_challenge(
     address: str, nonce: str, message: str, signature: str,
     host: str, port: int, origin: str | None,

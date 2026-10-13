@@ -15,18 +15,20 @@ import json
 import wallet_auth as wallet
 from broker_connection import Robinhood
 from hyperliquid_requests import HyperliquidRequestStore
+from hardware_wallet import HardwareWallet, COOKIE as HARDWARE_COOKIE
 
 class FundingRoutes:
     def __init__(self,port,data_dir=None):
         self.port=port
         self.hyperliquid_live=os.environ.get('DESK_HYPERLIQUID_LIVE_ENABLED')=='1'
         self.broker=Robinhood(port)
+        self.hardware=HardwareWallet()
         root=Path(data_dir) if data_dir else Path(__file__).resolve().parent/'data'
         self.hyperliquid_requests=HyperliquidRequestStore(root/'hyperliquid-requests.sqlite3')
-    def token(self,h):
+    def token(self,h,cookie_name=wallet.SESSION_COOKIE):
         try:
             cookies=SimpleCookie();cookies.load(h.headers.get('Cookie',''))
-            return cookies[wallet.SESSION_COOKIE].value if wallet.SESSION_COOKIE in cookies else None
+            return cookies[cookie_name].value if cookie_name in cookies else None
         except CookieError: return None
     def identity(self,h):
         token=self.token(h);session=wallet.get_session(token)
@@ -52,6 +54,8 @@ class FundingRoutes:
     def get(self,h,path,q):
         if path=='/api/integrations':
             h.json({'baseChainId':8453,'liveEnabled':False,'hyperliquidLiveEnabled':self.hyperliquid_live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
+        if path=='/api/wallet/hardware/capabilities':
+            h.json(self.hardware.capabilities());return True
         if path=='/api/wallet/session':
             session=wallet.get_session(self.token(h))
             h.json({'authenticated':bool(session),**(session or {})});return True
@@ -76,6 +80,26 @@ class FundingRoutes:
         if not (path.startswith('/api/wallet/') or path.startswith('/api/robinhood/') or path.startswith('/api/integrations/hyperliquid/')):return False
         wallet.validate_local_origin(h.headers.get('Host',''),self.port,h.headers.get('Origin'))
         if not isinstance(p,dict):raise ValueError('JSON object required.')
+        if path.startswith('/api/wallet/hardware/'):
+            if h.headers.get('Origin') != 'http://'+h.headers.get('Host',''):
+                h.json({'error':'Exact same-origin hardware request required.'},403);return True
+            token=self.token(h,HARDWARE_COOKIE)
+            if path=='/api/wallet/hardware/discover':h.json(self.hardware.discover());return True
+            if path=='/api/wallet/hardware/connect':
+                token,value=self.hardware.connect(p.get('deviceId'),p.get('scheme'),p.get('index'),token)
+                h.hardware_cookie=f'{HARDWARE_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={wallet.SESSION_TTL_SECONDS}'
+                h.json(value);return True
+            if path=='/api/wallet/hardware/selected':h.json(self.hardware.selected(token));return True
+            if path=='/api/wallet/hardware/sign-login':
+                h.json(self.hardware.sign_login(token,p,h.headers.get('Host',''),self.port,h.headers.get('Origin')));return True
+            if path=='/api/wallet/hardware/disconnect':
+                self.hardware.disconnect(token)
+                h.hardware_cookie=f'{HARDWARE_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'
+                h.json({'connected':False});return True
+            if path=='/api/wallet/hardware/rpc':
+                session,key=self.identity(h)
+                h.json(self.hardware.read_rpc(token,session,p.get('method'),p.get('params')));return True
+            return False
         if path=='/api/wallet/challenge':
             h.json(wallet.issue_challenge(p.get('address'),h.headers.get('Host',''),self.port,h.headers.get('Origin')));return True
         if path=='/api/wallet/verify':
