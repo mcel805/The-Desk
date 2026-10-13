@@ -20,7 +20,7 @@ class HardwareHttpTests(unittest.TestCase):
         # Explicitly test-only RPC fixture in a disposable copy. The installed
         # application has no synthetic/device test switch or synthetic key.
         with (target/'hardware_wallet.py').open('a') as f:f.write("\nHardwareWallet._rpc = lambda self, method, params: '0x2105' if method == 'eth_chainId' else '0x10'\n")
-        subprocess.run(['node',str(root/'node_modules/esbuild/bin/esbuild'),str(root/'tests/hardware-native-fixture.mjs'),'--bundle','--platform=node','--format=esm','--outfile='+str(target/'native-ledger.mjs')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run([str(root/'node_modules/esbuild/bin/esbuild'),str(root/'tests/hardware-native-fixture.mjs'),'--bundle','--platform=node','--format=esm','--outfile='+str(target/'native-ledger.mjs')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         (target/'web').mkdir()
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));cls.port=sock.getsockname()[1]
         cls.base=f'http://127.0.0.1:{cls.port}'
