@@ -103,7 +103,7 @@ class HardwareWallet:
     def _rpc(self, method, params):
         url = os.environ.get('DESK_BASE_RPC_URL', 'https://mainnet.base.org')
         if not url.startswith('https://'): raise ValueError('The configured Base RPC must use HTTPS.')
-        request = Request(url, data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}).encode(), headers={'Content-Type': 'application/json'})
+        request = Request(url, data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}).encode(), headers={'Content-Type': 'application/json', 'User-Agent': 'TheDesk/1.0'})
         try:
             with urlopen(request, timeout=12) as response: value = json.load(response)
         except Exception as exc: raise ValueError('Base RPC unavailable. Refresh balances shortly.') from exc

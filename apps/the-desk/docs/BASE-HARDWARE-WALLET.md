@@ -92,10 +92,11 @@ attached Ledger. Physical-device address confirmation and signing remain
 unverified until a Ledger is connected and the user approves on its screen.
 No real transaction, transfer or order is part of this validation.
 
-Verified locally: 22 Node wallet tests and 31 Python wallet/HTTP/reconciliation
+Verified locally: 22 Node wallet tests and 32 Python wallet/HTTP/reconciliation
 checks pass without skips; native SDK discovery also runs against synthetic HID
 enumeration to cover initial asynchronous discovery and fresh-worker identity.
-The installed drawer reports the real no-device state. The dependency audit
+The installed drawer reports the real no-device state. The official Base RPC
+responded with chain ID 8453 and a current block using the named Desk client. The dependency audit
 reports no known production vulnerabilities at validation time.
 
 The pinned Ledger kits are Apache-2.0 licensed; the direct `node-hid` dependency

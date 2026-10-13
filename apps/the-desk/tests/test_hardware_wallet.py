@@ -1,4 +1,6 @@
 import unittest
+import io
+import json
 from unittest.mock import patch
 import wallet_auth as wallet
 from hardware_wallet import HardwareWallet
@@ -71,5 +73,22 @@ class HardwareWalletTests(unittest.TestCase):
         def broken(p):raise ValueError('Install hardware dependencies')
         hw=HardwareWallet(runner=broken)
         self.assertFalse(hw.capabilities()['available']);self.assertIn('Install',hw.capabilities()['error'])
+
+class BaseTransportTests(unittest.TestCase):
+    def test_rpc_sends_json_with_identified_client_and_handles_provider_errors(self):
+        requests=[]
+        def gateway(request,timeout):
+            requests.append(request)
+            # Public RPC gateway declines unidentified/default Python clients.
+            if not request.get_header('User-agent'):raise OSError('Forbidden')
+            if request.get_header('Content-type')!='application/json':raise OSError('Wrong content type')
+            payload=json.loads(request.data)
+            return io.BytesIO(json.dumps({'jsonrpc':'2.0','id':payload['id'],'result':'0x2105'}).encode())
+        hw=HardwareWallet()
+        with patch('hardware_wallet.urlopen',side_effect=gateway):
+            self.assertEqual(hw._rpc('eth_chainId',[]),'0x2105')
+        self.assertEqual(json.loads(requests[0].data),{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]})
+        with patch('hardware_wallet.urlopen',side_effect=OSError('provider down')):
+            with self.assertRaisesRegex(ValueError,'Base RPC unavailable'):hw._rpc('eth_blockNumber',[])
 
 if __name__=='__main__':unittest.main()
