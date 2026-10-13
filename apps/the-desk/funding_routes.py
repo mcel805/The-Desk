@@ -1,11 +1,13 @@
-"""Wallet identity, read-only venue snapshots, and official Robinhood login.
+"""Wallet identity, Hyperliquid reconciliation, snapshots, and Robinhood login.
 
-The paper engine remains independent. Mainnet writes are an explicit runtime
-configuration; loading a page or signing in never sends an order or transfer.
+The paper engine remains independent. Hyperliquid signs venue actions in the
+browser wallet; this server records request intent and reconciles venue status.
+Loading a page or signing in never sends an order or transfer.
 """
 import hashlib
 from http.cookies import SimpleCookie, CookieError
 import math
+import os
 from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.request import Request, urlopen
@@ -17,7 +19,7 @@ from hyperliquid_requests import HyperliquidRequestStore
 class FundingRoutes:
     def __init__(self,port,data_dir=None):
         self.port=port
-        self.live=False
+        self.hyperliquid_live=os.environ.get('DESK_HYPERLIQUID_LIVE_ENABLED')=='1'
         self.broker=Robinhood(port)
         root=Path(data_dir) if data_dir else Path(__file__).resolve().parent/'data'
         self.hyperliquid_requests=HyperliquidRequestStore(root/'hyperliquid-requests.sqlite3')
@@ -49,7 +51,7 @@ class FundingRoutes:
         with urlopen(req,timeout=12) as response:return json.load(response)
     def get(self,h,path,q):
         if path=='/api/integrations':
-            h.json({'baseChainId':8453,'liveEnabled':self.live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
+            h.json({'baseChainId':8453,'liveEnabled':False,'hyperliquidLiveEnabled':self.hyperliquid_live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
         if path=='/api/wallet/session':
             session=wallet.get_session(self.token(h))
             h.json({'authenticated':bool(session),**(session or {})});return True

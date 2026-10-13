@@ -5,10 +5,12 @@
   "scripts": {
     "build:pine": "node build-pine.mjs",
     "test:pine": "node --test tests/test_pine.mjs",
-    "test:wallet": "node --test tests/test_wallet_model.mjs"
+    "build:wallet": "node build-wallet.mjs",
+    "test:wallet": "node --test tests/test_wallet_model.mjs tests/test_hyperliquid_wallet.mjs"
   },
   "dependencies": {
     "@luxalgo/vela-pinets": "0.2.15",
+    "@nktkas/hyperliquid": "0.33.3",
     "pinets": "0.11.0",
     "viem": "2.57.4"
   },

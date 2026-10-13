@@ -1,6 +1,7 @@
 """Self-contained HTTP contract checks; ephemeral loopback port and database."""
 import http.cookiejar
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -8,8 +9,10 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from urllib.request import build_opener,HTTPCookieProcessor,Request,urlopen
 from urllib.error import HTTPError
+from funding_routes import FundingRoutes
 try:
     from eth_account import Account
     from eth_account.messages import encode_defunct
@@ -46,7 +49,7 @@ class FundingHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/health')['mode'],'paper')
         self.request('/api/wallet/logout',{});self.assertFalse(self.request('/api/wallet/session')['authenticated'])
     def test_live_submit_and_client_acknowledgement_routes_are_unavailable(self):
-        self.login();settings=self.request('/api/integrations');self.assertFalse(settings['liveEnabled']);self.assertTrue(settings['walletVerificationAvailable'])
+        self.login();settings=self.request('/api/integrations');self.assertFalse(settings['liveEnabled']);self.assertFalse(settings['hyperliquidLiveEnabled']);self.assertTrue(settings['walletVerificationAvailable'])
         self.assertNotIn('token',self.request('/api/wallet/session'))
         for path,payload in [
             ('/api/robinhood/submit',{'id':'invented','confirmation':'PLACE LIVE ORDER'}),
@@ -55,6 +58,16 @@ class FundingHttpTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaises(HTTPError) as e:self.request(path,payload)
                 self.assertEqual(e.exception.code,404)
+    def test_hyperliquid_flag_does_not_enable_other_funding_writes(self):
+        class Handler:
+            def json(self,value,status=200):self.value=value
+        with tempfile.TemporaryDirectory() as isolated:
+            with patch.dict(os.environ,{'DESK_HYPERLIQUID_LIVE_ENABLED':'1'}):
+                routes=FundingRoutes(self.port,isolated);handler=Handler()
+                self.assertTrue(routes.get(handler,'/api/integrations',{}))
+                self.assertTrue(handler.value['hyperliquidLiveEnabled'])
+                self.assertFalse(handler.value['liveEnabled'])
+                self.assertFalse(hasattr(routes.broker,'submit'))
     def test_foreign_origin_cannot_issue_challenges_or_begin_broker_login(self):
         for path in ['/api/wallet/challenge','/api/robinhood/connect']:
             with self.assertRaises(HTTPError) as e:self.request(path,{'address':self.wallet.address},headers={'Origin':'https://other.example'})
