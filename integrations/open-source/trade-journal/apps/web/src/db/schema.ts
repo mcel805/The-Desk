@@ -58,30 +58,34 @@ export const importBatches = sqliteTable(
 );
 
 /** One journal account = one broker/platform's trades (TradeZella's model, kept). */
-export const accounts = sqliteTable("accounts", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  /** SDK broker id for sync accounts; free text label otherwise. */
-  broker: text("broker").notNull().default(""),
-  kind: text("kind", { enum: ["sync", "import", "manual"] }).notNull(),
-  sourceType: text("source_type").notNull().default("broker"),
-  externalAccountId: text("external_account_id"),
-  currency: text("currency").notNull().default("USD"),
-  initialBalance: real("initial_balance").notNull().default(0),
-  profitCalcMethod: text("profit_calc_method", { enum: ["fifo", "lifo", "wavg"] })
-    .notNull()
-    .default("fifo"),
-  /** AES-256-GCM envelope, present only for kind = "sync". */
-  credentialsEnc: text("credentials_enc"),
-  autoSync: integer("auto_sync", { mode: "boolean" }).notNull().default(false),
-  lastSyncAt: text("last_sync_at"),
-  /** Timezone used by corrected IBKR sync; null on legacy histories. Follows account transfers. */
-  ibkrSyncTimeZone: text("ibkr_sync_time_zone"),
-  /** Latest snapshot from sync, for display: { equity, positions } JSON. */
-  snapshotJson: text("snapshot_json"),
-  archivedAt: text("archived_at"),
-  createdAt: text("created_at").notNull(),
-}, (table) => [uniqueIndex("accounts_external_account").on(table.externalAccountId)]);
+export const accounts = sqliteTable(
+  "accounts",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    /** SDK broker id for sync accounts; free text label otherwise. */
+    broker: text("broker").notNull().default(""),
+    kind: text("kind", { enum: ["sync", "import", "manual"] }).notNull(),
+    sourceType: text("source_type").notNull().default("broker"),
+    externalAccountId: text("external_account_id"),
+    currency: text("currency").notNull().default("USD"),
+    initialBalance: real("initial_balance").notNull().default(0),
+    profitCalcMethod: text("profit_calc_method", { enum: ["fifo", "lifo", "wavg"] })
+      .notNull()
+      .default("fifo"),
+    /** AES-256-GCM envelope, present only for kind = "sync". */
+    credentialsEnc: text("credentials_enc"),
+    autoSync: integer("auto_sync", { mode: "boolean" }).notNull().default(false),
+    lastSyncAt: text("last_sync_at"),
+    /** Timezone used by corrected IBKR sync; null on legacy histories. Follows account transfers. */
+    ibkrSyncTimeZone: text("ibkr_sync_time_zone"),
+    /** Latest snapshot from sync, for display: { equity, positions } JSON. */
+    snapshotJson: text("snapshot_json"),
+    archivedAt: text("archived_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [uniqueIndex("accounts_external_account").on(table.externalAccountId)],
+);
 
 export const executions = sqliteTable(
   "executions",
@@ -109,23 +113,35 @@ export const executions = sqliteTable(
   ],
 );
 
-export const externalEventReceipts = sqliteTable("external_event_receipts", {
-  source: text("source").notNull(),
-  eventId: text("event_id").notNull(),
-  accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
-  createdAt: text("created_at").notNull(),
-}, (table) => [uniqueIndex("external_event_receipts_pk").on(table.source, table.eventId)]);
+export const externalEventReceipts = sqliteTable(
+  "external_event_receipts",
+  {
+    source: text("source").notNull(),
+    eventId: text("event_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [uniqueIndex("external_event_receipts_pk").on(table.source, table.eventId)],
+);
 
-export const externalEventWatermarks = sqliteTable("external_event_watermarks", {
-  source: text("source").notNull(),
-  externalAccountId: text("external_account_id").notNull(),
-  accountId: text("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
-  resetGeneration: integer("reset_generation").notNull().default(0),
-  updatedAt: text("updated_at").notNull(),
-}, (table) => [
-  uniqueIndex("external_event_watermarks_pk").on(table.source, table.externalAccountId),
-  index("external_event_watermarks_account").on(table.accountId),
-]);
+export const externalEventWatermarks = sqliteTable(
+  "external_event_watermarks",
+  {
+    source: text("source").notNull(),
+    externalAccountId: text("external_account_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    resetGeneration: integer("reset_generation").notNull().default(0),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("external_event_watermarks_pk").on(table.source, table.externalAccountId),
+    index("external_event_watermarks_account").on(table.accountId),
+  ],
+);
 
 /**
  * Materialized round trips. Computed columns are overwritten on every rebuild;

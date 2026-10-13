@@ -30,7 +30,9 @@ need a named Base venue and its own quote, swap, simulation and settlement adapt
    injected providers. EIP-4361-style sign-in binds address, Base chain, origin,
    nonce and five-minute expiry. The server verifies the signature and sets an
    eight-hour HttpOnly SameSite cookie. Logout revokes local sessions; account,
-   network and disconnect events invalidate identity and discard pending reviews.
+   network and disconnect events invalidate identity and clear transient page
+   reviews. Durable unresolved Hyperliquid request holds stay in the request
+   store and reappear after the wallet session is restored.
 2. **Wallet funding:** Receive shows the connected address and Base native USDC
    contract. ETH pays gas. Read ETH and USDC balances at the same block.
    Base transfers are disabled in this paper runtime. Swap and bridge controls
