@@ -1,4 +1,4 @@
-# The Desk: Base wallet, funding and connected venues
+# The Desk: Base wallet, funding and paper-only connected venues
 
 Plan and implementation status, 12 October 2026.
 
@@ -13,7 +13,7 @@ The drawer provides three separate account views:
 | Account | Where funds reside | Implemented actions | Delivery status |
 |---|---|---|---|
 | Base wallet | User-controlled address on Base | Signed login, ETH/native USDC balances and receive address | Implemented; user confirmed one real extension login; transfers disabled |
-| Hyperliquid | HyperCore spot balances and perpetual collateral | Wallet-signed GTC limit orders and cancellation, account snapshots, positions, working orders and fills | Testnet order path implemented; mainnet requires `DESK_HYPERLIQUID_LIVE_ENABLED=1`; unknown outcomes remain durably held |
+| Hyperliquid | HyperCore spot balances and perpetual collateral | Read-only account snapshots plus durable request/reconciliation state | Venue order and cancellation writes are disabled in the paper runtime; unresolved state remains durably held |
 | Robinhood | Broker custody | Official OAuth/PKCE login, masked accounts and read-only buying-power data | Public discovery and client registration verified; order writes disabled |
 | Paper account | Local simulated ledger | Existing chart/DOM tickets and paper journal | Continues separately |
 
@@ -41,16 +41,13 @@ need a named Base venue and its own quote, swap, simulation and settlement adapt
    reuse a guessed deposit address or assume Base USDC is immediately available
    as HyperCore collateral. The current documentation supports CCTP and multiple
    source chains; the Arbitrum USDC route remains a documented option.
-4. **Hyperliquid trading:** Testnet is selected by default. Refresh public venue
-   metadata and the wallet's collateral, positions, working orders and fills.
-   The user reviews a GTC limit order, then the browser extension signs the
-   Hyperliquid action. Before signing, the server records the wallet, network,
-   client order ID and order intent in SQLite. The SDK response is not treated
-   as final: the server queries the official `orderStatus` endpoint for the exact
-   wallet and client order ID. Only a well-formed venue response can clear the
-   hold. Timeouts, malformed replies, refreshes and server restarts keep the
-   request blocked until it reconciles. Client-supplied acknowledgement is not
-   an available route. Cancellation also requires a separate extension review.
+4. **Hyperliquid research and reconciliation:** Refresh public venue metadata and
+   the wallet's collateral, positions, working orders and fills as read-only
+   snapshots. The paper runtime does not sign, submit or cancel venue actions.
+   Durable request state remains scoped by wallet and network; only authoritative
+   `orderStatus` evidence can clear an unresolved hold, while timeouts, malformed
+   replies, refreshes and server restarts keep it blocked. Client-supplied
+   acknowledgement is not an available route.
 5. **Robinhood connection:** Sign in with the Base wallet first, then click
    **Sign in to Robinhood**. The server discovers the official issuer, registers
    a public OAuth client, generates a state and PKCE S256 verifier, and redirects
@@ -87,7 +84,7 @@ are separate work.
 ## Run and configuration
 
 ```sh
-cd '/Users/markceleste/Documents/ChatGPT/The Trader - a trading company/apps/the-desk'
+cd apps/the-desk
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-wallet.txt
 npm ci
@@ -98,15 +95,13 @@ The launcher uses `DESK_PYTHON_BIN` when configured, then the Desk venv, then th
 existing Count Desk venv, then the caller Python. Missing signature dependencies
 leave paper routes working and report wallet verification as unavailable.
 
-`DESK_HYPERLIQUID_LIVE_ENABLED` controls Hyperliquid mainnet orders only and is
-false unless explicitly set to `1`. Testnet remains the default. Base transfers
-and Robinhood order submission remain disabled. The Hyperliquid client has no
-server order-submission endpoint: its extension signature is sent directly to
-the venue, while the server persists intent and verifies outcomes through the
-read-only official status API. Production serving would require HTTPS, explicit
-deployed origin/redirect configuration, persistent encrypted token custody, rate
-limits, audit retention and reviewed data rights; the current server deliberately
-only accepts loopback origins.
+Venue writes are disabled in this paper runtime. Base transfers and Robinhood
+order submission remain disabled, and Hyperliquid data is read-only; the request
+store preserves unresolved state for authoritative reconciliation without
+retrying or acknowledging a venue write from the client. Production serving
+would require HTTPS, explicit deployed origin/redirect configuration, persistent
+encrypted token custody, rate limits, audit retention and reviewed data rights;
+the current server deliberately only accepts loopback origins.
 
 Optional `DESK_ROBINHOOD_CLIENT_ID` must belong to an approved client whose
 redirect URI matches the runtime port. Dynamic registration is verified, but
@@ -133,15 +128,14 @@ mock provider calls. HTTP tests own an ephemeral server and disposable data.
 
 The user confirmed a successful real extension connection and signed login.
 This is user-reported evidence; separate coverage of both Rabby and MetaMask,
-Hyperliquid funded-testnet order/cancel/fill reconciliation, and Robinhood's own
-OAuth consent and account capability response from this app remain acceptance steps. Mainnet settlement
-has not been tested. No funds were moved or live orders placed during this work.
+read-only Hyperliquid account snapshots, and Robinhood's own OAuth consent and
+account capability response from this app remain acceptance steps. No funds were
+moved or live orders placed during this work.
 
-After those pass, add receipt polling and a durable live-order audit/journal,
-then add fill receipts and a durable live-order audit/journal. Spot orders,
-brackets, leverage changes, Robinhood order recovery, native options and futures
-remain separate follow-up work. Keep paper and live IDs, ledgers, execution
-workers and journal records separate.
+Receipt polling, live-order audit/journal, spot orders, brackets, leverage
+changes, Robinhood order recovery, native options and futures remain outside the
+paper runtime and require a separately approved integration. Keep any future
+paper and live IDs, ledgers, execution workers and journal records separate.
 
 ## Sources verified during implementation
 
@@ -165,7 +159,7 @@ Dependency versions: `@nktkas/hyperliquid 0.33.3`, `viem 2.57.4`,
 - Wallet-enabled Python funding, request-store and HTTP suites: 22 tests pass, with no dependency skips.
 - Existing chart-menu, trading-model, DOM and chart-bracket Node checks: 19 pass.
 - Chrome: real UI at `http://127.0.0.1:18882/` inspected at desktop and 500 px width; no horizontal drawer overflow. Missing-extension state, disconnected refresh and venue tabs verified.
-- Disposable browser fixture at port 18883: synthetic Rabby sign-in, balances, Hyperliquid snapshot and testnet order review verified. A mocked exchange signature and unknown result leave the request visible and disable another order. The fixture does not contact Hyperliquid or submit a venue order.
+- Disposable browser fixture at port 18883: synthetic Rabby sign-in, balances, Hyperliquid snapshot and durable request/reconciliation state verified. The fixture does not contact Hyperliquid or submit a venue order.
 - Durable recovery QA uses a synthetic wallet, real HTTP routes and a real SQLite request store with mocked venue status. Duplicate reservation, fresh login, network isolation, actual server restart and unknown-result holds pass. Chrome restores the hold after reload, keeps order review disabled for unknown status, and re-enables it when a venue-confirmed order is reconciled. No exchange write is available in this fixture.
 - The no-mistakes pipeline completed on the read-only snapshot before the follow-up. Its browser evidence covers wallet sign-in and restart persistence, but not the subsequently restored order panel. The Hyperliquid-only follow-up passed its separate focused test and synthetic browser checks listed above.
 - Official Robinhood OAuth discovery and dynamic registration accepted. The app's user consent, token exchange and actual account catalog still require acceptance.
