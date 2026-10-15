@@ -1,5 +1,6 @@
 // Isolated browser acceptance fixture. No private user key or transaction method.
 import {privateKeyToAccount} from 'viem/accounts';
+const fixtureParams=new URLSearchParams(location.search);
 const wallet=privateKeyToAccount('0x'+'1'.repeat(64));
 const handlers=new Map();let reject=false,changed=false;
 document.querySelector('#fixtureReject').onchange=e=>{reject=e.target.checked;};
@@ -24,6 +25,7 @@ const provider={
   }
 };
 window.addEventListener('eip6963:requestProvider',()=>{
+  if(fixtureParams.has('noextension'))return;
   for(const [id,name] of [['qa-rabby','Rabby · synthetic test wallet'],['qa-metamask','MetaMask · synthetic test wallet']])window.dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{uuid:id,name},provider}}));
 });
 const brokerFixture=new URLSearchParams(location.search).has('broker');
@@ -36,7 +38,7 @@ window.fetch=async(path,options)=>{
     const p=options?.body?JSON.parse(options.body):{};
     document.querySelector('#fixtureCalls').textContent+=' '+String(path).split('/').at(-1);
     if(String(path).endsWith('/capabilities'))return Response.json({available:true,device:'Ledger',transport:'synthetic-test-only'});
-    if(String(path).endsWith('/discover'))return Response.json({devices:[{id:'a'.repeat(64),name:'Ledger · SYNTHETIC USB DEVICE'}]});
+    if(String(path).endsWith('/discover'))return Response.json(fixtureParams.has('nousb')?{devices:[],diagnostic:{code:'usb-not-visible',message:'TEST ONLY: this Mac is not reporting a Ledger USB connection.'}}:{devices:[{id:'a'.repeat(64),name:'Ledger · SYNTHETIC USB DEVICE'}]});
     if(String(path).endsWith('/connect')||String(path).endsWith('/selected'))return Response.json({address:changed?'0x'+'2'.repeat(40):wallet.address,path:"44'/60'/0'/0/0",chainId:8453});
     if(String(path).endsWith('/sign-login'))return reject?Response.json({error:'Device request declined.'},{status:400}):Response.json({signature:await wallet.signMessage({message:p.message})});
     if(String(path).endsWith('/rpc'))return Response.json({result:p.method==='eth_blockNumber'?'0x10':p.method==='eth_getBalance'?'0xde0b6b3a7640000':'0x12d687'});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {derivationPath,signatureHex,actionResult,ledgerOperation,usbInventory} from '../native-ledger.mjs';
+import {derivationPath,signatureHex,actionResult,ledgerOperation,usbInventory,discoverUSB,deviceErrorMessage} from '../native-ledger.mjs';
 import {HardwareProvider} from '../web/hardware-wallet.mjs';
 import {WalletController} from '../web/wallet-model.mjs';
 import {randomUUID} from 'node:crypto';
@@ -83,4 +83,23 @@ test('maintained SDK discovers through asynchronous HID enumeration across fresh
   const child=spawnSync(process.execPath,[fixture],{encoding:'utf8',timeout:10000});
   assert.equal(child.status,0,child.stderr);const scans=JSON.parse(child.stdout);
   assert.equal(scans[0].devices.length,1);assert.equal(scans[0].devices[0].name,'Ledger Nano X');assert.equal(scans[0].devices[0].id,scans[1].devices[0].id);
+});
+
+test('USB reconnect waits for enumeration and stops once the signing interface appears',async()=>{
+  let scans=0,waits=0;const device={vendorId:0x2c97,productId:0x4001,path:'ledger',usagePage:0xffa0};
+  const result=await discoverUSB({readHid:async()=>++scans<3?[]:[device],wait:async()=>{waits++},platform:'darwin'});
+  assert.equal(result.devices.length,1);assert.equal(scans,3);assert.equal(waits,2);
+  assert.equal(usbInventory([device,{...device}],'darwin').length,1);
+});
+test('USB no-device and inaccessible interface reports are distinct without claiming authentication',async()=>{
+  const absent=await discoverUSB({readHid:async()=>[],wait:async()=>{},platform:'darwin'});
+  assert.equal(absent.diagnostic.code,'usb-not-visible');assert.deepEqual(absent.devices,[]);
+  const blocked=await discoverUSB({readHid:async()=>[{vendorId:0x2c97,usagePage:0xf1d0,path:'fido'}],readBus:()=>[{deviceDescriptor:{idVendor:0x2c97}}],wait:async()=>{},platform:'darwin'});
+  assert.equal(blocked.diagnostic.code,'usb-interface-unavailable');assert.deepEqual(blocked.devices,[]);
+});
+test('native errors preserve actionable device status without leaking arbitrary error text',async()=>{
+  assert.match(deviceErrorMessage({_tag:'UserRefusedError'}),/declined/);
+  assert.match(deviceErrorMessage({originalError:{errorCode:'6b0c',message:'private arbitrary error'}}),/6b0c/);
+  assert(!deviceErrorMessage({message:'private arbitrary error'}).includes('private'));
+  await assert.rejects(actionResult({observable:observable({status:'error',error:{originalError:{errorCode:'6b0c'}}}),cancel(){}}),/6b0c/);
 });

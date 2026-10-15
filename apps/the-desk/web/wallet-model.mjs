@@ -29,7 +29,7 @@ export function discoverWallets(win, onChange) {
   const add=event=>{
     const item=event.detail;
     if (!item?.provider?.request || typeof item.info?.uuid!=='string') return;
-    found.set(item.info.uuid,{id:item.info.uuid,name:String(item.info.name||'Browser wallet'),provider:item.provider});
+    found.set(item.info.uuid,{id:item.info.uuid,name:String(item.info.name||'Browser wallet'),rdns:String(item.info.rdns||''),provider:item.provider});
     onChange([...found.values()]);
   };
   win.addEventListener('eip6963:announceProvider',add);

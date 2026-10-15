@@ -6,7 +6,7 @@
     "build:pine": "node build-pine.mjs",
     "test:pine": "node --test tests/test_pine.mjs",
     "build:wallet": "node build-wallet.mjs",
-    "test:wallet": "node --test tests/test_wallet_model.mjs tests/test_hyperliquid_wallet.mjs tests/test_hardware_wallet.mjs"
+    "test:wallet": "node --test tests/test_wallet_model.mjs tests/test_hyperliquid_wallet.mjs tests/test_hardware_wallet.mjs tests/test_wallet_pairing.mjs"
   },
   "dependencies": {
     "@ledgerhq/device-management-kit": "1.11.0",
@@ -14,8 +14,10 @@
     "@ledgerhq/device-transport-kit-node-hid": "1.0.1",
     "@luxalgo/vela-pinets": "0.2.15",
     "@nktkas/hyperliquid": "0.33.3",
+    "@walletconnect/ethereum-provider": "2.26.0",
     "node-hid": "3.4.0",
     "pinets": "0.11.0",
+    "qrcode": "1.5.4",
     "viem": "2.57.4"
   },
   "devDependencies": {

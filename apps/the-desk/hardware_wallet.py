@@ -56,7 +56,9 @@ class HardwareWallet:
         self._capabilities = (self.clock(), result)
         return result
 
-    def discover(self): return {'devices': self._device({'operation': 'discover'}).get('devices', [])}
+    def discover(self):
+        value=self._device({'operation': 'discover'})
+        return {'devices':value.get('devices', []),**({'diagnostic':value['diagnostic']} if isinstance(value.get('diagnostic'),dict) else {})}
 
     def _record(self, token):
         with self.lock:

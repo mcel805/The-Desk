@@ -19,13 +19,14 @@ account or importing a recovery phrase.
 
 ## User flow
 
-1. Open The Desk and click **Connect wallet**.
-2. **Ledger · direct USB** is the default connection method. Connect by USB,
+1. Open The Desk and click **Connect wallet**, then **Ledger**. The compact
+   chooser and mobile options are documented in [wallet UX](WALLET-CONNECTION-UX.md).
+2. **Ledger** uses direct USB without an extension. Connect by USB,
    unlock the device and open its Ethereum app. Connect one Ledger at a time. Close Ledger Live or other apps
    if they are holding the device connection.
-3. Click **Find USB devices**, select the device, choose Ledger Live or legacy
-   Ethereum account layout, and choose Account 1–20.
-4. Click **Connect USB & sign in**. Confirm the account address on the device,
+3. Discovery starts automatically. Use **Try USB again** after reconnecting.
+   Open **Choose a different account** for Ledger Live/legacy layout and Account 1–20.
+4. Click **Continue with Ledger**. Confirm the account address on the device,
    then read and approve the one-time Base Desk login message. Reject on the
    device to cancel. Requests time out if approval is not completed.
 5. The server verifies the signature and issues its existing HttpOnly wallet

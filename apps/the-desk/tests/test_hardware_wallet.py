@@ -91,4 +91,19 @@ class BaseTransportTests(unittest.TestCase):
         with patch('hardware_wallet.urlopen',side_effect=OSError('provider down')):
             with self.assertRaisesRegex(ValueError,'Base RPC unavailable'):hw._rpc('eth_blockNumber',[])
 
+class WalletConfigurationTests(unittest.TestCase):
+    def test_only_valid_public_project_id_is_exposed_by_actual_integration_route(self):
+        import os
+        import tempfile
+        from funding_routes import FundingRoutes
+        class Handler:
+            def json(self,value,status=200):self.value=value
+        with tempfile.TemporaryDirectory() as temp:
+            routes=FundingRoutes(18880,temp)
+            for value,expected in [('', ''),('not-a-project', ''),('a'*32,'a'*32)]:
+                with patch.dict(os.environ,{'DESK_WALLETCONNECT_PROJECT_ID':value,'DESK_PRIVATE_TEST_SECRET':'must-not-be-returned'}):
+                    handler=Handler();self.assertTrue(routes.get(handler,'/api/integrations',{}))
+                    self.assertEqual(handler.value['walletConnectProjectId'],expected)
+                    self.assertNotIn('DESK_PRIVATE_TEST_SECRET',handler.value)
+
 if __name__=='__main__':unittest.main()

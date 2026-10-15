@@ -12,6 +12,25 @@ export function signatureHex({r,s,v}) {
   if(!/^0x[0-9a-f]{64}$/i.test(r)||!/^0x[0-9a-f]{64}$/i.test(s)||![0,1,27,28].includes(v))throw new Error('Invalid device signature.');
   return r+s.slice(2)+(v<27?v+27:v).toString(16).padStart(2,'0');
 }
+export function deviceErrorMessage(error) {
+  const tag=error?._tag||error?.name;
+  const raw=error?.errorCode||error?.originalError?.errorCode||error?.originalError?.statusCode;
+  const code=typeof raw==='number'?raw.toString(16):String(raw||'').replace(/^0x/i,'').toLowerCase();
+  if(tag==='UserRefusedError'||code==='6985')return 'Device request declined. You can try again when ready.';
+  if(code==='6b0c')return 'Ledger rejected the address request (6b0c). Unlock the device, exit and reopen Ethereum, then retry. A signature in another app does not complete this Desk login.';
+  if(['6511','6e00','6d00'].includes(code))return `Ledger could not handle this request (${code}). Open Ethereum on the device, close other wallet apps, and retry.`;
+  return 'Ledger request failed'+(/^[a-f0-9]{4}$/.test(code)?` (${code})`:'')+'. Unlock Ledger, open Ethereum, and close other wallet apps.';
+}
+export async function discoverUSB({readHid,readBus=()=>[],platform=process.platform,wait=ms=>new Promise(r=>setTimeout(r,ms)),attempts=4}) {
+  let raw=[];
+  for(let i=0;i<attempts;i++){
+    raw=await readHid();const devices=usbInventory(raw,platform);if(devices.length)return {devices};
+    if(i<attempts-1)await wait(500);
+  }
+  let busPresent=false;try{busPresent=readBus().some(d=>d.deviceDescriptor.idVendor===0x2c97);}catch{}
+  const hidPresent=raw.some(d=>Number(d.vendorId)===0x2c97);
+  return {devices:[],diagnostic:busPresent||hidPresent?{code:'usb-interface-unavailable',message:'Ledger is on USB, but its signing interface is unavailable. Allow the accessory in macOS, unlock Ledger, reopen Ethereum, and close apps holding USB. Then retry.'}:{code:'usb-not-visible',message:'This Mac is not reporting a Ledger USB connection. Use a data-capable cable, try a direct USB port, and allow the accessory if macOS asks. Then retry.'}};
+}
 export function actionResult(action,timeout=90000) {
   return new Promise((resolve,reject)=>{
     let sub,finished=false;
@@ -19,13 +38,13 @@ export function actionResult(action,timeout=90000) {
     const timer=setTimeout(()=>{action.cancel();finish(new Error('Device approval timed out. Unlock the device and reconnect.'));},timeout);
     sub=action.observable.subscribe({next:state=>{
       if(state.status==='completed')finish(null,state.output);
-      if(state.status==='error')finish(new Error(state.error?.name==='UserRefusedError'?'Device request declined.':'Device request failed. Unlock Ledger, open Ethereum, and close other wallet apps.'));
+      if(state.status==='error')finish(new Error(deviceErrorMessage(state.error)));
       if(state.status==='stopped')finish(new Error('Device request cancelled.'));
     },error:()=>finish(new Error('Device disconnected. Reconnect the USB cable.'))});
   });
 }
 export function usbInventory(devices,platform=process.platform) {
-  const supported=devices.filter(d=>d.vendorId===0x2c97&&(!['darwin','win32'].includes(platform)||d.usagePage===0xffa0));
+  const supported=[...new Map(devices.filter(d=>Number(d.vendorId)===0x2c97&&(!['darwin','win32'].includes(platform)||Number(d.usagePage)===0xffa0)).map(d=>[d.path,d])).values()];
   if(supported.length>1)throw new Error('Connect one Ledger at a time, then scan again.');
   return supported.map(d=>({id:createHash('sha256').update(`${d.vendorId}:${d.productId}:${d.path}`).digest('hex')}));
 }
@@ -37,13 +56,13 @@ async function available(dmk) {
     sub=dmk.startDiscovering({}).subscribe({next:device=>devices.push(device),complete:()=>finish(),error:()=>finish(new Error('USB access unavailable. Unlock Ledger, open Ethereum, and scan again.'))});
   });
 }
-export async function ledgerOperation(input,{dmk,signerFor,inventory}) {
+export async function ledgerOperation(input,{dmk,signerFor,inventory,diagnostic=()=>undefined}) {
   let sessionId;
   try {
     if(input.operation==='capabilities')return {available:true,device:'Ledger',transport:'native-usb',chainId:8453};
     if(!['discover','account','sign-login'].includes(input.operation))throw new Error('Unsupported hardware operation.');
     const usb=await inventory();
-    if(!usb.length&&input.operation==='discover')return {devices:[]};
+    if(!usb.length&&input.operation==='discover')return {devices:[],...(diagnostic()?{diagnostic:diagnostic()}: {})};
     if(usb.length!==1)throw new Error('No selected Ledger found. Plug it in, unlock it, open Ethereum, and scan again.');
     const devices=await available(dmk);
     if(devices.length!==1)throw new Error('Connect one Ledger at a time, then scan again.');
@@ -75,8 +94,10 @@ async function main() {
     const {nodeHidTransportFactory}=require('@ledgerhq/device-transport-kit-node-hid');
     const {SignerEthBuilder}=require('@ledgerhq/device-signer-kit-ethereum');
     const hid=require('node-hid');
+    const {usb}=require('usb');
+    let scan;const inventory=async()=>{scan=await discoverUSB({readHid:()=>hid.devicesAsync(),readBus:()=>usb.getDeviceList()});return scan.devices;};
     const dmk=new DeviceManagementKitBuilder().addTransport(nodeHidTransportFactory).build();
-    const output=await ledgerOperation(input,{dmk,signerFor:(dmk,sessionId)=>new SignerEthBuilder({dmk,sessionId}).build(),inventory:async()=>usbInventory(await hid.devicesAsync())});
+    const output=await ledgerOperation(input,{dmk,signerFor:(dmk,sessionId)=>new SignerEthBuilder({dmk,sessionId}).build(),inventory,diagnostic:()=>scan?.diagnostic});
     process.stdout.write(JSON.stringify({ok:true,...output}));
   } catch(error) {
     const message=error?.code==='ERR_MODULE_NOT_FOUND'?'Hardware dependencies missing. Run npm ci in apps/the-desk.':String(error?.message||'Hardware connector unavailable.');

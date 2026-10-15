@@ -8,6 +8,7 @@ import hashlib
 from http.cookies import SimpleCookie, CookieError
 import math
 import os
+import re
 from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.request import Request, urlopen
@@ -53,7 +54,7 @@ class FundingRoutes:
         with urlopen(req,timeout=12) as response:return json.load(response)
     def get(self,h,path,q):
         if path=='/api/integrations':
-            h.json({'baseChainId':8453,'liveEnabled':False,'hyperliquidLiveEnabled':self.hyperliquid_live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
+            h.json({'baseChainId':8453,'walletConnectProjectId':os.environ.get('DESK_WALLETCONNECT_PROJECT_ID','') if re.fullmatch(r'[a-fA-F0-9]{32}',os.environ.get('DESK_WALLETCONNECT_PROJECT_ID','')) else '','liveEnabled':False,'hyperliquidLiveEnabled':self.hyperliquid_live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
         if path=='/api/wallet/hardware/capabilities':
             h.json(self.hardware.capabilities());return True
         if path=='/api/wallet/session':
