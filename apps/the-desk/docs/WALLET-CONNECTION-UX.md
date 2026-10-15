@@ -87,7 +87,7 @@ account signature verification before this app could authenticate it.
 
 ## Verification
 
-30 Node tests cover provider login, account/network changes, exact balance reads,
+31 Node tests cover provider login, account/network changes, exact balance reads,
 USB reconnection, distinct missing/inaccessible devices, duplicate HID entries,
 error codes, QR configuration, cancellation races and mobile session restoration.
 33 Python checks cover the real HTTP/authentication boundary, cryptographic login,

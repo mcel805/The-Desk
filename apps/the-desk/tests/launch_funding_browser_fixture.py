@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory(prefix='desk-wallet-browser-') as tmp:
     for name in ['funding-ui.mjs','wallet-pairing.mjs','wallet-model.mjs','hardware-wallet.mjs','funding.css','desk.css']:shutil.copyfile(root/'web'/name,target/'web'/name)
     shutil.copyfile(root/'web/vendor/wallet-transports.js',target/'web/vendor/wallet-transports.js')
     shutil.copyfile(root/'web/vendor/wallet-qr.js',target/'web/vendor/wallet-qr.js')
+    shutil.copyfile(root/'web/vendor/WALLET-NOTICE.txt',target/'web/vendor/WALLET-NOTICE.txt')
     # The browser fixture signs only a synthetic order message; it never imports
     # the production exchange transport or sends a venue request.
     (target/'web/vendor/hyperliquid-wallet.js').write_text('''

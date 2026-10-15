@@ -1,3 +1,2 @@
-# Preserve supplied Pine and vendor license bytes, including their CRLF endings.
-web/pine-examples/*.pine -text whitespace=cr-at-eol
-web/vendor/PINE-AGPL-LICENSE.txt -text whitespace=cr-at-eol
+# Generated vendor literals contain intentional whitespace; preserve their bytes.
+web/vendor/wallet-transports.js -whitespace

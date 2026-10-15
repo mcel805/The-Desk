@@ -45,3 +45,16 @@ test('rejected replacement login revokes the previous wallet session',async()=>{
  assert.equal(controller.session,null);assert.equal((await controller.api('/api/wallet/session')).authenticated,false);
  assert.equal(calls.filter(x=>x.path?.endsWith('logout')).length,2);
 });
+
+test('mobile personal_sign sends UTF-8 hex data and verifies the original challenge',async()=>{
+ const {controller,provider,calls}=fixture();provider.kind='walletconnect';
+ const message='The Desk · Base sign-in 🔐';const api=controller.api;
+ controller.api=async(path,p)=>path.endsWith('challenge')?{nonce:'nonce',message}:api(path,p);
+ await controller.login(provider);
+ const signed=calls.find(x=>x.method==='personal_sign');
+ assert.match(signed.params[0],/^0x[0-9a-f]+$/);
+ assert.equal(Buffer.from(signed.params[0].slice(2),'hex').toString('utf8'),message);
+ assert.equal(signed.params[1],address);
+ assert.equal(calls.find(x=>x.path?.endsWith('verify')).p.message,message);
+ assert.equal(controller.session.authenticated,true);
+});

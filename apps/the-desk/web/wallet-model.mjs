@@ -85,7 +85,12 @@ export class WalletController {
       if((await provider.request({method:'eth_chainId'})).toLowerCase()!==BASE.chainId) throw new Error('Select Base in your wallet.');
       this.bind(provider);
       const c=await this.api('/api/wallet/challenge',{address});
-      const signature=await provider.request({method:'personal_sign',params:[c.message,address]});
+      // Mobile wallets follow the JSON-RPC hex-data contract; the native Ledger
+      // adapter accepts the original text and signs those same UTF-8 bytes.
+      const message=provider.kind==='walletconnect'
+        ? '0x'+Array.from(new TextEncoder().encode(c.message),byte=>byte.toString(16).padStart(2,'0')).join('')
+        : c.message;
+      const signature=await provider.request({method:'personal_sign',params:[message,address]});
       if(epoch!==this.epoch) throw new Error('Wallet changed during sign-in.');
       const current=await provider.request({method:'eth_accounts'});
       if(current?.[0]?.toLowerCase()!==address.toLowerCase()) throw new Error('Wallet account changed during sign-in.');
