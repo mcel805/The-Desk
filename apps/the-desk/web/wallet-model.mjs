@@ -3,23 +3,9 @@ export const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 export const validAddress = value => /^0x[0-9a-fA-F]{40}$/.test(value || '');
 export const shortAddress = value => validAddress(value) ? value.slice(0,6)+'…'+value.slice(-4) : 'Connect wallet';
 
-export function units(value, decimals) {
-  if (typeof value !== 'string' || !/^\d+(\.\d+)?$/.test(value)) throw new Error('Enter a positive decimal amount.');
-  const [whole, fraction=''] = value.split('.');
-  if (fraction.length > decimals) throw new Error(`Use at most ${decimals} decimal places.`);
-  const result = BigInt(whole)*10n**BigInt(decimals)+BigInt(fraction.padEnd(decimals,'0') || '0');
-  if (result <= 0n || result >= 2n**256n) throw new Error('Amount is outside the supported range.');
-  return result;
-}
 export function formatUnits(value, decimals) {
   const n=BigInt(value), scale=10n**BigInt(decimals);
   return `${n/scale}.${(n%scale).toString().padStart(decimals,'0')}`.replace(/\.?0+$/,'');
-}
-export function transferRequest({from,to,asset,amount}) {
-  if (!validAddress(from) || !validAddress(to) || /^0x0{40}$/i.test(to)) throw new Error('A valid nonzero recipient address is required.');
-  if (asset==='ETH') return {from,to,value:'0x'+units(amount,18).toString(16),chainId:BASE.chainId};
-  if (asset!=='USDC') throw new Error('Only Base ETH and native USDC are supported.');
-  return {from,to:USDC,value:'0x0',chainId:BASE.chainId,data:'0xa9059cbb'+to.slice(2).toLowerCase().padStart(64,'0')+units(amount,6).toString(16).padStart(64,'0')};
 }
 
 // EIP-6963 lets Rabby and MetaMask coexist. Extension identities are labels,
@@ -44,7 +30,7 @@ export function discoverWallets(win, onChange) {
 export class WalletController {
   constructor(api,onChange=()=>{}) {this.api=api;this.onChange=onChange;this.provider=null;this.session=null;this.epoch=0;this.busy=false;this.error='';this.listeners=[];this.revoking=Promise.resolve();}
   emit(){this.onChange(this);}
-  async restore(){this.session=await this.api('/api/wallet/session');this.emit();}
+  async restore(){if(!this.provider){await this.invalidate();return false;}this.session=await this.api('/api/wallet/session');this.emit();return !!this.session?.authenticated;}
   bind(provider){
     this.listeners.forEach(([p,event,fn])=>p.removeListener?.(event,fn));this.listeners=[];this.provider=provider;
     for (const event of ['accountsChanged','chainChanged','disconnect']) {

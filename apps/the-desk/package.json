@@ -6,7 +6,7 @@
     "build:pine": "node build-pine.mjs",
     "test:pine": "node --test tests/test_pine.mjs",
     "build:wallet": "node build-wallet.mjs",
-    "test:wallet": "node --test tests/test_wallet_model.mjs tests/test_hyperliquid_wallet.mjs tests/test_hardware_wallet.mjs tests/test_wallet_pairing.mjs"
+    "test:wallet": "node --test tests/test_wallet_model.mjs tests/test_wallet_session.mjs tests/test_hyperliquid_wallet.mjs tests/test_hardware_wallet.mjs tests/test_wallet_pairing.mjs"
   },
   "dependencies": {
     "@ledgerhq/device-management-kit": "1.11.0",
