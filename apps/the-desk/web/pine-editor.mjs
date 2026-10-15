@@ -23,7 +23,16 @@ export function setupPineEditor(opts){
  registerLegendAction({id:'desk.pine-source',icon:'code',tooltip:'Edit Pine Script',when:i=>Boolean(i.source),run:(ctx,i)=>open(ctx,'create',i.source)});
  registerStatePersistence({key:'desk.pine.v1',scope:'cell',serialize:ctx=>pineState(ctx.chart,studyName),restore:restorePineState});
 }
-export async function loadPineLibrary(settings){library=Array.isArray(settings.pineLibrary)?settings.pineLibrary.filter(s=>s&&typeof s.source==='string'&&typeof s.name==='string').slice(0,6):[];}
+export async function loadPineLibrary(settings){
+ library=Array.isArray(settings.pineLibrary)?settings.pineLibrary.filter(s=>s&&typeof s.source==='string'&&typeof s.name==='string').slice(0,6):[];
+ if(library.some(s=>s.name.trim().toLowerCase()==="taper's volume")||library.length>=6)return;
+ try{
+  const response=await fetch('/pine-examples/taper-volume.pine');if(!response.ok)return;
+  const source=await response.text(),hash=await sourceHash(source);
+  const item={id:hash,name:"Taper's Volume",source,version:'6',validation:{status:'Desk runtime test passed on BTC 1h review data; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15'}};
+  const next=[...library,item];await services.saveSettings({pineLibrary:next});library=next;
+ }catch(error){console.warn('Taper Volume could not be added to My Pine indicators.',error);}
+}
 function open(ctx,tab,source=''){
  if(testing)return;context=ctx;hideOtherDialogs();tested=null;report=null;
  dialog.innerHTML=`<div class="pine-header"><div><h2>Indicators</h2><p>Built-in studies and your Pine Script source</p></div><button id="pineClose" aria-label="Close indicator editor">✕</button></div><div class="pine-tabs" role="tablist"><button role="tab" data-tab="library">Built-in library</button><button role="tab" data-tab="saved">My Pine indicators</button><button role="tab" data-tab="create">Create Pine Script indicator</button></div><div id="pineBody"></div><p id="pineFeedback" role="status" aria-live="polite"></p>`;
@@ -37,11 +46,11 @@ async function renderTab(tab,source=''){
  if(tab==='library'){
   body.innerHTML='<label>Search built-in indicators<input id="pineLibrarySearch" type="search" placeholder="Search indicators"></label><div id="pineOnChart"></div><div id="pineFeatured" class="pine-catalog"></div><div id="pineBuiltins" class="pine-catalog"></div>';
   const items=await current().availableNativeIndicators();if(revision!==generation)return;
-  const render=()=>{const q=dialog.querySelector('#pineLibrarySearch').value.toLowerCase();dialog.querySelector('#pineFeatured').innerHTML="cleo's liquidity".includes(q)?'<button id="pineCleo">Cleo\'s Liquidity<span>Open &amp; test</span></button>':'';const cleo=dialog.querySelector('#pineCleo');if(cleo)cleo.onclick=()=>loadExample('/pine-examples/cleos-liquidity.pine',true);dialog.querySelector('#pineBuiltins').innerHTML=items.filter(i=>i.supported&&i.title.toLowerCase().includes(q)).map(i=>`<button data-native="${esc(i.type)}">${esc(i.title)}<span>Add</span></button>`).join('');dialog.querySelectorAll('[data-native]').forEach(b=>b.onclick=()=>{context.addNativeIndicator(b.dataset.native);renderOnChart();});};
+  const render=()=>{const q=dialog.querySelector('#pineLibrarySearch').value.toLowerCase();const featured=[];if("cleo's liquidity".includes(q))featured.push('<button id="pineCleo"><span class="pine-feature-copy">Cleo\'s Liquidity<small>Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');if("taper's volume".includes(q)||'volume'.includes(q))featured.push('<button id="pineTaper"><span class="pine-feature-copy">Taper\'s Volume<small>Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');dialog.querySelector('#pineFeatured').innerHTML=featured.join('');const cleo=dialog.querySelector('#pineCleo');if(cleo)cleo.onclick=()=>loadExample('/pine-examples/cleos-liquidity.pine',true);const taper=dialog.querySelector('#pineTaper');if(taper)taper.onclick=()=>loadExample('/pine-examples/taper-volume.pine',true);dialog.querySelector('#pineBuiltins').innerHTML=items.filter(i=>i.supported&&i.title.toLowerCase().includes(q)).map(i=>`<button data-native="${esc(i.type)}">${esc(i.title)}<span>Add</span></button>`).join('');dialog.querySelectorAll('[data-native]').forEach(b=>b.onclick=()=>{context.addNativeIndicator(b.dataset.native);renderOnChart();});};
   dialog.querySelector('#pineLibrarySearch').oninput=render;render();renderOnChart();
  }
  if(tab==='saved'){
-  body.innerHTML=library.length?library.map((s,i)=>`<article class="pine-saved"><h3>${esc(s.name)}</h3><p>${esc(s.validation?.status||'Source saved')} · Pine ${esc(s.version||'5/6')}</p><div><button data-open-source="${i}">Edit &amp; test</button><button data-add-source="${i}">Add to chart</button><button data-download-source="${i}">Source</button><button data-delete-source="${i}">Delete saved source</button></div></article>`).join(''):'<p>No saved Pine indicators. Choose Create Pine Script indicator to paste your source.</p>';
+  body.innerHTML=library.length?library.map((s,i)=>`<article class="pine-saved"><h3>${esc(s.name)}<span class="pine-premium-badge">Premium</span></h3><p>${esc(s.validation?.status||'Source saved')} · Pine ${esc(s.version||'5/6')}</p><div><button data-open-source="${i}">Edit &amp; test</button><button data-add-source="${i}">Add to chart</button><button data-download-source="${i}">Source</button><button data-delete-source="${i}">Delete saved source</button></div></article>`).join(''):'<p>No saved Pine indicators. Choose Create Pine Script indicator to paste your source.</p>';
   dialog.querySelectorAll('[data-open-source]').forEach(b=>b.onclick=()=>renderTab('create',library[b.dataset.openSource].source));
   dialog.querySelectorAll('[data-add-source]').forEach(b=>b.onclick=()=>addSource(library[b.dataset.addSource]));
   dialog.querySelectorAll('[data-download-source]').forEach(b=>b.onclick=()=>download('indicator.pine',library[b.dataset.downloadSource].source,'text/plain'));
@@ -60,7 +69,7 @@ async function renderTab(tab,source=''){
  }
 }
 async function loadExample(url,openEditor=false){try{const response=await fetch(url);if(!response.ok)throw Error('Indicator source could not be loaded.');const source=await response.text();if(openEditor)await renderTab('create',source);else{dialog.querySelector('#pineSource').value=source;dialog.querySelector('#pineSource').oninput();}}catch(e){message(e.message,true);}}
-function renderOnChart(){const host=dialog.querySelector('#pineOnChart');if(!host)return;host.innerHTML='<h3>On this chart</h3>'+current().indicators().filter(h=>!h.id.startsWith('pine-test-')).map(h=>`<div class="pine-live"><span>${esc(studyName(h))}</span><button data-settings="${esc(h.id)}">Settings</button><button data-visibility="${esc(h.id)}">${h.visible?'Hide':'Show'}</button><button data-remove="${esc(h.id)}">Remove</button></div>`).join('');
+function renderOnChart(){const host=dialog.querySelector('#pineOnChart');if(!host)return;host.innerHTML='<h3>On this chart</h3>'+current().indicators().filter(h=>!h.id.startsWith('pine-test-')).map(h=>`<div class="pine-live"><span>${esc(studyName(h))}${h.source?'<span class="pine-premium-badge">Premium</span>':''}</span><button data-settings="${esc(h.id)}">Settings</button><button data-visibility="${esc(h.id)}">${h.visible?'Hide':'Show'}</button><button data-remove="${esc(h.id)}">Remove</button></div>`).join('');
  host.querySelectorAll('[data-settings]').forEach(b=>b.onclick=()=>{close();current().renderer.openIndicatorSettings(b.dataset.settings);});
  host.querySelectorAll('[data-visibility]').forEach(b=>b.onclick=()=>{const h=current().indicators().find(i=>i.id===b.dataset.visibility);h.setVisible(!h.visible);context.stateChanged();renderOnChart();});
  host.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const h=current().indicators().find(i=>i.id===b.dataset.remove);h.remove();context.stateChanged();renderOnChart();});

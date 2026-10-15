@@ -1,0 +1,119 @@
+//@version=6
+// Independent documented-concept reconstruction. Original TTP parity is unverified.
+// Adapted from user-supplied Batty Volume Surge concepts. No bid/ask delta claim.
+indicator("Taper's Volume", shorttitle="Taper Vol", overlay=false, max_lines_count=10, max_bars_back=100)
+mode = input.string("Volume", "Calculation mode", options=["Volume", "RelativeVolume", "Density", "RelativeDensity", "Range", "RelativeRange", "VolumePerSecond"])
+showLow = input.bool(false, "Color low activity")
+showOutlines = input.bool(true, "Color signal candle outlines")
+showSpikes = input.bool(true, "Volume spikes and extreme references")
+showBands = input.bool(true, "SMA and deviation bands")
+showDelta = input.bool(false, "Candle-sign volume proxy (not bid/ask delta)")
+// Fifteen exact prior observed bars in the same UTC slot, not an EWMA.
+var vHistory = array.new_float(1440 * 15, na)
+var dHistory = array.new_float(1440 * 15, na)
+var rHistory = array.new_float(1440 * 15, na)
+var counts = array.new_int(1440, 0)
+var heads = array.new_int(1440, 0)
+int slot = timeframe.isintraday ? hour(time, "UTC") * 60 + minute(time, "UTC") : 0
+int count = array.get(counts, slot)
+float rng = high - low
+float density = rng > 0 ? volume / rng : na
+float sumV = 0.0
+float sumD = 0.0
+float sumR = 0.0
+int nD = 0
+if count > 0
+    for j = 0 to count - 1
+        int idx = slot * 15 + j
+        sumV += array.get(vHistory, idx)
+        sumR += array.get(rHistory, idx)
+        float d = array.get(dHistory, idx)
+        if not na(d)
+            sumD += d
+            nD += 1
+float rvol = count >= 3 and sumV > 0 ? volume / (sumV / count) * 100 : na
+float rdensity = count >= 3 and nD >= 3 and sumD > 0 ? density / (sumD / nD) * 100 : na
+float rrange = count >= 3 and sumR > 0 ? rng / (sumR / count) * 100 : na
+float value = switch mode
+    "RelativeVolume" => rvol
+    "Density" => density
+    "RelativeDensity" => rdensity
+    "Range" => rng
+    "RelativeRange" => rrange
+    "VolumePerSecond" => volume / timeframe.in_seconds()
+    => volume
+if barstate.isconfirmed and not na(volume) and volume >= 0
+    int head = array.get(heads, slot)
+    int idx = slot * 15 + head
+    array.set(vHistory, idx, volume)
+    array.set(dHistory, idx, density)
+    array.set(rHistory, idx, rng)
+    array.set(heads, slot, (head + 1) % 15)
+    array.set(counts, slot, math.min(count + 1, 15))
+float climax = value * rng
+float churn = rng > 0 ? value / rng : na
+float sma = ta.sma(value, 20)
+float sigma = ta.stdev(value, 20)
+bool ready = not na(value) and not na(value[15])
+bool sc = ready and climax > 0 and climax >= ta.highest(climax, 16)
+bool sh = ready and churn > 0 and churn >= ta.highest(churn, 16)
+int sinceC = ta.barssince(sc[1])
+int sinceH = ta.barssince(sh[1])
+bool wc = ready and not sc and not na(sinceC) and sinceC < 16 and climax > 0 and climax >= ta.highest(climax, 7)
+bool wh = ready and not sh and not na(sinceH) and sinceH < 16 and churn > 0 and churn >= ta.highest(churn, 7)
+bool lowActivity = ready and value <= value[1] and value <= value[2] and value < sma * .8
+bool volMode = mode == "Volume" or mode == "RelativeVolume"
+bool densityMode = mode == "Density" or mode == "RelativeDensity"
+bool rangeMode = mode == "Range" or mode == "RelativeRange"
+color normal = value > value[1] ? #006400 : value < value[1] ? #8b0000 : #777777
+color signal = sc and sh ? #ff00ff : sc ? #00bfff : sh ? #ffff00 : wc and wh ? #9400d3 : wc ? #0000ff : wh ? #ffa500 : lowActivity and showLow ? #ffffff : normal
+bool extremeActivity = ready and value > 0 and value >= ta.highest(value, 16)
+bool highActivity = ready and value > 0 and value >= ta.highest(value, 7)
+color densityColor = extremeActivity ? #ff69b4 : highActivity ? #00ff7f : lowActivity and showLow ? #ffffff : normal
+color vpsColor = extremeActivity ? #ff00ff : highActivity ? #00bfff : lowActivity and showLow ? #ffffff : normal
+bool narrow16 = ready and value < ta.lowest(value[1], 15)
+bool wide16 = ready and value > ta.highest(value[1], 15)
+bool narrow7 = ready and value < ta.lowest(value[1], 6)
+bool wide7 = ready and value > ta.highest(value[1], 6)
+color rangeColor = narrow16 ? #ff00ff : wide16 ? #00bfff : narrow7 ? #ffff00 : wide7 ? #00bfff : normal
+color barColor = volMode ? signal : densityMode ? densityColor : rangeMode ? rangeColor : vpsColor
+float displayValue = barstate.isconfirmed ? value : na
+plot(displayValue, "Measured activity", color=barColor, style=plot.style_columns)
+plot(showBands and barstate.isconfirmed ? sma : na, "SMA 20", color=color.white)
+plot(showBands and barstate.isconfirmed ? sma + sigma : na, "SMA + 1 SD", color=#7b6a96)
+plot(showBands and barstate.isconfirmed ? sma + 2 * sigma : na, "SMA + 2 SD", color=#7b6a96)
+plot(showBands and barstate.isconfirmed ? sma + 3 * sigma : na, "SMA + 3 SD", color=#7b6a96)
+plot(str.startswith(mode, "Relative") and barstate.isconfirmed and not na(value) ? 100 : na, "100% same-time reference", color=#4b0082)
+bool atHigh = close >= (high + low) / 2
+bool higher2 = value > value[1] and value > value[2]
+bool extreme = ready and volMode and value >= ta.highest(value, 16) and value > sma + 3 * sigma
+bool major = ready and volMode and not extreme and ((value >= ta.highest(value, 16) and value > sma + sigma) or (higher2 and value > sma + 2 * sigma))
+bool minor = ready and volMode and not extreme and not major and higher2 and value > sma + sigma
+bool confirmed = barstate.isconfirmed
+plotshape(showSpikes and confirmed and extreme and atHigh, "Extreme high", shape.diamond, location.abovebar, color.yellow, size=size.tiny, force_overlay=true)
+plotshape(showSpikes and confirmed and extreme and not atHigh, "Extreme low", shape.diamond, location.belowbar, color.yellow, size=size.tiny, force_overlay=true)
+plotshape(showSpikes and confirmed and major and atHigh, "Major high", shape.triangledown, location.abovebar, #8b008b, size=size.tiny, force_overlay=true)
+plotshape(showSpikes and confirmed and major and not atHigh, "Major low", shape.triangleup, location.belowbar, #8b008b, size=size.tiny, force_overlay=true)
+plotshape(showSpikes and confirmed and minor and atHigh, "Minor high", shape.xcross, location.abovebar, color.blue, size=size.tiny, force_overlay=true)
+plotshape(showSpikes and confirmed and minor and not atHigh, "Minor low", shape.xcross, location.belowbar, color.blue, size=size.tiny, force_overlay=true)
+color outline = showOutlines and volMode and confirmed and (sc or sh or wc or wh) ? signal : na
+plotcandle(open, high, low, close, "Volume outlines", color=na, wickcolor=na, bordercolor=outline, force_overlay=true)
+var line extremeHigh = na
+var line extremeLow = na
+if showSpikes and confirmed and extreme
+    if atHigh
+        line.delete(extremeHigh)
+        extremeHigh := line.new(bar_index, high, bar_index + 1, high, extend=extend.right, color=color.lime, force_overlay=true)
+    else
+        line.delete(extremeLow)
+        extremeLow := line.new(bar_index, low, bar_index + 1, low, extend=extend.right, color=color.red, force_overlay=true)
+float deltaProxy = close > open ? volume : close < open ? -volume : 0
+plot(showDelta and confirmed ? deltaProxy : na, "Candle-sign volume proxy", color=deltaProxy >= 0 ? color.teal : color.maroon, style=plot.style_histogram)
+var table evidence = table.new(position.top_right, 1, 3)
+if barstate.islast
+    table.cell(evidence, 0, 0, "Taper's Volume · reconstruction", text_color=color.white, bgcolor=#201b2c)
+    table.cell(evidence, 0, 1, "Same-time prior samples: " + str.tostring(count) + "/15 · UTC", text_color=color.white, bgcolor=#201b2c)
+    table.cell(evidence, 0, 2, mode == "VolumePerSecond" ? "Time-bar average; tick VPS unavailable" : "OHLCV context; confirm price at a level", text_color=color.white, bgcolor=#201b2c)
+alertcondition(confirmed and volMode and sc and sh, "Climax/churn", "Taper Volume: completed climax/churn; assess location and price confirmation")
+alertcondition(confirmed and volMode and (sh or wh) and (sc[1] or wc[1]), "Climax then churn", "Taper Volume: completed climax then churn; reversal is unconfirmed")
+alertcondition(confirmed and extreme, "Extreme spike", "Taper Volume: completed extreme spike; conditional high/low reference")
