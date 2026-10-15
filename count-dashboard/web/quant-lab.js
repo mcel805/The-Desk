@@ -1173,11 +1173,14 @@ async function renderIndicators() {
       const card=document.createElement('article');card.className=`card premium-card${active?' is-active':''}`;
       const image=document.createElement('img');image.src=`./tool-belt-assets/${item.image}`;image.alt='';image.className='premium-icon';
       const copy=document.createElement('div');copy.className='premium-copy';
+      const titleRow=document.createElement('div');titleRow.className='premium-title-row';
       const title=document.createElement('strong');title.textContent=item.name;
+      const premiumTag=document.createElement('span');premiumTag.className='premium-tag';premiumTag.textContent='Premium';
+      titleRow.append(title,premiumTag);
       const detail=document.createElement('small');detail.textContent=item.description;
       const state=document.createElement('span');state.className='premium-state';state.textContent=active?'On selected chart':item.requiresExecutionFeed?(slot?.params.id==='coinbase'&&slot?.chart?'Coinbase trade check on Add':'Select Coinbase chart'):slot?.chart?'Available':'Load a chart';
       if(outsideGameScope)state.textContent='Requires data outside the active field';
-      copy.append(title,detail,state);
+      copy.append(titleRow,detail,state);
       if(item.requiresExecutionFeed){const terms=document.createElement('a');terms.href='https://www.coinbase.com/legal/market_data';terms.target='_blank';terms.rel='noopener noreferrer';terms.textContent='Coinbase market-data terms ↗';terms.className='premium-terms';copy.append(terms);}
       const actions=document.createElement('div');actions.className='premium-actions';
       const toggle=document.createElement('button');toggle.type='button';toggle.textContent=active?'Remove':'Add';
