@@ -1,4 +1,4 @@
-import {marketIdentity,tradingLevels,tradeLevelPlacement,paperExecutionMarkers} from './trading-model.mjs';
+import {marketIdentity,tradingLevels,tradeLevelPlacement,paperExecutionMarkers,formatTradePrice} from './trading-model.mjs';
 import {moveDraftBracket,bracketLabel} from './chart-bracket-model.mjs';
 
 export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,placeDraft,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,toast}){
@@ -61,7 +61,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
         let labelY=Math.max(pane.bounds.top+13,Math.min(y,pane.bounds.top+pane.bounds.height-13));
         for(let i=0;i<levels.length*2;i++){const candidate=labelY+(i%2?1:-1)*Math.ceil(i/2)*26;if(candidate>=pane.bounds.top+13&&candidate<=pane.bounds.top+pane.bounds.height-13&&!occupied.some(v=>Math.abs(v-candidate)<25)){labelY=candidate;break;}}
         occupied.push(labelY);node.querySelector('.trade-line-controls').style.transform='translateY('+(labelY-y)+'px)';
-        const label=node.querySelector('.trade-line-label');label.textContent=node.offscale?(node.offscale==='top'?'↑ ':'↓ ')+level.label+' · '+level.item.side.toUpperCase()+' '+level.item.qty+' · '+Number(level.price).toLocaleString('en-US',{maximumFractionDigits:8})+' · off scale':level.label;
+        const label=node.querySelector('.trade-line-label');label.textContent=node.offscale?(node.offscale==='top'?'↑ ':'↓ ')+level.label+(level.label.includes(' @ ')?' · off scale':' · '+level.item.side.toUpperCase()+' '+level.item.qty+' · '+formatTradePrice(level.price)+' · off scale'):level.label;
         label.title=(level.kind==='draft'?'Draft':'Paper')+' · '+level.item.side+' '+level.item.qty+(dragging?' · Release to '+(level.kind==='draft'?'update ticket':'review amendment'):'');label.setAttribute('aria-label',level.label+' at '+level.price+(node.offscale?'. Outside visible price scale. Click or press Enter to edit.':'. Drag or press Enter to edit.'));
         const reverse=node.querySelector('[data-action=reverse]');if(reverse){reverse.hidden=!c.reverse;reverse.disabled=market.startsWith('coinbase:');reverse.title=market.startsWith('coinbase:')?'Spot reversal would create an unsupported short':'Reverse paper position';}
       }

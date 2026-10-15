@@ -24,14 +24,15 @@ export function summarizePositions(positions,quote,unit='money'){
   return {qty,entry,pnl,value:unit==='ticks'?(total?pnl/total/Number(quote?.tick||.01):0):unit==='percent'?(entry&&total?pnl/total/entry*100:0):pnl,unit};
 }
 export function formatPnl(metrics){const {value,unit}=metrics,n=Math.abs(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});return (value<0?'−':'+')+(unit==='money'?'$'+n:unit==='percent'?n+'%':n+' ticks');}
+export function formatTradePrice(value){return Number(value).toLocaleString('en-US',{maximumFractionDigits:8});}
 export function tradingLevels(state,market,config){
   const levels=[];
   if(config.orders)for(const o of state.orders.filter(x=>x.instrument===market&&['working','triggered'].includes(x.status))){
-    for(const [field,color] of [['price',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]])if(o[field]&&(config.brackets||!['stop','target'].includes(field)))levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:['price','trigger'].includes(field)?o.side.toUpperCase()+' '+o.kind+' · '+o.qty+' · '+o.status.toUpperCase():bracketLabel(o,field,state.quotes[market]),color,kind:'order'});
+    for(const [field,color] of [['price',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]])if(o[field]&&(config.brackets||!['stop','target'].includes(field)))levels.push({key:o.id+field,item:o,field,price:Number(o[field]),label:['price','trigger'].includes(field)?o.side.toUpperCase()+' '+o.kind.replace('_',' ').toUpperCase()+' · '+o.qty+' @ '+formatTradePrice(o[field])+' · '+o.status.toUpperCase():bracketLabel(o,field,state.quotes[market]),color,kind:'order'});
   }
   if(config.positions)for(const p of state.positions.filter(x=>x.instrument===market)){
     const metrics=positionMetrics(p,state.quotes[market],config.pnlUnit);
-    for(const [field,label,color] of [['entry',(p.side==='buy'?'LONG':'SHORT')+' '+p.qty+(config.pnl?' · '+formatPnl(metrics):''),tradeColors[p.side]],['stop',bracketLabel(p,'stop',state.quotes[market]),tradeColors.stop],['target',bracketLabel(p,'target',state.quotes[market]),tradeColors.target]])if(p[field]&&(config.brackets||field==='entry'))levels.push({key:p.id+field,item:p,field,price:Number(p[field]),label,color,kind:'position'});
+    for(const [field,label,color] of [['entry',(p.side==='buy'?'LONG':'SHORT')+' '+p.qty+' · ENTRY @ '+formatTradePrice(p.entry)+(config.pnl?' · P&L '+formatPnl(metrics):''),tradeColors[p.side]],['stop',bracketLabel(p,'stop',state.quotes[market]),tradeColors.stop],['target',bracketLabel(p,'target',state.quotes[market]),tradeColors.target]])if(p[field]&&(config.brackets||field==='entry'))levels.push({key:p.id+field,item:p,field,price:Number(p[field]),label,color,kind:'position'});
   }
   return levels;
 }
