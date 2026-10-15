@@ -57,6 +57,17 @@ class HttpTests(unittest.TestCase):
             for key,value in before.items():
                 if key!='appearance':self.assertEqual(after[key],value)
         finally:request('/api/settings',{'appearance':before.get('appearance',{'theme':'dark'})})
+    def test_optional_execution_history_roundtrip(self):
+        before=request('/api/settings').get('trading',{})
+        try:
+            for enabled in (True,False):
+                value={**before,'executionHistory':enabled}
+                request('/api/settings',{'trading':value})
+                self.assertEqual(request('/api/settings')['trading'],value)
+            with self.assertRaises(HTTPError) as error:
+                request('/api/settings',{'trading':{'executionHistory':'true'}})
+            self.assertEqual(error.exception.code,400)
+        finally:request('/api/settings',{'trading':before})
     def test_pine_library_source_roundtrip_and_limits(self):
         before=request('/api/settings').get('pineLibrary',[])
         script={'name':'HTTP Pine test','source':'//@version=6\nindicator("Test")\nplot(close)','version':'6'}

@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {tradingConfig,positionMetrics,summarizePositions,tradingLevels,tradeLevelPlacement,ladderPrices,marketIdentity} from '../web/trading-model.mjs';
+import {tradingConfig,paperExecutionMarkers,positionMetrics,summarizePositions,tradingLevels,tradeLevelPlacement,ladderPrices,marketIdentity} from '../web/trading-model.mjs';
 test('provider aliases resolve to their executable instrument',()=>{assert.equal(marketIdentity({market:{symbol:'BTC'},data:{resolve:()=>({provider:{name:'Coinbase'},ticker:'BTC-USD'})}}),'coinbase:BTC-USD');});
 test('position metrics use executable bid for long and ask for short',()=>{let q={bid:110,ask:111,tick:.5};assert.equal(positionMetrics({entry:100,qty:2,side:'buy'},q).value,20);assert.equal(positionMetrics({entry:100,qty:2,side:'sell'},q,'ticks').value,-22);assert.equal(summarizePositions([{entry:100,qty:2,side:'buy'}],q,'percent').value,10);});
 test('chart levels obey market, lifecycle and configured visibility',()=>{let p={id:'p',instrument:'hyperliquid:BTC',side:'buy',entry:100,qty:2,stop:95,target:110};let s={positions:[p,{...p,id:'foreign',instrument:'coinbase:BTC-USD'}],quotes:{},orders:[{id:'o',instrument:p.instrument,status:'working',kind:'stop_limit',side:'sell',qty:1,price:99,trigger:98},{id:'done',instrument:p.instrument,status:'filled',price:100}]};assert.equal(tradingLevels(s,p.instrument,tradingConfig()).length,5);assert.equal(tradingLevels(s,p.instrument,tradingConfig({brackets:false,orders:false})).length,1);assert.equal(tradingLevels(s,p.instrument,tradingConfig({positions:false,orders:false})).length,0);});
@@ -26,4 +26,16 @@ test('off-scale controls handle both edges, inverted scales and invalid geometry
  assert.equal(tradeLevelPlacement(20,bounds).edge,'top');assert.equal(tradeLevelPlacement(320,bounds).edge,'bottom');
  assert.equal(tradeLevelPlacement(NaN,bounds),null);assert.equal(tradeLevelPlacement(Infinity,bounds),null);
  assert.equal(tradeLevelPlacement(10,{top:0,height:0}),null);
+});
+
+test('paper execution history requires a new explicit opt-in and survives settings restoration',()=>{
+ const legacy=tradingConfig({executions:true,labels:true,positions:false,pnlUnit:'ticks'});
+ assert.equal(legacy.executionHistory,false);assert.equal(legacy.positions,false);assert.equal(legacy.pnlUnit,'ticks');
+ const restored=tradingConfig(JSON.parse(JSON.stringify(tradingConfig({executionHistory:true}))));
+ assert.equal(restored.executionHistory,true);
+ const s={active_account:'a',fills:[{id:'own',account_id:'a',instrument:'hyperliquid:BTC'},{id:'other-market',account_id:'a',instrument:'hyperliquid:ETH'},{id:'other-account',account_id:'b',instrument:'hyperliquid:BTC'}]};
+ assert.deepEqual(paperExecutionMarkers(s,'hyperliquid:BTC',legacy),[]);
+ assert.deepEqual(paperExecutionMarkers(s,'hyperliquid:BTC',restored).map(f=>f.id),['own']);
+ assert.deepEqual(paperExecutionMarkers(s,'hyperliquid:BTC',restored,true),[]);
+ assert.equal(s.fills.length,3);
 });

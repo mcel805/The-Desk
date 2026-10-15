@@ -1,4 +1,4 @@
-import {marketIdentity,tradingLevels,tradeLevelPlacement} from './trading-model.mjs';
+import {marketIdentity,tradingLevels,tradeLevelPlacement,paperExecutionMarkers} from './trading-model.mjs';
 import {moveDraftBracket,bracketLabel} from './chart-bracket-model.mjs';
 
 export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,placeDraft,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,toast}){
@@ -65,8 +65,8 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
         label.title=(level.kind==='draft'?'Draft':'Paper')+' · '+level.item.side+' '+level.item.qty+(dragging?' · Release to '+(level.kind==='draft'?'update ticket':'review amendment'):'');label.setAttribute('aria-label',level.label+' at '+level.price+(node.offscale?'. Outside visible price scale. Click or press Enter to edit.':'. Drag or press Enter to edit.'));
         const reverse=node.querySelector('[data-action=reverse]');if(reverse){reverse.hidden=!c.reverse;reverse.disabled=market.startsWith('coinbase:');reverse.title=market.startsWith('coinbase:')?'Spot reversal would create an unsupported short':'Reverse paper position';}
       }
-      const executions=!replay&&c.executions?s.fills.filter(f=>f.instrument===market).slice(0,100):[],ids=new Set(executions.map(f=>f.id));for(const [id,n] of wrap.fills)if(!ids.has(id)){n.remove();wrap.fills.delete(id);}
-      for(const fill of executions){let n=wrap.fills.get(fill.id);if(!n){n=document.createElement('div');n.className='chart-execution';n.dataset.fillId=fill.id;n.title=fill.side+' '+fill.qty+' at '+fill.price+' · '+fill.reason+' · '+fill.executed_at;overlay.append(n);wrap.fills.set(fill.id,n);}const x=native.coords.timeToX(Date.parse(fill.executed_at)),y=native.coords.priceToY(Number(fill.price),pane.scale,pane.bounds);n.style.display=Number.isFinite(x)&&x>=0&&x<=native.coords.width&&y>=pane.bounds.top&&y<=pane.bounds.top+pane.bounds.height?'':'none';n.style.left=x+'px';n.style.top=y+'px';n.classList.toggle('buy',fill.side==='buy');n.classList.toggle('sell',fill.side==='sell');n.textContent=(fill.side==='buy'?'▲':'▼')+(c.labels?' '+fill.qty:'');}
+      const executions=paperExecutionMarkers(s,market,c,replay),ids=new Set(executions.map(f=>f.id));for(const [id,n] of wrap.fills)if(!ids.has(id)){n.remove();wrap.fills.delete(id);}
+      for(const fill of executions){let n=wrap.fills.get(fill.id);if(!n){n=document.createElement('div');n.className='chart-execution';n.dataset.fillId=fill.id;n.title='PAPER · '+fill.side.toUpperCase()+' '+fill.qty+' '+fill.instrument+' at '+fill.price+' · '+fill.reason+' · '+fill.executed_at;n.setAttribute('aria-label',n.title);overlay.append(n);wrap.fills.set(fill.id,n);}const x=native.coords.timeToX(Date.parse(fill.executed_at)),y=native.coords.priceToY(Number(fill.price),pane.scale,pane.bounds);n.style.display=Number.isFinite(x)&&x>=0&&x<=native.coords.width&&y>=pane.bounds.top&&y<=pane.bounds.top+pane.bounds.height?'':'none';n.style.left=x+'px';n.style.top=y+'px';n.classList.toggle('buy',fill.side==='buy');n.classList.toggle('sell',fill.side==='sell');n.textContent=fill.side==='buy'?'▲':'▼';}
     }
     requestAnimationFrame(frame);
   }
