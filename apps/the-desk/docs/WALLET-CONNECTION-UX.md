@@ -87,7 +87,7 @@ account signature verification before this app could authenticate it.
 
 ## Verification
 
-31 Node tests cover provider login, account/network changes, exact balance reads,
+32 Node tests cover provider login, account/network changes, exact balance reads,
 USB reconnection, distinct missing/inaccessible devices, duplicate HID entries,
 error codes, QR configuration, cancellation races and mobile session restoration.
 33 Python checks cover the real HTTP/authentication boundary, cryptographic login,
@@ -100,6 +100,8 @@ explicitly synthetic; no transfer or real order is part of validation.
 This Mac's live USB/HID scan reported no attached Ledger during this update.
 Physical signing and a real mobile/relay approval remain unverified; the UI must
 not claim otherwise. The package audit reported zero known vulnerabilities.
+Restored cookie sessions remain hidden until the same tab restores its selected
+wallet provider; a new tab must reconnect before showing an authenticated wallet.
 
 ## Sources
 

@@ -194,4 +194,42 @@ $('#rhAccounts').onchange=()=>run(async()=>{renderRH();await portfolio();});
 $('#rhConnect').onclick=()=>run(async()=>{await controller.assertIdentity();status('Opening Robinhood’s consent screen…');const result=await api('/api/robinhood/connect',{});location.assign(result.url);});
 $('#rhDisconnect').onclick=()=>run(async()=>{await api('/api/robinhood/disconnect',{});rh=null;renderRH();$('#rhPortfolio').innerHTML='';status('Robinhood disconnected from this Desk session. Revoke access in Robinhood to remove the provider grant.');});
 $('#rhRefresh').onclick=()=>run(refreshRH);
-await run(async()=>{config=await api('/api/integrations');$('#mobileAvailability').textContent=config.walletConnectProjectId?'Scan a QR code · no extension':'Mobile pairing · setup needed';$('#fundingRuntime').textContent=`Hyperliquid Testnet orders available · Mainnet ${config.hyperliquidLiveEnabled?'enabled with typed review':'disabled'} · Base transfers and Robinhood submissions disabled`;if(!config.walletVerificationAvailable)status('Wallet verification dependency missing. Install requirements-wallet.txt using the server Python.',true);const capability=await api('/api/wallet/hardware/capabilities');$('#hardwareStatus').textContent=capability.available?'Local USB connector ready. Connect your Ledger and find USB devices.':capability.error||'Local USB connector unavailable.';if(sessionStorage.getItem('desk-wallet-provider')==='ledger-usb')controller.bind(hardware);await controller.restore();if(controller.session?.authenticated&&sessionStorage.getItem('desk-wallet-provider')==='walletconnect'){pairing=new WalletPairing({load:transports,projectId:config.walletConnectProjectId,origin:location.origin});const provider=await pairing.restore();if(provider)controller.bind(provider);else await controller.invalidate('Mobile session expired. Connect again.');}if(controller.session?.authenticated){status(controller.provider?.kind==='ledger-usb'?'Base session restored. Reconnect and unlock Ledger before reading its balances.':'Wallet session restored. Select your extension if it is locked.');await loadHLRequests();if(location.search.includes('connection=robinhood'))await refreshRH();}});
+await run(async()=>{
+  config=await api('/api/integrations');
+  $('#mobileAvailability').textContent=config.walletConnectProjectId?'Scan a QR code · no extension':'Mobile pairing · setup needed';
+  $('#fundingRuntime').textContent=`Hyperliquid Testnet orders available · Mainnet ${config.hyperliquidLiveEnabled?'enabled with typed review':'disabled'} · Base transfers and Robinhood submissions disabled`;
+  if(!config.walletVerificationAvailable)status('Wallet verification dependency missing. Install requirements-wallet.txt using the server Python.',true);
+  const capability=await api('/api/wallet/hardware/capabilities');
+  $('#hardwareStatus').textContent=capability.available?'Local USB connector ready. Connect your Ledger and find USB devices.':capability.error||'Local USB connector unavailable.';
+
+  // Load cookie state without rendering it until this tab restores the wallet
+  // provider that originally signed it. Cookies are shared across tabs; the
+  // selected provider marker intentionally is not.
+  const savedProvider=sessionStorage.getItem('desk-wallet-provider');
+  const restored=await controller.restore({emit:false});
+  if(restored?.authenticated){
+    if(savedProvider==='ledger-usb')controller.bind(hardware);
+    else if(savedProvider==='walletconnect'){
+      if(config.walletConnectProjectId){
+        try{
+          pairing=new WalletPairing({load:transports,projectId:config.walletConnectProjectId,origin:location.origin});
+          const provider=await pairing.restore();
+          if(provider)controller.bind(provider);
+        }catch{ /* Missing setup or expired pairing requires a fresh login. */ }
+      }
+    }else{
+      const selected=wallets.find(wallet=>wallet.id===savedProvider);
+      if(selected)controller.bind(selected.provider);
+    }
+    if(!controller.provider){
+      sessionStorage.removeItem('desk-wallet-provider');
+      await controller.invalidate('Wallet connection needs a fresh sign-in.');
+      if(savedProvider==='walletconnect'&&!config.walletConnectProjectId)$('#mobileAvailability').textContent='Mobile pairing · setup needed';
+    }else{
+      controller.emit();
+      status(controller.provider.kind==='ledger-usb'?'Base session restored. Reconnect and unlock Ledger before reading its balances.':'Wallet session restored. Select your extension if it is locked.');
+      await loadHLRequests();
+      if(location.search.includes('connection=robinhood'))await refreshRH();
+    }
+  }
+});

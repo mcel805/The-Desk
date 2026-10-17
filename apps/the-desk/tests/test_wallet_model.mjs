@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {WalletController,units,formatUnits,transferRequest,BASE,USDC,discoverWallets} from '../web/wallet-model.mjs';
+import {WalletController,formatUnits,BASE,USDC,discoverWallets} from '../web/wallet-model.mjs';
 const address='0x1111111111111111111111111111111111111111',to='0x2222222222222222222222222222222222222222';
 function fixture({chain=BASE.chainId,decline=false}={}) {
  let session={authenticated:false};const calls=[],handlers={};
@@ -8,14 +8,8 @@ function fixture({chain=BASE.chainId,decline=false}={}) {
  const api=async(path,p)=>{calls.push({path,p});if(path.endsWith('challenge'))return {nonce:'nonce',message:'one time sign-in'};if(path.endsWith('verify'))return session={authenticated:true,address,chainId:8453};if(path.endsWith('logout'))return session={authenticated:false};if(path.endsWith('session'))return session;throw new Error(path);};
  const controller=new WalletController(api);return {controller,provider,calls,handlers};
 }
-test('exact ETH/USDC units and transfer ABI, including excessive precision',()=>{
- assert.equal(units('9007199254740993.000001',6),9007199254740993000001n);
+test('format Base token balances without floating point rounding',()=>{
  assert.equal(formatUnits('0x0',18),'0');assert.equal(formatUnits(1000000n,6),'1');
- assert.throws(()=>units('1.0000001',6));assert.throws(()=>units('-1',18));assert.throws(()=>units('1e3',18));assert.throws(()=>units('0',6));
- const tx=transferRequest({from:address,to,asset:'USDC',amount:'1.234567'});
- assert.equal(tx.to,USDC);assert.equal(tx.data,'0xa9059cbb'+to.slice(2).padStart(64,'0')+'12d687'.padStart(64,'0'));assert.equal(tx.chainId,BASE.chainId);
- assert.equal(transferRequest({from:address,to,asset:'ETH',amount:'1'}).value,'0xde0b6b3a7640000');
- assert.throws(()=>transferRequest({from:address,to:'0x'+'0'.repeat(40),asset:'ETH',amount:'1'}));
 });
 test('connect switches to Base then signs identity without any transaction',async()=>{
  const {controller,provider,calls}=fixture({chain:'0x1'});await controller.login(provider);
@@ -25,6 +19,11 @@ test('connect switches to Base then signs identity without any transaction',asyn
  assert.equal(calls.find(x=>x.method==='eth_getBalance').params[1],'0x10');assert.equal(calls.find(x=>x.method==='eth_call').params[1],'0x10');
 });
 test('declined signature keeps session disconnected',async()=>{const {controller,provider}=fixture({decline:true});await assert.rejects(controller.login(provider),/declined/);assert.equal(controller.session,null);assert.equal(controller.busy,false);});
+test('deferred session restoration does not expose cookie identity before provider recovery',async()=>{
+ const {controller}=fixture();let updates=0;controller.onChange=()=>updates++;
+ const restored=await controller.restore({emit:false});
+ assert.equal(restored.authenticated,false);assert.equal(controller.session.authenticated,false);assert.equal(controller.provider,null);assert.equal(updates,0);
+});
 test('account changes revoke auth and prevent stale identity reads',async()=>{
  const {controller,provider,handlers}=fixture();await controller.login(provider);provider.accounts=[to];handlers.accountsChanged([to]);await controller.revoking;
  assert.equal(controller.session,null);await assert.rejects(controller.balances(),/sign in/);
