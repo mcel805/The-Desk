@@ -1,4 +1,5 @@
 import {VelaWorkspace,CoinbaseProvider,HyperliquidProvider} from './vendor/vela.js';
+import {IBKRProvider,isIBKR,ibkrLabel} from './ibkr-provider.mjs';
 import {marketIdentity,tradingConfig,tradingDefaults} from './trading-model.mjs';
 import {setupDOMTrader} from './dom-trader.mjs';
 import {setupChartTrader} from './chart-trader.mjs';
@@ -53,7 +54,21 @@ function reviewChartOrder(){
   },{submitLabel:'Place paper '+p.side+' limit',cancelLabel:'Edit on chart'});
 }
 function account(){return state?.accounts.find(a=>a.id===activeAccount);}
-function quote(){return state?.quotes[instrument()];}
+let ibkrStatus=null;
+const readonlyMarket=()=>isIBKR(instrument());
+const ibkrProvider=new IBKRProvider({onStatus:s=>{ibkrStatus=s;if(ws)updateTicket();}});
+function quote(){return readonlyMarket()?undefined:state?.quotes[instrument()];}
+async function refreshIBKR(){try{ibkrStatus=await api('/api/ibkr/status');}catch{ibkrStatus={...ibkrStatus,connected:false,phase:'unavailable',quote:null,history_stale:true,message:'IBKR backend unavailable.'};}}
+$('#ibkrButton').onclick=async()=>{
+ await refreshIBKR();const s=ibkrStatus,c=s.contract;
+ showDialog('IBKR futures data',`<p><strong>${esc(ibkrLabel(s))}</strong></p><p>${esc(s.message)}</p>`+
+  (c?`<dl><dt>Contract</dt><dd>${esc(c.instrument)}</dd><dt>Exchange / expiry</dt><dd>${esc(c.exchange)} / ${esc(c.expiry)}</dd><dt>Tick / multiplier</dt><dd>${esc(c.tick)} / ${esc(c.multiplier)}</dd></dl>`:'')+
+  `<p class="muted">Read-only MYM candles and quotes. Futures orders, depth, daily bars and exchange holiday calendars are not enabled.</p>`+
+  (s.configured_mode==='demo'?`<p>These are invented prices, including weekend activity. No broker login, entitlement or real market connection is being tested.</p><button type="button" id="ibkrPause">${s.connected?'Pause demo feed':'Resume demo feed'}</button>`:
+  `<p>Try without an account: start the isolated demo with <code>python3 server.py --port 18882 --data-dir /tmp/desk-ibkr-demo --no-workers --ibkr-mode demo</code>.</p><p>For Gateway setup, see <a href="/ibkr-setup.html" target="_blank" rel="noopener">IBKR connection instructions</a>. Credentials stay in IBKR's login window.</p>`),
+  s.instrument?async()=>{await ws.chart.setMarket({symbol:s.instrument,timeframe:'1'});draft=false;updateTicket();drawWatch();drawDOM();}:null,{submitLabel:'Open MYM '+(s.configured_mode==='demo'?'demo ':'')+'chart',cancelLabel:'Close'});
+ const pause=$('#ibkrPause');if(pause)pause.onclick=async()=>{try{ibkrStatus=await api('/api/ibkr/demo',{paused:!!ibkrStatus.connected});$('#dialog').close();$('#ibkrButton').click();updateTicket();}catch(e){toast(e.message,true);}};
+} ;
 function snap(v){const tick=Number(quote()?.tick||.01);return Number((Math.round(Number(v)/tick)*tick).toPrecision(12));}
 function quantity(){
  const amount=Number($('#quantity').value),q=quote(),price=entryReference();let qty=amount;
@@ -83,10 +98,25 @@ function updateTicket(){
  if(q){$('#bid').textContent=fmt(q.bid);$('#ask').textContent=fmt(q.ask);$('#feedState').textContent=(q.age>15?'STALE':'PUBLIC QUOTE')+' · '+number(q.age,0)+'s · '+q.transport;}
  else{$('#bid').textContent=$('#ask').textContent='—';$('#feedState').textContent='Server quote unavailable';}
  $('#instrumentLabel').textContent=instrument().toUpperCase();
+ const readOnly=readonlyMarket();$('#ibkrBanner').hidden=!readOnly;
+ for(const cell of ws?.cells()||[]){const badge=cell.host.querySelector('.ibkr-cell-badge');if(badge){badge.hidden=!isIBKR(marketIdentity(cell.chart));badge.textContent=ibkrLabel(ibkrStatus);}}
+ if(readOnly){
+  const label=ibkrLabel(ibkrStatus),q=ibkrStatus?.instrument===instrument()?ibkrStatus?.quote:null;
+  $('#ibkrBanner').textContent=label+' · '+instrument().toUpperCase()+' · '+(ibkrStatus?.history_stale?'History may be stale':'Recent intraday history; calendar unavailable');
+  $('#feedState').textContent=label;$('#ticketInstrument').textContent=instrument().toUpperCase()+' · READ ONLY';
+  $('#bid').textContent=q?.bid?fmt(q.bid):'—';$('#ask').textContent=q?.ask?fmt(q.ask):'—';
+  $('#submitOrder').disabled=true;$('#submitOrder').textContent='Futures trading is not enabled';
+  $('#ticketSummary').innerHTML='<dt>Access</dt><dd>Read-only data</dd><dt>Order routing</dt><dd>Disabled</dd>';
+ }
+ $('#quickBuy').disabled=$('#quickSell').disabled=readOnly;
+ $('#sideBuy').disabled=$('#sideSell').disabled=readOnly;
+ $('#alertButton').disabled=readOnly;
+
 }
 
 function setSide(next){side=next;draft=true;commandKey=null;updateTicket();}
 function stage(nextSide,kind='market',price){
+ if(readonlyMarket())return toast('IBKR futures data is read-only. Orders are disabled.',true);
  if(ws.replay.state.active)return toast('Exit chart replay before staging a paper order.',true);
  side=nextSide;$('#orderKind').value=kind;if(price){$('#entryPrice').value=snap(price);$('#triggerPrice').value=snap(price);}
  else if(kind!=='market'){$('#entryPrice').value=snap(entryReference()||quote()?.last);$('#triggerPrice').value=snap(quote()?.last);}
@@ -97,7 +127,7 @@ $('#quickBuy').onclick=()=>stageTrade('buy');$('#quickSell').onclick=()=>stageTr
 $('#orderForm').oninput=()=>{draft=true;commandKey=null;updateTicket();};
 $('#orderKind').onchange=()=>{if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
 $('#orderForm').onsubmit=async e=>{
- e.preventDefault();if(busy)return;
+ e.preventDefault();if(readonlyMarket())return toast('IBKR futures data is read-only.',true);if(busy)return;
  if(ws.replay.state.active)return toast('Paper orders are disabled during chart replay.',true);
  const p=payload();if(!Number.isFinite(Number(p.qty))||Number(p.qty)<=0){$('#orderError').textContent='Set a valid quantity and stop for risk sizing.';return;}
  busy=true;commandKey ||= crypto.randomUUID();$('#orderError').textContent='';updateTicket();
@@ -161,11 +191,11 @@ $('#manageAccount').onclick=()=>{
 };
 
 function drawWatch(){
- $('#watchlist').innerHTML=instruments.map(i=>{const q=state?.quotes[i];return `<button class="watch-row ${i===instrument()?'active':''}" data-instrument="${esc(i)}"><span><span class="ticker">${esc(i.split(':')[1].replace('-USD',''))}</span><br><small>${i.startsWith('coinbase')?'COINBASE · SPOT':'HYPERLIQUID · PERP'}</small></span><span class="watch-value">${q?number(q.last):'—'}</span><span class="muted small">${q&&q.age<15?'●':'○'}</span></button>`;}).join('');
- $('#watchlist').querySelectorAll('button').forEach(b=>b.onclick=async()=>{draft=false;commandKey=null;try{await ws.chart.setMarket({symbol:b.dataset.instrument});updateTicket();drawWatch();}catch(e){toast(e.message,true);}});
+ $('#watchlist').innerHTML=[...instruments,...(ibkrStatus?.instrument?[ibkrStatus.instrument]:[])].map(i=>{const q=isIBKR(i)?ibkrStatus.quote:state?.quotes[i];return `<button class="watch-row ${i===instrument()?'active':''}" data-instrument="${esc(i)}"><span><span class="ticker">${esc(i.split(':')[1].replace('-USD',''))}</span><br><small>${isIBKR(i)?(ibkrStatus.mode==='DEMO_DATA'?'DEMO DATA · IBKR':'IBKR · READ ONLY'):i.startsWith('coinbase')?'COINBASE · SPOT':'HYPERLIQUID · PERP'}</small></span><span class="watch-value">${q?.last?number(q.last):'—'}</span><span class="muted small">${q&&!q.stale&&q.age<15?'●':'○'}</span></button>`;}).join('');
+ $('#watchlist').querySelectorAll('button').forEach(b=>b.onclick=async()=>{draft=false;commandKey=null;try{await ws.chart.setMarket({symbol:b.dataset.instrument,...(isIBKR(b.dataset.instrument)?{timeframe:'1'}:{})});updateTicket();drawWatch();}catch(e){toast(e.message,true);}});
 }
 const dom=setupDOM({instrument,quote,stage:stageTrade,account,replay:()=>!!ws?.replay?.state?.active});
-const domTrader=setupDOMTrader({state:()=>state,instrument,quote,accountId:()=>activeAccount,replay:()=>!!ws?.replay?.state?.active,stage:stageTrade,book:()=>dom.book(),editOrder,closePosition,editBracket,showDialog,command,toast,config:tradeConfig});
+const domTrader=setupDOMTrader({state:()=>state,instrument,quote,accountId:()=>activeAccount,replay:()=>readonlyMarket()||!!ws?.replay?.state?.active,stage:stageTrade,book:()=>dom.book(),editOrder,closePosition,editBracket,showDialog,command,toast,config:tradeConfig});
 function drawDOM(){dom.sync();domTrader.paint();}
 document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{
  rail=b.dataset.rail;$('#watchPanel').hidden=rail!=='watch';$('#domPanel').hidden=rail!=='dom';
@@ -227,7 +257,7 @@ $('#alertButton').onclick=()=>showDialog('Create price alert',`<p>${esc(instrume
 async function renderStrategy(){
  $('#managerContent').innerHTML=`<form id="strategyForm" class="strategy-form"><label>Fast SMA<input name="fast" type="number" min="2" max="299" value="9"></label><label>Slow SMA<input name="slow" type="number" min="3" max="300" value="21"></label><label>Fee · bps / side<input name="fee" type="number" min="0" step="any" value="5"></label><button class="primary">Run study</button><span class="muted small">Long-only SMA · 1 unit · next-open fills · completed bars · no funding/slippage · historical simulation</span></form><div id="strategyOutput" class="empty">Run a reproducible study on the selected market. This MVP tester does not execute Pine scripts.</div>`;
  $('#strategyForm').onsubmit=async e=>{
-  e.preventDefault();try{const fd=new FormData(e.target);const tf=canonicalTimeframe(ws.chart.market.timeframe);const data=await api('/api/bars?'+new URLSearchParams({instrument:instrument(),timeframe:tf,limit:'600'}));const secs=timeframeMs(tf);const bars=data.bars.filter(b=>b.time+secs<=data.as_of).map(b=>({...b,time:Math.floor(b.time/1000)}));if(bars.some((b,i)=>i&&b.time-bars[i-1].time!==secs/1000))throw Error('Provider history contains missing bars. Select another interval or retry; this study requires continuous completed bars.');const result=runSmaBacktest(bars,{fast:Number(fd.get('fast')),slow:Number(fd.get('slow')),feeBps:Number(fd.get('fee'))});$('#strategyOutput').className='';$('#strategyOutput').innerHTML=`<div class="strategy-results"><span><small>Completed bars</small><strong>${result.bars}</strong></span><span><small>Trades</small><strong>${result.trades.length}</strong></span><span><small>Net P&amp;L · 1 unit</small><strong>${usd(result.equity)}</strong></span><span><small>Realized drawdown</small><strong>${usd(result.maxDrawdown)}</strong></span><span><small>Study source</small><strong style="font-size:12px">${esc(data.instrument.toUpperCase())} · ${esc(tf)}</strong></span></div><p class="muted small" style="padding:0 16px">Completed cutoff ${esc(new Date(bars.at(-1).time*1000+secs).toISOString())} · ${esc(data.coverage)} · Open study position ${result.openPosition?'excluded from realized P&amp;L':'none'}</p>`+table(['Entry UTC','Exit UTC','Entry','Exit','Gross','Fee','Net'],result.trades.map(t=>`<tr><td>${new Date(t.entryTime*1000).toISOString()}</td><td>${new Date(t.exitTime*1000).toISOString()}</td><td>${fmt(t.entry)}</td><td>${fmt(t.exit)}</td><td>${usd(t.gross)}</td><td>${usd(t.fee)}</td><td>${usd(t.pnl)}</td></tr>`));}catch(err){$('#strategyOutput').textContent=err.message;}
+  e.preventDefault();try{if(readonlyMarket())throw Error('The crypto strategy tester is unavailable for read-only futures. Futures P&L and data-use rights need separate validation.');const fd=new FormData(e.target);const tf=canonicalTimeframe(ws.chart.market.timeframe);const data=await api('/api/bars?'+new URLSearchParams({instrument:instrument(),timeframe:tf,limit:'600'}));const secs=timeframeMs(tf);const bars=data.bars.filter(b=>b.time+secs<=data.as_of).map(b=>({...b,time:Math.floor(b.time/1000)}));if(bars.some((b,i)=>i&&b.time-bars[i-1].time!==secs/1000))throw Error('Provider history contains missing bars. Select another interval or retry; this study requires continuous completed bars.');const result=runSmaBacktest(bars,{fast:Number(fd.get('fast')),slow:Number(fd.get('slow')),feeBps:Number(fd.get('fee'))});$('#strategyOutput').className='';$('#strategyOutput').innerHTML=`<div class="strategy-results"><span><small>Completed bars</small><strong>${result.bars}</strong></span><span><small>Trades</small><strong>${result.trades.length}</strong></span><span><small>Net P&amp;L · 1 unit</small><strong>${usd(result.equity)}</strong></span><span><small>Realized drawdown</small><strong>${usd(result.maxDrawdown)}</strong></span><span><small>Study source</small><strong style="font-size:12px">${esc(data.instrument.toUpperCase())} · ${esc(tf)}</strong></span></div><p class="muted small" style="padding:0 16px">Completed cutoff ${esc(new Date(bars.at(-1).time*1000+secs).toISOString())} · ${esc(data.coverage)} · Open study position ${result.openPosition?'excluded from realized P&amp;L':'none'}</p>`+table(['Entry UTC','Exit UTC','Entry','Exit','Gross','Fee','Net'],result.trades.map(t=>`<tr><td>${new Date(t.entryTime*1000).toISOString()}</td><td>${new Date(t.exitTime*1000).toISOString()}</td><td>${fmt(t.entry)}</td><td>${fmt(t.exit)}</td><td>${usd(t.gross)}</td><td>${usd(t.fee)}</td><td>${usd(t.pnl)}</td></tr>`));}catch(err){$('#strategyOutput').textContent=err.message;}
  };
 }
 function canonicalTimeframe(tf){const map={'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120':'2h','240':'4h','D':'1d','1D':'1d'};return map[String(tf)]||String(tf).toLowerCase();}
@@ -251,7 +281,7 @@ $('#exportAccount').onclick=async()=>{try{const data=await api('/api/export?acco
 async function refresh(){
  if(polling)return;polling=true;
  try{
-  state=await api('/api/state?account_id='+encodeURIComponent(activeAccount||''));activeAccount=state.active_account;const options=state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===activeAccount?'selected':''}>${esc(a.name)} · PAPER</option>`).join('');if($('#accountSelect').innerHTML!==options)$('#accountSelect').innerHTML=options;
+  await refreshIBKR();state=await api('/api/state?account_id='+encodeURIComponent(activeAccount||''));activeAccount=state.active_account;const options=state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===activeAccount?'selected':''}>${esc(a.name)} · PAPER</option>`).join('');if($('#accountSelect').innerHTML!==options)$('#accountSelect').innerHTML=options;
   const a=account();for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']])$('#'+id).textContent=usd(a?.[key]);$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
   $('#positionCount').textContent=state.positions.length;$('#orderCount').textContent=state.orders.filter(o=>['working','triggered'].includes(o.status)).length;
   $('#journalBadge').textContent=state.journal.pending?state.journal.pending+' queued':'synced';$('#journalStatus').textContent='Lux Journal '+(state.journal_available?'connected':'unavailable')+' · '+state.journal.pending+' queued / '+state.journal.delivered+' delivered';
@@ -282,7 +312,7 @@ function amendDraft(field,value){
 function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';commandKey=null;updateTicket();}
 function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
 const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
-function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
+function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
 $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. Chart context-menu limits open a placement review. Drafts do not execute until submitted. One-click placement affects other paper-entry shortcuts; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
@@ -290,9 +320,9 @@ $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading set
 setupPineEditor({saveSettings});
 
 async function boot(){
- try{settings=await api('/api/settings');templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
+ try{settings=await api('/api/settings');await refreshIBKR();templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
-  ws=new VelaWorkspace('#workspace',{layout:'1',symbol:'hyperliquid:BTC',timeframe:'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider()},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
+  ws=new VelaWorkspace('#workspace',{layout:'1',symbol:ibkrStatus?.configured_mode==='demo'?ibkrStatus.instrument:'hyperliquid:BTC',timeframe:ibkrStatus?.configured_mode==='demo'?'1':'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider(),ibkr:()=>ibkrProvider},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
   await refresh();setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});

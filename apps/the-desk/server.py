@@ -17,6 +17,7 @@ from urllib.error import HTTPError
 from engine import Engine, dec
 from market_stream import HyperliquidStream
 from funding_routes import FundingRoutes
+from ibkr_data import IBKRData, FeedUnavailable
 
 ROOT=Path(__file__).resolve().parent
 
@@ -139,9 +140,10 @@ class Workers:
             self.dispatch();self.stop.wait(2)
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=str(ROOT/'data'));parser.add_argument('--no-workers',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=str(ROOT/'data'));parser.add_argument('--no-workers',action='store_true');parser.add_argument('--ibkr-mode',choices=('off','demo','gateway'),default='off');args=parser.parse_args()
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
     engine=Engine(data/'desk.sqlite3');gateway=Gateway();funding=FundingRoutes(args.port,data)
+    ibkr=IBKRData(args.ibkr_mode);ibkr.start()
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
     if not args.no_workers:workers.start()
@@ -167,7 +169,12 @@ def main():
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
                 if funding.get(self,parsed.path,q):return
-                if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'market_stream':workers.stream.status,'journal_available':workers.journal_health})
+                if parsed.path=='/api/ibkr/status':return self.json(ibkr.status())
+                if parsed.path=='/api/ibkr/bars':
+                    start=float(value('from')) if value('from') else None
+                    end=float(value('to')) if value('to') else None
+                    return self.json(ibkr.bars(value('instrument'),value('timeframe','1m'),int(value('limit','600')),start,end))
+                if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'market_stream':workers.stream.status,'journal_available':workers.journal_health,'ibkr':ibkr.status()})
                 if parsed.path=='/api/state':return self.json({**engine.state(value('account_id')), 'market_stream':workers.stream.status,'feed_errors':gateway.errors,'journal_url':workers.journal_url,'journal_available':workers.journal_health})
                 if parsed.path=='/api/bars':return self.json(gateway.bars(engine.instrument(value('instrument','hyperliquid:BTC')),value('timeframe','1h'),min(1000,max(50,int(value('limit','600'))))))
                 if parsed.path=='/api/settings':
@@ -175,6 +182,7 @@ def main():
                 if parsed.path=='/api/export':return self.json(engine.export(value('account_id')))
                 if parsed.path.startswith('/api/'):return self.json({'error':'Not found'},404)
                 return super().do_GET()
+            except FeedUnavailable as e:return self.json({'error':str(e),'ibkr':ibkr.status()},503)
             except ValueError as e:return self.json({'error':str(e)},400)
             except Exception:return self.json({'error':'Market data temporarily unavailable. Please retry.'},503)
         def do_POST(self):
@@ -184,6 +192,9 @@ def main():
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
                 if funding.post(self,path,p):return
+                if path=='/api/ibkr/demo':
+                    if not isinstance(p,dict) or set(p)!={'paused'}:raise ValueError('Expected a demo paused flag.')
+                    return self.json(ibkr.pause_demo(p['paused']))
                 if path=='/api/command':return self.json(engine.execute(self.headers.get('Idempotency-Key'),p['action'],p['payload']))
                 if path=='/api/settings':
                     if not isinstance(p,dict) or set(p)-{'workspace','appearance','watchlist','presets','pineLibrary','trading'}:raise ValueError('Unsupported settings')
@@ -208,6 +219,6 @@ def main():
     httpd=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('The Desk: http://127.0.0.1:'+str(args.port),flush=True)
     try:httpd.serve_forever()
-    finally:workers.stop.set();httpd.server_close()
+    finally:ibkr.close();workers.stop.set();httpd.server_close()
 
 if __name__=='__main__':main()

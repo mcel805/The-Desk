@@ -39,3 +39,7 @@ test('paper execution history requires a new explicit opt-in and survives settin
  assert.deepEqual(paperExecutionMarkers(s,'hyperliquid:BTC',restored,true),[]);
  assert.equal(s.fills.length,3);
 });
+
+test('dated IBKR futures retain their provider identity instead of becoming Hyperliquid symbols',()=>{
+ for(const chart of [{market:{symbol:'ibkr:MYM-202612'}},{market:{symbol:'MYM-202612',provider:'ibkr'},data:{resolve:()=>({provider:{name:'IBKR'},ticker:'MYM-202612'})}}])assert.equal(marketIdentity(chart),'ibkr:MYM-202612');
+});
