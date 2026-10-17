@@ -1,4 +1,4 @@
-import {WalletController,discoverWallets,shortAddress,BASE,USDC} from './wallet-model.mjs';
+import {WalletController,discoverWallets,restoreWalletSession,shortAddress,BASE,USDC} from './wallet-model.mjs';
 import {exchangeFor,limitOrder,orderResult} from './vendor/hyperliquid-wallet.js';
 import {HardwareProvider} from './hardware-wallet.mjs';
 import {WalletPairing} from './wallet-pairing.mjs';
@@ -206,30 +206,21 @@ await run(async()=>{
   // provider that originally signed it. Cookies are shared across tabs; the
   // selected provider marker intentionally is not.
   const savedProvider=sessionStorage.getItem('desk-wallet-provider');
-  const restored=await controller.restore({emit:false});
-  if(restored?.authenticated){
-    if(savedProvider==='ledger-usb')controller.bind(hardware);
-    else if(savedProvider==='walletconnect'){
-      if(config.walletConnectProjectId){
-        try{
-          pairing=new WalletPairing({load:transports,projectId:config.walletConnectProjectId,origin:location.origin});
-          const provider=await pairing.restore();
-          if(provider)controller.bind(provider);
-        }catch{ /* Missing setup or expired pairing requires a fresh login. */ }
-      }
-    }else{
-      const selected=wallets.find(wallet=>wallet.id===savedProvider);
-      if(selected)controller.bind(selected.provider);
+  const restoredProvider=await restoreWalletSession(controller,async()=>{
+    if(savedProvider==='ledger-usb')return hardware;
+    if(savedProvider==='walletconnect'&&config.walletConnectProjectId){
+      pairing=new WalletPairing({load:transports,projectId:config.walletConnectProjectId,origin:location.origin});
+      return await pairing.restore();
     }
-    if(!controller.provider){
-      sessionStorage.removeItem('desk-wallet-provider');
-      await controller.invalidate('Wallet connection needs a fresh sign-in.');
-      if(savedProvider==='walletconnect'&&!config.walletConnectProjectId)$('#mobileAvailability').textContent='Mobile pairing · setup needed';
-    }else{
-      controller.emit();
-      status(controller.provider.kind==='ledger-usb'?'Base session restored. Reconnect and unlock Ledger before reading its balances.':'Wallet session restored. Select your extension if it is locked.');
-      await loadHLRequests();
-      if(location.search.includes('connection=robinhood'))await refreshRH();
-    }
+    if(savedProvider&&savedProvider!=='walletconnect')return wallets.find(wallet=>wallet.id===savedProvider)?.provider||null;
+    return null;
+  });
+  if(!restoredProvider){
+    sessionStorage.removeItem('desk-wallet-provider');
+    if(savedProvider==='walletconnect'&&!config.walletConnectProjectId)$('#mobileAvailability').textContent='Mobile pairing · setup needed';
+  }else{
+    status(restoredProvider.kind==='ledger-usb'?'Base session restored. Reconnect and unlock Ledger before reading its balances.':'Wallet session restored. Select your extension if it is locked.');
+    await loadHLRequests();
+    if(location.search.includes('connection=robinhood'))await refreshRH();
   }
 });

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {WalletController,formatUnits,BASE,USDC,discoverWallets} from '../web/wallet-model.mjs';
+import {WalletController,restoreWalletSession,formatUnits,BASE,USDC,discoverWallets} from '../web/wallet-model.mjs';
 const address='0x1111111111111111111111111111111111111111',to='0x2222222222222222222222222222222222222222';
-function fixture({chain=BASE.chainId,decline=false}={}) {
- let session={authenticated:false};const calls=[],handlers={};
+function fixture({chain=BASE.chainId,decline=false,authenticated=false}={}) {
+ let session={authenticated,...(authenticated?{address,chainId:8453}:{})};const calls=[],handlers={};
  const provider={chain,accounts:[address],on:(e,f)=>handlers[e]=f,removeListener:e=>delete handlers[e],async request(p){calls.push(p);if(decline && p.method==='personal_sign')throw Object.assign(new Error('Rejected'),{code:4001});switch(p.method){case 'eth_requestAccounts':case 'eth_accounts':return this.accounts;case 'eth_chainId':return this.chain;case 'wallet_switchEthereumChain':this.chain=BASE.chainId;handlers.chainChanged?.(this.chain);return null;case 'personal_sign':return 'signature';case 'eth_blockNumber':return '0x10';case 'eth_getBalance':return '0xde0b6b3a7640000';case 'eth_call':return '0x12d687';default:throw new Error('Unexpected wallet method '+p.method);}}};
  const api=async(path,p)=>{calls.push({path,p});if(path.endsWith('challenge'))return {nonce:'nonce',message:'one time sign-in'};if(path.endsWith('verify'))return session={authenticated:true,address,chainId:8453};if(path.endsWith('logout'))return session={authenticated:false};if(path.endsWith('session'))return session;throw new Error(path);};
  const controller=new WalletController(api);return {controller,provider,calls,handlers};
@@ -23,6 +23,20 @@ test('deferred session restoration does not expose cookie identity before provid
  const {controller}=fixture();let updates=0;controller.onChange=()=>updates++;
  const restored=await controller.restore({emit:false});
  assert.equal(restored.authenticated,false);assert.equal(controller.session.authenticated,false);assert.equal(controller.provider,null);assert.equal(updates,0);
+});
+test('new tab revokes a cookie-only login and never renders it as connected',async()=>{
+ const {controller,calls}=fixture({authenticated:true});const rendered=[];
+ controller.onChange=current=>rendered.push({authenticated:current.session?.authenticated===true,provider:current.provider});
+ const restored=await restoreWalletSession(controller,async()=>null);
+ assert.equal(restored,null);assert.equal(controller.session,null);assert.equal((await controller.api('/api/wallet/session')).authenticated,false);
+ assert.equal(calls.filter(call=>call.path?.endsWith('logout')).length,1);
+ assert(rendered.length>0);assert(rendered.every(state=>!state.authenticated));
+});
+test('restored wallet session renders only after its signer is rebound',async()=>{
+ const {controller,provider}=fixture({authenticated:true});const rendered=[];
+ controller.onChange=current=>rendered.push({authenticated:current.session?.authenticated===true,provider:current.provider});
+ assert.equal(await restoreWalletSession(controller,async()=>provider),provider);
+ assert.deepEqual(rendered,[{authenticated:true,provider}]);
 });
 test('account changes revoke auth and prevent stale identity reads',async()=>{
  const {controller,provider,handlers}=fixture();await controller.login(provider);provider.accounts=[to];handlers.accountsChanged([to]);await controller.revoking;

@@ -98,3 +98,16 @@ export class WalletController {
     return {eth:formatUnits(eth,18),usdc:formatUnits(usdc,6),block,observedAt:Date.now()};
   }
 }
+
+// Cookie authentication is shared across tabs; wallet providers are not.
+// Render a restored login only after its original signer is rebound here.
+export async function restoreWalletSession(controller, resolveProvider) {
+  const session=await controller.restore({emit:false});
+  if(!session?.authenticated){controller.emit();return null;}
+  let provider=null;
+  try{provider=await resolveProvider(session);}catch{}
+  if(!provider){await controller.invalidate('Wallet connection needs a fresh sign-in.');return null;}
+  controller.bind(provider);
+  controller.emit();
+  return provider;
+}
