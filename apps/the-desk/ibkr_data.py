@@ -257,7 +257,9 @@ class IBKRData:
                     'message': self.message, 'connected': self.connected, 'generation': self.generation,
                     'read_only': True, 'orders_enabled': False, 'depth_available': False,
                     'instrument': self.instrument, 'contract': dict(self.contract) if self.contract else None,
-                    'quote': quote, 'timeframes': list(INTERVALS), 'as_of': int(now * 1000),
+                    'quote': quote, 'history_stale': bool(self.history) and (not self.connected or
+                        any(now - seen > 30 for seen in self.history_seen.values())),
+                    'timeframes': list(INTERVALS), 'as_of': int(now * 1000),
                     'coverage': 'Recent bounded intraday history, up to 600 bars per interval. No full archive or holiday calendar.'}
 
     def bars(self, instrument, timeframe, limit=600, start=None, end=None, wait=8):

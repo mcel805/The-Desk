@@ -3,11 +3,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 const url=process.env.DESK_IBKR_BROWSER_URL;
-const cli=(args,input)=>execFileSync('chrome-devtools-axi',args,{input,encoding:'utf8',timeout:45000,maxBuffer:2_000_000,env:{...process.env,CHROME_DEVTOOLS_AXI_SESSION:process.env.CHROME_DEVTOOLS_AXI_SESSION||'desk-ibkr-qa'}});
+const cli=(args,input)=>{try{return execFileSync('chrome-devtools-axi',args,{input,encoding:'utf8',timeout:45000,maxBuffer:2_000_000,env:{...process.env,CHROME_DEVTOOLS_AXI_SESSION:process.env.CHROME_DEVTOOLS_AXI_SESSION||'desk-ibkr-qa'}});}catch(e){throw Error(String(e.stdout||e.stderr||e.message));}};
 function evaluate(fn){return JSON.parse(cli(['run'],'console.log(JSON.stringify(await page.eval('+fn.toString()+')));').trim());}
 function click(role,name){
- const lines=cli(['snapshot']).split('\n'),line=lines.find(s=>s.includes(' '+role+' "'+name+'"'));
- assert.ok(line,'Visible '+role+': '+name);const ref=line.match(/uid=([^ ]+)/)?.[1];assert.ok(ref);cli(['click','@'+ref]);
+ // AXI generation tags invalidate on every chart tick. Take a fresh raw AXI
+ // snapshot and click its observed ref inside the same browser script.
+ const label=JSON.stringify(' '+role+' "'+name);
+ cli(['run'],`const line=(await page.snapshot()).split('\\n').find(s=>s.includes(${label}));if(!line)throw Error('Visible control missing');const ref=line.match(/uid=([^ ]+)/)?.[1];if(!ref)throw Error('No browser ref');await page.click('@'+ref);`);
 }
 async function until(fn,label){for(let i=0;i<12;i++){if(evaluate(fn))return;await new Promise(r=>setTimeout(r,150));}assert.fail('Timed out: '+label);}
 test('synthetic MYM renders, switches timeframe, recovers and keeps all trading disabled',{skip:!url,timeout:360000},async()=>{
@@ -15,6 +17,7 @@ test('synthetic MYM renders, switches timeframe, recovers and keeps all trading 
  const health=await fetch(new URL('/api/health',url)).then(r=>r.json());assert.equal(health.ibkr.configured_mode,'demo','Refusing a non-demo server');
  cli(['open',url]);
  await until(()=>document.querySelector('#ibkrBanner')?.textContent.includes('DEMO DATA'),'demo banner');
+ if(evaluate(()=>document.querySelector('button[aria-label^="Timeframe"]')?.textContent.trim())!=='1m'){click('button','IBKR data');click('button','Open MYM demo chart');}
  const initial=evaluate(async()=>{
   window.ibkrBrowserErrors=[];window.addEventListener('unhandledrejection',e=>window.ibkrBrowserErrors.push(String(e.reason)));window.addEventListener('error',e=>window.ibkrBrowserErrors.push(e.message));
   const before=await fetch('/api/state').then(r=>r.json());window.ibkrBefore={orders:before.orders.length,fills:before.fills.length};

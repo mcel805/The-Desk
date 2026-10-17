@@ -114,6 +114,12 @@ class DataTests(unittest.TestCase):
         feed.set_data_type(2);self.assertEqual(feed.status()['mode'],'FROZEN')
         feed.disconnect();self.assertIsNone(feed.status()['quote']);self.assertEqual(feed.status()['mode'],'UNKNOWN')
 
+    def test_status_refresh_preserves_stale_history_even_with_fresh_quotes(self):
+        now=[NOW];feed=IBKRData('gateway',env=ENV,clock=lambda:now[0]);feed.accept_contract(CONTRACT)
+        feed.receive_bar('1m',bar());feed.history_end('1m')
+        now[0]+=31;feed.receive_quote('bid',40000);feed.receive_quote('ask',40001)
+        self.assertFalse(feed.status()['quote']['stale']);self.assertTrue(feed.status()['history_stale'])
+
     def test_history_wait_deduplicates_requests_and_reconnect_clears_cache(self):
         feed=IBKRData('gateway',env=ENV,clock=lambda:NOW);feed.accept_contract(CONTRACT)
         class Transport:
