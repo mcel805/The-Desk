@@ -1,6 +1,6 @@
 # The Desk feature verification
 
-Validation date: October 10, 2026, America/Los_Angeles (October 11 UTC). Scope: the implemented paper MVP and reused Vela/Lux Journal surfaces. Full TradingView parity is still the separate 231-requirement product backlog.
+Validation date: October 10, 2026, America/Los_Angeles (October 11 UTC). Scope: the implemented paper MVP and reused Vela/Lux Journal surfaces. The optional read-only IBKR futures provider has a separate account-free scope and verification record in [IBKR-DATA.md](IBKR-DATA.md); it is not part of paper-order or journal acceptance. Full TradingView parity is still the separate 231-requirement product backlog.
 
 ## Result
 
