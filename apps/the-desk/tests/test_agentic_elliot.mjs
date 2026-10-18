@@ -6,9 +6,11 @@ import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from '../web/pine-compat/nested-security.mjs';
 import {pineWorkerOptions} from '../web/pine-runtime.mjs';
 import {pineState,restorePineState} from '../web/pine-state.mjs';
+import {sourceHash} from '../web/pine-validation.mjs';
 installNestedSecurity();
 const original=await fs.readFile(new URL('../web/pine-examples/agentic-elliot-waves-original.pine',import.meta.url),'utf8');
 const source=await fs.readFile(new URL('../web/pine-examples/agentic-elliot-waves.pine',import.meta.url),'utf8');
+const manifest=JSON.parse(await fs.readFile(new URL('../source-manifest.json',import.meta.url),'utf8'));
 const end=Date.UTC(2026,9,17),duration=tf=>({D:1440,'1D':1440,'1W':10080,'240':240,'60':60,'30':30,'15':15,'5':5,'1':1}[tf])*60000;
 function fixture(tf,n=600){return Array.from({length:n},(_,i)=>{const time=end-(n-i)*duration(tf),p=51000+800*Math.sin(i/20)+250*Math.sin(i/4);return {time,open:p,high:p+30,low:p-30,close:p+10,volume:100};});}
 const market=tf=>({symbol:'fixture:MYM',timeframe:tf,symbolInfo:{ticker:'MYM',tickerid:'fixture:MYM',timezone:'America/Chicago',mintick:1,minmov:1,pricescale:1,type:'futures',currency:'USD'}});
@@ -24,6 +26,11 @@ test('archived attachment bytes are preserved; named port uses the compatible wo
  const renamed=original.replace('"Wave Court · Nested Waves 4.1", "WC Waves 4.1"','"Agentic - Elliot Waves", "Agentic - Elliot Waves"');
  assert.equal(source.slice(0,renamed.length),renamed,'original calculation and drawing body is a byte contract');
  assert.match(pineWorkerOptions(source).workerUrl,/pine-compatible-worker\.js$/);
+});
+test('source manifest consumes the final named source fingerprint',async()=>{
+ assert.equal(manifest.agentic_elliot_waves.source,'web/pine-examples/agentic-elliot-waves.pine');
+ assert.equal(manifest.agentic_elliot_waves.source_sha256,await sourceHash(source));
+ assert.equal(manifest.agentic_elliot_waves.original_sha256,await sourceHash(original));
 });
 test('generic UDT arrays preserve na instead of introducing false zero counts',async()=>{
  const result=await run('//@version=6\nindicator("NA array")\ntype C\n    int n=2\narray<C> a=array.new<C>(3,na)\narray.set(a,1,C.new(4))\nint found=0\nfor c in a\n    if not na(c)\n        found+=c.n\nplot(found,"Count")');
@@ -62,6 +69,14 @@ test('summary table survives disabling and re-enabling its input',async()=>{
  assert.equal(states.at(-1).tables.length,1);
  done=waitDone();session.update({agenticSummary:false});await done;assert.equal(states.at(-1).tables.length,0);
  done=waitDone();session.update({agenticSummary:true});await done;assert.equal(states.at(-1).tables.length,1);session.stop();
+});
+test('summary position follows settings updates through PineEngine',async()=>{
+ const engine=new PineEngine(),prepared=await engine.prepare(source,'position-summary'),bars=fixture('60'),states=[];let session,resolveDone,rejectDone;
+ const waitDone=()=>new Promise((resolve,reject)=>{resolveDone=resolve;rejectDone=reject;});
+ const request={prepared,bars,market:market('60'),inputs:{agenticPosition:'Bottom right'},visibleRange:{left:bars.at(-200).time,right:end},historyState:'complete',mode:'static',fetchSeries:async(_,frame)=>fixture(frame)};
+ let done=waitDone();session=engine.execute(request,{onModel:model=>states.push(model),onDone:()=>resolveDone?.(),onError:error=>rejectDone?.(error)});await done;
+ assert.equal(states.at(-1).tables[0].position,'bottom_right');
+ done=waitDone();session.update({agenticPosition:'Top left'});await done;assert.equal(states.at(-1).tables[0].position,'top_left');session.stop();
 });
 test('manual ladder validation rejects inverted degrees',async()=>{await assert.rejects(run(source,{inputs:{ladder:'Manual timeframes',parentInput:'1',coreInput:'60',childInput:'240',agenticSummary:false}}),/parent.*chart count.*child/);});
 

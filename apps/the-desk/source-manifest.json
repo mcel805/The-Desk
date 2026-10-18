@@ -21,7 +21,7 @@
   },
   "agentic_elliot_waves": {
     "original_sha256": "0772f65205220e8fbc758894c241750301e5487ad45c7cf14c4588cfb154f65f",
-    "source_sha256": "6ef03b51fa90e53a1655049604dad74923718e886bb9beae9d9b3979674f82af",
+    "source_sha256": "3ee083623e67b1ad1dbafcff10cc6b070344d00f1cffb390cff3ca5234f98f40",
     "source": "web/pine-examples/agentic-elliot-waves.pine",
     "parity": "Original Pine body preserved except indicator title; optional companion panel appended. Same-engine parity tested. TradingView matching-data parity pending."
   }
