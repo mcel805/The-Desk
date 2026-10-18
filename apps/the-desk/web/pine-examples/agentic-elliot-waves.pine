@@ -1,0 +1,824 @@
+//@version=6
+// Wave Court Waves 4.1. Classical price-rule candidates, not certified forecasts.
+// Historical labels are the CURRENT interpretation of retained confirmed swings.
+indicator("Agentic - Elliot Waves", "Agentic - Elliot Waves", overlay=true, dynamic_requests=true, max_lines_count=500, max_labels_count=500, max_bars_back=200)
+string G1="01 · Three-tier source ladder"
+string G2="02 · Structural rules"
+string G3="03 · History and visuals"
+string G4="04 · Research / compatibility"
+string ladder=input.string("Auto chart ladder","Source selection",options=["Auto chart ladder","Manual timeframes"],group=G1)
+string parentInput=input.timeframe("240","Parent source",group=G1)
+string coreInput=input.timeframe("60","Chart count source",group=G1)
+string childInput=input.timeframe("30","Child source",group=G1)
+int parentStrength=input.int(5,"Parent pivot bars each side",minval=2,maxval=30,group=G1)
+int coreStrength=input.int(4,"Chart count pivot bars each side",minval=2,maxval=20,group=G1)
+int childStrength=input.int(2,"Child pivot bars each side",minval=1,maxval=15,group=G1)
+int sourceBars=input.int(3000,"Bars calculated per source",minval=500,maxval=20000,group=G1)
+int pivotKeep=input.int(180,"Swings retained per tier",minval=40,maxval=320,group=G1,tooltip="Calculation retention, independent of visible pattern budget. More history costs loading time. Only available source history can be counted.")
+bool showParent=input.bool(true,"Parent ((I)) / ((A))",group=G1)
+bool showCore=input.bool(true,"Middle (i) / (a)",group=G1)
+bool showChild=input.bool(true,"Child i / a",group=G1)
+bool allowTruncation=input.bool(false,"Allow truncated fifth candidates",group=G2)
+bool allowRunning=input.bool(false,"Allow rare running flat candidates",group=G2)
+bool allowDiagonal=input.bool(true,"Screen diagonal geometry",group=G2)
+bool allowTriangle=input.bool(true,"Screen triangle geometry",group=G2)
+bool allowExtension=input.bool(true,"Parse a five-leg extension inside impulse",group=G2)
+bool allowCombination=input.bool(true,"Parse corrective W-X-Y components",group=G2)
+float flatMin=input.float(0.90,"Near-full B/A flat threshold",minval=0.8,maxval=1,step=0.01,group=G2)
+int equalTicks=input.int(2,"Barrier equality tolerance · ticks",minval=0,maxval=20,group=G2)
+bool showHistory=input.bool(true,"Historical full counts",group=G3)
+int patternsShown=input.int(48,"Historical patterns per tier",minval=2,maxval=48,group=G3)
+bool visibleOnly=input.bool(true,"Render within visible chart window",group=G3)
+bool showPaths=input.bool(true,"Faint swing paths, including unresolved swings",group=G3)
+bool showUnknown=input.bool(false,"Dots on unresolved swing endpoints",group=G3)
+bool showRecognition=input.bool(false,"Recognition-time dots on count endpoints",group=G3,tooltip="Small dots at the source confirmation timestamp, distinct from the back-anchored count label. Historical interpretation can still revise.")
+bool showFrame=input.bool(false,"Source timeframe on first label of each pattern",group=G3)
+bool markProvisional=input.bool(true,"Question mark on latest unverified count",group=G3)
+bool showAlternate=input.bool(false,"Latest chart alternate 1-2-3 interpretation",group=G3,tooltip="A price-valid ABC may also be a developing 1-2-3. The alternate stays provisional and has separate non-overlap invalidation.")
+bool showProjection=input.bool(true,"Two conditional paths for latest chart count",group=G3)
+int projectionBars=input.int(12,"Projection horizon · chart bars",minval=3,maxval=60,group=G3)
+int fontPx=input.int(16,"Chart count text size · pixels",minval=9,maxval=20,group=G3)
+color cyan=input.color(color.rgb(25,208,233),"Reserved cyan reference",group=G3,display=display.none)
+color parentInk=input.color(color.rgb(225,231,239),"Parent · light neutral",group=G3)
+color coreInk=input.color(color.rgb(83,164,255),"Middle · blue",group=G3)
+color childInk=input.color(color.rgb(255,112,127),"Inner · red",group=G3)
+string detail=input.string("Balanced","Label detail",options=["Balanced","Every pivot"],group=G3,tooltip="Balanced keeps entire count sequences where they fit and compacts narrow historical sequences into faint spans and occasional whole-pattern range labels. Zoom in to expand. Calculation history is unchanged.")
+int widthEstimate=input.int(1200,"Approximate plot width · pixels",minval=400,maxval=3000,step=100,group=G3,tooltip="Pine does not expose plot pixel dimensions. Set this near the visible plot width for label spacing; then verify visually.")
+int heightEstimate=input.int(800,"Approximate plot height · pixels",minval=300,maxval=2000,step=100,group=G3)
+int historyFade=input.int(25,"Historical text transparency",minval=0,maxval=65,group=G3)
+string projectionTier=input.string("Middle","Projection degree",options=["Parent","Middle","Inner"],group=G3)
+int pathFade=input.int(79,"Swing path transparency",minval=40,maxval=95,group=G3)
+string bridgeTF=input.timeframe("60","Confirmed core trend export source",group=G4,tooltip="Compatibility EMA trend export for other studies; not an Elliott count or entry signal.")
+int fastLength=input.int(21,"Trend fast EMA",minval=2,maxval=200,group=G4)
+int slowLength=input.int(55,"Trend slow EMA",minval=3,maxval=300,group=G4)
+float tick=syminfo.mintick
+float chartAtr=ta.atr(14)
+float chartSeconds=timeframe.in_seconds()
+string parentTF=ladder=="Manual timeframes"?parentInput:chartSeconds>=86400?"1W":chartSeconds>=14400?"1D":chartSeconds>=3600?"240":chartSeconds>=1800?"60":chartSeconds>=900?"60":chartSeconds>=300?"30":"5"
+string coreTF=ladder=="Manual timeframes"?coreInput:timeframe.period
+string childTF=ladder=="Manual timeframes"?childInput:chartSeconds>=86400?"240":chartSeconds>=14400?"60":chartSeconds>=3600?"30":chartSeconds>=1800?"5":chartSeconds>=900?"5":"1"
+string sourceId=ticker.standard(syminfo.tickerid)
+
+// Pure structural parser shared by production and the native fixture harness.
+type Swing
+    int t
+    int until
+    float p
+    int side
+    int known
+
+type Count
+    int s = 0
+    int n = 0
+    int family = 0
+    string kind = "Unresolved"
+    int dir = 0
+    float quality = 0.0
+    float invalid = na
+    int extension = 0
+
+f_px(array<Swing> a, int i) =>
+    Swing p = array.get(a,i)
+    p.p
+
+f_tm(array<Swing> a, int i) =>
+    Swing p = array.get(a,i)
+    p.t
+
+f_shape(array<Swing> a, int s, int n) =>
+    bool good = s>=0 and n>=2 and s+n<=array.size(a)
+    if good
+        for k=1 to n-1
+            Swing x=array.get(a,s+k-1)
+            Swing y=array.get(a,s+k)
+            if y.t<=x.t or x.side==y.side or math.abs(y.p-x.p)<tick or (y.p>x.p ? 1 : -1)!=y.side
+                good:=false
+    good
+
+f_near(float ratio, float ideal) =>
+    math.max(0.0,1.0-math.abs(ratio-ideal)/ideal)
+
+f_basic(array<Swing> a, int s, int n) =>
+    Count c=Count.new()
+    if (n==4 or n==6) and f_shape(a,s,n)
+        float p0=f_px(a,s)
+        int dir=f_px(a,s+1)>p0 ? 1 : -1
+        float q0=dir*p0
+        float q1=dir*f_px(a,s+1)
+        float q2=dir*f_px(a,s+2)
+        float q3=dir*f_px(a,s+3)
+        float w1=q1-q0
+        c.s:=s
+        c.n:=n
+        c.dir:=dir
+        c.invalid:=p0
+        if n==4
+            float b=(q1-q2)/w1
+            float clen=q3-q2
+            bool zig=q2>q0 and q2<q1 and q3>q1 and b<flatMin
+            bool regular=b>=flatMin and b<=1.05 and q3>q1 and clen>0
+            bool expanded=b>1.05 and q2<q0 and q3>q1
+            bool running=allowRunning and b>1.05 and q2<q0 and q3>q2 and q3<q1
+            if zig or regular or expanded or running
+                c.family:=2
+                c.kind:=zig ? "Zigzag" : regular ? "Regular flat" : expanded ? "Expanded flat" : "Running flat?"
+                c.quality:=52+8*f_near(clen/w1,1)-(running?15:0)
+        if n==6
+            float q4=dir*f_px(a,s+4)
+            float q5=dir*f_px(a,s+5)
+            float w3=q3-q2
+            float w5=q5-q4
+            bool two=q2>q0 and q2<q1
+            bool progress=q3>q1 and q4<q3 and q5>q4
+            bool third=w3+tick*0.0001>=math.min(w1,w5)
+            bool fifth=q5>q3 or (allowTruncation and q5>q4)
+            bool impulse=two and progress and third and fifth and q4>q1
+            float r2=(q1-q2)/w1
+            float r4=(q3-q4)/math.max(w3,tick)
+            if impulse
+                c.family:=1
+                c.kind:=q5>q3 ? "Impulse" : "Truncated impulse?"
+                c.quality:=75+5*f_near(r2,0.618)+5*f_near(r4,0.382)
+            else
+                float topSlope=(q3-q1)/math.max(1,f_tm(a,s+3)-f_tm(a,s+1))
+                float bottomSlope=(q4-q2)/math.max(1,f_tm(a,s+4)-f_tm(a,s+2))
+                float top5=q3+topSlope*(f_tm(a,s+5)-f_tm(a,s+3))
+                float bottom5=q4+bottomSlope*(f_tm(a,s+5)-f_tm(a,s+4))
+                bool overlap=q4<q1 and q4>q2
+                bool contracting=w3<w1 and w5<w3 and (q3-q4)<(q1-q2) and topSlope<bottomSlope and top5>bottom5
+                bool expanding=w3>w1 and w5>w3 and (q3-q4)>(q1-q2) and topSlope>bottomSlope and top5>bottom5
+                if allowDiagonal and two and progress and third and fifth and overlap and (contracting or expanding)
+                    c.family:=3
+                    c.kind:=contracting ? "Contracting diagonal?" : "Expanding diagonal?"
+                    c.quality:=57+4*f_near(r2,0.618)
+                bool contraction=q2>q0 and q4>q2 and q3<q1 and q5<q3 and q5>q4
+                bool expansion=q2<q0 and q4<q2 and q3>q1 and q5>q3
+                bool barrier=q2>q0 and q4>q2 and math.abs(q3-q1)<=equalTicks*tick and math.abs(q5-q3)<=equalTicks*tick and q5>q4
+                if allowTriangle and c.family==0 and (contraction or expansion or barrier)
+                    c.family:=4
+                    c.kind:=contraction ? "Contracting triangle?" : expansion ? "Expanding triangle?" : "Barrier triangle?"
+                    c.quality:=49
+    c
+
+f_candidate(array<Swing> a, int s, int n) =>
+    Count c=f_basic(a,s,n)
+    if n==10 and f_shape(a,s,n)
+        // One genuinely parsed five-leg extension inside a five-leg motive shell.
+        if allowExtension
+            for extendedLeg=1 to 5 by 2
+                array<Swing> shell=array.new<Swing>()
+                for k=0 to 5
+                    int ix=s+k+(k>=extendedLeg?4:0)
+                    array.push(shell,array.get(a,ix))
+                Count outer=f_basic(shell,0,6)
+                Count inner=f_basic(a,s+extendedLeg-1,6)
+                if outer.family==1 and inner.family==1 and outer.dir==inner.dir
+                    float score=outer.quality+4
+                    if c.family==0 or score>c.quality
+                        c:=Count.new(s,n,1,"Impulse · extended "+str.tostring(extendedLeg),outer.dir,score,outer.invalid,extendedLeg)
+        if allowCombination and c.family==0
+            Count w=f_basic(a,s,4)
+            Count x=f_basic(a,s+3,4)
+            Count y=f_basic(a,s+6,4)
+            if w.family==2 and x.family==2 and y.family==2 and w.dir==y.dir and w.dir==-x.dir
+                c:=Count.new(s,n,5,"W-X-Y?",w.dir,54,f_px(a,s),0)
+    c
+
+f_legs(Count c) =>
+    c.family==2 or c.family==5 ? 3 : c.family==6 ? c.n-1 : 5
+
+f_anchor(Count c, int k) =>
+    c.family==5 ? c.s+3*k : c.s+k+(c.extension>0 and k>=c.extension ? 4 : 0)
+
+f_reconstruct(array<Swing> a) =>
+    // Weighted interval path: a whole qualifying pattern, never just its last two tags.
+    // This is a current historical interpretation and may revise as the swing tail changes.
+    array<Count> history=array.new<Count>()
+    int sz=array.size(a)
+    if sz>1
+        array<float> dp=array.new<float>(sz,0.0)
+        array<int> previous=array.new<int>(sz,-1)
+        array<Count> chosen=array.new<Count>(sz,na)
+        for finish=1 to sz-1
+            array.set(dp,finish,array.get(dp,finish-1))
+            array.set(previous,finish,finish-1)
+            for option=0 to 2
+                int n=option==0?4:option==1?6:10
+                int start=finish-n+1
+                if start>=0
+                    Count c=f_candidate(a,start,n)
+                    if c.family>0
+                        float utility=array.get(dp,start)+c.quality*(n-1)+(c.family==1?30:0)
+                        if utility>array.get(dp,finish)
+                            array.set(dp,finish,utility)
+                            array.set(previous,finish,start)
+                            array.set(chosen,finish,c)
+        int at=sz-1
+        while at>0
+            Count c=array.get(chosen,at)
+            if not na(c)
+                array.unshift(history,c)
+            at:=array.get(previous,at)
+    history
+
+f_develop(array<Swing> a, int start, int n) =>
+    Count c=Count.new()
+    if n>=2 and n<=5 and f_shape(a,start,n)
+        int dir=f_px(a,start+1)>f_px(a,start)?1:-1
+        float q0=dir*f_px(a,start)
+        float q1=dir*f_px(a,start+1)
+        float q2=n>=3?dir*f_px(a,start+2):na
+        float q3=n>=4?dir*f_px(a,start+3):na
+        float q4=n>=5?dir*f_px(a,start+4):na
+        bool ok2=n<3 or (q2>q0 and q2<q1)
+        bool ok3=n<4 or q3>q1
+        bool ok4=n<5 or (q4>q1 and q4<q3)
+        if ok2 and ok3 and ok4
+            c:=Count.new(start,n,6,"Developing impulse?",dir,25+5*n,n>=4?f_px(a,start+1):f_px(a,start),0)
+    c
+
+f_live(array<Swing> a, array<Count> history) =>
+    Count best=Count.new()
+    int sz=array.size(a)
+    int floor=0
+    if array.size(history)>0
+        Count last=array.last(history)
+        floor:=last.s+last.n-1
+    if sz>=2
+        for n=2 to 5
+            int start=sz-n
+            if start>=floor
+                Count c=f_develop(a,start,n)
+                if c.family>0 and c.quality>best.quality
+                    best:=c
+    best
+
+f_raw(Count c, int k, int tier) =>
+    string textValue=""
+    if c.family==2
+        textValue:=k==1?"A":k==2?"B":"C"
+    else if c.family==4
+        textValue:=k==1?"A":k==2?"B":k==3?"C":k==4?"D":"E"
+    else if c.family==5
+        textValue:=k==1?"W":k==2?"X":"Y"
+    else
+        textValue:=tier==0?(k==1?"I":k==2?"II":k==3?"III":k==4?"IV":"V"):tier==2?(k==1?"i":k==2?"ii":k==3?"iii":k==4?"iv":"v"):str.tostring(k)
+    if tier==2 and (c.family==2 or c.family==4 or c.family==5)
+        textValue:=str.lower(textValue)
+    tier==0?"("+textValue+")":textValue
+
+f_key(Count c, array<Swing> a, string frame, int tier) =>
+    str.tostring(tier)+":"+frame+":"+str.tostring(f_tm(a,c.s))+":"+str.tostring(f_tm(a,c.s+c.n-1))+":"+c.kind
+
+f_link(Count child, array<Swing> a, array<Count> parents, array<Swing> pa) =>
+    string link="Unlinked: no single retained parent leg contains this interval and price range"
+    int matches=0
+    if child.family>0
+        Swing first=array.get(a,child.s)
+        Swing last=array.get(a,child.s+child.n-1)
+        float minP=first.p
+        float maxP=first.p
+        for j=child.s to child.s+child.n-1
+            minP:=math.min(minP,f_px(a,j))
+            maxP:=math.max(maxP,f_px(a,j))
+        for parent in parents
+            for k=1 to f_legs(parent)
+                Swing p0=array.get(pa,f_anchor(parent,k-1))
+                Swing p1=array.get(pa,f_anchor(parent,k))
+                bool contained=first.t>=p0.t and last.t<p1.until and minP>=math.min(p0.p,p1.p)-tick*0.0001 and maxP<=math.max(p0.p,p1.p)+tick*0.0001
+                if contained
+                    matches+=1
+                    link:="Parent "+parent.kind+" / leg "+str.tostring(k)+" @ "+str.tostring(p0.t)+"→"+str.tostring(p1.t)+"\nContainment only; recursive Elliott validation unresolved"
+                    if parent.family==1 and child.family==4 and k!=4
+                        link+="\nTriangle conflicts with impulse parent slot"
+                    if parent.family==1 and child.family==3 and k!=1 and k!=5
+                        link+="\nDiagonal conflicts with impulse parent slot"
+        if matches>1
+            link:="Ambiguous parent fit ("+str.tostring(matches)+" legs); no unique assignment"
+    link
+
+f_components(Count parent, array<Swing> pa, array<Count> children, array<Swing> ca) =>
+    int hit=0
+    if parent.family>0 and parent.family!=6
+        for k=1 to f_legs(parent)
+            Swing p0=array.get(pa,f_anchor(parent,k-1))
+            Swing p1=array.get(pa,f_anchor(parent,k))
+            bool found=false
+            for child in children
+                Swing c0=array.get(ca,child.s)
+                Swing c1=array.get(ca,child.s+child.n-1)
+                bool endpoints=c0.t>=p0.t and c0.t<p0.until and c1.t>=p1.t and c1.t<p1.until and math.abs(c0.p-p0.p)<tick*0.5 and math.abs(c1.p-p1.p)<tick*0.5
+                bool motive=parent.family==1?(k%2==1):parent.family==2?(str.contains(parent.kind,"Zigzag")?k!=2:k==3):false
+                bool familyOK=motive?(child.family==1 or (child.family==3 and k!=3)):(child.family==2 or child.family==4 or child.family==5)
+                if endpoints and familyOK
+                    found:=true
+            if found
+                hit+=1
+    hit
+
+f_add(array<Swing> a, Swing p) =>
+    bool changed=false
+    if array.size(a)==0
+        array.push(a,p)
+        changed:=true
+    else
+        Swing last=array.last(a)
+        if p.t>last.t
+            if last.side!=p.side
+                array.push(a,p)
+                changed:=true
+            else if p.side==1?p.p>last.p:p.p<last.p
+                array.set(a,array.size(a)-1,p)
+                changed:=true
+    if array.size(a)>pivotKeep
+        array.shift(a)
+    changed
+
+f_liveValid(Count c,float afterHigh,float afterLow) =>
+    c.family>0 and not na(c.invalid) and (c.dir==1?afterLow>c.invalid:afterHigh<c.invalid)
+
+// Pure eligibility/geometry used by production and native fixtures.
+f_projectionSource(array<Swing> a,array<Count> history,float afterHigh,float afterLow) =>
+    Count projected=f_live(a,history)
+    if not f_liveValid(projected,afterHigh,afterLow)
+        projected:=Count.new()
+    if projected.family==0 and array.size(history)>0
+        Count completed=array.last(history)
+        bool atTail=completed.s+completed.n==array.size(a)
+        if atTail
+            Swing ending=array.last(a)
+            bool extending=ending.side==1?afterHigh>ending.p+tick*0.1:afterLow<ending.p-tick*0.1
+            if not extending
+                projected:=completed
+    projected
+
+f_projectionPrice(Count c,array<Swing> a,float asOfPrice) =>
+    float target=na
+    if c.family>0 and c.n>=2
+        Swing origin=array.get(a,c.s)
+        float unit=math.abs(f_px(a,c.s+1)-origin.p)
+        int next=c.family==6?c.n:1
+        int dir=c.family==6?(next%2==1?c.dir:-c.dir):-c.dir
+        target:=asOfPrice+dir*math.max(tick*6,unit*(next==3?1.618:next==2?0.5:0.618))
+        if c.family==6
+            if next==3
+                target:=c.dir*math.max(c.dir*target,c.dir*f_px(a,c.s+1)+tick)
+            if next==4
+                target:=c.dir*math.max(c.dir*target,c.dir*f_px(a,c.s+1)+tick)
+            if next==5
+                target:=c.dir*math.max(c.dir*target,c.dir*f_px(a,c.s+3)+tick)
+            if next==2
+                target:=c.dir*math.max(c.dir*target,c.dir*origin.p+tick)
+        else
+            float measuredSpan=math.abs(f_px(a,c.s+c.n-1)-origin.p)
+            target:=asOfPrice+dir*math.max(unit,measuredSpan*0.382)
+        // A rule clamp must never flip the direction of the proposed leg.
+        if dir*(target-asOfPrice)<=0
+            target:=na
+    target
+
+f_pack(array<Swing> a) =>
+    string value=""
+    for p in a
+        value+=(value==""?"":";")+str.tostring(p.t)+","+str.tostring(p.until)+","+str.tostring(p.p,format.mintick)+","+str.tostring(p.side)+","+str.tostring(p.known)
+    value
+
+f_unpack(string textValue) =>
+    array<Swing> a=array.new<Swing>()
+    if not na(textValue) and str.length(textValue)>0
+        array<string> rows=str.split(textValue,";")
+        for row in rows
+            array<string> fields=str.split(row,",")
+            if array.size(fields)==5
+                array.push(a,Swing.new(int(str.tonumber(array.get(fields,0))),int(str.tonumber(array.get(fields,1))),str.tonumber(array.get(fields,2)),int(str.tonumber(array.get(fields,3))),int(str.tonumber(array.get(fields,4)))))
+    a
+
+f_capture(int strength) =>
+    var array<Swing> swings=array.new<Swing>()
+    var int firstBar=time
+    var float afterHigh=high
+    var float afterLow=low
+    float ph=ta.pivothigh(high,strength,strength)
+    float pl=ta.pivotlow(low,strength,strength)
+    float rightHigh=ta.highest(high,strength)
+    float rightLow=ta.lowest(low,strength)
+    bool changed=false
+    // A single source candle can be both extrema: intrabar order is unknowable.
+    if not na(ph) and na(pl)
+        changed:=f_add(swings,Swing.new(time[strength],time_close[strength],ph,1,time_close))
+    else if not na(pl) and na(ph)
+        changed:=f_add(swings,Swing.new(time[strength],time_close[strength],pl,-1,time_close))
+    if changed
+        afterHigh:=rightHigh
+        afterLow:=rightLow
+    else
+        afterHigh:=math.max(afterHigh,high)
+        afterLow:=math.min(afterLow,low)
+    // Full packets are bounded to the live edge OR the visible replay edge.
+    // Returning every historical ledger exceeds Pine request-memory limits.
+    int mainMillis=int(timeframe.in_seconds(timeframe.main_period)*1000)
+    int snapshotTail=int(math.ceil(timeframe.in_seconds(timeframe.main_period)/timeframe.in_seconds()))+4
+    bool liveEdge=barstate.islast or barstate.islastconfirmedhistory or bar_index>=last_bar_index-snapshotTail
+    int reviewMargin=math.max(mainMillis,int(timeframe.in_seconds()*1000))*3
+    bool reviewEdge=time>=chart.right_visible_bar_time-reviewMargin and time<=chart.right_visible_bar_time+reviewMargin
+    bool edge=liveEdge or reviewEdge
+    var string cached=""
+    if edge and (changed or not edge[1] or cached=="")
+        cached:=f_pack(swings)
+    string stream=edge?cached:""
+    float fast=ta.ema(close,fastLength)
+    float slow=ta.ema(close,slowLength)
+    int trend=close>slow and fast>slow?1:close<slow and fast<slow?-1:0
+    [stream[1],time_close[1],trend[1],firstBar,afterHigh[1],afterLow[1]]
+
+f_trend() =>
+    float fast=ta.ema(close,fastLength)
+    float slow=ta.ema(close,slowLength)
+    int trend=close>slow and fast>slow?1:close<slow and fast<slow?-1:0
+    trend[1]
+
+[pStream,pCut,pTrend,pFirst,pAfterHigh,pAfterLow]=request.security(sourceId,parentTF,f_capture(parentStrength),lookahead=timeframe.in_seconds(parentTF)>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+[cStream,cCut,cTrend,cFirst,cAfterHigh,cAfterLow]=request.security(sourceId,coreTF,f_capture(coreStrength),lookahead=timeframe.in_seconds(coreTF)>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+[sStream,sCut,sTrend,sFirst,sAfterHigh,sAfterLow]=request.security(sourceId,childTF,f_capture(childStrength),lookahead=timeframe.in_seconds(childTF)>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+int bridgeTrend=request.security(sourceId,bridgeTF,f_trend(),lookahead=timeframe.in_seconds(bridgeTF)>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+plot(bridgeTrend,"Confirmed core trend",display=display.data_window)
+
+var array<line> lines=array.new<line>()
+var array<label> labels=array.new<label>()
+var array<int> tiersDrawn=array.new<int>(3,0)
+var array<int> countsFound=array.new<int>(3,0)
+var array<int> swingsFound=array.new<int>(3,0)
+var array<int> earliestSwings=array.new<int>(3,0)
+var array<int> linkedFound=array.new<int>(3,0)
+var array<int> renderedTimes=array.new<int>()
+var array<float> renderedPrices=array.new<float>()
+var array<int> renderedSides=array.new<int>()
+var array<float> renderedYs=array.new<float>()
+var array<float> renderedXs=array.new<float>()
+var array<float> renderedWidths=array.new<float>()
+var array<float> renderedHeights=array.new<float>()
+var array<int> visibleTimes=array.new<int>()
+var float viewHigh=na
+var float viewLow=na
+if time>=chart.left_visible_bar_time and time<=chart.right_visible_bar_time
+    array.push(visibleTimes,time)
+    viewHigh:=na(viewHigh)?high:math.max(viewHigh,high)
+    viewLow:=na(viewLow)?low:math.min(viewLow,low)
+var string lastP=""
+var string lastC=""
+var string lastS=""
+
+f_frame(string tf) =>
+    float sec=timeframe.in_seconds(tf)
+    sec>=604800?str.tostring(int(sec/604800))+"W":sec>=86400?str.tostring(int(sec/86400))+"D":sec>=3600?str.tostring(int(sec/3600))+"H":tf+"m"
+
+f_visible(int at) =>
+    not visibleOnly or (at>=chart.left_visible_bar_time and at<=chart.right_visible_bar_time)
+
+f_line(int t0,float p0,int t1,float p1,color ink,string stroke,int width) =>
+    if t1>t0 and array.size(lines)<485
+        array.push(lines,line.new(t0,p0,t1,p1,xloc=xloc.bar_time,color=ink,style=stroke,width=width))
+    true
+
+f_ink(int tier) =>
+    tier==0?parentInk:tier==1?coreInk:childInk
+
+f_notation(int family,int k,int tier) =>
+    string symbol=family==2?(k==1?"A":k==2?"B":"C"):family==4?(k==1?"A":k==2?"B":k==3?"C":k==4?"D":"E"):family==5?(k==1?"W":k==2?"X":"Y"):(k==1?"I":k==2?"II":k==3?"III":k==4?"IV":"V")
+    tier==0?"(("+symbol+"))":tier==1?"("+str.lower(symbol)+")":str.lower(symbol)
+
+f_x(int at) =>
+    int n=array.size(visibleTimes)
+    int index=n>0?array.binary_search_leftmost(visibleTimes,at):-1
+    float fallback=float(at-chart.left_visible_bar_time)/math.max(1,chart.right_visible_bar_time-chart.left_visible_bar_time)
+    n>1 and index>=0?float(index)/float(n-1)*widthEstimate:fallback*widthEstimate
+
+f_label(int at,float price,int side,string txt,string tip,int tier,bool active,bool future=false) =>
+    if (f_visible(at) or future) and array.size(labels)<450 and array.get(tiersDrawn,tier)<140
+        float atr=math.max(nz(chartAtr,tick*30),tick*6)
+        int pixels=fontPx+(tier==0?3:tier==1?1:-1)+(active?1:0)
+        float perPixel=math.max(nz(viewHigh-viewLow,atr*20)/heightEstimate,tick*0.15)
+        float gap=perPixel*(pixels+7)
+        float offset=gap*(tier==0?2.3:tier==1?1.6:1.0)
+        float x=f_x(at)
+        float halfWidth=math.max(pixels*0.58*str.length(txt)*0.5,pixels*0.6)+5
+        int layoutSide=side
+        float y=price+side*offset
+        if not future and y>viewHigh
+            layoutSide:=-1
+            y:=math.min(price,viewHigh)-offset
+        else if not future and y<viewLow
+            layoutSide:=1
+            y:=math.max(price,viewLow)+offset
+        float span=math.max(nz(viewHigh-viewLow,atr*20),atr*4)
+        bool boundaryNote=future and (y>viewHigh+span*0.06 or y<viewLow-span*0.06)
+        string displayText=boundaryNote?(y>viewHigh?"↑ ":"↓ ")+txt+" · "+str.tostring(price,format.mintick):txt
+        if boundaryNote
+            y:=y>viewHigh?viewHigh+span*0.04:viewLow-span*0.04
+        // Reserve approximate label rectangles, not only exact shared pivots.
+        // Only move labels vertically; the source pivot time never changes.
+        if array.size(renderedXs)>0
+            for pass=0 to 3
+                for j=0 to array.size(renderedXs)-1
+                    if math.abs(x-array.get(renderedXs,j))<halfWidth+array.get(renderedWidths,j) and math.abs(y-array.get(renderedYs,j))<perPixel*(pixels+array.get(renderedHeights,j))*0.6+perPixel*5
+                        y:=array.get(renderedYs,j)+layoutSide*perPixel*((pixels+array.get(renderedHeights,j))*0.6+7)
+        color ink=color.new(f_ink(tier),active?0:historyFade)
+        array.push(labels,label.new(at,y,displayText,xloc=xloc.bar_time,style=label.style_none,textcolor=ink,size=pixels,tooltip=tip))
+        if not boundaryNote and math.abs(y-price)>gap*2.8 and array.size(lines)<480
+            array.push(lines,line.new(at,price+side*gap*0.35,at,y-side*gap*0.55,xloc=xloc.bar_time,color=color.new(f_ink(tier),80),style=line.style_dotted))
+        array.set(tiersDrawn,tier,array.get(tiersDrawn,tier)+1)
+        array.push(renderedTimes,at)
+        array.push(renderedPrices,price)
+        array.push(renderedSides,side)
+        array.push(renderedYs,y)
+        array.push(renderedXs,x)
+        array.push(renderedWidths,halfWidth)
+        array.push(renderedHeights,pixels)
+    true
+
+f_tip(Count c,array<Swing> a,string frame,int tier,int cutoff,int sourceFirst,string parentNote,int childHits) =>
+    Swing ending=array.get(a,c.s+c.n-1)
+    string kind=c.kind
+    string tip=f_key(c,a,frame,tier)+"\n"+kind+" · "+f_frame(frame)+" · "+(tier==0?"PARENT":tier==1?"CHART COUNT":"CHILD")
+    tip+="\nPrice structure rule screen passes; Elliott internals provisional."
+    tip+="\nEndpoint "+str.tostring(ending.p,format.mintick)+" at "+str.format_time(ending.t,"yyyy-MM-dd HH:mm",syminfo.timezone)
+    tip+="\nRecognized "+str.format_time(ending.known,"yyyy-MM-dd HH:mm",syminfo.timezone)+" (exchange time); packet cutoff "+str.format_time(cutoff,"yyyy-MM-dd HH:mm",syminfo.timezone)
+    tip+="\nRetained data begins "+str.format_time(sourceFirst,"yyyy-MM-dd",syminfo.timezone)
+    tip+="\n"+parentNote
+    tip+="\nEndpoint-matched child components: "+str.tostring(childHits)+"/"+str.tostring(f_legs(c))+". Not full recursive certification."
+    tip+="\nHistorical labels are current reconstructed interpretation; tail and preferred parse can revise. Quality is not probability."
+    tip
+
+f_drawPattern(Count c,array<Swing> a,string frame,int tier,int cutoff,int sourceFirst,array<Count> parents,array<Swing> pa,array<Count> children,array<Swing> ca,bool live,bool latest) =>
+    if c.family>0
+        string parentNote=tier==0?"Top displayed tier; larger Elliott context not certified":f_link(c,a,parents,pa)
+        if tier>0 and str.startswith(parentNote,"Parent ")
+            array.set(linkedFound,tier,array.get(linkedFound,tier)+1)
+        string tip=f_tip(c,a,frame,tier,cutoff,sourceFirst,parentNote,f_components(c,a,children,ca))
+        int legs=f_legs(c)
+        Swing begin=array.get(a,c.s)
+        Swing ending=array.get(a,f_anchor(c,legs))
+        bool active=live or latest
+        float span=math.abs(f_x(ending.t)-f_x(begin.t))
+        bool full=detail=="Every pivot" or active or span>=legs*(fontPx+(tier==0?18:tier==1?15:12))
+        if full
+            for k=1 to legs
+                Swing point=array.get(a,f_anchor(c,k))
+                string textValue=f_notation(c.family,k,tier)+(live?"~":markProvisional and latest and k==legs?"?":"")
+                if showFrame and k==1
+                    textValue+="·"+f_frame(frame)
+                f_label(point.t,point.p,point.side,textValue,tip,tier,active)
+        else
+            // Quiet span marks replace a repeated a-c tag at every tiny swing.
+            float clearance=math.max(nz(viewHigh-viewLow,chartAtr*20)/heightEstimate*(fontPx+8),tick*3)
+            float rail=ending.p+ending.side*clearance
+            int left=math.max(begin.t,chart.left_visible_bar_time)
+            int right=math.min(ending.t,chart.right_visible_bar_time)
+            f_line(left,rail,right,rail,color.new(f_ink(tier),82),line.style_dotted,1)
+            if span>=fontPx*5
+                int middle=begin.t+int((ending.t-begin.t)/2)
+                string compact=f_notation(c.family,1,tier)+"–"+f_notation(c.family,legs,tier)
+                f_label(middle,rail,ending.side,compact,"PATTERN SPAN · zoom in for individual pivots\n"+tip,tier,false)
+        if showPaths and active
+            for k=1 to legs
+                Swing left=array.get(a,f_anchor(c,k-1))
+                Swing right=array.get(a,f_anchor(c,k))
+                if not visibleOnly or (right.t>=chart.left_visible_bar_time and left.t<=chart.right_visible_bar_time)
+                    f_line(left.t,left.p,right.t,right.p,color.new(f_ink(tier),live?30:42),live?line.style_dashed:line.style_solid,2)
+        if showRecognition and f_visible(ending.known) and array.size(labels)<470
+            array.push(labels,label.new(ending.known,ending.p,"·",xloc=xloc.bar_time,style=label.style_none,textcolor=color.new(f_ink(tier),35),size=14,tooltip="Recognition of "+tip))
+    true
+
+f_drawTier(array<Swing> a,array<Count> history,string frame,int tier,int cutoff,int first,float afterHigh,float afterLow,array<Count> parents,array<Swing> pa,array<Count> children,array<Swing> ca) =>
+    int sz=array.size(a)
+    array.set(swingsFound,tier,sz)
+    array.set(earliestSwings,tier,sz>0?f_tm(a,0):0)
+    array.set(countsFound,tier,array.size(history))
+    if showPaths and sz>1
+        for j=math.max(1,sz-150) to sz-1
+            Swing p0=array.get(a,j-1)
+            Swing p1=array.get(a,j)
+            if not visibleOnly or (p1.t>=chart.left_visible_bar_time and p0.t<=chart.right_visible_bar_time)
+                f_line(p0.t,p0.p,p1.t,p1.p,color.new(f_ink(tier),math.min(95,pathFade+tier*2)),line.style_solid,1)
+    int n=array.size(history)
+    Count current=f_live(a,history)
+    bool liveValid=f_liveValid(current,afterHigh,afterLow)
+    // Reserve space for the current swing before spending the history budget.
+    if liveValid
+        f_drawPattern(current,a,frame,tier,cutoff,first,parents,pa,children,ca,true,true)
+    if n>0
+        int drawn=0
+        for offset=0 to n-1
+            int j=n-1-offset
+            Count c=array.get(history,j)
+            Swing firstPivot=array.get(a,c.s)
+            Swing lastPivot=array.get(a,c.s+c.n-1)
+            bool inWindow=not visibleOnly or (lastPivot.t>=chart.left_visible_bar_time and firstPivot.t<=chart.right_visible_bar_time)
+            if inWindow and drawn<(showHistory?patternsShown:1)
+                f_drawPattern(c,a,frame,tier,cutoff,first,parents,pa,children,ca,false,j>=n-2)
+                drawn+=1
+    if showUnknown
+        for point in a
+            f_label(point.t,point.p,point.side,"·","Confirmed swing; wave subdivision not established",tier,false)
+    liveValid?current:Count.new()
+
+f_projection(Count c,array<Swing> a,int cutoff,float asOfPrice,int tier,string frame) =>
+    if c.family>0 and c.n>=2 and not na(f_projectionPrice(c,a,asOfPrice))
+        Swing origin=array.get(a,c.s)
+        Swing ending=array.get(a,c.s+c.n-1)
+        float unit=math.abs(f_px(a,c.s+1)-origin.p)
+        float measuredSpan=math.abs(ending.p-origin.p)
+        int next=c.family==6?c.n:1
+        int family=c.family==6?1:c.family==1 or c.family==3?2:1
+        int dir=c.family==6?(next%2==1?c.dir:-c.dir):-c.dir
+        float target=f_projectionPrice(c,a,asOfPrice)
+        int horizon=int(chartSeconds*1000)*projectionBars
+        int endTime=cutoff+horizon
+        float alternate=asOfPrice-dir*math.max(unit*0.618,tick*6)
+        color ink=f_ink(tier)
+        f_line(cutoff,asOfPrice,endTime,target,color.new(ink,10),line.style_dashed,2)
+        f_line(cutoff,asOfPrice,endTime,alternate,color.new(color.rgb(188,143,245),30),line.style_dotted,1)
+        string nextLabel=f_notation(family,next,tier)+"?"
+        if c.family==4 or c.family==5
+            nextLabel:="next?"
+        string tip="CONDITIONAL PROJECTION · "+f_frame(frame)+" source\nBased on "+c.kind+"; last source endpoint "+str.tostring(ending.p,format.mintick)+".\nGuide from current completed chart close "+str.tostring(asOfPrice,format.mintick)+"; first-leg unit "+str.tostring(unit,format.mintick)+".\nNext-wave price geometry only; subdivisions not established. Dashed primary and dotted alternate are not probabilities or trade targets.\nStructural invalidation of source candidate: "+str.tostring(c.invalid,format.mintick)
+        f_label(endTime,target,dir,nextLabel,tip,tier,true,true)
+        f_label(endTime,alternate,-dir,"alt?",tip,tier,false,true)
+        if not na(c.invalid)
+            f_line(cutoff,c.invalid,endTime,c.invalid,color.new(ink,68),line.style_dotted,1)
+        // All projection marks lie beyond the as-of boundary; never on history.
+    true
+
+if barstate.isfirst
+    if not chart.is_standard or na(chartSeconds) or chartSeconds<60
+        runtime.error("Use standard time-based candles of at least one minute.")
+    if timeframe.in_seconds(parentTF)<timeframe.in_seconds(coreTF) or timeframe.in_seconds(coreTF)<timeframe.in_seconds(childTF)
+        runtime.error("Source ladder must be parent >= chart count >= child timeframe.")
+    if fastLength>=slowLength
+        runtime.error("Fast EMA length must be below slow EMA length.")
+
+bool drawNow=barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed)
+bool structureChanged=(not na(pStream) and pStream!="" and pStream!=lastP) or (not na(cStream) and cStream!="" and cStream!=lastC) or (not na(sStream) and sStream!="" and sStream!=lastS)
+// Wick invalidation is checked even between confirmed pivot events.
+var float lastInvalidationHigh=na
+var float lastInvalidationLow=na
+var float lastPHigh=na
+var float lastPLow=na
+var float lastSHigh=na
+var float lastSLow=na
+bool extremaChanged=cAfterHigh!=lastInvalidationHigh or cAfterLow!=lastInvalidationLow or pAfterHigh!=lastPHigh or pAfterLow!=lastPLow or sAfterHigh!=lastSHigh or sAfterLow!=lastSLow
+if drawNow and (structureChanged or extremaChanged or showProjection or barstate.islastconfirmedhistory)
+    // Empty packets never erase the last usable state during an HTF boundary.
+    string p=na(pStream) or pStream==""?lastP:pStream
+    string c=na(cStream) or cStream==""?lastC:cStream
+    string s=na(sStream) or sStream==""?lastS:sStream
+    array<Swing> pa=f_unpack(p)
+    array<Swing> ca=f_unpack(c)
+    array<Swing> sa=f_unpack(s)
+    array<Count> ph=f_reconstruct(pa)
+    array<Count> ch=f_reconstruct(ca)
+    array<Count> sh=f_reconstruct(sa)
+    // Link to valid developing parent legs as well as completed history.
+    array<Count> parentLinks=array.copy(ph)
+    array<Count> coreLinks=array.copy(ch)
+    Count developingParent=f_live(pa,ph)
+    Count developingCore=f_live(ca,ch)
+    if f_liveValid(developingParent,pAfterHigh,pAfterLow)
+        array.push(parentLinks,developingParent)
+    if f_liveValid(developingCore,cAfterHigh,cAfterLow)
+        array.push(coreLinks,developingCore)
+    for id in lines
+        line.delete(id)
+    for id in labels
+        label.delete(id)
+    array.clear(lines)
+    array.clear(labels)
+    array.clear(renderedTimes)
+    array.clear(renderedPrices)
+    array.clear(renderedSides)
+    array.clear(renderedXs)
+    array.clear(renderedWidths)
+    array.clear(renderedHeights)
+    array.clear(renderedYs)
+    array.fill(tiersDrawn,0)
+    array.fill(linkedFound,0)
+    if showParent
+        f_drawTier(pa,ph,parentTF,0,pCut,pFirst,pAfterHigh,pAfterLow,array.new<Count>(),array.new<Swing>(),ch,ca)
+    Count coreLive=Count.new()
+    if showCore
+        coreLive:=f_drawTier(ca,ch,coreTF,1,cCut,cFirst,cAfterHigh,cAfterLow,parentLinks,pa,sh,sa)
+    if showChild
+        f_drawTier(sa,sh,childTF,2,sCut,sFirst,sAfterHigh,sAfterLow,coreLinks,ca,array.new<Count>(),array.new<Swing>())
+    if showAlternate and showCore and array.size(ch)>0
+        Count latest=array.last(ch)
+        if latest.family==2 and latest.s+latest.n==array.size(ca)
+            Count alternate=f_develop(ca,latest.s,4)
+            if f_liveValid(alternate,cAfterHigh,cAfterLow)
+                Swing at=array.last(ca)
+                string tip="Alternate 1-2-3, competing with "+latest.kind+"\nFuture wave 4 must preserve wave-1 non-overlap. Invalidation "+str.tostring(alternate.invalid,format.mintick)+". No validated probability."
+                f_label(at.t,at.p,at.side,"alt 3?",tip,1,true)
+    if showProjection
+        int tier=projectionTier=="Parent"?0:projectionTier=="Inner"?2:1
+        array<Swing> chosenSwings=tier==0?pa:tier==1?ca:sa
+        array<Count> chosenHistory=tier==0?ph:tier==1?ch:sh
+        float chosenHigh=tier==0?pAfterHigh:tier==1?cAfterHigh:sAfterHigh
+        float chosenLow=tier==0?pAfterLow:tier==1?cAfterLow:sAfterLow
+        Count projected=f_projectionSource(chosenSwings,chosenHistory,chosenHigh,chosenLow)
+        int boundary=barstate.isconfirmed?time_close:time_close[1]
+        float asOfPrice=barstate.isconfirmed?close:close[1]
+        f_projection(projected,chosenSwings,boundary,asOfPrice,tier,tier==0?parentTF:tier==1?coreTF:childTF)
+        if projected.family==0 or na(f_projectionPrice(projected,chosenSwings,asOfPrice))
+            int endTime=boundary+int(chartSeconds*1000)*projectionBars
+            float span=math.max(nz(chartAtr,tick*12),tick*6)
+            f_line(boundary,asOfPrice,endTime,asOfPrice+span,color.new(f_ink(tier),65),line.style_dotted,1)
+            f_line(boundary,asOfPrice,endTime,asOfPrice-span,color.new(f_ink(tier),65),line.style_dotted,1)
+            f_label(endTime,asOfPrice+span,1,"next?","No valid count at current source tail. Numeric forecast withheld; paths not distinguished.",tier,false,true)
+    lastP:=p
+    lastC:=c
+    lastS:=s
+    lastInvalidationHigh:=cAfterHigh
+    lastInvalidationLow:=cAfterLow
+    lastPHigh:=pAfterHigh
+    lastPLow:=pAfterLow
+    lastSHigh:=sAfterHigh
+    lastSLow:=sAfterLow
+
+plot(array.get(countsFound,0),"Audit · parent historical patterns",display=display.data_window)
+plot(array.get(countsFound,1),"Audit · chart historical patterns",display=display.data_window)
+plot(array.get(countsFound,2),"Audit · child historical patterns",display=display.data_window)
+plot(array.get(swingsFound,0),"Audit · parent retained swings",display=display.data_window)
+plot(array.get(swingsFound,1),"Audit · chart retained swings",display=display.data_window)
+plot(array.get(swingsFound,2),"Audit · child retained swings",display=display.data_window)
+plot(array.get(tiersDrawn,0),"Audit · parent labels drawn",display=display.data_window)
+plot(array.get(tiersDrawn,1),"Audit · chart labels drawn",display=display.data_window)
+plot(array.get(tiersDrawn,2),"Audit · child labels drawn",display=display.data_window)
+plot(array.get(linkedFound,1),"Audit · chart patterns contained by parent",display=display.data_window)
+plot(array.get(linkedFound,2),"Audit · child patterns contained by chart",display=display.data_window)
+plot(pCut,"Audit · parent source cutoff",display=display.data_window)
+plot(cCut,"Audit · chart source cutoff",display=display.data_window)
+plot(sCut,"Audit · child source cutoff",display=display.data_window)
+
+plot(array.get(earliestSwings,0),"Audit · parent retained start",display=display.data_window)
+plot(array.get(earliestSwings,1),"Audit · middle retained start",display=display.data_window)
+plot(array.get(earliestSwings,2),"Audit · inner retained start",display=display.data_window)
+plot(array.size(renderedTimes)>0?array.min(renderedTimes):na,"Audit · oldest rendered time",display=display.data_window)
+plot(array.size(renderedYs)>0?array.max(renderedYs):na,"Audit · highest label",display=display.data_window)
+plot(array.size(renderedYs)>0?array.min(renderedYs):na,"Audit · lowest label",display=display.data_window)
+
+
+// Agentic companion: top-down Elliott research summary; original body above preserved.
+string AG="05 · Agentic Elliott summary"
+bool agenticSummary=input.bool(true,"Daily to 1m Elliott summary",group=AG,tooltip="Uses the same structural parser at every source with Chart count pivot strength. Bias comes from the eligible next wave, never the compatibility EMA. Counts remain provisional; nesting is containment only.")
+string agenticPosition=input.string("Bottom right","Summary position",options=["Top right","Bottom right","Top left","Bottom left"],group=AG)
+agenticRow(table panel,int row,string frame,string packet,int cutoff,float afterHigh,float afterLow,float asOfPrice,int boundary,array<Count> parents,array<Swing> parentSwings) =>
+    array<Swing> swings=f_unpack(packet)
+    array<Count> history=f_reconstruct(swings)
+    Count count=f_projectionSource(swings,history,afterHigh,afterLow)
+    float target=f_projectionPrice(count,swings,asOfPrice)
+    bool eligible=count.family>0 and not na(target)
+    string bias=not eligible?"Unresolved":target>asOfPrice?"Bullish?":"Bearish?"
+    string wave=count.family==0?"No valid tail count":count.kind+" · "+f_notation(count.family,count.family==6?count.n-1:f_legs(count),1)+"?"
+    string projection=not eligible?"Withheld":str.tostring(target,format.mintick)+" / alt "+str.tostring(asOfPrice-(target>asOfPrice?1:-1)*math.max(math.abs(f_px(swings,count.s+1)-f_px(swings,count.s))*0.618,tick*6),format.mintick)
+    string link=row==1?"Daily context; larger degree unresolved":f_link(count,swings,parents,parentSwings)
+    string tip="ELLIOTT ONLY · provisional current interpretation\n"+f_frame(frame)+" source cutoff "+str.format_time(cutoff,"yyyy-MM-dd HH:mm",syminfo.timezone)+"\n"+link+"\nConditional primary / alternate from completed chart close. Not trade targets or probabilities."
+    color ink=not eligible?color.rgb(155,165,180):target>asOfPrice?color.rgb(83,164,255):color.rgb(255,112,127)
+    table.cell(panel,0,row,f_frame(frame),text_color=parentInk,text_size=size.small,tooltip=tip)
+    table.cell(panel,1,row,bias,text_color=ink,text_size=size.small,tooltip=tip)
+    table.cell(panel,2,row,wave,text_color=parentInk,text_size=size.small,tooltip=tip)
+    table.cell(panel,3,row,projection,text_color=ink,text_size=size.small,tooltip=tip)
+    table.cell(panel,4,row,count.family==0?"—":str.tostring(count.invalid,format.mintick),text_color=parentInk,text_size=size.small,tooltip=tip)
+    Count live=f_live(swings,history)
+    if f_liveValid(live,afterHigh,afterLow)
+        array.push(history,live)
+    [history,swings]
+var table agenticPanel=table.new(agenticPosition=="Top right"?position.top_right:agenticPosition=="Bottom right"?position.bottom_right:agenticPosition=="Top left"?position.top_left:position.bottom_left,5,9,bgcolor=color.new(color.rgb(19,23,34),8),frame_color=color.new(coreInk,60),frame_width=1)
+if agenticSummary
+    [agP0,agC0,agT0,agF0,agH0,agL0]=request.security(sourceId,"1D",f_capture(coreStrength),lookahead=timeframe.in_seconds("1D")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    [agP1,agC1,agT1,agF1,agH1,agL1]=request.security(sourceId,"240",f_capture(coreStrength),lookahead=timeframe.in_seconds("240")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    [agP2,agC2,agT2,agF2,agH2,agL2]=request.security(sourceId,"60",f_capture(coreStrength),lookahead=timeframe.in_seconds("60")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    [agP3,agC3,agT3,agF3,agH3,agL3]=request.security(sourceId,"30",f_capture(coreStrength),lookahead=timeframe.in_seconds("30")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    [agP4,agC4,agT4,agF4,agH4,agL4]=request.security(sourceId,"15",f_capture(coreStrength),lookahead=timeframe.in_seconds("15")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    [agP5,agC5,agT5,agF5,agH5,agL5]=request.security(sourceId,"5",f_capture(coreStrength),lookahead=timeframe.in_seconds("5")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    [agP6,agC6,agT6,agF6,agH6,agL6]=request.security(sourceId,"1",f_capture(coreStrength),lookahead=timeframe.in_seconds("1")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
+    if drawNow
+        table.cell(agenticPanel,0,0,"Frame",text_color=coreInk,text_size=size.small)
+        table.cell(agenticPanel,1,0,"Elliott Bias",text_color=coreInk,text_size=size.small)
+        table.cell(agenticPanel,2,0,"Current Wave Count",text_color=coreInk,text_size=size.small)
+        table.cell(agenticPanel,3,0,"Projections?",text_color=coreInk,text_size=size.small)
+        table.cell(agenticPanel,4,0,"Invalidation",text_color=coreInk,text_size=size.small)
+        int agBoundary=barstate.isconfirmed?time_close:time_close[1]
+        float agClose=barstate.isconfirmed?close:close[1]
+        [agHist0,agSwings0]=agenticRow(agenticPanel,1,"1D",agP0,agC0,agH0,agL0,agClose,agBoundary,array.new<Count>(),array.new<Swing>())
+        [agHist1,agSwings1]=agenticRow(agenticPanel,2,"240",agP1,agC1,agH1,agL1,agClose,agBoundary,agHist0,agSwings0)
+        [agHist2,agSwings2]=agenticRow(agenticPanel,3,"60",agP2,agC2,agH2,agL2,agClose,agBoundary,agHist1,agSwings1)
+        [agHist3,agSwings3]=agenticRow(agenticPanel,4,"30",agP3,agC3,agH3,agL3,agClose,agBoundary,agHist2,agSwings2)
+        [agHist4,agSwings4]=agenticRow(agenticPanel,5,"15",agP4,agC4,agH4,agL4,agClose,agBoundary,agHist3,agSwings3)
+        [agHist5,agSwings5]=agenticRow(agenticPanel,6,"5",agP5,agC5,agH5,agL5,agClose,agBoundary,agHist4,agSwings4)
+        [agHist6,agSwings6]=agenticRow(agenticPanel,7,"1",agP6,agC6,agH6,agL6,agClose,agBoundary,agHist5,agSwings5)
+        table.cell(agenticPanel,0,8,"Premium",text_color=coreInk,text_size=size.tiny)
+        table.cell(agenticPanel,1,8,"Provisional",text_color=parentInk,text_size=size.tiny)
+        table.cell(agenticPanel,2,8,"Containment ≠ certification",text_color=parentInk,text_size=size.tiny)
+        table.cell(agenticPanel,3,8,"Primary / alternate",text_color=parentInk,text_size=size.tiny)
+        table.cell(agenticPanel,4,8,"Closed sources",text_color=parentInk,text_size=size.tiny)
+if not agenticSummary and barstate.islast
+    table.delete(agenticPanel)

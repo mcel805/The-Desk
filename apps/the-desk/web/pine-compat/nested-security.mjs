@@ -41,11 +41,23 @@ function security(ctx){return async (...args)=>{
  if(!ltf&&gaps){const prior=ctx.cache[key+':prior'];ctx.cache[key+':prior']=index;if(prior===index||prior===undefined)return NaN;}
  const value=primitive(values(other,name)[index]);return Array.isArray(value)?[value]:value;
 };}
+// Vela candles omit raw closeTime; PineTS infers it for the data series but
+// its penultimate-bar detector reads the raw candle. Preserve Pine's completed
+// history boundary even while the newest source candle is still forming.
+function installCompletedHistory(ctx){
+ const state=ctx.pine.barstate;
+ Object.defineProperty(state,'islastconfirmedhistory',{configurable:true,get(){
+  if(ctx.idx===ctx.length-1)return primitive(ctx.data.closeTime)<=Date.now();
+  if(ctx.idx!==ctx.length-2)return false;
+  const last=ctx.marketData?.at(-1),close=last?.closeTime??(last?.openTime+seconds(ctx.timeframe)*1000);
+  return primitive(ctx.data.closeTime)<=Date.now()&&close>Date.now();
+ }});
+}
 let installed=false;
 export function installNestedSecurity(){if(installed)return;installed=true;
  const prepare=Indicator.prototype.prepare;Indicator.prototype.prepare=function(...args){const prepared=prepare.apply(this,args);if(!prepared.fn._deskLazy){prepared.fn=lazyRequests(prepared.fn);prepared.ltfSlices=undefined;}return prepared;};
  const bind=Context.prototype.bindContextObject;
- Context.prototype.bindContextObject=function(...args){bind.apply(this,args);if(!this._deskSecurityInstalled&&this.pine?.request){this._deskSecurityInstalled=true;const param=this.pine.request.param;this.pine.request.param=(source,index,name)=>{const result=param(primitive(source),index,name);if(this._deskTarget&&suffix(name)===this._deskTarget.name)throw this._deskTarget.stop;return result;};this.pine.request.paramThunk=async(thunk,index,name)=>{if(this._deskTarget&&suffix(name)===this._deskTarget.name){param(primitive(await thunk()),index,name);throw this._deskTarget.stop;}return [thunk,name];};this.pine.request.security=security(this);}};
+ Context.prototype.bindContextObject=function(...args){bind.apply(this,args);if(!this._deskSecurityInstalled&&this.pine?.request){this._deskSecurityInstalled=true;installCompletedHistory(this);const arrayNew=this.pine.array.new;this.pine.array.new=(size,value)=>typeof value==='number'&&Number.isNaN(value)?arrayNew(size):arrayNew(size,value);const param=this.pine.request.param;this.pine.request.param=(source,index,name)=>{const result=param(primitive(source),index,name);if(this._deskTarget&&suffix(name)===this._deskTarget.name)throw this._deskTarget.stop;return result;};this.pine.request.paramThunk=async(thunk,index,name)=>{if(this._deskTarget&&suffix(name)===this._deskTarget.name){param(primitive(await thunk()),index,name);throw this._deskTarget.stop;}return [thunk,name];};this.pine.request.security=security(this);}};
  // Keep the function's local state active until its awaited request finishes.
  Context.prototype.call=function(fn,id,...args){this._deskFunctions??=new Map();const stable=this._deskFunctions.get(fn.name)||fn;this._deskFunctions.set(fn.name,stable);this.pushId(id);let result;try{result=stable(...args);}catch(e){this.popId();throw e;}if(result&&typeof result.then==='function')return result.then(value=>value===undefined?NaN:value).finally(()=>this.popId());this.popId();return result===undefined?NaN:result;};
 }

@@ -6,7 +6,7 @@
     "version": "0.8.0",
     "commit": "eb8c8f9552b836825c6fd56b3305a5b58eeda09d",
     "license": "Apache-2.0",
-    "browser_bundle_sha256": "a95eeebd51492b811bc4f10fa1984eccdb1e705abdc64effbddb268eec75f32b",
+    "browser_bundle_sha256": "338b540964bb8683a6656820704d3c0eff62f591fd4e7d6646e74fef1c27f7dc",
     "build": "node build-vendor.mjs"
   },
   "journal": {
@@ -18,5 +18,11 @@
   "sma_study": {
     "source": "count-dashboard/web/quant-backtest.mjs",
     "sha256": "b561fdc58d48cff97151013c18088a80f7e75bea8742ef86c447bb9895cbff07"
+  },
+  "agentic_elliot_waves": {
+    "original_sha256": "0772f65205220e8fbc758894c241750301e5487ad45c7cf14c4588cfb154f65f",
+    "source_sha256": "6ef03b51fa90e53a1655049604dad74923718e886bb9beae9d9b3979674f82af",
+    "source": "web/pine-examples/agentic-elliot-waves.pine",
+    "parity": "Original Pine body preserved except indicator title; optional companion panel appended. Same-engine parity tested. TradingView matching-data parity pending."
   }
 }

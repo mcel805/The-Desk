@@ -50,3 +50,8 @@ Vela's installed repository source/dependencies are required by `build-vendor.mj
 ## Cleo's Liquidity
 
 See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension. All other Pine sources retain the existing worker.
+
+
+## Agentic - Elliot Waves · Premium
+
+A source-preserving Wave Court Nested Waves 4.1 port is available from the indicator catalog. See [the feature guide](AGENTIC-ELLIOT-WAVES.md) for the optional Daily-to-1m Elliott bias/count/projection panel, original-source provenance, host compatibility fixes and parity evidence boundaries.

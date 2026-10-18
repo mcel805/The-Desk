@@ -25,13 +25,13 @@ export function setupPineEditor(opts){
 }
 export async function loadPineLibrary(settings){
  library=Array.isArray(settings.pineLibrary)?settings.pineLibrary.filter(s=>s&&typeof s.source==='string'&&typeof s.name==='string').slice(0,6):[];
- if(library.some(s=>s.name.trim().toLowerCase()==="taper's volume")||library.length>=6)return;
- try{
-  const response=await fetch('/pine-examples/taper-volume.pine');if(!response.ok)return;
-  const source=await response.text(),hash=await sourceHash(source);
-  const item={id:hash,name:"Taper's Volume",source,version:'6',validation:{status:'Desk runtime test passed on BTC 1h review data; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15'}};
-  const next=[...library,item];await services.saveSettings({pineLibrary:next});library=next;
- }catch(error){console.warn('Taper Volume could not be added to My Pine indicators.',error);}
+ for(const example of [{name:"Agentic - Elliot Waves",url:'/pine-examples/agentic-elliot-waves.pine'},{name:"Taper's Volume",url:'/pine-examples/taper-volume.pine'}]){
+  if(library.some(s=>s.name.trim().toLowerCase()===example.name.toLowerCase())||library.length>=6)continue;
+  try{const response=await fetch(example.url);if(!response.ok)continue;const source=await response.text(),hash=await sourceHash(source);
+   const item={id:hash,name:example.name,source,version:'6',validation:{status:'Premium source · compile and test on your chart; TradingView comparison pending',sourceHash:hash}};
+   const next=[...library,item];await services.saveSettings({pineLibrary:next});library=next;
+  }catch(error){console.warn(example.name+' could not be added to My Pine indicators.',error);}
+ }
 }
 function open(ctx,tab,source=''){
  if(testing)return;context=ctx;hideOtherDialogs();tested=null;report=null;
@@ -46,7 +46,7 @@ async function renderTab(tab,source=''){
  if(tab==='library'){
   body.innerHTML='<label>Search built-in indicators<input id="pineLibrarySearch" type="search" placeholder="Search indicators"></label><div id="pineOnChart"></div><div id="pineFeatured" class="pine-catalog"></div><div id="pineBuiltins" class="pine-catalog"></div>';
   const items=await current().availableNativeIndicators();if(revision!==generation)return;
-  const render=()=>{const q=dialog.querySelector('#pineLibrarySearch').value.toLowerCase();const featured=[];if("cleo's liquidity".includes(q))featured.push('<button id="pineCleo"><span class="pine-feature-copy">Cleo\'s Liquidity<small>Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');if("taper's volume".includes(q)||'volume'.includes(q))featured.push('<button id="pineTaper"><span class="pine-feature-copy">Taper\'s Volume<small>Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');dialog.querySelector('#pineFeatured').innerHTML=featured.join('');const cleo=dialog.querySelector('#pineCleo');if(cleo)cleo.onclick=()=>loadExample('/pine-examples/cleos-liquidity.pine',true);const taper=dialog.querySelector('#pineTaper');if(taper)taper.onclick=()=>loadExample('/pine-examples/taper-volume.pine',true);dialog.querySelector('#pineBuiltins').innerHTML=items.filter(i=>i.supported&&i.title.toLowerCase().includes(q)).map(i=>`<button data-native="${esc(i.type)}">${esc(i.title)}<span>Add</span></button>`).join('');dialog.querySelectorAll('[data-native]').forEach(b=>b.onclick=()=>{context.addNativeIndicator(b.dataset.native);renderOnChart();});};
+  const render=()=>{const q=dialog.querySelector('#pineLibrarySearch').value.toLowerCase();const featured=[];if('agentic - elliot waves elliott wave premium'.includes(q))featured.push('<button id="pineElliot"><span class="pine-feature-copy">Agentic - Elliot Waves<small>Daily → 1m · Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');if("cleo's liquidity".includes(q))featured.push('<button id="pineCleo"><span class="pine-feature-copy">Cleo\'s Liquidity<small>Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');if("taper's volume".includes(q)||'volume'.includes(q))featured.push('<button id="pineTaper"><span class="pine-feature-copy">Taper\'s Volume<small>Open &amp; test</small></span><span class="pine-premium-badge">Premium</span></button>');dialog.querySelector('#pineFeatured').innerHTML=featured.join('');const elliot=dialog.querySelector('#pineElliot');if(elliot)elliot.onclick=()=>loadExample('/pine-examples/agentic-elliot-waves.pine',true);const cleo=dialog.querySelector('#pineCleo');if(cleo)cleo.onclick=()=>loadExample('/pine-examples/cleos-liquidity.pine',true);const taper=dialog.querySelector('#pineTaper');if(taper)taper.onclick=()=>loadExample('/pine-examples/taper-volume.pine',true);dialog.querySelector('#pineBuiltins').innerHTML=items.filter(i=>i.supported&&i.title.toLowerCase().includes(q)).map(i=>`<button data-native="${esc(i.type)}">${esc(i.title)}<span>Add</span></button>`).join('');dialog.querySelectorAll('[data-native]').forEach(b=>b.onclick=()=>{context.addNativeIndicator(b.dataset.native);renderOnChart();});};
   dialog.querySelector('#pineLibrarySearch').oninput=render;render();renderOnChart();
  }
  if(tab==='saved'){
