@@ -791,11 +791,17 @@ agenticRow(table panel,int row,string frame,string packet,int cutoff,float after
     if f_liveValid(live,afterHigh,afterLow)
         array.push(history,live)
     [history,swings]
-var table agenticPanel=table.new(agenticPosition=="Top right"?position.top_right:agenticPosition=="Bottom right"?position.bottom_right:agenticPosition=="Top left"?position.top_left:position.bottom_left,5,9,bgcolor=color.new(color.rgb(19,23,34),8),frame_color=color.new(coreInk,60),frame_width=1)
-var bool agenticPanelReady=true
+f_agenticPosition(string s) =>
+    s=="Top right"?position.top_right:s=="Bottom right"?position.bottom_right:s=="Top left"?position.top_left:position.bottom_left
+var table agenticPanel=na
+var string agenticPanelPosition=""
+var bool agenticPanelReady=false
 if agenticSummary
-    if not agenticPanelReady
-        agenticPanel := table.new(agenticPosition=="Top right"?position.top_right:agenticPosition=="Bottom right"?position.bottom_right:agenticPosition=="Top left"?position.top_left:position.bottom_left,5,9,bgcolor=color.new(color.rgb(19,23,34),8),frame_color=color.new(coreInk,60),frame_width=1)
+    if not agenticPanelReady or agenticPanelPosition!=agenticPosition
+        if agenticPanelReady
+            table.delete(agenticPanel)
+        agenticPanel := table.new(f_agenticPosition(agenticPosition),5,9,bgcolor=color.new(color.rgb(19,23,34),8),frame_color=color.new(coreInk,60),frame_width=1)
+        agenticPanelPosition := agenticPosition
         agenticPanelReady := true
     [agP0,agC0,agT0,agF0,agH0,agL0]=request.security(sourceId,"1D",f_capture(coreStrength),lookahead=timeframe.in_seconds("1D")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
     [agP1,agC1,agT1,agF1,agH1,agL1]=request.security(sourceId,"240",f_capture(coreStrength),lookahead=timeframe.in_seconds("240")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)

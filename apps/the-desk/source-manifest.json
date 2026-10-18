@@ -13,7 +13,7 @@
     "path": "integrations/open-source/trade-journal",
     "license": "MIT",
     "source_repository_commit_at_import": "e75d1af508f53841a0340f92de6d42c30c638802",
-    "bridge_route_sha256": "799657b9d97dce61fcd181ce60b65a2e0280e63948c57e7f0c605ce5f201f393"
+    "bridge_route_sha256": "ce7a81068644cd92595b8182f016082256db67c8aca560d401bc00e8fa0638cf"
   },
   "sma_study": {
     "source": "count-dashboard/web/quant-backtest.mjs",
@@ -21,7 +21,7 @@
   },
   "agentic_elliot_waves": {
     "original_sha256": "0772f65205220e8fbc758894c241750301e5487ad45c7cf14c4588cfb154f65f",
-    "source_sha256": "3ee083623e67b1ad1dbafcff10cc6b070344d00f1cffb390cff3ca5234f98f40",
+    "source_sha256": "18fb375e87622ad6cb769dbbc561bd2b667cb7bb9cd9378af99ac58d6df2ba35",
     "source": "web/pine-examples/agentic-elliot-waves.pine",
     "parity": "Original Pine body preserved except indicator title; optional companion panel appended. Same-engine parity tested. TradingView matching-data parity pending."
   }

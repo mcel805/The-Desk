@@ -10,6 +10,7 @@ import {sourceHash} from '../web/pine-validation.mjs';
 installNestedSecurity();
 const original=await fs.readFile(new URL('../web/pine-examples/agentic-elliot-waves-original.pine',import.meta.url),'utf8');
 const source=await fs.readFile(new URL('../web/pine-examples/agentic-elliot-waves.pine',import.meta.url),'utf8');
+const journalBridge=await fs.readFile(new URL('../../../count-dashboard/paper_journal_bridge.py',import.meta.url));
 const manifest=JSON.parse(await fs.readFile(new URL('../source-manifest.json',import.meta.url),'utf8'));
 const end=Date.UTC(2026,9,17),duration=tf=>({D:1440,'1D':1440,'1W':10080,'240':240,'60':60,'30':30,'15':15,'5':5,'1':1}[tf])*60000;
 function fixture(tf,n=600){return Array.from({length:n},(_,i)=>{const time=end-(n-i)*duration(tf),p=51000+800*Math.sin(i/20)+250*Math.sin(i/4);return {time,open:p,high:p+30,low:p-30,close:p+10,volume:100};});}
@@ -31,6 +32,7 @@ test('source manifest consumes the final named source fingerprint',async()=>{
  assert.equal(manifest.agentic_elliot_waves.source,'web/pine-examples/agentic-elliot-waves.pine');
  assert.equal(manifest.agentic_elliot_waves.source_sha256,await sourceHash(source));
  assert.equal(manifest.agentic_elliot_waves.original_sha256,await sourceHash(original));
+ assert.equal(manifest.journal.bridge_route_sha256,createHash('sha256').update(journalBridge).digest('hex'));
 });
 test('generic UDT arrays preserve na instead of introducing false zero counts',async()=>{
  const result=await run('//@version=6\nindicator("NA array")\ntype C\n    int n=2\narray<C> a=array.new<C>(3,na)\narray.set(a,1,C.new(4))\nint found=0\nfor c in a\n    if not na(c)\n        found+=c.n\nplot(found,"Count")');
