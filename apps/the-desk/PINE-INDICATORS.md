@@ -52,6 +52,11 @@ Vela's installed repository source/dependencies are required by `build-vendor.mj
 See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension. All other Pine sources retain the existing worker.
 
 
+## Agentic - Elliot Waves · Premium
+
+A source-preserving Wave Court Nested Waves 4.1 port is available from the indicator catalog. See [the feature guide](AGENTIC-ELLIOT-WAVES.md) for the optional Daily-to-1m Elliott bias/count/projection panel, original-source provenance, host compatibility fixes and parity evidence boundaries.
+
+
 ## Agentic - Liquidity · Premium
 
 The standalone supplied Liquidity + Bridge source is available in the indicator catalog with all 72 original inputs and a name-only port. See [the feature guide](AGENTIC-LIQUIDITY.md) for preserved display behavior, source fingerprints, bridge/structure feeds, browser acceptance and matching-MYM TradingView parity boundaries.

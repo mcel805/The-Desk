@@ -19,6 +19,12 @@
     "source": "count-dashboard/web/quant-backtest.mjs",
     "sha256": "b561fdc58d48cff97151013c18088a80f7e75bea8742ef86c447bb9895cbff07"
   },
+  "agentic_elliot_waves": {
+    "original_sha256": "0772f65205220e8fbc758894c241750301e5487ad45c7cf14c4588cfb154f65f",
+    "source_sha256": "18fb375e87622ad6cb769dbbc561bd2b667cb7bb9cd9378af99ac58d6df2ba35",
+    "source": "web/pine-examples/agentic-elliot-waves.pine",
+    "parity": "Original Pine body preserved except indicator title; optional companion panel appended. Same-engine parity tested. TradingView matching-data parity pending."
+  },
   "agentic_liquidity": {
     "original_sha256": "40139ef8dd660366e8471413bcc7a584acc826d5d68caa4f9f493c61a2af91bf",
     "source_sha256": "f66dc3f2158886070dc1c4d1d61a8d8a8e165ca222816fee826b5c95eef220fd",
