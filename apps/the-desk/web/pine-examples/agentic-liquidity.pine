@@ -14,7 +14,7 @@ indicator("Agentic - Liquidity", "Agentic - Liquidity", overlay=true, dynamic_re
 string G="01 · Source pools"
 bool standardSource=input.bool(true,"Standard OHLC source",group=G)
 bool useD=input.bool(false,"Daily pools",group=G)
-bool use15=input.bool(false,"15M pools",group=G)
+bool use15=input.bool(true,"15M pools",group=G)
 bool use5=input.bool(false,"5M pools",group=G)
 bool useM=input.bool(false,"1M pools",group=G)
 string tfD=input.timeframe("1D","Daily source",group=G)
@@ -44,8 +44,8 @@ string D="02 · Appearance"
 color highColor=input.color(#aa2430,"High pools · red",group=D,inline="colors")
 color lowColor=input.color(#66bb6a,"Low pools · green",group=D,inline="colors")
 int alpha=input.int(12,"Active line transparency",minval=0,maxval=95,group=D)
-string strokeInput=input.string("Dotted","Active line style",options=["Solid","Dashed","Dotted"],group=D,inline="line")
-int lineWidth=input.int(1,"Width",minval=1,maxval=3,group=D,inline="line")
+string strokeInput=input.string("Dotted","Active line style",options=["Solid","Dashed","Dotted"],group=D,inline="line",tooltip="Original view only. Clean view always uses solid 2-pixel active lines.")
+int lineWidth=input.int(1,"Width",minval=1,maxval=3,group=D,inline="line",tooltip="Original view only. Clean view always uses solid 2-pixel active lines.")
 bool showBands=input.bool(true,"Highlight a band along each level",group=D)
 string bandMode=input.string("Percent","Band thickness units",options=["Percent","Ticks"],group=D)
 float bandPercent=input.float(0.07,"Band thickness %",minval=0.001,maxval=2,step=0.01,group=D,tooltip="Visual padding only, not a detected zone boundary or a stop distance. High-pool bands sit above the exact level; low-pool bands below it.")
@@ -89,6 +89,26 @@ bool keepSweptSmall=input.bool(true,"Keep swept small zones as history",group=S,
 bool useLiveStrength=input.bool(true,"Style active lines by live pool strength",group=S)
 int strengthTicks=input.int(12,"Maximum pool distance from line · ticks",minval=0,maxval=500,group=S,tooltip="Counts distinct unswept chart-timeframe swings on the SAME side within this exact price distance. No chaining. Each pivot counts once for a line; nearby lines can share evidence.")
 float strengthHalf=input.float(3,"Pools for strength 50 / 100",minval=1,maxval=30,step=1,group=S,tooltip="Strength = 100 × count / (count + this setting). More unswept pools always increase the value. This is a descriptive concentration score, not measured order size or reversal probability.")
+// Clean presentation changes drawing only; source selection, consumption and alerts remain separate.
+string V="05 · Clean display"
+string displayView=input.string("Clean","Chart presentation",options=["Clean","Original"],group=V)
+bool cleanView=displayView=="Clean"
+float cleanMergePercent=input.float(0.03,"Convergence distance %",minval=0,maxval=0.5,step=0.005,group=V,tooltip="Same-side source levels form a pocket only when their entire price span fits within the larger of this percentage or Maximum cluster span ticks. No chaining across distant levels.")
+int cleanZoneLimit=input.int(12,"Nearest active pockets / levels",minval=2,maxval=24,group=V)
+bool cleanTags=input.bool(true,"Show timeframe and strength badges",group=V)
+int cleanLabelLimit=input.int(8,"Maximum strength badges",minval=1,maxval=16,group=V)
+int cleanSmallLimit=input.int(14,"Standalone unswept small zones",minval=0,maxval=40,group=V,tooltip="Small pools near a main level are absorbed into its shared pocket and counted once. Only the nearest remaining unswept small pools get their own subtle strips.")
+bool cleanHistory=input.bool(false,"Show faint consumed main-line history",group=V)
+float cleanApproachPercent=input.float(0.5,"Price-buildup corridor %",minval=0,maxval=3,step=0.05,group=V,tooltip="Confirmed lower highs can build outer resistance; higher lows can build outer support. Only newer same-side swings inside this fixed price distance qualify. No elapsed-time bonus, recursive chaining or merging of separate source lines.")
+float cleanBuildHalf=input.float(1,"Buildup evidence for 50 / 100",minval=0.25,maxval=20,step=0.25,group=V,tooltip="Buildup = 100 × evidence / (evidence + this value). Each distinct chart swing contributes 1 unit; a separate confirmed main-source swing contributes 3 units. Duplicate timeframes on one swing do not multiply that swing. Swept pools contribute zero.")
+float cleanBuildWeight=input.float(70,"Price buildup weight %",minval=0,maxval=100,step=5,group=V,tooltip="Default score = 70% price-driven buildup + 30% timeframe convergence. Price structure is dominant. A score describes chart evidence, not resting order size or reversal probability.")
+string R="06 · 5M reference pockets"
+bool showReference5=input.bool(true,"Show yellow 5M pockets on 1M–5M charts",group=R,tooltip="Supplemental confirmed 5-minute swing pools only. Visible on 1/2/3/4/5-minute charts, hidden above 5 minutes. Independent of the main 5M source switch, bridge, alerts and strength score. Swept pockets disappear.")
+int reference5Len=input.int(4,"5M reference pivot left / right bars",minval=1,maxval=12,group=R)
+int reference5Limit=input.int(16,"Maximum yellow reference pockets",minval=1,maxval=30,group=R)
+int reference5Width=input.int(4,"Pocket length · 5M bars",minval=1,maxval=8,group=R)
+color reference5Color=input.color(#f6c445,"Reference pocket color",group=R)
+bool reference5Chart=showReference5 and timeframe.in_seconds(timeframe.main_period)>=60 and timeframe.in_seconds(timeframe.main_period)<=300
 if barstate.isfirst and (not chart.is_standard or na(timeframe.in_seconds()) or timeframe.in_seconds()<60)
     runtime.error("Use standard time-based candles of at least one minute.")
 if barstate.isfirst and not(useD or use4 or use1 or use30 or use15 or use5 or useM)
@@ -364,6 +384,69 @@ f_rankPush(array<float> prices,float value,bool support) =>
     true
 f_priceAt(array<float> prices,int index) =>
     array.size(prices)>index?array.get(prices,index):na
+// Fixed 5M supplemental ledger. It never enters the scored main-pool ledger.
+type Reference5Pool
+    int origin
+    int born
+    float price
+    int side
+    bool taken = false
+f_reference5Key(Reference5Pool p) => str.tostring(p.origin)+":"+str.tostring(p.side)
+f_reference5Pack(array<Reference5Pool> pools) =>
+    string packet=""
+    for p in pools
+        if not p.taken
+            packet+=(packet==""?"":";")+str.tostring(p.origin)+","+str.tostring(p.born)+","+str.tostring(p.price)+","+str.tostring(p.side)
+    packet
+f_reference5Closed() =>
+    var array<Reference5Pool> pools=array.new<Reference5Pool>()
+    float pivotHigh=ta.pivothigh(high,reference5Len,reference5Len)
+    float pivotLow=ta.pivotlow(low,reference5Len,reference5Len)
+    if array.size(pools)>0
+        for i=array.size(pools)-1 to 0
+            Reference5Pool p=array.get(pools,i)
+            if p.side==1?high>=p.price:low<=p.price
+                array.remove(pools,i)
+    if not na(pivotHigh)
+        array.push(pools,Reference5Pool.new(time[reference5Len],time_close,pivotHigh,1))
+    if not na(pivotLow)
+        array.push(pools,Reference5Pool.new(time[reference5Len],time_close,pivotLow,-1))
+    while array.size(pools)>120
+        array.shift(pools)
+    string packet=f_reference5Pack(pools)
+    packet[1]
+f_reference5Minute() =>
+    string sourcePacket=request.security(sourceId,"5",f_reference5Closed(),lookahead=barmerge.lookahead_on,calc_bars_count=sourceBars)
+    var string previous=""
+    var array<Reference5Pool> pools=array.new<Reference5Pool>()
+    var map<string,bool> swept=map.new<string,bool>()
+    string incoming=na(sourcePacket)?"":sourcePacket
+    bool changed=incoming!=previous
+    if changed
+        array.clear(pools)
+        map<string,bool> retained=map.new<string,bool>()
+        if str.length(incoming)>0
+            for record in str.split(incoming,";")
+                array<string> fields=str.split(record,",")
+                if array.size(fields)==4
+                    Reference5Pool p=Reference5Pool.new(int(f_num(fields,0)),int(f_num(fields,1)),f_num(fields,2),int(f_num(fields,3)))
+                    string key=f_reference5Key(p)
+                    p.taken:=map.contains(swept,key)
+                    if p.taken
+                        map.put(retained,key,true)
+                    array.push(pools,p)
+        swept:=retained
+        previous:=incoming
+    for p in pools
+        // Canonical minute wicks remove a touched reference on every entry TF.
+        if not p.taken and time>=p.born and (p.side==1?high>=p.price:low<=p.price)
+            p.taken:=true
+            map.put(swept,f_reference5Key(p),true)
+            changed:=true
+    var string packet=""
+    if changed
+        packet:=f_reference5Pack(pools)
+    packet
 f_masterPools() =>
     float swingLow=ta.pivotlow(low,structureLen,structureLen)
     float swingHigh=ta.pivothigh(high,structureLen,structureLen)
@@ -533,7 +616,7 @@ f_masterPools() =>
         for p in raw
             string key=f_poolKey(p)
             int touch=map.contains(firstTouches,key)?map.get(firstTouches,key):0
-            packet+=(packet==""?"":";")+str.tostring(p.t)+","+str.tostring(p.p)+","+str.tostring(p.tf)+","+(p.taken?"1":"0")+","+str.tostring(p.takenAt)+","+str.tostring(p.breakStatus)+","+str.tostring(touch)+","+str.tostring(p.side)
+            packet+=(packet==""?"":";")+str.tostring(p.t)+","+str.tostring(p.p)+","+str.tostring(p.tf)+","+(p.taken?"1":"0")+","+str.tostring(p.takenAt)+","+str.tostring(p.breakStatus)+","+str.tostring(touch)+","+str.tostring(p.side)+","+str.tostring(p.born)
     if showPockets and emitPacket
         zones:=f_packZones(cachedZones)
     [f_priceAt(supports,0),f_priceAt(supports,1),f_priceAt(supports,2),f_priceAt(resistances,0),f_priceAt(resistances,1),f_priceAt(resistances,2),packet,zones,reachedSupport,reachedResistance,breakDownInMain,breakUpInMain,lastBreakDown,lastBreakUp,lastBreakDownTarget,lastBreakUpTarget,warnDown,warnUp]
@@ -594,6 +677,10 @@ if barstate.isconfirmed
 
 // Minute ledger retains 1M consumption even on 2/3/5-minute entry charts.
 [s1,s2,s3,r1,r2,r3,rawPacket,zonePacket,reachedS,reachedR,structureBreakDown,structureBreakUp,brokenStructureDown,brokenStructureUp,breakTargetDown,breakTargetUp,preLiquidityDown,preLiquidityUp]=request.security(sourceId,"1",f_masterPools(),lookahead=barmerge.lookahead_off,calc_bars_count=masterBars)
+// Gate at chart level, before entering the canonical-minute reference context.
+string reference5Packet=""
+if reference5Chart
+    reference5Packet:=request.security(sourceId,"1",f_reference5Minute(),lookahead=barmerge.lookahead_off,calc_bars_count=masterBars)
 // Offset at CHART level, not minute level: pre-touch candidates remain stable
 // for the entire current entry candle on each of 1/2/3/5 minutes.
 plot(s1[1],"Rider HTF support",display=display.data_window)
@@ -636,6 +723,149 @@ f_frameTag(int id) =>
     id==0?"D":id==1?"4H":id==2?"1H":id==3?"30m":id==4?"15m":id==5?"5m":"1m"
 f_activeStroke() =>
     strokeInput=="Solid"?line.style_solid:strokeInput=="Dashed"?line.style_dashed:line.style_dotted
+
+// Clean groups preserve every exact source price. Only shared shading and badges merge.
+type CleanGroup
+    float lo
+    float hi
+    int side
+    int mask = 0
+    float weight = 0
+    int born = 0
+    int firstBorn = 0
+    int firstOrigin = 0
+    int ladderCount = 0
+    float ladderUnits = 0
+    int sourceCount = 0
+    int smallCount = 0
+    float smallUnits = 0
+    float zoneLo = na
+    float zoneHi = na
+    array<Pool> levels = na
+
+f_cleanTolerance(float price) => math.max(clusterTicks*tick,math.abs(price)*cleanMergePercent/100)
+f_cleanConvergence(int mask,float weight) =>
+    int contributors=0
+    for id=0 to 6
+        if f_has(mask,id) and f_weight(id)>0
+            contributors+=1
+    math.min(100.0,25.0*contributors+25.0*weight/(weight+math.max(weight1,0.000001)))
+f_cleanBuild(float units,int repeats) =>
+    float evidence=units+repeats
+    100.0*evidence/(evidence+cleanBuildHalf)
+f_cleanScore(float convergence,float buildup) =>
+    convergence*(1-cleanBuildWeight/100)+buildup*cleanBuildWeight/100
+f_cleanApproach(CleanGroup g,float price,int confirmedAt,int origin) =>
+    float gap=g.side==1?g.lo-price:price-g.hi
+    gap>f_cleanTolerance((g.lo+g.hi)/2) and gap<=math.max(tick,math.abs(g.lo)*cleanApproachPercent/100) and confirmedAt>=g.firstBorn and origin>g.firstBorn
+f_cleanFrames(int mask) =>
+    string frameText=""
+    for id=0 to 6
+        if f_has(mask,id)
+            string frame=id==0?tfD:id==1?tf4:id==2?tf1:id==3?tf30:id==4?tf15:id==5?tf5:"1"
+            frameText+=(frameText==""?"":"+")+frame
+    frameText
+f_cleanGroups(array<Pool> active) =>
+    f_sortPools(active)
+    array<CleanGroup> groups=array.new<CleanGroup>()
+    int i=0
+    while i<array.size(active)
+        Pool first=array.get(active,i)
+        CleanGroup g=CleanGroup.new(first.p,first.p,first.side)
+        g.levels:=array.new<Pool>()
+        g.born:=first.born
+        g.firstBorn:=first.born
+        g.firstOrigin:=first.t
+        float span=f_cleanTolerance(first.p)
+        int j=i
+        while j<array.size(active)
+            Pool next=array.get(active,j)
+            if next.side!=first.side or next.p-g.lo>span+tick*0.000001
+                break
+            g.hi:=next.p
+            g.born:=math.max(g.born,next.born)
+            g.firstBorn:=math.min(g.firstBorn,next.born)
+            g.firstOrigin:=math.min(g.firstOrigin,next.t)
+            g.sourceCount+=1
+            if not f_has(g.mask,next.tf)
+                g.mask+=f_bit(next.tf)
+                g.weight+=f_weight(next.tf)
+            array.push(g.levels,next)
+            j+=1
+        g.zoneLo:=g.lo
+        g.zoneHi:=g.hi
+        array.push(groups,g)
+        i:=j
+    groups
+f_cleanAssign(array<CleanGroup> groups,array<SmallPool> smalls,int asOf) =>
+    array<bool> matched=array.new<bool>(array.size(smalls),false)
+    if array.size(smalls)>0 and array.size(groups)>0
+        for i=0 to array.size(smalls)-1
+            SmallPool p=array.get(smalls,i)
+            int best=-1
+            float bestDistance=na
+            bool bestNear=false
+            for j=0 to array.size(groups)-1
+                CleanGroup g=array.get(groups,j)
+                float mid=(g.lo+g.hi)/2
+                float gap=math.max(0.0,math.max(g.lo-p.price,p.price-g.hi))
+                float distance=math.abs(p.price-mid)
+                bool near=gap<=math.max(strengthTicks*tick,f_cleanTolerance(mid))+tick*0.000001
+                bool approach=f_cleanApproach(g,p.price,p.confirmedAt,p.origin)
+                if not p.swept and p.confirmedAt<=asOf and p.side==g.side and (near or approach) and (best<0 or distance<bestDistance)
+                    best:=j
+                    bestDistance:=distance
+                    bestNear:=near
+            if best>=0
+                CleanGroup g=array.get(groups,best)
+                bool duplicate=false
+                for level in g.levels
+                    if level.t==p.origin and math.abs(level.p-p.price)<=tick*0.5
+                        duplicate:=true
+                g.smallCount+=1
+                if not duplicate
+                    g.smallUnits+=1
+                // Only near-line pools expand the shared band. Interior buildup
+                // stays visible at its actual swing, rather than filling the gap.
+                if bestNear
+                    g.zoneLo:=math.min(g.zoneLo,p.price)
+                    g.zoneHi:=math.max(g.zoneHi,p.price)
+                    array.set(matched,i,true)
+    matched
+f_cleanLadder(array<CleanGroup> groups,int asOf) =>
+    if array.size(groups)>1
+        for child in groups
+            for parent in groups
+                bool eligible=false
+                if parent.side==child.side
+                    for level in child.levels
+                        // Any fully confirmed qualifying swing establishes the
+                        // child pocket. An older or pending TF cannot erase it.
+                        if level.born<=asOf and f_cleanApproach(parent,level.p,level.born,level.t)
+                            eligible:=true
+                if eligible
+                    parent.ladderCount+=1
+                    // One raw child swing per outer target. Never transfer a
+                    // child's accumulated score or recursively copy its ladder.
+                    parent.ladderUnits+=3
+    array.size(groups)
+f_cleanRank(array<CleanGroup> groups,float price) =>
+    array<CleanGroup> ranked=array.copy(groups)
+    if array.size(ranked)>1
+        for i=1 to array.size(ranked)-1
+            CleanGroup key=array.get(ranked,i)
+            float distance=math.abs((key.lo+key.hi)/2-price)
+            int j=i-1
+            while j>=0
+                CleanGroup prior=array.get(ranked,j)
+                if math.abs((prior.lo+prior.hi)/2-price)<=distance
+                    break
+                array.set(ranked,j+1,prior)
+                j-=1
+            array.set(ranked,j+1,key)
+    ranked
+float cleanAtr=ta.atr(14)
+
 var array<line> smallLines=array.new<line>()
 var array<linefill> smallFills=array.new<linefill>()
 var array<box> pockets=array.new<box>()
@@ -643,7 +873,7 @@ var array<line> lines=array.new<line>()
 var array<label> labels=array.new<label>()
 var line structureDownLine=na
 var line structureUpLine=na
-if barstate.islastconfirmedhistory or barstate.islast
+if not cleanView and (barstate.islastconfirmedhistory or barstate.islast)
     for l in lines
         line.delete(l)
     for l in labels
@@ -662,7 +892,7 @@ if barstate.islastconfirmedhistory or barstate.islast
         int rightAt=time_close+rightBars*chartMs
         for record in records
             array<string> v=str.split(record,",")
-            if array.size(v)==8 and count<shown
+            if array.size(v)>=8 and count<shown
                 int origin=int(f_num(v,0))
                 float price=f_num(v,1)
                 int id=int(f_num(v,2))
@@ -729,7 +959,7 @@ if barstate.islastconfirmedhistory or barstate.islast
 
 // Two short dotted borders plus linefill reproduce the published pool strips.
 // No labels or plotshapes are created for small pools, including history.
-if barstate.islastconfirmedhistory or barstate.islast
+if not cleanView and (barstate.islastconfirmedhistory or barstate.islast)
     for f in smallFills
         linefill.delete(f)
     for l in smallLines
@@ -749,6 +979,150 @@ if barstate.islastconfirmedhistory or barstate.islast
             array.push(smallLines,outer)
             array.push(smallFills,linefill.new(outer,inner,smallInk))
 
+// A bounded last-bar presentation pass; no clean-view data feeds back into the minute ledger.
+if cleanView and (barstate.islastconfirmedhistory or barstate.islast)
+    for l in lines
+        line.delete(l)
+    for l in labels
+        label.delete(l)
+    for b in pockets
+        box.delete(b)
+    array.clear(lines)
+    array.clear(labels)
+    array.clear(pockets)
+    array<Pool> active=array.new<Pool>()
+    array<Pool> retiredPools=array.new<Pool>()
+    if not na(rawPacket) and str.length(rawPacket)>0
+        for record in str.split(rawPacket,";")
+            array<string> v=str.split(record,",")
+            if array.size(v)>=8
+                int origin=int(f_num(v,0))
+                bool retired=f_num(v,3)==1 or f_num(v,6)>0
+                int born=array.size(v)>8?int(f_num(v,8)):origin
+                Pool p=Pool.new(origin,born,f_num(v,1),int(f_num(v,7)),int(f_num(v,2)),"",0,retired)
+                p.takenAt:=int(f_num(v,4))>0?int(f_num(v,4)):int(f_num(v,6))
+                p.breakStatus:=int(f_num(v,5))
+                if retired
+                    array.push(retiredPools,p)
+                else
+                    array.push(active,p)
+    array<CleanGroup> groups=f_cleanGroups(active)
+    array<bool> matched=f_cleanAssign(groups,smallPools,int(math.min(timenow,time_close)))
+    f_cleanLadder(groups,int(math.min(timenow,time_close)))
+    array<CleanGroup> ranked=f_cleanRank(groups,close)
+    int chartMs=int(timeframe.in_seconds()*1000)
+    int rightAt=time_close+rightBars*chartMs
+    int displayed=0
+    int lineCount=0
+    int badgeCount=0
+    array<CleanGroup> visibleGroups=array.new<CleanGroup>()
+    for g in ranked
+        if displayed>=cleanZoneLimit or lineCount>=shown
+            break
+        int members=f_members(g.mask)
+        int repeats=math.max(0,g.sourceCount-members)
+        float convergence=f_cleanConvergence(g.mask,g.weight)
+        float buildup=f_cleanBuild(g.smallUnits+g.ladderUnits,repeats)
+        float score=f_cleanScore(convergence,buildup)
+        color base=g.side==1?highColor:lowColor
+        float mid=(g.lo+g.hi)/2
+        float totalWeight=(useD?weightD:0)+(use4?weight4:0)+(use1?weight1:0)+(use30?weight30:0)+(use15?weight15:0)+(use5?weight5:0)+(useM?weightM:0)
+        float weightPercent=totalWeight>0?100*g.weight/totalWeight:0
+        bool qualifying=members>=minFrames and weightPercent>=minStrength and (not requireHTF or f_has(g.mask,0) or f_has(g.mask,1))
+        if (showPockets and qualifying) or (showBands and g.smallCount>0)
+            float pad=math.max(pocketDepth*tick,f_bandDepth(mid))
+            float top=g.zoneHi+(g.side==1?pad:0)
+            float bottom=g.zoneLo-(g.side==-1?pad:0)
+            box area=box.new(g.born,top,rightAt,bottom,xloc=xloc.bar_time,border_color=color.new(base,qualifying?55:80),border_width=1,bgcolor=color.new(base,int(math.round(92-score*0.4))))
+            array.push(pockets,area)
+        float priorPrice=na
+        for p in g.levels
+            if lineCount>=shown
+                break
+            if na(priorPrice) or math.abs(p.p-priorPrice)>tick*0.5
+                int drawOrigin=p.t
+                for contributor in g.levels
+                    if math.abs(contributor.p-p.p)<=tick*0.5
+                        drawOrigin:=math.min(drawOrigin,contributor.t)
+                line level=line.new(drawOrigin,p.p,rightAt,p.p,xloc=xloc.bar_time,color=color.new(base,8),width=2,style=line.style_solid)
+                array.push(lines,level)
+                priorPrice:=p.p
+                lineCount+=1
+        array.push(visibleGroups,g)
+        displayed+=1
+    // Multi-frame badges get first claim on space; a nearby weak single source cannot hide convergence.
+    for badgePass=0 to 1
+        for g in visibleGroups
+            int members=f_members(g.mask)
+            bool priority=badgePass==0?members>=2:members==1
+            float mid=(g.lo+g.hi)/2
+            if cleanTags and priority and badgeCount<cleanLabelLimit
+                int repeats=math.max(0,g.sourceCount-members)
+                float convergence=f_cleanConvergence(g.mask,g.weight)
+                float buildup=f_cleanBuild(g.smallUnits+g.ladderUnits,repeats)
+                float score=f_cleanScore(convergence,buildup)
+                color base=g.side==1?highColor:lowColor
+                string frames=f_cleanFrames(g.mask)
+                string badgeText=frames+" · "+str.tostring(score,"#")+"/100"
+                string tip="Active "+(g.side==1?"high":"low")+" liquidity. Source frames: "+frames+". Exact source-price span "+str.tostring(g.lo,format.mintick)+" to "+str.tostring(g.hi,format.mintick)+". Convergence "+str.tostring(convergence,"#")+"/100; price buildup "+str.tostring(buildup,"#")+"/100. Total = "+str.tostring(cleanBuildWeight,"#")+"% price buildup + "+str.tostring(100-cleanBuildWeight,"#")+"% convergence. "+str.tostring(g.ladderCount)+" confirmed inner main swings (3 evidence units each), "+str.tostring(g.smallCount)+" assigned unswept chart swings (1 unit each, source duplicates excluded), plus "+str.tostring(repeats)+" repeated source pivots. Newer lower highs build outer resistance; newer higher lows build outer support within the configured price corridor. No time bonus or recursive score transfer. Swept pools contribute zero. Descriptive chart evidence, not measured resting orders or a success probability. Exact source lines remain separate."
+                label badge=label.new(rightAt,mid,badgeText,xloc=xloc.bar_time,style=label.style_label_right,color=color.new(base,35),textcolor=color.white,size=10,tooltip=tip)
+                array.push(labels,badge)
+                badgeCount+=1
+    // Unassociated small pools remain quiet; associated pools already belong to one shared pocket.
+    array<int> smallOrder=array.new<int>()
+    if array.size(smallPools)>0
+        for i=0 to array.size(smallPools)-1
+            SmallPool p=array.get(smallPools,i)
+            if not p.swept and not array.get(matched,i)
+                int at=array.size(smallOrder)
+                if at>0
+                    for k=0 to at-1
+                        SmallPool prior=array.get(smallPools,array.get(smallOrder,k))
+                        if math.abs(p.price-close)<math.abs(prior.price-close)
+                            at:=k
+                            break
+                array.insert(smallOrder,at,i)
+    if showSmallPools and not reference5Chart and cleanSmallLimit>0 and array.size(smallOrder)>0
+        for n=0 to math.min(cleanSmallLimit,array.size(smallOrder))-1
+            SmallPool p=array.get(smallPools,array.get(smallOrder,n))
+            float depth=math.max(tick,math.min(math.abs(p.outer-p.price),math.max(tick,nz(cleanAtr)*0.12)))
+            color base=p.side==1?highColor:lowColor
+            box small=box.new(p.origin,p.price+(p.side==1?depth:0),p.stripEnd,p.price-(p.side==-1?depth:0),xloc=xloc.bar_time,border_color=na,bgcolor=color.new(base,78))
+            array.push(pockets,small)
+    if cleanHistory and showRetired and array.size(retiredPools)>0
+        f_sortPools(retiredPools)
+        int historyCount=0
+        for p in retiredPools
+            if historyCount>=8
+                break
+            if p.takenAt>p.t
+                line history=line.new(p.t,p.p,p.takenAt,p.p,xloc=xloc.bar_time,color=color.new(color.white,82),width=1,style=p.breakStatus==1?line.style_dashed:line.style_dotted)
+                array.push(lines,history)
+                historyCount+=1
+
+// Compact yellow source-anchored pockets, never full-width main lines or badges.
+if barstate.islast and reference5Chart and str.length(reference5Packet)>0
+    array<Reference5Pool> referenceOrder=array.new<Reference5Pool>()
+    for record in str.split(reference5Packet,";")
+        array<string> fields=str.split(record,",")
+        if array.size(fields)==4
+            Reference5Pool p=Reference5Pool.new(int(f_num(fields,0)),int(f_num(fields,1)),f_num(fields,2),int(f_num(fields,3)))
+            int at=array.size(referenceOrder)
+            if at>0
+                for k=0 to at-1
+                    Reference5Pool prior=array.get(referenceOrder,k)
+                    if math.abs(p.price-close)<math.abs(prior.price-close)
+                        at:=k
+                        break
+            array.insert(referenceOrder,at,p)
+    if array.size(referenceOrder)>0
+        for i=0 to math.min(reference5Limit,array.size(referenceOrder))-1
+            Reference5Pool p=array.get(referenceOrder,i)
+            float depth=math.max(tick,math.abs(p.price)*0.0001)
+            int right=math.min(p.origin+reference5Width*300000,p.born)
+            box pocket=box.new(p.origin,p.price+(p.side==1?depth:0),right,p.price-(p.side==-1?depth:0),xloc=xloc.bar_time,border_color=color.new(reference5Color,10),border_width=1,border_style=line.style_solid,bgcolor=color.new(reference5Color,94))
+            array.push(pockets,pocket)
+
 if barstate.islast
     int structureRight=time_close+rightBars*int(timeframe.in_seconds()*1000)
     if showStructureAlerts and not na(preLiquidityDown)
@@ -758,6 +1132,9 @@ if barstate.islast
             line.set_xy1(structureDownLine,time,preLiquidityDown)
             line.set_xy2(structureDownLine,structureRight,preLiquidityDown)
             line.set_color(structureDownLine,color.white)
+        if cleanView and cleanTags
+            label note=label.new(structureRight,preLiquidityDown,"1m structure",xloc=xloc.bar_time,style=label.style_label_right,color=color.new(color.gray,80),textcolor=color.new(color.white,30),size=9)
+            array.push(labels,note)
     else if not na(structureDownLine)
         line.delete(structureDownLine)
         structureDownLine:=na
@@ -768,6 +1145,9 @@ if barstate.islast
             line.set_xy1(structureUpLine,time,preLiquidityUp)
             line.set_xy2(structureUpLine,structureRight,preLiquidityUp)
             line.set_color(structureUpLine,color.white)
+        if cleanView and cleanTags
+            label note=label.new(structureRight,preLiquidityUp,"1m structure",xloc=xloc.bar_time,style=label.style_label_right,color=color.new(color.gray,80),textcolor=color.new(color.white,30),size=9)
+            array.push(labels,note)
     else if not na(structureUpLine)
         line.delete(structureUpLine)
         structureUpLine:=na

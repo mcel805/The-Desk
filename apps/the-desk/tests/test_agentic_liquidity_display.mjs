@@ -8,8 +8,9 @@ import {build} from 'esbuild';
 import {liquidityDashesBuild} from '../web/pine-compat/liquidity-dashes-build.mjs';
 import {liquidityDisplayModel} from '../web/pine-compat/liquidity-display.mjs';
 import {DeskPineEngine} from '../web/pine-runtime.mjs';
+import {syncLiquidityGutter,resetLiquidityGutter,liquidityDefaultRightOffset,liquidityGutterPixels} from '../web/pine-compat/liquidity-badge-layout.mjs';
 import {fontPixelsBuild} from '../web/pine-compat/font-pixels-build.mjs';
-const source=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity.pine',import.meta.url),'utf8');
+const source=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity-reference.pine',import.meta.url),'utf8');
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'liquidity-display-'));
 await build({stdin:{contents:"import {installNestedSecurity} from './web/pine-compat/nested-security.mjs';installNestedSecurity();export {PineEngine} from '@luxalgo/vela-pinets';export {DrawingSceneRenderer} from '../../integrations/vela/src/renderers/shared/DrawingSceneRenderer.ts';",resolveDir:process.cwd(),loader:'js'},outfile:path.join(dir,'display.mjs'),bundle:true,platform:'node',format:'esm',plugins:[liquidityDashesBuild(fontPixelsBuild())],external:['fs','path','url']});
 const {PineEngine,DrawingSceneRenderer}=await import(pathToFileURL(path.join(dir,'display.mjs')).href);
@@ -79,4 +80,64 @@ test('the installed host attaches the reference pattern to Liquidity models with
  };
  assert.deepEqual((await execute(source)).lines[0].deskDashPattern,[5,6]);
  assert.equal((await execute('//@version=6\nindicator("Other")\nplot(close)')).lines[0].deskDashPattern,undefined);
+});
+
+test('clean badge collisions use actual pane pixels, reflow on zoom, and leave ordinary labels untouched',()=>{
+ const label=(id,y,text)=>({id,paneId:'price',xloc:'bar_index',x:150,yloc:'price',y,text,style:'label_right',size:'tiny',color:'#AA2430A6',textColor:'#FFFFFF',tooltip:text});
+ const models=liquidityDisplayModel({lines:[],labels:[label('a',100,'60+30+15 · 73/100'),label('b',105,'60+30 · 60/100'),label('c',150,'30+15 · 50/100'),label('ordinary',105,'Unrelated annotation')]});
+ assert.ok(models.labels.slice(0,3).every(l=>l.deskLiquidityBadge));assert.equal(models.labels[3].deskLiquidityBadge,undefined);
+ const painted=[],ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:text=>painted.push(text)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
+ const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
+ renderer.setSet({lines:[],boxes:[],labels:models.labels,linefills:[],polylines:[]});renderer.render(ctx,300,200,v=>v,v=>v);
+ assert.deepEqual(painted,['60+30+15 · 73/100','30+15 · 50/100','Unrelated annotation']);
+ painted.length=0;renderer.render(ctx,300,200,v=>v,v=>v*5-450);
+ assert.deepEqual(painted,['60+30+15 · 73/100','60+30 · 60/100','Unrelated annotation'],'zoom restores the second badge while offscreen badges reserve no room');
+});
+
+test('clean main lines have no shading and stop ten pixels before the measured text column at every zoom',()=>{
+ const adapted=liquidityDisplayModel({lines:[{id:'active',paneId:'price',xloc:'bar_index',x1:20,x2:900,y1:100,y2:100,extend:'none',width:2,style:'solid',color:'#AA2430'}],boxes:[{id:'band',paneId:'price',xloc:'bar_index',left:30,right:900,top:104,bottom:100,extend:'none',bgColor:'#AA243030'}],labels:[{id:'badge',paneId:'price',xloc:'bar_index',x:900,yloc:'price',y:100,text:'60+30+15 · 73/100',style:'label_right',size:10,color:'#AA2430',textColor:'#FFFFFF',tooltip:'Convergence'}]});
+ assert.equal(adapted.lines[0].x2,900);assert.equal(adapted.boxes.length,0,'main-line shading is removed');
+ for(const width of [320,1000])for(const zoom of [.1,4]){
+  const texts=[],strokes=[],fills=[];let end;
+  const ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:(text,x,y)=>texts.push({text,x,y}),moveTo(){},lineTo:(x,y)=>{end=[x,y]},stroke:()=>strokes.push(end),fillRect:(...rect)=>fills.push(rect)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
+  const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
+  renderer.setSet({...adapted,linefills:[],polylines:[]});renderer.render(ctx,width,200,v=>v*zoom,v=>v);
+  assert.equal(texts.length,1,'badge remains visible even when its original future timestamp is offscreen');
+  assert.equal(texts[0].x,width-12-7-6-('60+30+15 · 73/100'.length*5)/2);
+  assert.equal(texts[0].y,100);
+  const badgeLeft=width-12-7-12-('60+30+15 · 73/100'.length*5);
+  assert.deepEqual(strokes[0],[badgeLeft-10,100],'line stops before the badge background and text');
+  assert.equal(fills.length,0,'no main band reaches the canvas');
+ }
+});
+function gutterFixture(){
+ let viewport={barSpacing:4,rightOffset:12};
+ const renderer={scene:{indicators:new Map([['liq',{labels:[{deskLiquidityBadge:true}]}]])},coords:{width:1000,barCount:600,spacingScale:1,getViewport:()=>viewport,pxPerBar(){return viewport.barSpacing*this.spacingScale},setViewport:v=>{viewport=v}}};
+ return {renderer,set(patch){viewport={...viewport,...patch}},space(){return viewport.rightOffset*renderer.coords.pxPerBar()}};
+}
+test('latest candles retain a pixel gutter through zoom, resize, spacing changes and timeframe resets',()=>{
+ const f=gutterFixture(),r=f.renderer;
+ syncLiquidityGutter(r);assert.equal(f.space(),230);
+ for(const pitch of [1,2,8,12]){f.set({barSpacing:pitch});syncLiquidityGutter(r);assert.equal(f.space(),230);assert.equal(r.zoomAnchorX,770)}
+ r.coords.width=320;syncLiquidityGutter(r);assert.equal(f.space(),liquidityGutterPixels(320));
+ r.coords.spacingScale=2;syncLiquidityGutter(r);assert.equal(f.space(),liquidityGutterPixels(320));
+ f.set({rightOffset:12});resetLiquidityGutter(r);syncLiquidityGutter(r);assert.ok(f.space()>=liquidityGutterPixels(320));
+ assert.ok(liquidityDefaultRightOffset(r,12)*r.coords.pxPerBar()>=liquidityGutterPixels(320));
+});
+test('manual panning, historical zoom and unrelated charts keep their viewport',()=>{
+ const f=gutterFixture(),r=f.renderer;syncLiquidityGutter(r);
+ f.set({rightOffset:25});syncLiquidityGutter(r);assert.equal(f.space(),100,'manual pan can move the newest candle into the gutter');
+ f.set({rightOffset:-60});syncLiquidityGutter(r);assert.equal(f.space(),-240);
+ f.set({barSpacing:8});syncLiquidityGutter(r);assert.equal(f.space(),-480,'historical zoom is not pulled to realtime');
+ r.scene.indicators.clear();f.set({rightOffset:12,barSpacing:4});syncLiquidityGutter(r);assert.equal(f.space(),48);
+ assert.equal(liquidityDefaultRightOffset(r,12),12);
+});
+
+test('line-only clean display preserves standalone small pockets, hidden badges and Original-view fills',()=>{
+ const line={style:'solid',width:2,x1:10,x2:1000,y1:100,y2:100};
+ const main={left:10,right:1000,top:102,bottom:100},small={left:20,right:24,top:104,bottom:102};
+ const clean=liquidityDisplayModel({inputValues:{displayView:'Clean'},lines:[line],labels:[],boxes:[main,small]});
+ assert.deepEqual(clean.boxes,[small],'main shading is removed even with badges switched off');
+ const original=liquidityDisplayModel({inputValues:{displayView:'Original'},lines:[line],labels:[],boxes:[main,small]});
+ assert.deepEqual(original.boxes,[main,small]);assert.equal(original.lines[0].x2,line.x2);
 });

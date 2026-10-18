@@ -8,7 +8,7 @@ import {pineWorkerOptions} from '../web/pine-runtime.mjs';
 import {pineState,restorePineState} from '../web/pine-state.mjs';
 installNestedSecurity();
 const original=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity-original.pine',import.meta.url),'utf8');
-const source=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity.pine',import.meta.url),'utf8');
+const source=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity-reference.pine',import.meta.url),'utf8');
 const manifest=JSON.parse(await fs.readFile(new URL('../source-manifest.json',import.meta.url),'utf8'));
 const end=Date.UTC(2026,9,17),duration=tf=>({'D':1440,'1D':1440,'240':240,'60':60,'30':30,'15':15,'5':5,'3':3,'2':2,'1':1}[tf])*60000;
 function fixture(tf,n=600){return Array.from({length:n},(_,i)=>{const time=end-(n-i)*duration(tf),p=51000+250*Math.sin(time/14400000)+50*Math.sin(time/900000);return {time,open:p,high:p+15,low:p-15,close:p+10*Math.sin(i),volume:1000+i%40};});}
@@ -24,7 +24,7 @@ let baseline;
 test('exact attachment archive, name-only port, manifest and compatible worker',()=>{
  assert.equal(fingerprint(original),'40139ef8dd660366e8471413bcc7a584acc826d5d68caa4f9f493c61a2af91bf');
  assert.equal(source,original.replace('"Wave Court · Liquidity + Bridge 3.5 Live Strength", "WC Liq 3.5"','"Agentic - Liquidity", "Agentic - Liquidity"'));
- assert.equal(manifest.agentic_liquidity.original_sha256,fingerprint(original));assert.equal(manifest.agentic_liquidity.source_sha256,fingerprint(source));
+ assert.equal(manifest.agentic_liquidity.original_sha256,fingerprint(original));assert.equal(manifest.agentic_liquidity.reference_sha256,fingerprint(source));
  assert.match(pineWorkerOptions(source).workerUrl,/pine-compatible-worker\.js$/);
 });
 test('all 72 inputs and every plot/drawing match the original on the same data',async()=>{

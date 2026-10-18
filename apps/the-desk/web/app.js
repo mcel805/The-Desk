@@ -6,6 +6,7 @@ import {starterBracket,moveDraftBracket,draftTradingLevels} from './chart-bracke
 import {buildChartMenuActions} from './chart-menu-actions.mjs';
 import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
+import {upgradeLiquidityWorkspace} from './liquidity-catalog-upgrade.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
 
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -238,7 +239,7 @@ $('#startReplay').onclick=async()=>{try{draft=false;await ws.replay.start({from:
 $('#stepReplay').onclick=()=>{ws.replay.step();replayUpdate();};$('#playReplay').onclick=()=>{ws.replay.play(600);replayUpdate();};$('#pauseReplay').onclick=()=>{ws.replay.pause();replayUpdate();};$('#stopReplay').onclick=()=>{ws.replay.stop();replayUpdate();updateTicket();};
 function replayUpdate(){const r=ws?.replay.state;$('#replayState').textContent=r?.active?(r.playing?'Playing':'Paused')+' · '+r.remaining+' hidden bars':'Replay off';updateTicket();renderManager();}
 
-async function saveSettings(values){await api('/api/settings',values);Object.assign(settings,values);}
+async function saveSettings(values){if(values.workspace)values={...values,workspace:await upgradeLiquidityWorkspace(values.workspace)};await api('/api/settings',values);Object.assign(settings,values);}
 $('#saveWorkspace').onclick=async()=>{try{await saveSettings({workspace:ws.getState()});$('#saveStatus').textContent='Saved to this computer';toast('Workspace saved, including drawings and indicator settings.');}catch(e){toast(e.message,true);}};
 $('#templatesButton').onclick=()=>{
  showDialog('Chart templates',`<label>Template name<input name="name" value="My layout" required maxlength="80"></label>${templates.map((t,i)=>`<div class="template-row"><span>${esc(t.name)}</span><button type="button" data-load-template="${i}">Load</button></div>`).join('')}`,async fd=>{templates=templates.filter(t=>t.name!==fd.get('name'));templates.push({name:fd.get('name'),state:ws.getState()});await saveSettings({presets:templates});toast('Complete chart template saved.');});
@@ -290,7 +291,7 @@ $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading set
 setupPineEditor({saveSettings});
 
 async function boot(){
- try{settings=await api('/api/settings');templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
+ try{settings=await api('/api/settings');try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   ws=new VelaWorkspace('#workspace',{layout:'1',symbol:'hyperliquid:BTC',timeframe:'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider()},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
