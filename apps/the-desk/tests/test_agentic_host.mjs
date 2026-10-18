@@ -14,6 +14,13 @@ test('secondary candles are shared across duplicate source requests and viewport
  const range={to:10,limit:500};const [a,b]=await Promise.all([workerRequest.fetchSeries('fixture:MYM','60',range),workerRequest.fetchSeries('fixture:MYM','60',range)]);assert.equal(calls,1);assert.deepEqual(a,b);
  session.setVisibleRange({left:1,right:10});await workerRequest.fetchSeries('fixture:MYM','60',range);assert.equal(calls,1);session.stop();
 });
+test('study and data updates invalidate secondary candles without wall-clock churn',async()=>{
+ let workerRequest,calls=0;const data=[{time:1,open:1,high:2,low:1,close:2}];
+ const engine=new DeskPineEngine({factory:()=>({prepare:async(source,id)=>({token:{source,instanceId:id}}),terminate(){},execute(req){workerRequest=req;return {stop(){},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>({})};}})});
+ const prepared=await engine.prepare('//@version=6\nindicator("Host revision test")\nplot(close)','host-revision');const session=engine.execute({prepared,fetchSeries:async()=>{calls++;return data;}},{onModel(){}});
+ const range={to:10,limit:500};await workerRequest.fetchSeries('fixture:MYM','60',range);session.update({length:2});await workerRequest.fetchSeries('fixture:MYM','60',range);assert.equal(calls,2);
+ session.notifyBars('tick');await workerRequest.fetchSeries('fixture:MYM','60',range);assert.equal(calls,3);session.stop();
+});
 test('bundled Pine adapter preserves exact numeric label size',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'elliot-font-'));try{
   const output=path.join(dir,'engine.mjs');await build({stdin:{contents:"export {PineEngine} from '@luxalgo/vela-pinets';",resolveDir:process.cwd(),loader:'js'},outfile:output,bundle:true,platform:'node',format:'esm',plugins:[fontPixelsBuild()],external:['fs','path','url']});
