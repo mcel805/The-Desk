@@ -21,6 +21,13 @@ test('study and data updates invalidate secondary candles without wall-clock chu
  const range={to:10,limit:500};await workerRequest.fetchSeries('fixture:MYM','60',range);session.update({length:2});await workerRequest.fetchSeries('fixture:MYM','60',range);assert.equal(calls,2);
  session.notifyBars('tick');await workerRequest.fetchSeries('fixture:MYM','60',range);assert.equal(calls,3);session.stop();
 });
+test('Agentic Elliott table is handed to the floating-panel bridge while native table rendering stays off',async()=>{
+ const source=await (await import('node:fs/promises')).readFile(new URL('../web/pine-examples/agentic-elliot-waves.pine',import.meta.url),'utf8'),id='agentic-panel-bridge',table={position:'bottom_right',cells:[[{text:'Frame'}]]};let displayed,received;
+ const engine=new DeskPineEngine({factory:()=>({terminate(){},execute(_request,handlers){queueMicrotask(()=>{handlers.onModel({tables:[table],lines:[],labels:[]});handlers.onDone();});return {stop(){},update(){},setVisibleRange(){},notifyBars(){},getContext:async()=>null};}})});
+ const priorDispatch=globalThis.dispatchEvent;globalThis.dispatchEvent=event=>{if(event.type==='desk:agentic-elliot-model'&&event.detail.id===id)received=event.detail.model;return true;};
+ try{let session;await new Promise((resolve,reject)=>{session=engine.execute({prepared:{token:{source,instanceId:id}},bars:[],market:{symbol:'fixture:MYM'},historyState:'complete'},{onModel:model=>displayed=model,onDone:resolve,onError:reject});});assert.equal(received.tables[0],table);assert.equal(displayed.tables.length,0);session.stop();}
+ finally{if(priorDispatch===undefined)delete globalThis.dispatchEvent;else globalThis.dispatchEvent=priorDispatch;engine.terminate();}
+});
 test('bundled Pine adapter preserves exact numeric label size',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'elliot-font-'));try{
   const output=path.join(dir,'engine.mjs');await build({stdin:{contents:"export {PineEngine} from '@luxalgo/vela-pinets';",resolveDir:process.cwd(),loader:'js'},outfile:output,bundle:true,platform:'node',format:'esm',plugins:[fontPixelsBuild()],external:['fs','path','url']});
