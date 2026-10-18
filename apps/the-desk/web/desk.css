@@ -21,3 +21,6 @@
 .trade-overlay .trade-line.offscale{border-top:0}
 .trade-line.offscale .trade-price-badge{display:none}
 .trade-line.offscale .trade-line-controls .trade-line-label{cursor:pointer;max-width:none}
+
+/* Chart trader labels use white text while retaining level-colored outlines. */
+.trade-line .trade-line-controls .trade-line-label{color:#fff;font-size:11px;line-height:16px;padding:3px 8px}

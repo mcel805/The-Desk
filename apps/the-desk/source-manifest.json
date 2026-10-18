@@ -31,5 +31,17 @@
     "source": "web/pine-examples/agentic-liquidity.pine",
     "parity": "Original attachment and name-only reference preserved. Clean view adds unified convergence/buildup presentation and enables 15M alongside 60M/30M by default. Source detection, consumption, ranking and alerts retain their original rules. Original view remains selectable.",
     "reference_sha256": "f66dc3f2158886070dc1c4d1d61a8d8a8e165ca222816fee826b5c95eef220fd"
+  },
+  "agentic_market_geometry": {
+    "original_sha256": "2b10c2178a7d37d9b3c77dee40f8a6bdfefd316ff05c3ec2dc2e8e009d36d671",
+    "source_sha256": "286346e934603da88c73d9a7873d20a083fa071590397565b9c8f26c60d3cf1e",
+    "source": "web/pine-examples/agentic-market-geometry.pine",
+    "parity": "User-supplied Pine preserved with only indicator title and shorttitle renamed. Same-engine and independent-ledger parity tested; TradingView matching-data parity pending."
+  },
+  "agentic_abc_reversal": {
+    "source": "web/pine-examples/agentic-abc-reversal.pine",
+    "original_sha256": "263c04e862ba346caa6d7973179f260ea26174b3bd686c9e514966e35f35ac1b",
+    "source_sha256": "a89bf4f837aa7bad8855751075008c4164c1865d03a7afb47ba244e9108fc08f",
+    "scope": "Original lifecycle preserved; automatic same-chart Liquidity bridge, both-side mode, 1m/5m restriction and visual redesign. This is an adapted port, not a name-only port. TradingView parity unverified."
   }
 }

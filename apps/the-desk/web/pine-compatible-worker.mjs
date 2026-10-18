@@ -1,7 +1,9 @@
+import {installABCExternalSources} from './pine-compat/external-sources.mjs';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from './pine-compat/nested-security.mjs';
 import {executeSerial} from './pine-compat/serial-execution.mjs';
 installNestedSecurity();
+installABCExternalSources();
 const engine=new PineEngine(),sessions=new Map(),fetches=new Map();let requestId=0;
 const post=m=>self.postMessage(m);
 const fetchSeries=(symbol,timeframe,range)=>new Promise((resolve,reject)=>{const reqId=++requestId;fetches.set(reqId,{resolve,reject});post({kind:'fetchSeries',reqId,symbol,timeframe,range});});
