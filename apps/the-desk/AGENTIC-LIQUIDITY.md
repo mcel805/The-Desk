@@ -24,3 +24,15 @@ Focused tests compare the original and renamed scripts on identical synthetic MY
 The screenshot identifies TradingView CBOT MYM1! on 1 hour. Matching MYM OHLC, continuous-contract roll history, exact screenshot inputs and TradingView reference outputs were not attached. Source preservation and same-engine equality do not establish cross-platform numeric or pixel parity. Browser acceptance uses separately identified public BTC candles; actual matching-data MYM parity remains pending.
 
 Browser acceptance passed against an isolated instance of the same Desk source on real Coinbase BTC-USD 1h and 1m candles: Premium catalog search, UI compile/add, 72 inputs, settings changes and saved-reload restoration. The 1h model rendered 220 lines, 85 small-pool fills, and preserved candle scaling. The installed service at port 18880 serves the exact source hash and reports healthy with Lux Journal connected. Isolated QA deliberately ran without market workers or a journal. The focused Liquidity suite passed 15 tests; the Pine/host/editor/serialization regression suite passed 28 tests.
+
+## Live-update repair
+
+PineTS 0.11.0 initially infers `closeTime` for candles that omit it. Its replacement and append paths did not repeat that fallback. The next live tick therefore removed the minute packet used to redraw the main pools, while the fixed historical small strips remained. A stream fixture reproduced 49 main lines on initial load and zero on the next update. The earlier static and immediate-render acceptance did not cover that second model.
+
+A second defect was reproduced in pretranspiled secondary contexts: absent tail snapshots made each update remove one extra minute of candle history. The worker now creates the same pre-last-bar snapshot used by the native complete and stream runners, preventing history drift.
+
+The compatible worker now applies the initial-load fallback to both candle update paths, including nested security contexts. Explicit provider/session close times are preserved, and provider-owned candles are not mutated. The supplied Pine source and user settings are unchanged. Tests execute real live streams, repeated ticks, a new chart candle, absent and supplied session close times, and the complete Liquidity source. The dedicated browser regression checks incoming worker models rather than the renderer's reused model object.
+
+Run `node --test tests/test_pine_live.mjs tests/test_pine_serial.mjs tests/test_agentic_host.mjs tests/test_agentic_liquidity.mjs`. Run `tests/verify_agentic_liquidity_live_browser.mjs` with an isolated Desk URL and dedicated Chrome debug URL for the live-browser check.
+
+Post-fix validation passed 26 focused tests. Hyperliquid BTC 1h browser acceptance observed 31 distinct incoming models over 75 seconds with 49–50 main levels retained, followed by settings restoration after reload and 1m rendering. The isolated QA server deliberately used no account market workers or journal; the installed Desk remains the normal service on port 18880. Refresh The Desk once to replace an already-running worker.

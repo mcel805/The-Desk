@@ -6,6 +6,8 @@ import {findSecContextIdx} from './findSecContextIdx.ts';
 import {findLTFContextIdx} from './findLTFContextIdx.ts';
 import {expressionSlices} from './expression-slices.mjs';
 import {lazyRequests} from './lazy-requests.mjs';
+import {installCandleCloseTimes} from './candle-close-times.mjs';
+import {installSecondarySnapshots} from './secondary-snapshots.mjs';
 const preparedSources=new Map();
 const suffix=n=>String(n).match(/p\d+$/)?.[0]||String(n);
 function seconds(tf){const s=String(tf).toUpperCase(),m=s.match(/^(\d*)([SDWM])?$/);if(!m)throw Error('Invalid security timeframe: '+tf);return (Number(m[1])||1)*({S:1,D:86400,W:604800,M:2592000}[m[2]]||60);}
@@ -42,7 +44,7 @@ function security(ctx){return async (...args)=>{
  const value=primitive(values(other,name)[index]);return Array.isArray(value)?[value]:value;
 };}
 let installed=false;
-export function installNestedSecurity(){if(installed)return;installed=true;
+export function installNestedSecurity(){if(installed)return;installed=true;installCandleCloseTimes();installSecondarySnapshots();
  const prepare=Indicator.prototype.prepare;Indicator.prototype.prepare=function(...args){const prepared=prepare.apply(this,args);if(!prepared.fn._deskLazy){prepared.fn=lazyRequests(prepared.fn);prepared.ltfSlices=undefined;}return prepared;};
  const bind=Context.prototype.bindContextObject;
  Context.prototype.bindContextObject=function(...args){bind.apply(this,args);if(!this._deskSecurityInstalled&&this.pine?.request){this._deskSecurityInstalled=true;const param=this.pine.request.param;this.pine.request.param=(source,index,name)=>{const result=param(primitive(source),index,name);if(this._deskTarget&&suffix(name)===this._deskTarget.name)throw this._deskTarget.stop;return result;};this.pine.request.paramThunk=async(thunk,index,name)=>{if(this._deskTarget&&suffix(name)===this._deskTarget.name){param(primitive(await thunk()),index,name);throw this._deskTarget.stop;}return [thunk,name];};this.pine.request.security=security(this);}};
