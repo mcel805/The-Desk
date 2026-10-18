@@ -25,13 +25,13 @@ export function setupPineEditor(opts){
 }
 export async function loadPineLibrary(settings){
  library=Array.isArray(settings.pineLibrary)?settings.pineLibrary.filter(s=>s&&typeof s.source==='string'&&typeof s.name==='string').slice(0,6):[];
- for(const example of [{name:"Agentic - Elliot Waves",url:'/pine-examples/agentic-elliot-waves.pine'},{name:"Taper's Volume",url:'/pine-examples/taper-volume.pine'}]){
-  if(library.some(s=>s.name.trim().toLowerCase()===example.name.toLowerCase())||library.length>=6)continue;
-  try{const response=await fetch(example.url);if(!response.ok)continue;const source=await response.text(),hash=await sourceHash(source);
-   const item={id:hash,name:example.name,source,version:'6',validation:{status:'Premium source · compile and test on your chart; TradingView comparison pending',sourceHash:hash}};
-   const next=[...library,item];await services.saveSettings({pineLibrary:next});library=next;
-  }catch(error){console.warn(example.name+' could not be added to My Pine indicators.',error);}
- }
+ if(library.some(s=>s.name.trim().toLowerCase()==="taper's volume")||library.length>=6)return;
+ try{
+  const response=await fetch('/pine-examples/taper-volume.pine');if(!response.ok)return;
+  const source=await response.text(),hash=await sourceHash(source);
+  const item={id:hash,name:"Taper's Volume",source,version:'6',validation:{status:'Desk runtime test passed on BTC 1h review data; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15'}};
+  const next=[...library,item];await services.saveSettings({pineLibrary:next});library=next;
+ }catch(error){console.warn('Taper Volume could not be added to My Pine indicators.',error);}
 }
 function open(ctx,tab,source=''){
  if(testing)return;context=ctx;hideOtherDialogs();tested=null;report=null;

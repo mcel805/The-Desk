@@ -1,6 +1,6 @@
 # Agentic - Elliot Waves · Premium
 
-In The Desk, open **Indicators → Agentic - Elliot Waves → Compile & test → Add to chart**. It is also seeded into **My Pine indicators** when that six-item library has space. It always remains searchable in the featured catalog even if the saved library is full.
+In The Desk, open **Indicators → Agentic - Elliot Waves → Compile & test → Add to chart**. It remains searchable in the featured catalog regardless of the saved-library contents.
 
 The user-supplied Wave Court Nested Waves 4.1 source is archived byte-for-byte at `web/pine-examples/agentic-elliot-waves-original.pine` (SHA-256 `0772f65205220e8fbc758894c241750301e5487ad45c7cf14c4588cfb154f65f`). The installed source retains that entire body, changing only the two indicator names. An optional companion panel is appended, with two additional settings. Turn **Daily to 1m Elliott summary** off for the original overlay alone.
 
@@ -23,11 +23,11 @@ Secondary candle fetches within a study coalesce duplicate requests and reuse re
 Run from `apps/the-desk`:
 
 ```sh
-node --test tests/test_agentic_elliot.mjs tests/test_agentic_host.mjs tests/test_pine.mjs tests/test_pine_serial.mjs
+node --test tests/test_agentic_elliot.mjs tests/test_agentic_host.mjs tests/test_pine.mjs tests/test_pine_serial.mjs tests/test_pine_editor.mjs
 node --test tests/test_cleos_liquidity.mjs
 ```
 
-The focused suite executes the original parser, hard-rule fixtures, wick invalidation, generic-array regression, completed-history regression, all seven chart timeframes, manual-ladder rejection, display toggles, exact same-engine original-versus-port drawing/audit output with the companion off, saved-input restoration, request coalescing, and built-adapter numeric label sizing. Fixtures are synthetic MYM-like OHLC and do not validate actual MYM data. Browser review uses real Coinbase BTC-USD candles and the actual indicator manager; Hyperliquid returned HTTP 429 during review.
+The focused suite executes the original parser, hard-rule fixtures, wick invalidation, generic-array regression, completed-history regression, all seven chart timeframes, manual-ladder rejection, display toggles, exact same-engine original-versus-port drawing/audit output with the companion off, saved-input restoration, request coalescing, built-adapter numeric label sizing, and the existing Taper-only startup seeding regression. Fixtures are synthetic MYM-like OHLC and do not validate actual MYM data. Browser review uses real Coinbase BTC-USD candles and the actual indicator manager; Hyperliquid returned HTTP 429 during review.
 
 Matching TradingView MYM continuous-contract OHLC, history, source cutoffs and exported reference outputs were not supplied. Exact cross-platform numeric and pixel parity on the attached MYM chart remains unverified. The source-preserving comparison and real-browser rendering are distinct evidence. The in-editor comparison CSV workflow remains available for matching datasets.
 
