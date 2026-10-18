@@ -792,7 +792,11 @@ agenticRow(table panel,int row,string frame,string packet,int cutoff,float after
         array.push(history,live)
     [history,swings]
 var table agenticPanel=table.new(agenticPosition=="Top right"?position.top_right:agenticPosition=="Bottom right"?position.bottom_right:agenticPosition=="Top left"?position.top_left:position.bottom_left,5,9,bgcolor=color.new(color.rgb(19,23,34),8),frame_color=color.new(coreInk,60),frame_width=1)
+var bool agenticPanelReady=true
 if agenticSummary
+    if not agenticPanelReady
+        agenticPanel := table.new(agenticPosition=="Top right"?position.top_right:agenticPosition=="Bottom right"?position.bottom_right:agenticPosition=="Top left"?position.top_left:position.bottom_left,5,9,bgcolor=color.new(color.rgb(19,23,34),8),frame_color=color.new(coreInk,60),frame_width=1)
+        agenticPanelReady := true
     [agP0,agC0,agT0,agF0,agH0,agL0]=request.security(sourceId,"1D",f_capture(coreStrength),lookahead=timeframe.in_seconds("1D")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
     [agP1,agC1,agT1,agF1,agH1,agL1]=request.security(sourceId,"240",f_capture(coreStrength),lookahead=timeframe.in_seconds("240")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
     [agP2,agC2,agT2,agF2,agH2,agL2]=request.security(sourceId,"60",f_capture(coreStrength),lookahead=timeframe.in_seconds("60")>chartSeconds?barmerge.lookahead_on:barmerge.lookahead_off,calc_bars_count=sourceBars)
@@ -822,3 +826,4 @@ if agenticSummary
         table.cell(agenticPanel,4,8,"Closed sources",text_color=parentInk,text_size=size.tiny)
 if not agenticSummary and barstate.islast
     table.delete(agenticPanel)
+    agenticPanelReady := false

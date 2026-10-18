@@ -54,6 +54,15 @@ test('display toggles hide overlay without changing counts and saved inputs repr
  const before=await run(source,{inputs:originalInputs});const h={id:'saved-elliot',source,title:'Agentic - Elliot Waves',visible:false,inputValues:()=>originalInputs,propValues:()=>({})};const saved=pineState({indicators:()=>[h]});const restored=[];restorePineState(saved,{chart:{indicators:()=>[]},addIndicator:e=>restored.push(e)});assert.equal(restored[0].hidden,true);assert.deepEqual(restored[0].inputs,originalInputs);
  const after=await run(restored[0].script,{inputs:restored[0].inputs});for(const key of ['series','lines','labels'])assert.deepEqual(clean(after.model[key]),clean(before.model[key]));
 });
+test('summary table survives disabling and re-enabling its input',async()=>{
+ const engine=new PineEngine(),prepared=await engine.prepare(source,'toggle-summary'),states=[];let session,resolveDone,rejectDone;
+ const waitDone=()=>new Promise((resolve,reject)=>{resolveDone=resolve;rejectDone=reject;});
+ const request={prepared,bars:fixture('60'),market:market('60'),inputs:{},historyState:'complete',mode:'static',fetchSeries:async(_,frame)=>fixture(frame)};
+ let done=waitDone();session=engine.execute(request,{onModel:model=>states.push(model),onDone:()=>resolveDone?.(),onError:error=>rejectDone?.(error)});await done;
+ assert.equal(states.at(-1).tables.length,1);
+ done=waitDone();session.update({agenticSummary:false});await done;assert.equal(states.at(-1).tables.length,0);
+ done=waitDone();session.update({agenticSummary:true});await done;assert.equal(states.at(-1).tables.length,1);session.stop();
+});
 test('manual ladder validation rejects inverted degrees',async()=>{await assert.rejects(run(source,{inputs:{ladder:'Manual timeframes',parentInput:'1',coreInput:'60',childInput:'240',agenticSummary:false}}),/parent.*chart count.*child/);});
 
 test('forming last bar still renders at the completed history boundary',async()=>{
