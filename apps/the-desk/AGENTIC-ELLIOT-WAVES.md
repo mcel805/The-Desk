@@ -8,7 +8,7 @@ The original 45 inputs, pivot confirmation, weighted reconstruction, impulses, p
 
 ## Top-down companion
 
-The panel descends Daily → 4H → 1H → 30m → 15m → 5m → 1m and uses the original structural parser with the **Chart count pivot bars each side** setting at each source. It shows Elliott bias, current wave endpoint, conditional primary/alternate projection prices, and source-candidate invalidation. Bias follows the eligible next projected wave; it does not use the script's compatibility EMA export. The Desk renders it as a floating chart card: drag its title bar to move it and use plus/minus to collapse or expand it. Position and collapsed state persist locally per study. The settings corner sets its initial position.
+The panel descends Daily → 4H → 1H → 30m → 15m → 5m → 1m and uses the original structural parser with the **Chart count pivot bars each side** setting at each source. It shows Elliott bias, current wave endpoint, conditional primary/alternate projection prices, and source-candidate invalidation. Bias follows the eligible next projected wave; it does not use the script's compatibility EMA export. The Desk renders it as a floating chart card: drag its title bar to move it and use plus/minus to collapse or expand it. Position and collapsed state persist locally per study. The settings corner selects the panel corner; changing it repositions the card and overrides a manual drag.
 
 The overlay retains the original automatic three-tier ladder and manual source controls. A Daily chart additionally requests the original weekly parent. Counts in the panel link to the preceding higher frame through the original time-and-price containment screen; tooltips retain cutoffs and conflict/ambiguous/unlinked status. This is not full recursive Elliott certification. An unresolved or invalidated tail withholds numeric projections. A completed pattern's origin remains its source-candidate invalidation reference, not a stop for the next corrective leg. Source packets are confirmed and delayed as in the supplied Pine; historical interpretations can revise. Quality scores are not probabilities. All projection paths are research geometry.
 
@@ -23,11 +23,11 @@ Secondary candle fetches within a study coalesce duplicate requests and reuse re
 Run from `apps/the-desk`:
 
 ```sh
-node --test tests/test_agentic_elliot.mjs tests/test_agentic_host.mjs tests/test_pine.mjs tests/test_pine_serial.mjs tests/test_pine_editor.mjs
+node --test tests/test_agentic_elliot.mjs tests/test_agentic_host.mjs tests/test_agentic_panel.mjs tests/test_pine.mjs tests/test_pine_serial.mjs tests/test_pine_editor.mjs
 node --test tests/test_cleos_liquidity.mjs
 ```
 
-The focused suite executes the original parser, hard-rule fixtures, wick invalidation, generic-array regression, completed-history regression, all seven chart timeframes, manual-ladder rejection, display toggles, exact same-engine original-versus-port drawing/audit output with the companion off, saved-input restoration, request coalescing, built-adapter numeric label sizing, and the existing Taper-only startup seeding regression. Fixtures are synthetic MYM-like OHLC and do not validate actual MYM data. Browser review uses real Coinbase BTC-USD candles and the actual indicator manager; Hyperliquid returned HTTP 429 during review.
+The focused suite executes the original parser, hard-rule fixtures, wick invalidation, generic-array regression, completed-history regression, all seven chart timeframes, manual-ladder rejection, display toggles, exact same-engine original-versus-port drawing/audit output with the companion off, saved-input restoration, request coalescing, built-adapter numeric label sizing, floating-panel position updates, and the existing Taper-only startup seeding regression. Fixtures are synthetic MYM-like OHLC and do not validate actual MYM data. Browser review uses real Coinbase BTC-USD candles and the actual indicator manager; Hyperliquid returned HTTP 429 during review.
 
 Matching TradingView MYM continuous-contract OHLC, history, source cutoffs and exported reference outputs were not supplied. Exact cross-platform numeric and pixel parity on the attached MYM chart remains unverified. The source-preserving comparison and real-browser rendering are distinct evidence. The in-editor comparison CSV workflow remains available for matching datasets.
 
