@@ -1,0 +1,220 @@
+//@version=6
+// Exact wick-channel extraction from Wave Court MTF 1.15 Optimized (2026-10-15).
+// No wave, liquidity or trade-entry engine. Chart timeframe, completed wicks only.
+indicator("Wave Court · Market Geometry 1.0", "WC Geometry 1.0", overlay=true, max_lines_count=500, max_labels_count=500, max_bars_back=120)
+string G_STYLE = "Market geometry · original Wave Court settings"
+bool showChannels = input.bool(true, "Wick-safe chart channels", group=G_STYLE)
+float tick = syminfo.mintick
+int geometryPivot = input.int(4, "Channel pivot bars on each side", minval = 2, maxval = 15, group = G_STYLE)
+int geometryHistory = input.int(600, "Chart bars retained for wick audit", minval = 100, maxval = 1200, group = G_STYLE)
+int geometryMinSpan = input.int(8, "Minimum anchor span · chart bars", minval = 2, maxval = 100, group = G_STYLE)
+int geometryTouchTolerance = input.int(2, "Extra wick touch tolerance · ticks", minval = 0, maxval = 10, group = G_STYLE)
+int geometryMinTouches = input.int(0, "Extra wick touches beyond 2 anchors", minval = 0, maxval = 8, group = G_STYLE, tooltip = "Zero displays channels supported by two confirmed pivot wicks, provided neither rail cuts through intervening bars. Raise to 1 or 2 to require more independent rail contacts.")
+int geometryShown = input.int(8, "Channels displayed · active first", minval = 1, maxval = 24, group = G_STYLE)
+int geometryActiveShown = input.int(4, "Maximum active channels", minval = 1, maxval = 24, group = G_STYLE)
+bool geometryShowBroken = input.bool(true, "Show historical channels to wick break", group = G_STYLE)
+bool geometryShowLabels = input.bool(false, "Print channel detail text", group = G_STYLE)
+color geometryActiveInk = input.color(color.rgb(190, 207, 230), "Active channel rails", group = G_STYLE)
+color geometryBrokenInk = input.color(color.rgb(108, 124, 148), "Ended channel rails", group = G_STYLE)
+
+type Pivot
+    int t
+    float p
+    int side
+    int born
+
+type WickChannel
+    int t0
+    float p0
+    int t1
+    float p1
+    int side  // -1 = base through support wicks; 1 = base through resistance wicks.
+    float offset
+    int endAt
+    bool broken
+    int touches
+    int spanBars
+
+// Chart-local channel ledger. Every base line is anchored to two confirmed
+// same-side pivot wicks and rejected if any intervening wick cuts through it.
+// The parallel boundary touches the farthest opposite wick in that interval.
+// Once either boundary is breached by a later completed wick, both end at the
+// preceding valid bar. These drawings never participate in wave/plan decisions.
+var array<int> geometryTimes = array.new<int>()
+var array<float> geometryHighs = array.new<float>()
+var array<float> geometryLows = array.new<float>()
+var array<float> geometryCloses = array.new<float>()
+var array<Pivot> geometryHighPivots = array.new<Pivot>()
+var array<Pivot> geometryLowPivots = array.new<Pivot>()
+var array<WickChannel> geometryChannels = array.new<WickChannel>()
+float geometryHighPivot = ta.pivothigh(high, geometryPivot, geometryPivot)
+float geometryLowPivot = ta.pivotlow(low, geometryPivot, geometryPivot)
+
+f_geometryBase(WickChannel g, int at) =>
+    g.p0 + (g.p1 - g.p0) * (at - g.t0) / (g.t1 - g.t0)
+
+f_geometryInside(WickChannel g, int at, float hi, float lo) =>
+    float base = f_geometryBase(g, at)
+    float epsilon = tick * 0.0001
+    g.side == -1 ? lo >= base - epsilon and hi <= base + g.offset + epsilon : hi <= base + epsilon and lo >= base - g.offset - epsilon
+
+f_geometryTouches(WickChannel g, int at, float hi, float lo) =>
+    float base = f_geometryBase(g, at)
+    float opposite = g.side == -1 ? base + g.offset : base - g.offset
+    float tolerance = geometryTouchTolerance * tick + tick * 0.0001
+    bool baseTouch = g.side == -1 ? math.abs(lo - base) <= tolerance : math.abs(hi - base) <= tolerance
+    bool oppositeTouch = g.side == -1 ? math.abs(hi - opposite) <= tolerance : math.abs(lo - opposite) <= tolerance
+    baseTouch or oppositeTouch
+
+// First index at/after a timestamp. The retained chart bars are chronological.
+// A single bound search replaces scanning all 100–1200 retained bars just to
+// locate the anchor interval. No bars inside the interval are omitted.
+f_timeAtOrAfter(array<int> times, int at) =>
+    int left = 0
+    int right = array.size(times)
+    while left < right
+        int middle = int((left + right) / 2)
+        if array.get(times, middle) < at
+            left := middle + 1
+        else
+            right := middle
+    left
+
+f_geometryCandidate(Pivot first, Pivot second, int side) =>
+    WickChannel candidate = na
+    int n = array.size(geometryTimes)
+    int begin = f_timeAtOrAfter(geometryTimes, first.t)
+    bool retained = begin < n and array.get(geometryTimes, begin) == first.t
+    if second.t > first.t and retained
+        float offset = 0.0
+        int spanBars = 0
+        bool cut = false
+        for i = begin to n - 1
+            int at = array.get(geometryTimes, i)
+            if at > second.t
+                break
+            float base = first.p + (second.p - first.p) * (at - first.t) / (second.t - first.t)
+            float wick = side == -1 ? array.get(geometryLows, i) : array.get(geometryHighs, i)
+            float opposite = side == -1 ? array.get(geometryHighs, i) : array.get(geometryLows, i)
+            bool through = side == -1 ? wick < base - tick * 0.0001 : wick > base + tick * 0.0001
+            if through
+                cut := true
+                break
+            offset := math.max(offset, side == -1 ? opposite - base : base - opposite)
+            spanBars += 1
+        if not cut and spanBars >= geometryMinSpan and offset > 0
+            candidate := WickChannel.new(first.t, first.p, second.t, second.p, side, offset, second.t, false, 0, spanBars)
+            if begin + 1 < n
+                for i = begin + 1 to n - 1
+                    int at = array.get(geometryTimes, i)
+                    if at < second.t and f_geometryTouches(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                        candidate.touches += 1
+                    if at > second.t
+                        if f_geometryInside(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                            candidate.endAt := at
+                            if f_geometryTouches(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                                candidate.touches += 1
+                        else
+                            candidate.broken := true
+                            break
+    candidate
+
+f_geometryAdd(Pivot current, int side) =>
+    array<Pivot> pivots = side == 1 ? geometryHighPivots : geometryLowPivots
+    int n = array.size(pivots)
+    if n > 0
+        for j = 0 to math.min(3, n - 1)
+            Pivot prior = array.get(pivots, n - 1 - j)
+            WickChannel candidate = f_geometryCandidate(prior, current, side)
+            if not na(candidate)
+                array.push(geometryChannels, candidate)
+                if array.size(geometryChannels) > 48
+                    array.shift(geometryChannels)
+    array.push(pivots, current)
+    if array.size(pivots) > 8
+        array.shift(pivots)
+    true
+
+if barstate.isconfirmed
+    array.push(geometryTimes, time)
+    array.push(geometryHighs, high)
+    array.push(geometryLows, low)
+    array.push(geometryCloses, close)
+    if array.size(geometryTimes) > geometryHistory
+        array.shift(geometryTimes)
+        array.shift(geometryHighs)
+        array.shift(geometryLows)
+        array.shift(geometryCloses)
+    for g in geometryChannels
+        if not g.broken and time > g.endAt
+            if f_geometryInside(g, time, high, low)
+                g.endAt := time
+                if f_geometryTouches(g, time, high, low)
+                    g.touches += 1
+            else
+                g.broken := true
+    if not na(geometryHighPivot)
+        f_geometryAdd(Pivot.new(time[geometryPivot], geometryHighPivot, 1, time), 1)
+    if not na(geometryLowPivot)
+        f_geometryAdd(Pivot.new(time[geometryPivot], geometryLowPivot, -1, time), -1)
+
+var array<line> drawnLines = array.new<line>()
+var array<label> drawnLabels = array.new<label>()
+var array<int> dropped = array.new<int>(1,0)
+f_clearDrawings() =>
+    for id in drawnLines
+        line.delete(id)
+    for id in drawnLabels
+        label.delete(id)
+    array.clear(drawnLines)
+    array.clear(drawnLabels)
+    array.set(dropped,0,0)
+    true
+
+f_line(int t0, float p0, int t1, float p1, color c, int width, string style, bool right) =>
+    if not na(t0) and not na(t1) and not na(p0) and not na(p1) and t1 > t0 and array.size(drawnLines) < 475
+        line ln = line.new(t0, p0, t1, p1, xloc = xloc.bar_time, extend = right ? extend.right : extend.none, color = c, width = width, style = style)
+        array.push(drawnLines, ln)
+    else
+        array.set(dropped, 0, array.get(dropped, 0) + 1)
+    true
+
+f_label(int t, float p, string txt, color c, string style, string sz) =>
+    if not na(t) and not na(p) and array.size(drawnLabels) < 475
+        label lb = label.new(t, p, txt, xloc = xloc.bar_time, style = style, textcolor = c, color = color.new(c, 94), size = sz)
+        array.push(drawnLabels, lb)
+    else
+        array.set(dropped, 0, array.get(dropped, 0) + 1)
+    true
+
+f_drawWickChannels() =>
+    int n = array.size(geometryChannels)
+    int shown = 0
+    if showChannels and n > 0
+        // Active rails take the limited slots first. Historical channels then
+        // fill remaining slots, newest first, ending at the last wick-safe bar.
+        for pass = 0 to 1
+            for j = 0 to n - 1
+                WickChannel g = array.get(geometryChannels, n - 1 - j)
+                bool passOK = pass == 0 ? not g.broken : g.broken and geometryShowBroken
+                int passCap = pass == 0 ? math.min(geometryActiveShown, geometryShown) : geometryShown
+                if passOK and shown < passCap and g.endAt >= g.t1 and g.touches >= geometryMinTouches
+                    float ending = f_geometryBase(g, g.endAt)
+                    float shift = g.side == -1 ? g.offset : -g.offset
+                    color ink = g.broken ? geometryBrokenInk : geometryActiveInk
+                    int width = g.broken ? 1 : 2
+                    string stroke = g.broken ? line.style_dashed : line.style_solid
+                    f_line(g.t0, g.p0, g.endAt, ending, ink, width, stroke, false)
+                    f_line(g.t0, g.p0 + shift, g.endAt, ending + shift, ink, width, stroke, false)
+                    if geometryShowLabels and shown < 3
+                        string status = g.broken ? "ended at wick break" : "active"
+                        f_label(g.endAt, ending, timeframe.period + " channel · " + status + " · " + str.tostring(g.touches) + " extra contacts", ink, label.style_none, size.small)
+                    shown += 1
+    true
+
+if barstate.isfirst and (not chart.is_standard or na(timeframe.in_seconds()) or timeframe.in_seconds()<60)
+    runtime.error("Use standard time-based candles of at least one minute.")
+// Drawing only; the forming candle does not change confirmed channel state.
+if barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed)
+    f_clearDrawings()
+    f_drawWickChannels()
