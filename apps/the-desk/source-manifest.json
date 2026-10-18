@@ -6,7 +6,7 @@
     "version": "0.8.0",
     "commit": "eb8c8f9552b836825c6fd56b3305a5b58eeda09d",
     "license": "Apache-2.0",
-    "browser_bundle_sha256": "a95eeebd51492b811bc4f10fa1984eccdb1e705abdc64effbddb268eec75f32b",
+    "browser_bundle_sha256": "13d617eaea30e6d8a3fc516d9984e9f33caaef9f410a1f5d94f98c88ff0e7e8a",
     "build": "node build-vendor.mjs"
   },
   "journal": {

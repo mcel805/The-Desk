@@ -1,3 +1,4 @@
+import {liquidityDisplayModel} from './pine-compat/liquidity-display.mjs';
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 import {checkPineSource,drawingCounts} from './pine-validation.mjs';
 
@@ -28,7 +29,7 @@ export class DeskPineEngine {
   const result={stop:()=>{if(stopped)return;stopped=true;clear();session?.stop();entry.worker.terminate();if(this.workers.get(id)===entry)this.workers.delete(id);if(this.active.get(id)===result){this.records.delete(id);this.active.delete(id);}},cancel:()=>fail(Error('Pine test cancelled.')),update:(...args)=>{if(!stopped){arm();session.update(...args);}},setVisibleRange:r=>{if(!stopped){arm();session.setVisibleRange(r);}},notifyBars:reason=>{if(!stopped){if(reason!=='backfill')arm();session.notifyBars(reason);}},getContext:select=>{if(stopped)return Promise.resolve(null);let contextTimer;return Promise.race([session.getContext(select),new Promise((_,reject)=>{contextTimer=setTimeout(()=>reject(Error('Pine context request timed out.')),15000);})]).finally(()=>clearTimeout(contextTimer));}};
   this.active.set(id,result);entry.cancel=result.cancel;
   if(req.historyState!=='backfill')arm();
-  session=entry.worker.execute({...req,fetchSeries},{...handlers,onModel:model=>{if(stopped)return;clear();if(needsCompatibleWorker(req.prepared.token.source))model={...model,drawingAutoscale:false};this.records.set(id,{model,counts:drawingCounts(model),bars:structuredClone(req.getBars?.()||req.bars),market:req.market,secondary:[...secondary]});handlers.onModel(model);},onError:fail,onDone:()=>{clear();handlers.onDone?.();}});
+  session=entry.worker.execute({...req,fetchSeries},{...handlers,onModel:model=>{if(stopped)return;clear();if(isAgenticLiquiditySource(req.prepared.token.source))model=liquidityDisplayModel(model);if(needsCompatibleWorker(req.prepared.token.source))model={...model,drawingAutoscale:false};this.records.set(id,{model,counts:drawingCounts(model),bars:structuredClone(req.getBars?.()||req.bars),market:req.market,secondary:[...secondary]});handlers.onModel(model);},onError:fail,onDone:()=>{clear();handlers.onDone?.();}});
   return result;
  }
  cancelTests(){for(const [id,entry] of this.workers)if(id.startsWith('pine-test-'))entry.cancel();}

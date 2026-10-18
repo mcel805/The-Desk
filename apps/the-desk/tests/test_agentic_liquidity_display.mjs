@@ -1,0 +1,82 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {build} from 'esbuild';
+import {liquidityDashesBuild} from '../web/pine-compat/liquidity-dashes-build.mjs';
+import {liquidityDisplayModel} from '../web/pine-compat/liquidity-display.mjs';
+import {DeskPineEngine} from '../web/pine-runtime.mjs';
+import {fontPixelsBuild} from '../web/pine-compat/font-pixels-build.mjs';
+const source=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity.pine',import.meta.url),'utf8');
+const dir=await fs.mkdtemp(path.join(os.tmpdir(),'liquidity-display-'));
+await build({stdin:{contents:"import {installNestedSecurity} from './web/pine-compat/nested-security.mjs';installNestedSecurity();export {PineEngine} from '@luxalgo/vela-pinets';export {DrawingSceneRenderer} from '../../integrations/vela/src/renderers/shared/DrawingSceneRenderer.ts';",resolveDir:process.cwd(),loader:'js'},outfile:path.join(dir,'display.mjs'),bundle:true,platform:'node',format:'esm',plugins:[liquidityDashesBuild(fontPixelsBuild())],external:['fs','path','url']});
+const {PineEngine,DrawingSceneRenderer}=await import(pathToFileURL(path.join(dir,'display.mjs')).href);
+test.after(()=>fs.rm(dir,{recursive:true,force:true}));
+const end=Date.UTC(2026,9,17),hour=3600000,ms=tf=>({'1':1,'30':30,'60':60}[tf])*60000;
+const fixture=(tf,n=300)=>Array.from({length:n},(_,i)=>{const time=end-(n-i)*ms(tf),p=51000+250*Math.sin(time/14400000)+50*Math.sin(time/900000);return {time,open:p,high:p+15,low:p-15,close:p+5,volume:1000};});
+async function run(inputs={}){
+ const engine=new PineEngine(),prepared=await engine.prepare(source,'display-contract');let session,model;
+ try{await new Promise((resolve,reject)=>{session=engine.execute({prepared,bars:fixture('60'),market:{symbol:'fixture:MYM',timeframe:'60',symbolInfo:{tickerid:'fixture:MYM',mintick:1,type:'futures'}},inputs,mode:'static',historyState:'complete',fetchSeries:async(_,tf,r)=>fixture(tf,r.limit||300)},{onModel:m=>model=m,onDone:resolve,onError:reject});});return {model,context:await session.getContext(['variables'])};}finally{session?.stop();}
+}
+const color=(hex,transparency)=>hex.toUpperCase()+Math.round(255*(1-transparency/100)).toString(16).padStart(2,'0').toUpperCase();
+const samePrice=(actual,expected)=>assert.ok(Math.abs(actual-expected)<=Math.max(1e-9,16*Number.EPSILON*Math.max(1,Math.abs(expected))),`${actual} != ${expected}`);
+const isolated={showSmallPools:false,showPockets:false,showStructureAlerts:false,showOriginDots:false,showDots:false,showTags:false,useLiveStrength:false,lineWidth:2,strokeInput:'Solid'};
+let fixed;
+test('main levels obey source pivot anchors, consumed endpoints, exact colors, widths and band geometry',async()=>{
+ fixed=await run(isolated);const {model,context}=fixed;
+ const records=context.variables.rawPacket.split(';').map(row=>row.split(',').map(Number)).slice(0,48);
+ assert.equal(model.lines.length,records.length);assert.ok(records.some(p=>p[3]||p[6]));assert.ok(records.some(p=>!p[3]&&!p[6]));
+ let band=0;
+ for(let i=0;i<records.length;i++){
+  const [origin,price,,taken,ended,status,touch,side]=records[i],retired=Boolean(taken||touch),line=model.lines[i];
+  assert.equal(line.x1,origin);assert.equal(line.y1,price);assert.equal(line.y2,price);assert.equal(line.xloc,'bar_time');assert.equal(line.extend,'none');assert.equal(line.width,2);
+  assert.equal(line.x2,retired?(ended||touch):end+12*hour);
+  assert.equal(line.color.toUpperCase(),retired?color('#FFFFFF',25):color(side===1?'#AA2430':'#66BB6A',12));
+  assert.equal(line.style,retired?(status===1?'dashed':'dotted'):'solid');
+  if(!retired){const b=model.boxes[band++],depth=Math.max(1,Math.abs(price)*.0007);assert.equal(b.left,origin);assert.equal(b.right,line.x2);samePrice(b.top,side===1?price+depth:price);samePrice(b.bottom,side===1?price:price-depth);assert.equal(b.bgColor.toUpperCase(),color(side===1?'#AA2430':'#66BB6A',86));assert.equal(b.borderColor,undefined,'source na border must stay invisible');}
+ }
+ assert.equal(model.boxes.length,band,'retired levels have white lines only');assert.equal(model.labels.length,0);
+});
+test('default live-strength styling, source dots and optional tags retain the Pine display rules',async()=>{
+ const {model,context}=await run({showSmallPools:true,showPockets:false,showStructureAlerts:false,showTags:true,strengthTicks:500});
+ const plots=Object.fromEntries(model.series.map(s=>[s.title,s.points.at(-1)?.value]));let checked=0;
+ for(const [side,stem,prefix] of [[-1,'s','Support'],[1,'r','Resistance']])for(let rank=1;rank<=3;rank++){
+  const price=context.variables[stem+rank];if(!Number.isFinite(price))continue;
+  const count=plots[`${prefix} ${rank} · unswept small pools`],score=100*count/(count+3),width=score>=75?4:score>=50?3:score>0?2:1;
+  const line=model.lines.find(l=>l.y1===price&&l.x2===end+12*hour);if(!line)continue;
+  assert.equal(plots[`${prefix} ${rank} · live strength / 100`],score);assert.equal(line.width,width);assert.equal(line.style,'dotted');assert.equal(line.color.toUpperCase(),color(side===1?'#AA2430':'#66BB6A',Math.round(65*(1-score/100))));checked++;
+ }
+ assert.ok(checked>=2,'check both ranked support/resistance display feeds');
+ const dots=model.labels.filter(l=>l.text==='•');assert.ok(dots.some(l=>l.size===11));assert.ok(dots.some(l=>l.size===10));assert.ok(model.labels.some(l=>l.size===8&&l.text!=='•'));
+ for(const fill of model.linefills){assert.equal(fill.line1.x2-fill.line1.x1,4*hour);assert.equal(fill.line2.x2-fill.line2.x1,4*hour);assert.equal(fill.line1.style,'dotted');assert.equal(fill.line2.style,'dotted');}
+});
+test('the canvas renderer receives the exact main-line endpoints, colors, widths, dashes and borderless fills',async()=>{
+ fixed??=await run(isolated);const {model}=fixed,strokes=[],fills=[];let start,finish,dash=[];
+ const ctx={save(){},restore(){},beginPath(){},rect(){},clip(){},moveTo(x,y){start=[x,y];},lineTo(x,y){finish=[x,y];},setLineDash(d){dash=[...d];},stroke(){strokes.push({start,finish,color:this.strokeStyle,width:this.lineWidth,dash:[...dash]});},fillRect(...r){fills.push({rect:r,color:this.fillStyle});},strokeRect(){assert.fail('active level bands have no border');}};
+ const first=Math.min(...model.lines.map(l=>l.x1)),right=end+12*hour,low=50000,high=52000,x=t=>(t-first)/(right-first)*1000,y=p=>600*(high-p)/(high-low);
+ const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
+ renderer.setSet({lines:model.lines,boxes:model.boxes,labels:[],linefills:[],polylines:[]});renderer.render(ctx,1000,600,x,y);
+ assert.equal(strokes.length,model.lines.length);assert.equal(fills.length,model.boxes.length);
+ for(let i=0;i<model.lines.length;i++){const l=model.lines[i],s=strokes[i];assert.deepEqual(s.start,[x(l.x1),y(l.y1)]);assert.deepEqual(s.finish,[x(l.x2),y(l.y2)]);assert.equal(s.color,l.color);assert.equal(s.width,l.width);assert.deepEqual(s.dash,l.style==='solid'?[]:l.style==='dashed'?[8,6]:[2,4]);}
+ for(let i=0;i<model.boxes.length;i++){const b=model.boxes[i],f=fills[i];assert.equal(f.color,b.bgColor);assert.deepEqual(f.rect,[x(b.left),y(b.top),x(b.right)-x(b.left),y(b.bottom)-y(b.top)]);}
+});
+
+test('reference dash spacing reaches the canvas only for the tagged indicator lines',()=>{
+ const line={id:'reference',paneId:'price',xloc:'bar_index',x1:10,x2:80,y1:20,y2:20,extend:'none',color:'#FFFFFFBF',width:1,style:'dashed'};
+ const adapted=liquidityDisplayModel({lines:[line]});assert.deepEqual({...adapted.lines[0],deskDashPattern:undefined},{...line,deskDashPattern:undefined});assert.equal(line.deskDashPattern,undefined);
+ const strokes=[];let dash;const ctx={save(){},restore(){},beginPath(){},moveTo(){},lineTo(){},setLineDash(v){dash=v;},stroke(){strokes.push([...dash]);}};
+ const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
+ renderer.setSet({lines:[...adapted.lines,{...line,id:'other-study'}],boxes:[],labels:[],linefills:[],polylines:[]});renderer.render(ctx,100,100,v=>v,v=>v);
+ assert.deepEqual(strokes,[[5,6],[4,3]]);
+});
+test('the installed host attaches the reference pattern to Liquidity models without changing other studies',async()=>{
+ const execute=async script=>{
+  const engine=new DeskPineEngine({factory:()=>({prepare:async(source,id)=>({token:{source,instanceId:id}}),terminate(){},execute(req,h){queueMicrotask(()=>h.onModel({lines:[{style:'dashed',width:1}],series:[],labels:[],boxes:[],linefills:[],tables:[]}));return {stop(){}};}})});
+  const prepared=await engine.prepare(script,'host-display');let session;
+  try{return await new Promise(resolve=>{session=engine.execute({prepared,bars:[]},{onModel:resolve});});}finally{session?.stop();}
+ };
+ assert.deepEqual((await execute(source)).lines[0].deskDashPattern,[5,6]);
+ assert.equal((await execute('//@version=6\nindicator("Other")\nplot(close)')).lines[0].deskDashPattern,undefined);
+});
