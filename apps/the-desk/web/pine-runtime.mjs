@@ -3,8 +3,10 @@ import {checkPineSource,drawingCounts} from './pine-validation.mjs';
 
 const CLEO_INDICATOR_DECL='indicator("Cleo\'s Liquidity", "Cleo\'s Liquidity"';
 const isCleoLiquiditySource=source=>typeof source==='string'&&source.includes(CLEO_INDICATOR_DECL)&&/f_confirmedMaster\s*\(/.test(source)&&/f_marketSource\s*\(/.test(source);
+export const isAgenticLiquiditySource=source=>typeof source==='string'&&source.includes('indicator("Agentic - Liquidity", "Agentic - Liquidity"')&&/f_masterPools\s*\(/.test(source)&&/f_smallCount\s*\(/.test(source);
+const needsCompatibleWorker=source=>isCleoLiquiditySource(source)||isAgenticLiquiditySource(source);
 const CLEO_EXECUTION_TIMEOUT=120000;
-export const pineWorkerOptions=source=>isCleoLiquiditySource(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
+export const pineWorkerOptions=source=>needsCompatibleWorker(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
 
 // Each study owns a worker. Cancelling a test cannot stop installed studies.
 export class DeskPineEngine {
@@ -18,7 +20,7 @@ export class DeskPineEngine {
  }
  execute(req,handlers){
   const id=req.prepared.token.instanceId;let entry=this.workers.get(id);if(!entry){entry={worker:this.factory(req.prepared.token.source)};this.workers.set(id,entry);}
-  let timer,stopped=false,session;const secondary=[],executionTimeout=isCleoLiquiditySource(req.prepared.token.source)?CLEO_EXECUTION_TIMEOUT:this.executionTimeout;
+  let timer,stopped=false,session;const secondary=[],executionTimeout=needsCompatibleWorker(req.prepared.token.source)?CLEO_EXECUTION_TIMEOUT:this.executionTimeout;
   const clear=()=>{clearTimeout(timer);timer=null;};
   const fail=error=>{if(stopped)return;clear();result.stop();handlers.onError?.(error);};
   const arm=()=>{if(timer||stopped)return;timer=setTimeout(()=>fail(Error(`Pine execution exceeded ${executionTimeout/1000} seconds. Reduce history or script complexity.`)),executionTimeout);};
@@ -26,7 +28,7 @@ export class DeskPineEngine {
   const result={stop:()=>{if(stopped)return;stopped=true;clear();session?.stop();entry.worker.terminate();if(this.workers.get(id)===entry)this.workers.delete(id);if(this.active.get(id)===result){this.records.delete(id);this.active.delete(id);}},cancel:()=>fail(Error('Pine test cancelled.')),update:(...args)=>{if(!stopped){arm();session.update(...args);}},setVisibleRange:r=>{if(!stopped){arm();session.setVisibleRange(r);}},notifyBars:reason=>{if(!stopped){if(reason!=='backfill')arm();session.notifyBars(reason);}},getContext:select=>{if(stopped)return Promise.resolve(null);let contextTimer;return Promise.race([session.getContext(select),new Promise((_,reject)=>{contextTimer=setTimeout(()=>reject(Error('Pine context request timed out.')),15000);})]).finally(()=>clearTimeout(contextTimer));}};
   this.active.set(id,result);entry.cancel=result.cancel;
   if(req.historyState!=='backfill')arm();
-  session=entry.worker.execute({...req,fetchSeries},{...handlers,onModel:model=>{if(stopped)return;clear();if(isCleoLiquiditySource(req.prepared.token.source))model={...model,drawingAutoscale:false};this.records.set(id,{model,counts:drawingCounts(model),bars:structuredClone(req.getBars?.()||req.bars),market:req.market,secondary:[...secondary]});handlers.onModel(model);},onError:fail,onDone:()=>{clear();handlers.onDone?.();}});
+  session=entry.worker.execute({...req,fetchSeries},{...handlers,onModel:model=>{if(stopped)return;clear();if(needsCompatibleWorker(req.prepared.token.source))model={...model,drawingAutoscale:false};this.records.set(id,{model,counts:drawingCounts(model),bars:structuredClone(req.getBars?.()||req.bars),market:req.market,secondary:[...secondary]});handlers.onModel(model);},onError:fail,onDone:()=>{clear();handlers.onDone?.();}});
   return result;
  }
  cancelTests(){for(const [id,entry] of this.workers)if(id.startsWith('pine-test-'))entry.cancel();}

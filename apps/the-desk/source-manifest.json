@@ -18,5 +18,11 @@
   "sma_study": {
     "source": "count-dashboard/web/quant-backtest.mjs",
     "sha256": "b561fdc58d48cff97151013c18088a80f7e75bea8742ef86c447bb9895cbff07"
+  },
+  "agentic_liquidity": {
+    "original_sha256": "40139ef8dd660366e8471413bcc7a584acc826d5d68caa4f9f493c61a2af91bf",
+    "source_sha256": "f66dc3f2158886070dc1c4d1d61a8d8a8e165ca222816fee826b5c95eef220fd",
+    "source": "web/pine-examples/agentic-liquidity.pine",
+    "parity": "Supplied Pine body preserved byte-for-byte except both indicator names. TradingView matching-data and pixel parity pending."
   }
 }

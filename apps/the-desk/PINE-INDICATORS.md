@@ -50,3 +50,8 @@ Vela's installed repository source/dependencies are required by `build-vendor.mj
 ## Cleo's Liquidity
 
 See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension. All other Pine sources retain the existing worker.
+
+
+## Agentic - Liquidity · Premium
+
+The standalone supplied Liquidity + Bridge source is available in the indicator catalog with all 72 original inputs and a name-only port. See [the feature guide](AGENTIC-LIQUIDITY.md) for preserved display behavior, source fingerprints, bridge/structure feeds, browser acceptance and matching-MYM TradingView parity boundaries.
