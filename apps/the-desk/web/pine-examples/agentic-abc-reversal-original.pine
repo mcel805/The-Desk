@@ -1,0 +1,727 @@
+//@version=6
+indicator("Wave Court · ABC Entries 3.3 Lifecycle", shorttitle="WC ABC 3.3", overlay=true, dynamic_requests=true, max_lines_count=350, max_labels_count=300, max_boxes_count=1, max_bars_back=240, calc_bars_count=3000)
+
+// Paired lifecycle release; all previous versions preserved.
+// Before the FIRST confirmed ABC, a farther FIRST-contact event supersedes
+// the old campaign. Same-bar contact/ABC ordering is unresolved: contact wins.
+// ABC owns one removable white zone; Liquidity 3.3 keeps white history lines.
+// Modular Liquidity 3.1 Fast bridge; chart-level pre-touch prices support 1/2/3/5m.
+// No tables. White ABC labels, lines and dots distinguish first contact, confirmed C, and later retest.
+// Here A/B/C means a CORRECTIVE swing: low/high/lower-low at support;
+// high/low/higher-high at resistance. SHIFT means the later closing break of B.
+// Pivots are placed at their origin only AFTER confirmation. Event markers are
+// stamped on the bar where the information is available, never backdated.
+// Dashed developing paths/rails are hypotheses, not price targets/probabilities.
+
+string Z = "01 · HTF location"
+string P = "02 · Small chart-timeframe ABC"
+string E = "03 · Confirmation playbooks"
+string R = "04 · Risk / optional first obstacle"
+string V = "05 · Volume evidence"
+string D = "06 · Visuals and history"
+
+string zoneSource = input.string("Liquidity bridge", "Zone source", options=["Manual level", "Liquidity bridge", "Chart swing"], group=Z)
+float manualLevel = input.price(51835.0, "Manual HTF level", confirm=false, group=Z, tooltip="Select the same price as your yellow line. Pine cannot read a manually drawn chart line. 51835 is the supplied example, not a universal trading level.")
+float externalLevel = input.source(close, "Wave Court plot · select Rider support / resistance", group=Z, tooltip="Select WC Liq 3.3: Rider HTF support for LONG or Rider HTF resistance for SHORT. These exports reference the prior completed CHART candle. Do not select entry/stop/target, micro strength, or OHLC.")
+bool externalConnected = input.bool(false, "I selected the matching Wave Court bridge plot", group=Z, tooltip="Required in bridge mode. Select the matching Liquidity 3.3 output. Both studies must share the chart interval, symbol and adjustment settings. No source selection means WAIT; no fallback.")
+bool handoffEnabled=input.bool(true,"Next reached level replaces pending play",group=Z)
+float reachedFeed=input.source(close,"Liquidity 3.3 · matching Reached support / resistance event",group=Z,tooltip="Select Reached support · this chart bar for LONG, or Reached resistance · this chart bar for SHORT. This is a different output from the ranked Rider HTF candidate. Do not offset the event by another bar.")
+bool reachedConnected=input.bool(false,"I selected the matching Reached event plot",group=Z,tooltip="Required for automatic handoff in bridge mode. Pine cannot read another indicator's internal ABC state or authenticate a selected plot name. Producer and consumer must share symbol, interval and price adjustments.")
+bool showPlayBand=input.bool(true,"Highlight the current in-play zone · white",group=Z)
+string playBandMode=input.string("Percent","In-play band thickness units",options=["Percent","Ticks"],group=Z)
+float playBandPercent=input.float(0.07,"In-play band thickness %",minval=0.001,maxval=2,step=0.01,group=Z,tooltip="Visual padding only. Match Liquidity's per-level display sizing. This is not a stop or a detected boundary.")
+int playBandTicks=input.int(30,"In-play band thickness ticks",minval=1,maxval=500,group=Z)
+int playBandAlpha=input.int(88,"In-play white band transparency",minval=50,maxval=98,group=Z)
+int zoneHalfTicks = input.int(4, "Zone half-width (ticks)", minval=0, maxval=100, group=Z)
+int parentPivotBars = input.int(2, "Chart swing pivot bars each side", minval=1, maxval=20, group=Z)
+string reversalSide = input.string("Long from support", "Reversal direction", options=["Long from support", "Short from resistance"], group=Z)
+int startFrom = input.time(0, "Only arm after this time (0 = all loaded history)", group=Z, tooltip="Set to when you identified the level for forward/replay testing. Applying today's manual level to earlier history is retrospective configuration.")
+int campaignBars = input.int(240, "Zone campaign expiry (chart bars)", minval=20, maxval=1500, group=Z)
+int cooldownBars = input.int(15, "Minimum bars before rearming", minval=1, maxval=500, group=Z)
+bool requireReclaim = input.bool(true, "READY must reclaim the zone", group=Z)
+
+int pivotBars = input.int(2, "Micro pivot bars each side", minval=1, maxval=10, group=P)
+bool requireCExtension = input.bool(true, "C must extend beyond A", group=P, tooltip="Your example: C is a lower low than A before a bullish reversal. Off also permits a higher-low C; the state note identifies it as a turn sequence rather than an extended corrective ABC.")
+float minAlegAtr = input.float(0.25, "Minimum A-to-B leg / chart ATR", minval=0, maxval=5, step=0.05, group=P)
+int breakBufferTicks = input.int(1, "Closing break buffer (ticks)", minval=0, maxval=20, group=P)
+
+bool showProbe = input.bool(true, "Option 1 · show early C-candle PROBE", group=E, tooltip="An engulfing reaction near developing/confirmed C. Informational only: never READY and never called a confirmed reversal.")
+bool horizontalPlay = input.bool(true, "Option 2a · B break + horizontal retest", group=E)
+bool geometryPlay = input.bool(true, "Option 2b · first HH/HL (LL/LH) + trendline retest", group=E)
+bool earlyGeometry = input.bool(false, "Allow micro geometry before the larger B break", group=E, tooltip="Earlier alternative: a post-C swing high/low, a higher low/lower high, then a closing break of that post-C swing. Retest is still required. B remains pending and the state note says MICRO. Default off favors the larger B break.")
+bool requireHLcounter = input.bool(true, "Against day direction: require HH/HL or LL/LH", group=E, tooltip="Day direction is the arm-time chart close versus the prior daily close. This is a price reference, not market sentiment or an HTF trend certification.")
+bool requireParentAligned = input.bool(false, "Require selected Waves core trend alignment", group=E, tooltip="Select the Waves 3.1 Fast Confirmed core trend plot and enable its connection. Its source EMA context must agree. This filter is separate from the local HH/HL or LL/LH confirmation.")
+int retestHalfTicks = input.int(3, "Retest tolerance (ticks)", minval=0, maxval=30, group=E)
+int retestExpiry = input.int(90, "Retest expiry after SHIFT (chart bars)", minval=3, maxval=1000, group=E)
+
+string stopMode = input.string("Retest swing", "Stop anchor", options=["Retest swing", "Confirmed higher/lower low", "C extreme"], group=R)
+int stopBufferTicks = input.int(2, "Stop buffer (ticks)", minval=1, maxval=50, group=R)
+float maxRiskTicks = input.float(30, "Maximum reference risk (ticks)", minval=1, maxval=30, group=R)
+bool useObstacle = input.bool(false, "Require room to a manually entered first obstacle", group=R)
+float obstaclePrice = input.price(51865.0, "First opposing level", group=R, tooltip="If enabled it must be ahead of the signal close in the reversal direction. Enter the actual nearest obstacle; the example value may already be behind price after SHIFT.")
+float minRoomR = input.float(2, "Minimum gross room / risk", minval=0.1, maxval=20, step=0.1, group=R)
+
+int volumeLength = input.int(20, "Previous completed bars in volume baseline", minval=5, maxval=200, group=V)
+float volumeThreshold = input.float(1.2, "Volume / prior mean threshold", minval=0.1, maxval=10, step=0.1, group=V)
+bool probeVolume = input.bool(false, "Require above-baseline volume for PROBE", group=V)
+bool entryVolume = input.bool(false, "Require above-baseline volume for READY", group=V)
+
+// White reversal counts are visually distinct from cyan Elliott wave counts.
+color longColor = input.color(color.new(color.white, 58), "Long geometry", group=D)
+color shortColor = input.color(color.new(color.white, 58), "Short geometry", group=D)
+color zoneColor = input.color(color.rgb(255, 217, 74), "HTF zone", group=D)
+color developingColor = input.color(color.new(color.white, 76), "Developing / hypothetical", group=D)
+bool showPath = input.bool(true, "Show A/B/C path", group=D)
+bool showProjection = input.bool(true, "Show developing path and A–C parallel rails", group=D)
+bool showGeometryLine = input.bool(true, "Show C-to-HL / C-to-LH trendline", group=D)
+bool keepHistory = input.bool(true, "Keep completed/invalidated geometry in history", group=D)
+int historyCounts = input.int(3, "Historical snapshots to retain (bounded)", minval=1, maxval=20, group=D)
+int projectionBars = input.int(20, "Projection length (chart bars)", minval=1, maxval=100, group=D)
+bool fastDraw = input.bool(true, "Fast drawings · update only on completed candles", group=D, tooltip="Keeps ABC projections stable between completed candles and avoids deleting/rebuilding drawing objects on every price tick. Initial history draws immediately; realtime drawings update on the next candle close.")
+
+int direction = reversalSide == "Long from support" ? 1 : -1
+bool entryChart = chart.is_standard and timeframe.isminutes and (timeframe.multiplier==1 or timeframe.multiplier==2 or timeframe.multiplier==3 or timeframe.multiplier==5)
+float parentBiasFeed=input.source(close,"Optional Waves · Confirmed core trend",group=E)
+bool parentBiasConnected=input.bool(false,"I selected Waves core trend plot",group=E)
+float cPool2=input.source(close,"Optional C pool 2 · matching support/resistance",group=P)
+float cPool3=input.source(close,"Optional C pool 3 · matching support/resistance",group=P)
+bool cExtraConnected=input.bool(false,"Use selected extra C pool plots",group=P)
+bool useManualC=input.bool(false,"Consider my C liquidity level",group=P)
+float manualC=input.price(0.0,"C liquidity level",group=P)
+float cRatio=input.float(1.0,"C measured A-leg multiple",minval=0.5,maxval=2.618,step=0.01,group=P)
+float cTolerance=input.float(0.18,"Liquidity-to-Fib tolerance / A leg",minval=0,maxval=0.5,step=0.01,group=P)
+bool showCforecast=input.bool(true,"Project C after confirmed A and B",group=D)
+bool showStateLabel=input.bool(false,"Small state note at right edge",group=D)
+
+f_parent() =>
+    float ph = ta.pivothigh(high, parentPivotBars, parentPivotBars)
+    float pl = ta.pivotlow(low, parentPivotBars, parentPivotBars)
+    var float h1 = na
+    var float h2 = na
+    var float l1 = na
+    var float l2 = na
+    if not na(ph)
+        h2 := h1
+        h1 := ph
+    if not na(pl)
+        l2 := l1
+        l1 := pl
+    int bias = not na(h2) and not na(l2) ? h1 > h2 and l1 > l2 ? 1 : h1 < h2 and l1 < l2 ? -1 : 0 : 0
+    [h1, l1, bias]
+
+[localH,localL,localBias]=f_parent()
+float previousDailyClose=na
+if entryChart and requireHLcounter
+    previousDailyClose:=request.security(syminfo.tickerid,"D",close[1],gaps=barmerge.gaps_off,lookahead=barmerge.lookahead_on)
+float parentH=localH
+float parentL=localL
+int parentBias=parentBiasConnected and (parentBiasFeed==1 or parentBiasFeed==-1 or parentBiasFeed==0)?int(parentBiasFeed):0
+// Liquidity 3.1 Fast already offsets its price outputs by one completed CHART candle.
+// Do not add another [1] here: the current completed chart bar tests a level
+// that was active BEFORE its touch, even when the producer now consumes it.
+// Reject the default close source (three-bar check); explicit source consent
+// remains necessary because Pine cannot authenticate an external plot name.
+bool looksLikeClose = externalLevel == close and externalLevel[1] == close[1] and externalLevel[2] == close[2]
+bool eventDefaultClose=reachedFeed==close and reachedFeed[1]==close[1] and reachedFeed[2]==close[2]
+bool lifecycleOK=reachedConnected and not eventDefaultClose
+bool bridgeOK = entryChart and externalConnected and bar_index >= 2 and not looksLikeClose and not na(externalLevel) and (not handoffEnabled or lifecycleOK)
+float proposedZone = zoneSource == "Manual level" ? manualLevel : zoneSource == "Liquidity bridge" ? (bridgeOK ? externalLevel : na) : direction == 1 ? parentL : parentH
+
+float ph = ta.pivothigh(high, pivotBars, pivotBars)
+float pl = ta.pivotlow(low, pivotBars, pivotBars)
+bool uniquePivot = (not na(ph)) != (not na(pl))
+int pivotIndex = bar_index - pivotBars
+float chartAtr = ta.atr(14)
+float priorVolume = ta.sma(volume, volumeLength)[1]
+float rvol = not na(volume) and volume > 0 and not na(priorVolume) and priorVolume > 0 ? volume / priorVolume : na
+float tick = syminfo.mintick
+float closeBuffer = breakBufferTicks * tick
+float touchBand = retestHalfTicks * tick
+float stopBuffer = stopBufferTicks * tick
+
+f_y(int x1, float y1, int x2, float y2, int x) =>
+    not na(x1) and not na(x2) and x2 > x1 ? y1 + (y2 - y1) * (x - x1) / (x2 - x1) : na
+
+f_line(array<line> bag, int x1, float y1, int x2, float y2, color ink, string kind, int width) =>
+    line id = line.new(x1, y1, x2, y2, xloc=xloc.bar_index, color=ink, style=kind, width=width)
+    array.push(bag, id)
+    id
+
+f_label(array<label> bag, int x, float y, string caption, color ink, bool under, string tip) =>
+    label id = label.new(x, y, caption, xloc=xloc.bar_index, style=under ? label.style_label_up : label.style_label_down, color=color.new(ink,100), textcolor=color.new(color.white,22), size=size.tiny, tooltip=tip)
+    array.push(bag, id)
+    id
+
+// All drawing bags are bounded. Archived rails have finite endpoints; the next
+// setup cannot move old anchors. A history label is not an entry timestamp.
+var array<line> historyLines = array.new<line>()
+var array<label> historyLabels = array.new<label>()
+var array<line> liveLines = array.new<line>()
+var array<label> liveLabels = array.new<label>()
+
+f_cForecast(float startPrice,int startIndex,float av,int ax,float bv,int bx,int knownAt) =>
+    bool haveOrigin=not na(startPrice) and not na(startIndex) and startIndex<ax
+    float leg=haveOrigin?math.abs(startPrice-av):math.abs(bv-av)
+    float ratio=haveOrigin?cRatio:math.max(cRatio,1.272)
+    float measured=bv-direction*leg*ratio
+    float selected=measured
+    string reason=haveOrigin?"measured A leg":"B-A fallback"
+    float bestDistance=1e10
+    float minRatio=0.85
+    float maxRatio=math.max(1.75,ratio+cTolerance)
+    array<float> candidates=array.from(useManualC?manualC:na,bridgeOK?externalLevel:na,cExtraConnected and cPool2!=close?cPool2:na,cExtraConnected and cPool3!=close?cPool3:na)
+    for i=0 to array.size(candidates)-1
+        float candidate=array.get(candidates,i)
+        float candidateRatio=leg>0?direction*(bv-candidate)/leg:na
+        bool beyondA=requireCExtension?direction*(av-candidate)>closeBuffer:direction*(bv-candidate)>closeBuffer
+        float fibGap=not na(candidateRatio)?math.min(math.min(math.abs(candidateRatio-ratio),math.abs(candidateRatio-1.272)),math.abs(candidateRatio-1.618)):na
+        bool eligible=not na(candidate) and candidate>0 and beyondA and candidateRatio>=minRatio and candidateRatio<=maxRatio and fibGap<=cTolerance
+        float distance=math.abs(candidate-measured)
+        if eligible and distance<bestDistance
+            bestDistance:=distance
+            selected:=candidate
+            reason:=i==0?"manual liquidity":i==1?"HTF pool 1":i==2?"HTF pool 2":"HTF pool 3"
+    int duration=haveOrigin?math.max(3,ax-startIndex):math.max(3,bx-ax)
+    int endAt=math.max(knownAt+1,bx+math.min(duration,projectionBars))
+    [math.round(selected/tick)*tick,bv-direction*leg*1.0,bv-direction*leg*1.618,endAt,reason]
+
+f_draw(array<line> lines, array<label> labels, float s, int si, float a, int ai, float b, int bi, float c, int ci, float hl, int hi, int endAt, bool developing, color ink) =>
+    if showPath and not na(ai)
+        if not na(si) and si < ai
+            f_line(lines, si, s, ai, a, ink, line.style_solid, 1)
+        f_label(labels, ai, a, "A", ink, direction == 1, "Corrective A. Pivot origin; recognized later after confirmation.")
+        if not na(bi) and bi > ai
+            f_line(lines, ai, a, bi, b, color.new(color.white,65), line.style_solid, 1)
+            f_label(labels, bi, b, "B", ink, direction == -1, "Corrective B. This horizontal price is the later SHIFT threshold.")
+        if not na(ci) and not na(bi) and ci > bi
+            f_line(lines, bi, b, ci, c, developing ? developingColor : ink, developing ? line.style_dashed : line.style_solid, 1)
+            f_label(labels, ci, c, developing ? "C?" : "C", developing ? developingColor : ink, direction == 1, developing ? "Developing extreme, not a confirmed pivot. May extend or be replaced." : "Corrective C pivot confirmed later. This is NOT the SHIFT or entry signal.")
+    if not developing and not na(ci)
+        label cDot=label.new(ci,c,"•",xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,15),size=10,tooltip="Confirmed C swing origin. Recognized only after right-side pivot candles closed; not a confirmed reversal or entry.")
+        array.push(labels,cDot)
+    if not na(bi)
+        f_line(lines, bi, b, endAt, b, color.new(ink, 35), line.style_dotted, 1)
+    if showProjection and not na(ai) and not na(ci) and ci > ai and not na(bi)
+        float rail = f_y(ai, a, ci, c, endAt)
+        float parallel = b + (c - a) * (endAt - bi) / (ci - ai)
+        f_line(lines, ai, a, endAt, rail, color.new(developingColor, 25), line.style_dashed, 1)
+        f_line(lines, bi, b, endAt, parallel, color.new(developingColor, 25), line.style_dashed, 1)
+    if showGeometryLine and not developing and not na(hi) and not na(ci) and hi > ci
+        float projected = f_y(ci, c, hi, hl, endAt)
+        f_line(lines, ci, c, endAt, projected, ink, line.style_solid, 1)
+        f_label(labels, hi, hl, direction == 1 ? "HL" : "LH", ink, direction == 1, "Confirmed post-C higher low / lower high after a first opposite swing. MICRO mode can precede larger B. Trendline did not exist before this pivot was confirmed.")
+    true
+
+var float lastPH = na
+var int lastPHindex = na
+var float lastPL = na
+var int lastPLindex = na
+var int phase = 0
+var bool approached = false
+var float lastZone = na
+var int endedAt = na
+var int armedAt = na
+var float zone = na
+var bool counterDay = false
+var float s = na
+var int si = na
+var float a = na
+var int ai = na
+var float b = na
+var int bi = na
+var float c = na
+var int ci = na
+var int cKnownAt = na
+var float developingC = na
+var int developingIndex = na
+var int shiftAt = na
+var bool bBroken = false
+var int bShiftAt = na
+var float firstHH = na
+var int firstHHindex = na
+var float firstHL = na
+var int firstHLindex = na
+var int hlKnownAt = na
+var int hTouchAt = na
+var float hEdge = na
+var float hStop = na
+var int gTouchAt = na
+var float gEdge = na
+var float gStop = na
+var bool probeSent = false
+var bool railSeen = false
+var string message = "WAIT · approach the selected zone"
+var float checkedRisk = na
+var float checkedRoom = na
+var string lastResult = "No qualified retest yet"
+
+var float projectedC=na
+var float forecastOne=na
+var float forecastExtended=na
+var int projectedIndex=na
+var string projectionReason=""
+var int forecastA=na
+var int forecastB=na
+var int forecastKnownAt=na
+var bool projectionContact=false
+var bool hContactShown=false
+var bool gContactShown=false
+
+var map<int,bool> deadLevels=map.new<int,bool>()
+var bool abcDetected=false
+var box playBand=na
+var line playLine=na
+bool handedOff=false
+float zoneForBar=proposedZone
+if not na(zoneForBar) and map.contains(deadLevels,int(math.round(zoneForBar/tick)))
+    zoneForBar:=na
+bool touched = false
+bool probe = false
+bool abcKnown = false
+bool shift = false
+bool microShift = false
+bool railWatch = false
+bool readyH = false
+bool readyG = false
+bool blocked = false
+bool archive = false
+
+if entryChart and barstate.isconfirmed
+    // Events aggregate every minute in this chart candle. Only a farther
+    // reached pool in the same approach direction can replace a pending play.
+    bool pending=phase>=1 and phase<=4 and not abcDetected
+    bool firstSweep=phase==0 and time>=startFrom and not na(zoneForBar) and not na(close[1]) and direction*(close[1]-zoneForBar)>zoneHalfTicks*tick
+    float priorPlay=pending?zone:zoneForBar
+    bool beyond=(pending or firstSweep) and not na(reachedFeed) and not na(priorPlay) and direction*(reachedFeed-priorPlay)< -tick*0.5
+    bool fresh=beyond and not map.contains(deadLevels,int(math.round(reachedFeed/tick)))
+    if handoffEnabled and lifecycleOK and fresh
+        if map.size(deadLevels)>=4096
+            runtime.error("Lifecycle registry full. Reload with a fresh observation start; dead levels are never silently recycled.")
+        map.put(deadLevels,int(math.round(priorPlay/tick)),true)
+        handedOff:=true
+        if keepHistory
+            f_label(historyLabels,bar_index,priorPlay,"DEAD",developingColor,direction==1,"Next liquidity line reached before ABC detection. Prior play and pending geometry canceled; white historical line only.")
+        // The common arm block below clears EVERY old anchor/projection.
+        // No cooldown on supersession: the next line is already the new play.
+        phase:=0
+        zoneForBar:=reachedFeed
+        lastZone:=zoneForBar
+        approached:=true
+        endedAt:=na
+    // Phase 5 is a terminal display; it can only rearm after cooldown and a
+    // fresh approach from the intended side of the zone, never at every touch.
+    if phase == 5 and bar_index - endedAt >= cooldownBars
+        phase := 0
+        approached := false
+    if phase == 0
+        if na(zoneForBar) or na(lastZone) or zoneForBar != lastZone
+            approached := false
+            lastZone := zoneForBar
+        float zTop = zoneForBar + zoneHalfTicks * tick
+        float zBottom = zoneForBar - zoneHalfTicks * tick
+        // A freshly exported candidate may replace the preceding candidate.
+        // Its prior confirmed close is valid approach evidence for this bar;
+        // no approach is inferred from a touch or its current closing price.
+        if zoneSource == "Liquidity bridge" and bridgeOK and not na(close[1])
+            approached := approached or (direction == 1 ? close[1] > zTop : close[1] < zBottom)
+        if zoneSource == "Liquidity bridge" and not bridgeOK
+            message := handoffEnabled and not lifecycleOK?"SELECT REACHED EVENT + enable connection":externalConnected ? "BRIDGE UNAVAILABLE · check plot" : "SELECT BRIDGE PLOT + enable connection"
+        bool touch = handedOff or (not na(zoneForBar) and high >= zBottom and low <= zTop)
+        bool permittedTime = time >= startFrom
+        bool cooled = na(endedAt) or bar_index - endedAt >= cooldownBars
+        if approached and touch and permittedTime and cooled
+            abcDetected:=false
+            phase := 1
+            armedAt := bar_index
+            zone := zoneForBar
+            touched := true
+            projectedC:=na
+            forecastA:=na
+            forecastB:=na
+            projectionContact:=false
+            hContactShown:=false
+            gContactShown:=false
+            label contact=label.new(bar_index,zone,"•",xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,55),size=10,tooltip="First eligible HTF-line contact; no reversal confirmed.")
+            array.push(historyLabels,contact)
+            counterDay := not na(previousDailyClose) and direction * (close - previousDailyClose) < 0
+            s := direction == 1 ? lastPH : lastPL
+            si := direction == 1 ? lastPHindex : lastPLindex
+            a := na
+            ai := na
+            b := na
+            bi := na
+            c := na
+            ci := na
+            cKnownAt := na
+            developingC := na
+            developingIndex := na
+            shiftAt := na
+            bBroken := false
+            bShiftAt := na
+            firstHH := na
+            firstHHindex := na
+            firstHL := na
+            firstHLindex := na
+            hlKnownAt := na
+            hTouchAt := na
+            gTouchAt := na
+            probeSent := false
+            railSeen := false
+            checkedRisk := na
+            checkedRoom := na
+            lastResult := "No qualified retest yet"
+            message := handedOff?"NEXT LEVEL · old play DEAD; ABC reset":"ZONE TOUCHED · no entry"
+        else if not na(zoneForBar)
+            bool onApproachSide = direction == 1 ? close > zTop : close < zBottom
+            if onApproachSide
+                approached := true
+
+    if phase >= 1 and phase <= 4
+        bool expired = bar_index - armedAt > campaignBars
+        bool cInvalid = phase == 4 and (direction == 1 ? low < c : high > c)
+        bool retestTimedOut = phase == 4 and bar_index - shiftAt > retestExpiry
+        if cInvalid and not expired
+            // A failed first turn must not blind us to the larger ABC that is
+            // still forming at the same HTF location. Archive before replacing
+            // anchors, then promote old C to A and use a later confirmed bounce.
+            if keepHistory
+                color oldInk = direction == 1 ? longColor : shortColor
+                f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, oldInk)
+                f_label(historyLabels, bar_index, close, "C lost · restart", developingColor, direction == 1, "Prior reversal failed. Old geometry frozen; the zone campaign remains active until expiry.")
+            a := c
+            ai := ci
+            int newerBounceIndex = direction == 1 ? lastPHindex : lastPLindex
+            float newerBounce = direction == 1 ? lastPH : lastPL
+            bool bounceAfterC = not na(newerBounceIndex) and newerBounceIndex > ci
+            b := bounceAfterC ? newerBounce : na
+            bi := bounceAfterC ? newerBounceIndex : na
+            phase := bounceAfterC ? 2 : 1
+            c := na
+            ci := na
+            cKnownAt := na
+            shiftAt := na
+            bBroken := false
+            bShiftAt := na
+            developingC := direction == 1 ? low : high
+            developingIndex := bar_index
+            firstHH := na
+            firstHHindex := na
+            firstHL := na
+            firstHLindex := na
+            hlKnownAt := na
+            hTouchAt := na
+            gTouchAt := na
+            probeSent := false
+            railSeen := false
+            message := "C LOST · larger correction developing"
+        else if expired or retestTimedOut
+            archive := not na(ci)
+            phase := 5
+            endedAt := bar_index
+            message := "EXPIRED · wait for fresh zone approach"
+
+    // Accept only pivots whose actual origin is at/after the zone arming bar.
+    // Both-pivot candles are skipped: OHLC cannot establish their order.
+    if phase >= 1 and phase <= 4 and uniquePivot and pivotIndex >= armedAt
+        bool isAkind = direction == 1 ? not na(pl) : not na(ph)
+        float pivotValue = not na(ph) ? ph : pl
+        if phase == 1
+            if isAkind
+                bool improves = na(a) or (direction == 1 ? pivotValue < a : pivotValue > a)
+                if improves
+                    a := pivotValue
+                    ai := pivotIndex
+                    message := "a CONFIRMED · wait for b"
+            else if not na(ai) and pivotIndex > ai
+                bool legOK = math.abs(pivotValue - a) >= chartAtr * minAlegAtr
+                bool insideS = na(s) or (direction == 1 ? pivotValue < s : pivotValue > s)
+                if legOK and insideS
+                    b := pivotValue
+                    bi := pivotIndex
+                    phase := 2
+                    message := "b CONFIRMED · c is developing"
+        else if phase == 2
+            if not isAkind and pivotIndex > bi
+                // The developing B can change before C; no shift/entry was
+                // emitted from its earlier value. B freezes once C confirms.
+                b := pivotValue
+                bi := pivotIndex
+                developingC := na
+                developingIndex := na
+            else if isAkind and pivotIndex > bi
+                bool extension = direction == 1 ? pivotValue < a - closeBuffer : pivotValue > a + closeBuffer
+                if extension or not requireCExtension
+                    c := pivotValue
+                    ci := pivotIndex
+                    cKnownAt := bar_index
+                    phase := 3
+                    abcKnown := true
+                    developingC := c
+                    developingIndex := ci
+                    message := extension ? "ABC CONFIRMED · wait for B close-break" : "TURN PIVOTS CONFIRMED · wait for B break"
+        else if phase == 3 or phase == 4
+            if not isAkind and pivotIndex > ci
+                bool beyondC = direction == 1 ? pivotValue > c + closeBuffer : pivotValue < c - closeBuffer
+                if beyondC and na(firstHHindex)
+                    firstHH := pivotValue
+                    firstHHindex := pivotIndex
+            else if isAkind and not na(firstHHindex) and pivotIndex > firstHHindex
+                bool aboveC = direction == 1 ? pivotValue > c + closeBuffer : pivotValue < c - closeBuffer
+                if aboveC and na(firstHLindex)
+                    firstHL := pivotValue
+                    firstHLindex := pivotIndex
+                    hlKnownAt := bar_index
+                    message := phase == 4 ? "HL/LH CONFIRMED · watch retest" : "POST-C SWING + HL/LH · closing break required"
+
+    if phase==2 and not na(ai) and not na(bi) and (na(forecastA) or forecastA!=ai or forecastB!=bi)
+        [destination,one,extended,horizon,why]=f_cForecast(s,si,a,ai,b,bi,bar_index)
+        projectedC:=destination
+        forecastOne:=one
+        forecastExtended:=extended
+        projectedIndex:=horizon
+        projectionReason:=why
+        forecastA:=ai
+        forecastB:=bi
+        forecastKnownAt:=bar_index
+        projectionContact:=false
+    if phase==2 and bar_index>forecastKnownAt and not projectionContact and not na(projectedC) and high>=projectedC-touchBand and low<=projectedC+touchBand
+        label dot=label.new(bar_index,projectedC,"•",xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,62),size=10,tooltip="First contact with provisional C projection. It can break through; this is not C confirmation.")
+        array.push(historyLabels,dot)
+        projectionContact:=true
+
+    if phase == 2 and not na(bi) and bar_index > bi
+        float extreme = direction == 1 ? low : high
+        bool improves = na(developingC) or (direction == 1 ? extreme < developingC : extreme > developingC)
+        if improves
+            developingC := extreme
+            developingIndex := bar_index
+        bool extendsA = direction == 1 ? developingC < a - closeBuffer : developingC > a + closeBuffer
+        bool engulf = direction == 1 ? close > open and close[1] < open[1] and open <= close[1] and close >= open[1] and close > high[1] : close < open and close[1] > open[1] and open >= close[1] and close <= open[1] and close < low[1]
+        bool volOK = not probeVolume or (not na(rvol) and rvol >= volumeThreshold)
+        if showProbe and not probeSent and extendsA and engulf and volOK
+            probe := true
+            probeSent := true
+            message := "PROBE ONLY · engulfing near developing c"
+
+    if phase == 3
+        bool extendsAgain = direction == 1 ? low < c : high > c
+        if extendsAgain
+            // No trade was confirmed: resume developing C and wait for a new
+            // pivot. Keep the prior C's confirmed snapshot for audit.
+            archive := true
+            phase := 2
+            developingC := direction == 1 ? low : high
+            developingIndex := bar_index
+            firstHH := na
+            firstHHindex := na
+            firstHL := na
+            firstHLindex := na
+            hlKnownAt := na
+            message := "c EXTENDED · confirmation reset"
+        else
+            float upperRail = b + (c - a) * (bar_index - bi) / math.max(ci - ai, 1)
+            bool crossedRail = direction == 1 ? close > upperRail + closeBuffer : close < upperRail - closeBuffer
+            if crossedRail and not railSeen and bar_index >= cKnownAt
+                railWatch := true
+                railSeen := true
+            bool breaksB = direction == 1 ? close > b + closeBuffer : close < b - closeBuffer
+            if breaksB
+                phase := 4
+                shiftAt := bar_index
+                bBroken := true
+                bShiftAt := bar_index
+                shift := true
+                hTouchAt := na
+                gTouchAt := na
+                message := "SHIFT · B broken; wait for later retest"
+            else if earlyGeometry and not na(firstHLindex)
+                bool breaksFirstSwing = direction == 1 ? close > firstHH + closeBuffer : close < firstHH - closeBuffer
+                if breaksFirstSwing and bar_index > hlKnownAt
+                    phase := 4
+                    shiftAt := bar_index
+                    microShift := true
+                    message := "MICRO SHIFT · larger B still pending"
+
+    if phase == 4 and not na(shiftAt) and bar_index > shiftAt
+        if not bBroken
+            bool nowBreaksB = direction == 1 ? close > b + closeBuffer : close < b - closeBuffer
+            if nowBreaksB
+                bBroken := true
+                bShiftAt := bar_index
+                shift := true
+                hTouchAt := na
+        bool hasHL = not na(firstHLindex)
+        bool hlLost = hasHL and (direction == 1 ? low < firstHL - closeBuffer : high > firstHL + closeBuffer)
+        if hlLost
+            if keepHistory
+                color lostInk = direction == 1 ? longColor : shortColor
+                f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, lostInk)
+                f_label(historyLabels, bar_index, close, "HL/LH lost", developingColor, direction == 1, "Snapshot retains the old trendline before its anchor is cleared. This failed geometry remains reviewable in history.")
+            firstHL := na
+            firstHLindex := na
+            hlKnownAt := na
+            gTouchAt := na
+            message := "HL/LH LOST · wait for a new confirmed anchor"
+        float geo = f_y(ci, c, firstHLindex, firstHL, bar_index)
+        bool horizontalOverlap = high >= b - touchBand and low <= b + touchBand
+        bool horizontalReject = direction == 1 ? close > b + closeBuffer : close < b - closeBuffer
+        bool geometryOverlap = not na(geo) and high >= geo - touchBand and low <= geo + touchBand
+        bool geometryReject = not na(geo) and (direction == 1 ? close > geo + closeBuffer : close < geo - closeBuffer)
+        bool hInvalid = not na(hTouchAt) and (direction == 1 ? low < hStop : high > hStop)
+        bool gInvalid = not na(gTouchAt) and (direction == 1 ? low < gStop : high > gStop)
+        if hInvalid
+            hTouchAt := na
+        if gInvalid
+            gTouchAt := na
+        bool hFollow = horizontalPlay and bBroken and not na(bShiftAt) and bar_index > bShiftAt and not na(hTouchAt) and bar_index > hTouchAt and horizontalReject and (direction == 1 ? close > hEdge + closeBuffer : close < hEdge - closeBuffer)
+        bool gFollow = geometryPlay and not na(gTouchAt) and bar_index > gTouchAt and geometryReject and (direction == 1 ? close > gEdge + closeBuffer : close < gEdge - closeBuffer)
+        if hFollow or gFollow
+            float touchStop = gFollow ? gStop : hStop
+            float anchor = stopMode == "C extreme" ? c : stopMode == "Confirmed higher/lower low" ? firstHL : touchStop
+            float stopRef = anchor - direction * stopBuffer
+            checkedRisk := direction * (close - stopRef) / tick
+            float roomTicks = direction * (obstaclePrice - close) / tick
+            checkedRoom := not na(checkedRisk) and checkedRisk > 0 ? roomTicks / checkedRisk : na
+            bool riskOK = not na(checkedRisk) and checkedRisk > 0 and checkedRisk <= maxRiskTicks
+            bool roomOK = not useObstacle or (roomTicks > 0 and not na(checkedRoom) and checkedRoom >= minRoomR)
+            bool volOK = not entryVolume or (not na(rvol) and rvol >= volumeThreshold)
+            bool dayOK = not requireHLcounter or not counterDay or not na(firstHLindex)
+            bool parentOK = not requireParentAligned or parentBias == direction
+            bool zoneOK = not requireReclaim or direction * (close - zone) > 0
+            bool passes = riskOK and roomOK and volOK and dayOK and parentOK and zoneOK
+            readyH := passes and hFollow and not gFollow
+            readyG := passes and gFollow
+            blocked := not passes
+            lastResult := passes ? readyG ? bBroken ? "GEOMETRY RETEST PASSED" : "MICRO GEO PASSED · B pending" : "B RETEST PASSED" : not riskOK ? "SKIP · stop distance" : not roomOK ? "SKIP · first obstacle too close" : not dayOK ? "WAIT · counter-day needs HH/HL" : not parentOK ? "WAIT · parent not aligned" : not zoneOK ? "WAIT · zone not reclaimed" : "SKIP · volume unavailable / below threshold"
+            message := lastResult
+            hTouchAt := na
+            gTouchAt := na
+            if passes
+                archive := true
+                phase := 5
+                endedAt := bar_index
+        else
+            if horizontalPlay and bBroken and bar_index > bShiftAt and horizontalOverlap and horizontalReject
+                if not hContactShown
+                    label dot=label.new(bar_index,b,"•",xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,58),size=10,tooltip="First eligible B-line retest after SHIFT. Later closing follow-through still required.")
+                    array.push(historyLabels,dot)
+                    hContactShown:=true
+                hTouchAt := bar_index
+                hEdge := direction == 1 ? high : low
+                hStop := direction == 1 ? low : high
+                message := "B RETEST · wait for rejection-bar break"
+            if geometryPlay and geometryOverlap and geometryReject and not na(hlKnownAt) and bar_index > hlKnownAt
+                if not gContactShown
+                    label dot=label.new(bar_index,geo,"•",xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,58),size=10,tooltip="First eligible contact with the confirmed C-to-HL/LH trendline. Later closing follow-through still required.")
+                    array.push(historyLabels,dot)
+                    gContactShown:=true
+                gTouchAt := bar_index
+                gEdge := direction == 1 ? high : low
+                gStop := direction == 1 ? low : high
+                message := "TRENDLINE RETEST · wait for rejection-bar break"
+
+    if abcKnown and keepHistory and showCforecast and not na(projectedC)
+        f_line(historyLines,bi,b,projectedIndex,projectedC,color.new(color.white,80),line.style_dashed,1)
+        f_label(historyLabels,projectedIndex,projectedC,"C?",color.new(color.white,55),direction==1,"Earlier A/B projection: "+projectionReason+". This was hypothetical; actual C may differ.")
+
+    if archive and keepHistory and not na(ci)
+        color ink = direction == 1 ? longColor : shortColor
+        f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, ink)
+        f_label(historyLabels, bar_index, close, phase == 5 ? message : "c extended", developingColor, direction == 1, "Historical snapshot recorded when this event became available. Subsequent setups do not move these anchors.")
+    if archive and phase == 2
+        c := na
+        ci := na
+        cKnownAt := na
+    while array.size(historyLines) > historyCounts * 10
+        line.delete(array.shift(historyLines))
+    while array.size(historyLabels) > historyCounts * 8
+        label.delete(array.shift(historyLabels))
+
+    if abcKnown
+        abcDetected:=true
+
+    // Remember chart swing origins for the NEXT zone campaign, not the current
+    // bar's unconfirmed swing. Outside-bar double pivots remain ambiguous.
+    if uniquePivot
+        if not na(ph)
+            lastPH := ph
+            lastPHindex := pivotIndex
+        else
+            lastPL := pl
+            lastPLindex := pivotIndex
+
+color ink = direction == 1 ? longColor : shortColor
+float shownZone = entryChart ? (phase == 0 ? zoneForBar : zone) : na
+plot(shownZone,"Selected / armed HTF level",display=display.data_window)
+// One current box, not a historical plot fill. Deleting the old box on a
+// supersession removes its entire highlight instead of leaving a filled trail.
+if barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed)
+    bool inPlay=entryChart and phase>=1 and phase<=4 and not na(zone)
+    if inPlay and showPlayBand
+        float depth=math.max(tick,playBandMode=="Ticks"?playBandTicks*tick:math.abs(zone)*playBandPercent/100)
+        float top=direction==-1?zone+depth:zone
+        float bottom=direction==-1?zone:zone-depth
+        if na(playBand)
+            playBand:=box.new(armedAt,top,bar_index+projectionBars,bottom,xloc=xloc.bar_index,border_color=color.new(color.white,65),border_style=line.style_dashed,bgcolor=color.new(color.white,playBandAlpha))
+            playLine:=line.new(armedAt,zone,bar_index+projectionBars,zone,xloc=xloc.bar_index,color=color.new(color.white,25),style=line.style_dashed)
+        else
+            box.set_lefttop(playBand,armedAt,top)
+            box.set_rightbottom(playBand,bar_index+projectionBars,bottom)
+            line.set_xy1(playLine,armedAt,zone)
+            line.set_xy2(playLine,bar_index+projectionBars,zone)
+    else
+        if not na(playBand)
+            box.delete(playBand)
+            line.delete(playLine)
+            playBand:=na
+            playLine:=na
+plot(phase>=1 and phase<=4?1:0,"Lifecycle · in play",display=display.data_window)
+plot(handedOff?1:0,"Lifecycle · handoff this bar",display=display.data_window)
+plot(abcDetected?1:0,"Lifecycle · ABC detected",display=display.data_window)
+plotshape(entryChart and probe,title="Early candle reaction only",style=shape.circle,location=direction==1?location.belowbar:location.abovebar,color=color.new(color.white,75),size=size.tiny, display=display.all-display.status_line-display.price_scale)
+plotshape(entryChart and abcKnown?c:na,title="C confirmed on this bar",style=shape.circle,location=location.absolute,color=color.new(color.white,25),size=size.tiny, display=display.all-display.status_line-display.price_scale)
+plotshape(entryChart and shift,title="B closing break confirmed",style=shape.circle,location=direction==1?location.belowbar:location.abovebar,color=color.new(color.white,35),size=size.tiny, display=display.all-display.status_line-display.price_scale)
+plotshape(entryChart and microShift,title="Micro geometry only; B pending",style=shape.circle,location=direction==1?location.belowbar:location.abovebar,color=color.new(color.white,65),size=size.tiny, display=display.all-display.status_line-display.price_scale)
+plotshape(entryChart and (readyH or readyG),title="Retest follow-through passed",style=shape.circle,location=direction==1?location.belowbar:location.abovebar,color=color.new(color.white,0),size=size.tiny, display=display.all-display.status_line-display.price_scale)
+plotshape(entryChart and blocked,title="Enabled filter rejected retest",style=shape.xcross,location=direction==1?location.belowbar:location.abovebar,color=color.new(color.gray,55),size=size.tiny, display=display.all-display.status_line-display.price_scale)
+plot(entryChart?checkedRisk:na,"Reference risk ticks",display=display.data_window)
+plot(entryChart and phase==2?projectedC:na,"Provisional C level",display=display.data_window)
+
+if barstate.islastconfirmedhistory or (barstate.islast and (not fastDraw or barstate.isconfirmed))
+    while array.size(liveLines) > 0
+        line.delete(array.pop(liveLines))
+    while array.size(liveLabels) > 0
+        label.delete(array.pop(liveLabels))
+    if entryChart and phase >= 1 and phase <= 4
+        bool developing = phase == 2
+        float pc = developing ? developingC : c
+        int pi = developing ? developingIndex : ci
+        f_draw(liveLines, liveLabels, s, si, a, ai, b, bi, pc, pi, firstHL, firstHLindex, bar_index + projectionBars, developing, ink)
+        if phase==2 and showCforecast and not na(projectedC)
+            int horizon=math.max(bar_index+1,projectedIndex)
+            f_line(liveLines,bi,b,horizon,projectedC,color.new(color.white,76),line.style_dashed,1)
+            f_line(liveLines,bi,projectedC,horizon,projectedC,color.new(color.white,68),line.style_dotted,1)
+            f_label(liveLabels,horizon,projectedC,"C? "+str.tostring(projectedC,format.mintick),color.new(color.white,40),direction==1,"Provisional C after confirmed A/B: "+projectionReason+". A-leg equality / 1.272 / 1.618 neighborhood. No probability or entry implied.")
+            f_line(liveLines,bi,forecastOne,horizon,forecastOne,color.new(color.white,88),line.style_dotted,1)
+            f_line(liveLines,bi,forecastExtended,horizon,forecastExtended,color.new(color.white,88),line.style_dotted,1)
+
+f_price(float p) =>
+    na(p) ? "—" : str.tostring(p, format.mintick)
+
+var label stateNote=na
+if barstate.islast
+    if not na(stateNote)
+        label.delete(stateNote)
+    if showStateLabel
+        string note=not entryChart?"ABC · entry charts 1 / 2 / 3 / 5m":zoneSource=="Liquidity bridge" and not bridgeOK?"ABC · select Liquidity plot + enable connection":message
+        stateNote:=label.new(bar_index+3,close,note,xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,48),color=color.new(color.white,100),size=size.tiny,tooltip="Current completed-bar state. The forming candle does not confirm pivots or entry signals.")
+
+alertcondition(entryChart and abcKnown,"WC ABC · C swing confirmed","A/B/C pivots confirmed on {{ticker}}. C is a swing endpoint, not an entry or confirmed trend reversal. Wait for closing structure change and retest.")
+alertcondition(probe, "WC ABC · C candle PROBE", "Early C-candle reaction on {{ticker}}. Unconfirmed watch only, not a reversal or order.")
+alertcondition(shift, "WC ABC · B structure SHIFT", "Corrective ABC followed by a closing B break on {{ticker}}. Wait for a later confirmed retest.")
+alertcondition(microShift, "WC ABC · Micro geometry shift", "Post-C micro swing structure shifted on {{ticker}}, but the larger B is not yet broken. Earlier hypothesis only; wait for the geometry retest and all enabled checks.")
+alertcondition(readyH, "WC ABC · B retest passed", "B retest and subsequent rejection-bar break passed enabled checks on {{ticker}} at {{close}}. Reference risk only; no order sent.")
+alertcondition(readyG, "WC ABC · Geometry retest passed", "Confirmed HH/HL or LL/LH geometry retest passed enabled checks on {{ticker}} at {{close}}. No order sent.")
+alertcondition(blocked, "WC ABC · Retest blocked", "Rider zone reversal on {{ticker}} failed an enabled check. Read the small state note or Data Window.")
+
+alertcondition(handedOff,"WC ABC · Next level takes play","Next liquidity level reached before ABC detection on {{ticker}}. Previous play DEAD; ABC anchors reset at new level. No order sent.")
