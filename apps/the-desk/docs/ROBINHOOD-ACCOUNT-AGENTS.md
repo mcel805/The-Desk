@@ -142,3 +142,9 @@ untouched source checkout; focused Robinhood success does not mean all existing
 tests passed.
 
 Reference: [Robinhood external-agent onboarding](https://robinhood.com/us/en/support/articles/onboarding-an-external-agent/).
+
+During an evaluation, account, agent, configuration and capture controls are
+locked. A returned decision must match the submitted request ID, agent, revision,
+account and exact ticket before it can be displayed. Unsaved edits are retained
+when clicking the active tab; save/discard is required before pause, agent/account
+switching, or another capture. Results include their original decision time.

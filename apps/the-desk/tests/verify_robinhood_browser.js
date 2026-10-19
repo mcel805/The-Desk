@@ -24,6 +24,10 @@ async () => {
  $('#rhAgentPause').click();await wait(()=>ready()&&$('#rhAgentPause').textContent.includes('Pause'),'resume shadow');
  fill('notes','Unsaved fixture notes');$('#rhCaptureChart').click();
  check('Chart capture preserves unsaved agent edits',$('#rhAgentForm [name="notes"]').value==='Unsaved fixture notes'&&$('#rhWorkspaceMessage').textContent.includes('Save or discard'));
+ $('[data-rh-tab="agents"]').click();
+ check('Clicking the active tab preserves unsaved agent edits',$('#rhAgentForm [name="notes"]').value==='Unsaved fixture notes');
+ $('#rhAgentPause').click();await wait(ready,'dirty pause guard');
+ check('Pause controls require saving or discarding agent edits',$('#rhAgentForm [name="notes"]').value==='Unsaved fixture notes');
  $('#rhDiscardAgent').click();
  $('#rhWorkspaceClose').click();
  const spot=[...document.querySelectorAll('#watchlist button')].find(b=>b.dataset.instrument==='coinbase:BTC-USD');spot.click();
@@ -31,7 +35,15 @@ async () => {
  $('#orderKind').value='limit';$('#orderKind').dispatchEvent(new Event('change'));$('#quantity').value='0.5';$('#entryPrice').value='100';$('#orderForm').dispatchEvent(new Event('input',{bubbles:true}));
  $('#shadowAgentButton').click();await wait(()=>$('#robinhoodWorkspace').open&&$('#rhChartIntent')&&ready(),'chart intent capture');
  check('Real chart ticket button preserves instrument, quantity, price and completed-bar cutoff',$('#rhChartIntent').textContent.includes('coinbase:BTC-USD')&&$('#rhChartIntent').textContent.includes('completedBarCutoff')&&$('#rhChartIntent').textContent.includes('"quantity": "0.5"'));
- $('#rhEvaluate').click();await wait(()=>ready()&&$('#rhShadowResult').textContent.includes('checks passed'),'shadow evaluation');
+ const originalFetch=window.fetch;let release;const held=new Promise(r=>release=r);
+ window.fetch=(url,options)=>String(url).endsWith('/evaluate')?held.then(()=>originalFetch(url,options)):originalFetch(url,options);
+ try{
+  $('#rhEvaluate').click();
+  const locked=$('#rhAgentSelect').disabled&&$('#rhCaptureChart').disabled;
+  release();await wait(ready,'evaluation response');
+  check('Pending evaluations lock agent and ticket selection',locked);
+ }finally{release();window.fetch=originalFetch;}
+ await wait(()=>$('#rhShadowResult').textContent.includes('checks passed'),'shadow evaluation');
  check('Shadow policy passes with fresh synthetic broker quotes',$('#rhShadowResult').textContent.includes('No order sent'));
  $('[data-rh-tab="runs"]').click();await wait(()=>$('#rhWorkspaceContent').textContent.includes(agentName),'shadow journal');
  check('Durable journal links the agent revision and original chart intent',$('#rhWorkspaceContent').textContent.includes('shadow eligible')&&$('#rhWorkspaceContent').textContent.includes('coinbase:BTC-USD'));

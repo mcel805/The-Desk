@@ -1,4 +1,4 @@
-import {money,sourceLabel,collection,configPayload} from './robinhood-model.mjs';
+import {money,sourceLabel,collection,configPayload,evaluationMatches} from './robinhood-model.mjs';
 const base='/api/robinhood/workspace';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=s=>document.querySelector(s);
@@ -17,7 +17,15 @@ async function api(path,payload){
  const data=await res.json();if(!res.ok)throw Error(data.error||'Robinhood workspace request failed.');return data;
 }
 async function session(){if(!sessionReady){await api('/session',{});sessionReady=true;}}
-async function task(fn){if(busy)return;busy=true;$('#rhWorkspaceRefresh').disabled=true;$('#rhWorkspaceAccounts').disabled=true;try{await fn();}catch(e){message(e.message,true);}finally{busy=false;$('#rhWorkspaceRefresh').disabled=false;$('#rhWorkspaceAccounts').disabled=false;}}
+async function task(fn){
+ if(busy)return;busy=true;dialog.setAttribute('aria-busy','true');
+ const controls=[...dialog.querySelectorAll('button,input,select,textarea')].filter(el=>el.id!=='rhWorkspaceClose').map(el=>[el,el.disabled]);
+ for(const [el] of controls)el.disabled=true;
+ try{await fn();}catch(e){message(e.message,true);}finally{
+  busy=false;dialog.setAttribute('aria-busy','false');
+  for(const [el,disabled] of controls)if(el.isConnected)el.disabled=disabled;
+ }
+}
 function account(){return status.accounts.find(a=>a.id===accountId);}
 function stamp(value){return value?new Date(value*1000).toLocaleString('en-US',{timeZone:'America/Los_Angeles'})+' Pacific':'Not observed';}
 async function loadStatus(){
@@ -72,17 +80,22 @@ function render(){
  else host.innerHTML=(tab==='performance'?'<div class="rh-banner">Broker-reported realized P&L and realizing trades for the requested month. Null means unavailable. This is not an all-time equity curve or a complete cashflow ledger.</div>':'')+sourcesView(tabs[tab]);
  host.querySelectorAll('[data-rh-more]').forEach(b=>b.onclick=()=>task(()=>sync([b.dataset.rhMore],true)));
  $('#rhStartConnection')?.addEventListener('click',connect);
- $('#rhAgentSelect')?.addEventListener('change',e=>{selectedAgent=agents.find(a=>a.id===e.target.value)||null;dirty=false;requestId=null;render();});
- $('#rhNewAgent')?.addEventListener('click',()=>{selectedAgent=null;dirty=false;requestId=null;render();});
+ $('#rhAgentSelect')?.addEventListener('change',e=>{if(busy||dirty){e.target.value=selectedAgent?.id||'';return message('Finish the current operation and save or discard agent edits before selecting another agent.',true);}selectedAgent=agents.find(a=>a.id===e.target.value)||null;dirty=false;requestId=null;render();});
+ $('#rhNewAgent')?.addEventListener('click',()=>{if(busy)return;selectedAgent=null;dirty=false;requestId=null;render();});
  $('#rhAgentForm')?.addEventListener('input',()=>{dirty=true;$('#rhDiscardAgent').hidden=false;$('#rhAgentState').textContent='Unsaved configuration edits. Save a new revision before evaluating.';if($('#rhEvaluate'))$('#rhEvaluate').disabled=true;});
  $('#rhDiscardAgent')?.addEventListener('click',()=>{dirty=false;render();});
  $('#rhAgentForm')?.addEventListener('submit',e=>{e.preventDefault();const p=configPayload(new FormData(e.currentTarget),selectedAgent,accountId);void task(async()=>{selectedAgent=await api('/agents/save',p);agents=(await api('/agents')).agents;dirty=false;requestId=null;render();message('Agent revision saved in paused shadow mode.');});});
- $('#rhAgentPause')?.addEventListener('click',()=>task(async()=>{await api('/agents/pause',{id:selectedAgent.id,paused:!selectedAgent.paused});agents=(await api('/agents')).agents;selectedAgent=agents.find(a=>a.id===selectedAgent.id);render();message(selectedAgent.paused?'Shadow evaluations paused.':'Ready for explicit shadow evaluations. Live routing remains disarmed.');}));
+ $('#rhAgentPause')?.addEventListener('click',()=>{if(dirty)return message('Save or discard agent edits before changing pause state.',true);return task(async()=>{await api('/agents/pause',{id:selectedAgent.id,paused:!selectedAgent.paused});agents=(await api('/agents')).agents;selectedAgent=agents.find(a=>a.id===selectedAgent.id);render();message(selectedAgent.paused?'Shadow evaluations paused.':'Ready for explicit shadow evaluations. Live routing remains disarmed.');});});
  $('#rhCaptureChart')?.addEventListener('click',()=>{if(dirty)return message('Save or discard your agent edits before capturing a new ticket.',true);window.dispatchEvent(new CustomEvent('desk:request-shadow-chart'));});
  $('#rhEvaluate')?.addEventListener('click',()=>task(async()=>{
   if(dirty||!selectedAgent||!intent)throw Error('Save the agent and capture a current ticket first.');
-  requestId ||= crypto.randomUUID();const result=await api('/evaluate',{requestId,agentId:selectedAgent.id,revision:selectedAgent.revision,intent});
-  runs=(await api('/runs')).runs;$('#rhShadowResult').textContent=result.decision==='shadow_eligible'?'Configured shadow checks passed. No order sent.':result.reasons.join(' ');message('Shadow decision recorded. Open the Shadow journal for the evidence trail.');
+  requestId ||= crypto.randomUUID();
+  const submitted={requestId,agentId:selectedAgent.id,revision:selectedAgent.revision,intent:structuredClone(intent)},scope={epoch,accountId};
+  const result=await api('/evaluate',submitted);
+  if(!evaluationMatches(result,submitted,scope.accountId))throw Error('Shadow response did not match the submitted agent and ticket. Refresh the journal.');
+  runs=(await api('/runs')).runs;
+  if(epoch!==scope.epoch||accountId!==scope.accountId||selectedAgent?.id!==submitted.agentId||selectedAgent?.revision!==submitted.revision||JSON.stringify(intent)!==JSON.stringify(submitted.intent)||tab!=='agents')return message('Decision recorded for the original agent and ticket. Open the Shadow journal to inspect it.');
+  $('#rhShadowResult').textContent=(result.decision==='shadow_eligible'?'Configured shadow checks passed. No order sent.':result.reasons.join(' '))+' As of '+stamp(result.createdAt)+'.';message('Shadow decision recorded. Open the Shadow journal for the evidence trail.');
  }));
 }
 async function connect(){await task(async()=>{await session();const result=await api('/connect',{});const url=new URL(result.url);if(url.origin!=='https://robinhood.com'||url.pathname!=='/oauth')throw Error('Unexpected Robinhood authorization URL.');location.assign(url.href);});}
@@ -91,7 +104,7 @@ $('#robinhoodButton').onclick=open;$('#rhWorkspaceClose').onclick=()=>dialog.clo
 $('#rhWorkspaceDisconnect').onclick=()=>task(async()=>{++epoch;await api('/disconnect',{});status={connected:false,accounts:[]};accountId='';snapshot={sources:{}};intent=null;requestId=null;selectedAgent=null;await loadStatus();message('Disconnected from this Desk. Saved agents paused. Revoke the provider grant in Robinhood to remove consent.');});
 $('#rhWorkspaceAccounts').onchange=e=>{if(dirty){e.target.value=accountId;return message('Save or discard agent edits before changing accounts.',true);}accountId=e.target.value;++epoch;snapshot={sources:{}};selectedAgent=null;requestId=null;dirty=false;$('#rhAccountAccess').textContent=account()?.tradable?'Eligible MCP account · shadow only':'Read-only account';render();void task(async()=>{const mine=epoch,a=accountId;const data=await api('/snapshot?accountId='+encodeURIComponent(a));if(mine!==epoch)return;snapshot=data;await sync();});};
 $('#rhWorkspaceRefresh').onclick=()=>{if(dirty)return message('Save or discard agent edits before refreshing.',true);return task(async()=>{if(tab==='agents'||tab==='runs')await loadStatus();else await sync();});};
-document.querySelectorAll('[data-rh-tab]').forEach(b=>{b.onclick=()=>{if(busy)return;if(dirty&&b.dataset.rhTab!==tab)return message('Save or discard agent edits before switching views.',true);tab=b.dataset.rhTab;render();void task(async()=>{if(tabs[tab].length)await sync();});};b.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const all=[...document.querySelectorAll('[data-rh-tab]')],i=all.indexOf(b),next=all[(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length];next.click();next.focus();}};});
-window.addEventListener('desk:shadow-chart-intent',e=>{if(dirty){if(!dialog.open)dialog.showModal();return message('Save or discard agent edits before capturing a new ticket.',true);}intent=structuredClone(e.detail);requestId=null;tab='agents';if(dialog.open)render();else void open();message('Chart ticket captured for shadow evaluation. It has not been sent to Robinhood.');});
+document.querySelectorAll('[data-rh-tab]').forEach(b=>{b.onclick=()=>{if(busy||b.dataset.rhTab===tab)return;if(dirty)return message('Save or discard agent edits before switching views.',true);tab=b.dataset.rhTab;render();void task(async()=>{if(tabs[tab].length)await sync();});};b.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const all=[...document.querySelectorAll('[data-rh-tab]')],i=all.indexOf(b),next=all[(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length];next.click();next.focus();}};});
+window.addEventListener('desk:shadow-chart-intent',e=>{if(busy)return message('Wait for the current workspace operation before capturing another ticket.',true);if(dirty){if(!dialog.open)dialog.showModal();return message('Save or discard agent edits before capturing a new ticket.',true);}intent=structuredClone(e.detail);requestId=null;tab='agents';if(dialog.open)render();else void open();message('Chart ticket captured for shadow evaluation. It has not been sent to Robinhood.');});
 setInterval(()=>{if(dialog.open&&status.connected&&!busy&&$('#rhAutoRefresh').checked&&tabs[tab].length)void task(()=>sync());},30000);
 if(new URLSearchParams(location.search).get('robinhood')==='connected'){history.replaceState(null,'',location.pathname+location.hash);void open();}

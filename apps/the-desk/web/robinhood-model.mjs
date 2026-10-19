@@ -19,3 +19,6 @@ export function configPayload(form,agent,accountId){
  strategy:'chart-ticket-v1',symbols:String(v.symbols||'').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean),
  maxOrderUSD:v.maxOrderUSD,maxQuoteAgeSeconds:Number(v.maxQuoteAgeSeconds),maxSpreadBps:Number(v.maxSpreadBps),notes:v.notes||''};
 }
+export function evaluationMatches(result,submitted,accountId){
+ return !!result&&result.requestId===submitted.requestId&&result.agentId===submitted.agentId&&result.revision===submitted.revision&&result.accountId===accountId&&Object.keys(submitted.intent).every(k=>result.intent?.[k]===submitted.intent[k]);
+}
