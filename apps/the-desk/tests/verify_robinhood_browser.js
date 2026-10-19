@@ -22,6 +22,9 @@ async () => {
  $('#rhAgentForm').requestSubmit();await wait(()=>ready()&&$('#rhAgentPause'),'saved agent');
  check('Saving persists a versioned paused shadow agent',$('#rhAgentState').textContent.includes('Revision 1')&&$('#rhAgentPause').textContent.includes('Resume'));
  $('#rhAgentPause').click();await wait(()=>ready()&&$('#rhAgentPause').textContent.includes('Pause'),'resume shadow');
+ fill('notes','Unsaved fixture notes');$('#rhCaptureChart').click();
+ check('Chart capture preserves unsaved agent edits',$('#rhAgentForm [name="notes"]').value==='Unsaved fixture notes'&&$('#rhWorkspaceMessage').textContent.includes('Save or discard'));
+ $('#rhDiscardAgent').click();
  $('#rhWorkspaceClose').click();
  const spot=[...document.querySelectorAll('#watchlist button')].find(b=>b.dataset.instrument==='coinbase:BTC-USD');spot.click();
  await wait(()=>$('#instrumentLabel').textContent.includes('COINBASE:BTC-USD'),'spot chart selection');

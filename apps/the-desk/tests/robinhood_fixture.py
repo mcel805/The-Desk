@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 class FakeBroker:
     def __init__(self, *args, auto=False, **kwargs):
+        self.port = args[0] if args else 18886
         self.lock = threading.RLock()
         self.sessions = {}
         self.calls = []

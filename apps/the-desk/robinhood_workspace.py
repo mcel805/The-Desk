@@ -36,7 +36,7 @@ READS = {
     'advanced_orders': ('get_advanced_orders', 'advanced_orders', 'account_number'),
     'realized_pnl': ('get_realized_pnl', None, 'rhs_account_number'),
     'pnl_trades': ('get_pnl_trade_history', 'trades', 'rhs_account_number'),
-    'approvals': ('get_trade_approvals', None, 'account_number'),
+    'approvals': ('get_trade_approvals', 'approvals', 'account_number'),
     'approval_setting': ('get_trade_approval_setting', None, 'account_number'),
 }
 ALLOWED_TOOLS = {v[0] for v in READS.values()} | {'get_accounts', 'get_crypto_quotes'}
@@ -104,6 +104,7 @@ def validate_config(payload):
 class RobinhoodWorkspace:
     def __init__(self, broker, root, clock=time.time):
         self.broker = broker
+        self.cookie_name = f'{COOKIE}_{broker.port}'
         self.clock = clock
         self.lock = threading.RLock()
         self.root = Path(root)
@@ -262,8 +263,8 @@ class RobinhoodWorkspace:
                         data = self.read(owner, tool, args)
                         if list_field and (list_field not in data or not isinstance(data[list_field], list)):
                             raise ValueError('Malformed collection response.')
-                        if source == 'portfolio' and not isinstance(data.get('buying_power'), dict):
-                            raise ValueError('Missing authoritative buying power.')
+                        if source == 'portfolio' and ('buying_power' not in data or (data['buying_power'] is not None and not isinstance(data['buying_power'], dict))):
+                            raise ValueError('Malformed portfolio buying-power field.')
                         if source == 'approval_setting' and type(data.get('setting', {}).get('human_must_approve_trades')) is not bool:
                             raise ValueError('Missing approval setting.')
                         next_cursor = data.get('next_cursor') or data.get('next') or ''
@@ -272,12 +273,15 @@ class RobinhoodWorkspace:
                         data = {k: v for k, v in data.items() if k not in ('next', 'next_cursor', 'previous')}
                         data = self.redact(owner, data)
                         if more and list_field and payload:
-                            # Preserve executions/order IDs; deduplicate the same broker row across page boundaries.
+                            # Deduplicate only stable broker identities. P&L rows have
+                            # no ID: identical exposed fields can represent distinct trades.
                             seen = set()
                             combined = []
                             for row in payload[list_field] + data[list_field]:
-                                identity = canonical(row.get('id')) if isinstance(row, dict) and row.get('id') else canonical(row)
-                                if identity not in seen: combined.append(row); seen.add(identity)
+                                identity = canonical(row['id']) if isinstance(row, dict) and row.get('id') else None
+                                if identity is None or identity not in seen:
+                                    combined.append(row)
+                                    if identity is not None: seen.add(identity)
                             data[list_field] = combined
                         payload = data
                         pages += 1
@@ -442,7 +446,7 @@ class RobinhoodWorkspace:
     def cookie(self, handler):
         try:
             cookies = SimpleCookie(); cookies.load(handler.headers.get('Cookie', ''))
-            return cookies[COOKIE].value if COOKIE in cookies else None
+            return cookies[self.cookie_name].value if self.cookie_name in cookies else None
         except CookieError:
             return None
 
@@ -476,7 +480,7 @@ class RobinhoodWorkspace:
         if path == PREFIX + '/session':
             token = self.cookie(handler)
             if not self.profile(token): token = self.new_profile()
-            handler.broker_cookie = f'{COOKIE}={token}; Path={PREFIX}; HttpOnly; SameSite=Lax; Max-Age={PROFILE_TTL}'
+            handler.broker_cookie = f'{self.cookie_name}={token}; Path={PREFIX}; HttpOnly; SameSite=Lax; Max-Age={PROFILE_TTL}'
             handler.json({'localProfile': True, 'liveEnabled': False}); return True
         owner = self.owner(handler)
         if path == PREFIX + '/connect':

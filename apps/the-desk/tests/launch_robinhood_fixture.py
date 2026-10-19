@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from robinhood_fixture import FakeBroker
 import funding_routes
-funding_routes.Robinhood = lambda port: FakeBroker(auto=True)
+funding_routes.Robinhood = lambda port: FakeBroker(port, auto=True)
 import server
 
 

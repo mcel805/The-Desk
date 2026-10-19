@@ -29,6 +29,11 @@ label. Missing tools do not become successful empty histories. Null P&L stays
 unavailable. This is not a complete banking/tax ledger or an all-time equity
 curve. No broker balance/history is copied into the paper engine.
 
+Pending approvals paginate like order histories. Realized trade rows without a
+stable broker ID retain multiplicity even when all exposed fields are identical.
+A valid portfolio with null buying power keeps its other account values visible;
+shadow affordability checks still require available crypto buying power.
+
 Optional 30-second refresh runs only while the dialog is open and connected,
 with one workspace request at a time. It is not a market stream or unattended
 strategy worker.
@@ -81,6 +86,7 @@ The existing paper chart and DOM route stays independent.
 The Desk is a single-user **loopback** application, not an Internet-facing
 multi-user authentication service. A 30-day signed random HttpOnly,
 SameSite=Lax profile cookie scopes local records. Its API-path restriction,
+port-specific name,
 exact-Origin checks for POSTs, and the parent server's loopback Host checks
 protect the local workspace. This profile is separate from broker consent.
 

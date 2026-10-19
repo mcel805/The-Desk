@@ -154,5 +154,46 @@ class WorkspaceTests(unittest.TestCase):
         self.service.pause(self.owner, a['id'], False); self.service.disconnect(self.owner)
         self.assertTrue(self.service.agents(self.owner)[0]['paused']); self.assertFalse(self.service.status(self.owner)['connected'])
 
+    def test_paginated_realized_trades_preserve_identical_executions_without_ids(self):
+        original = self.broker.call
+        trade = {'symbol':'BTC-USD','side':'sell','price':'100','quantity':'1','realized_gain':'1','timestamp':'2026-10-18T12:00:00Z'}
+        def read(owner, name, args):
+            if name == 'get_pnl_trade_history':
+                return {'trades':[trade] if args.get('cursor') else [trade, trade], 'next_cursor':'' if args.get('cursor') else 'pnl-page2'}
+            return original(owner, name, args)
+        self.broker.call = read
+        self.service.sync(self.owner, self.aid, ['pnl_trades'])
+        s = self.service.sync(self.owner, self.aid, ['pnl_trades'], True)['sources']['pnl_trades']
+        self.assertEqual(s['status'], 'complete'); self.assertEqual(len(s['data']['trades']), 3)
+
+    def test_pending_approvals_follow_broker_cursor(self):
+        original = self.broker.call
+        def read(owner, name, args):
+            if name == 'get_trade_approvals':
+                return {'approvals':[{'id':'approval-2' if args.get('cursor') else 'approval-1'}], 'next':'' if args.get('cursor') else 'approval-page2'}
+            return original(owner, name, args)
+        self.broker.call = read
+        self.service.sync(self.owner, self.aid, ['approvals'])
+        s = self.service.sync(self.owner, self.aid, ['approvals'], True)['sources']['approvals']
+        self.assertEqual(s['status'], 'complete'); self.assertEqual(s['pages'], 2)
+        self.assertEqual([r['id'] for r in s['data']['approvals']], ['approval-1', 'approval-2'])
+
+    def test_unavailable_buying_power_keeps_other_portfolio_values(self):
+        self.broker.portfolio['buying_power'] = None
+        s = self.service.sync(self.owner, self.aid, ['portfolio'])['sources']['portfolio']
+        self.assertEqual(s['status'], 'complete'); self.assertEqual(s['data']['total_value'], '200.00')
+        self.assertIsNone(s['data']['buying_power'])
+        self.broker.portfolio['crypto_buying_power'] = None
+        self.assertEqual(self.service.evaluate(self.owner, self.request())['decision'], 'blocked')
+
+    def test_workspace_bootstrap_cookies_are_isolated_by_server_port(self):
+        class Handler:
+            def __init__(self, port): self.headers={'Origin':f'http://127.0.0.1:{port}','Host':f'127.0.0.1:{port}'}
+            def json(self, value, status=200): self.value=value
+        first=Handler(self.broker.port); self.service.post(first, '/api/robinhood/workspace/session', {})
+        other=RobinhoodWorkspace(FakeBroker(18888), Path(self.temp.name)/'other')
+        second=Handler(18888); other.post(second, '/api/robinhood/workspace/session', {})
+        self.assertNotEqual(first.broker_cookie.split('=')[0], second.broker_cookie.split('=')[0])
+
 
 if __name__ == '__main__': unittest.main()
