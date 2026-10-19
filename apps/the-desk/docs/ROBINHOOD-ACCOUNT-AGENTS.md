@@ -203,3 +203,22 @@ already occupying 18886. Verified account selection, masked identity, green dot,
 replacement of paper balances, shared BTC selection and native preview. Its
 broker values and previews are explicitly synthetic; chart providers may use
 public exchange data.
+
+
+### Validation of chart-account increment
+
+- 39 Robinhood Python tests passed, including six actual loopback HTTP tests.
+- 17 existing funding/authentication Python tests passed with the app venv.
+- 19 JavaScript behavior tests passed across account context, asynchronous
+  account/asset isolation, workspace switching, shadow model and trading model.
+- Initial browser acceptance verified synthetic account selection, masked identity,
+  connection status, broker balances, shared BTC-USD selection and native preview.
+  Later visual checks (reload, equities and responsive layout) remain unverified:
+  local browser use was disabled in Work settings.
+- Native code review found four issues, all corrected: automatic paper brackets
+  on broker shortcuts, unsupported equity timeframes, closed-session lookback,
+  and paper draft isolation. The follow-up review was interrupted by a Codex
+  usage limit; an additional overlapping-workspace account bug found during
+  that review was fixed and covered by an executable handler regression.
+- Live Desk OAuth/data acceptance and live order routing are not established by
+  synthetic fixtures. The chart ticket remains native-preview only.

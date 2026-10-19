@@ -50,6 +50,18 @@ class MarketTests(unittest.TestCase):
         self.assertEqual(self.broker.calls[-1][2]['rhs_account_number'],'55556666')
         q=self.service.broker_quote(self.owner,self.aid,'equity','AAPL');self.assertEqual(q['ask'],'100.10')
 
+    def test_inactive_or_never_traded_equity_quote_is_unavailable(self):
+        original=self.broker.call
+        for overrides in [{'state':'inactive'},{'has_traded':False}]:
+            def call(owner,name,args):
+                result=original(owner,name,args)
+                if name=='get_equity_quotes': result['results'][0]['quote'].update(overrides)
+                return result
+            self.broker.call=call
+            with self.assertRaisesRegex(ValueError,'inactive|never traded'):
+                self.service.broker_quote(self.owner,self.aid,'equity','AAPL')
+        self.broker.call=original
+
     def test_historical_bars_preserve_provider_identity_and_ohlc(self):
         bars=self.service.equity_bars(self.owner,self.aid,'AAPL','60')
         self.assertEqual(bars['bars'][0]['close'],100.5);self.assertEqual(bars['symbol'],'AAPL')
@@ -107,4 +119,3 @@ class MarketTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.service.crypto_catalog(self.owner,'other')
         self.service.disconnect(self.owner)
         with self.assertRaises(ValueError):self.service.broker_quote(self.owner,self.aid,'crypto','BTC-USD')
-
