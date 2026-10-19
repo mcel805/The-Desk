@@ -5,10 +5,10 @@ const intervals={'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120
 const millis=tf=>({D:86400000,W:604800000,M:2592000000}[tf]||Number(tf)*60000);
 const realDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export class PublicHistoryRequests {
- constructor({fetch=(...args)=>globalThis.fetch(...args),now=Date.now,delay=realDelay}={}){this.fetch=fetch;this.now=now;this.delay=delay;this.pending=new Map();this.queue=Promise.resolve();this.tokens=800;this.at=now();this.pause=0;}
+ constructor({fetch=(...args)=>globalThis.fetch(...args),now=Date.now,delay=realDelay}={}){this.fetch=fetch;this.now=now;this.delay=delay;this.pending=new Map();this.queue=Promise.resolve();this.tokens=500;this.at=now();this.pause=0;}
  async reserve(weight){
   const previous=this.queue;let release;this.queue=new Promise(resolve=>release=resolve);await previous;
-  try{for(;;){const now=this.now();this.tokens=Math.min(800,this.tokens+(now-this.at)*.016);this.at=now;const wait=Math.max(this.pause-now,(weight-this.tokens)/.016);if(wait<=0){this.tokens-=weight;return;}await this.delay(Math.ceil(wait));}}finally{release();}
+  try{for(;;){const now=this.now();this.tokens=Math.min(500,this.tokens+(now-this.at)*.008);this.at=now;const wait=Math.max(this.pause-now,(weight-this.tokens)/.008);if(wait<=0){this.tokens-=weight;return;}await this.delay(Math.ceil(wait));}}finally{release();}
  }
  request(body){
   const key=JSON.stringify(body);if(this.pending.has(key))return this.pending.get(key);
@@ -43,11 +43,18 @@ export class StreamingCandleHistory {
  entry(coin,tf){const key=this.key(coin,tf);let e=this.entries.get(key);if(!e){e={coin,tf:candleFrame(tf),bars:[],listeners:new Set(),updated:0,fetched:0,seeded:false,to:0,limit:0,pending:new Map()};this.entries.set(key,e);if(this.socket?.readyState===1)this.send(e);}else{this.entries.delete(key);this.entries.set(key,e);}for(const [oldKey,old] of this.entries){if(this.entries.size<=64)break;if(old===e||old.listeners.size||old.pending.size)continue;if(this.socket?.readyState===1&&intervals[old.tf])this.socket.send(JSON.stringify({method:'unsubscribe',subscription:{type:'candle',coin:old.coin,interval:intervals[old.tf]}}));this.entries.delete(oldKey);}this.connect();return e;}
  async getBars(coin,tf,range={}){
   const e=this.entry(coin,tf),to=range.to??this.now(),from=range.from,limit=range.limit??500;
+  // Studies ask for different depths of the same interval during startup. Let
+  // the running snapshot seed the shared cache before deciding to fetch again.
+  if(e.pending.size){await Promise.allSettled([...e.pending.values()]);return this.getBars(coin,tf,range);}
   const selected=e.bars.filter(b=>(from==null||b.time>=from)&&b.time<=to),fresh=this.now()-Math.max(e.updated,e.fetched)<=15000;
   const covered=e.bars.length&&to<=Math.max(e.to,e.updated?this.now()+millis(e.tf):Math.min(this.now(),e.bars.at(-1).time+millis(e.tf)))&&(from==null?(selected.length>=limit||(limit<=e.limit&&to>=e.to)):from>=e.bars[0].time);
   if(e.seeded&&fresh&&covered)return (from==null?selected.slice(-limit):selected).map(b=>({...b}));
   const key=JSON.stringify(range);let task=e.pending.get(key);
-  if(!task){const started=this.now();task=this.load(coin,e.tf,range).then(bars=>{if(!bars.length)throw Error('Hyperliquid candle history unavailable: '+coin+' '+e.tf);const streamBars=e.updated>started?new Map(e.bars.map(b=>[b.time,b])):null;this.merge(e,bars);if(streamBars)this.merge(e,[...streamBars.values()]);e.seeded=true;e.fetched=this.now();e.to=Math.max(e.to,to);e.limit=Math.max(e.limit,from==null?limit:0);return bars;}).finally(()=>e.pending.delete(key));e.pending.set(key,task);}
+  if(!task){const started=this.now(),hasDepth=from==null?(selected.length>=limit||(limit<=e.limit&&to>=e.to)):from>=e.bars[0]?.time;
+   // Closed history stays valid when the stream goes quiet. Refresh its newest
+   // edge instead of downloading thousands of unchanged candles again.
+   const loadRange=e.seeded&&hasDepth&&to>=e.bars.at(-1).time?{from:e.bars.at(-1).time,to:range.to}:range;
+   task=this.load(coin,e.tf,loadRange).then(bars=>{if(!bars.length)throw Error('Hyperliquid candle history unavailable: '+coin+' '+e.tf);const streamBars=e.updated>started?new Map(e.bars.map(b=>[b.time,b])):null;this.merge(e,bars);if(streamBars)this.merge(e,[...streamBars.values()]);e.seeded=true;e.fetched=this.now();e.to=Math.max(e.to,to);e.limit=Math.max(e.limit,from==null?limit:0);return bars;}).finally(()=>e.pending.delete(key));e.pending.set(key,task);}
   await task;const current=e.bars.filter(b=>(from==null||b.time>=from)&&b.time<=to);return (from==null?current.slice(-limit):current).map(b=>({...b}));
  }
  merge(e,bars){const map=new Map(e.bars.map(b=>[b.time,b]));for(const b of bars)map.set(b.time,{...b});e.bars=[...map.values()].sort((a,b)=>a.time-b.time).slice(-5000);}
