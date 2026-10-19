@@ -51,7 +51,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
       const {overlay,nodes,native,quick}=wrap,pane=native.scene?.panes.get('price');if(!pane)continue;
       const studyIds=new Set((cell.chart.indicators?.()||[]).flatMap(h=>[h.id,h.instanceId].filter(Boolean)));for(const [id,panel] of wrap.elliotPanels)if(!studyIds.has(id)){panel.destroy();wrap.elliotPanels.delete(id);}
       const market=marketIdentity(cell.chart),replay=ws.replay.state.active;
-      quick.hidden=!c.quickButtons||replay;const quote=s.quotes[market];quick.querySelectorAll('button').forEach(b=>{b.disabled=!quote||Date.now()/1000-quote.received_at>15;b.textContent=(b.dataset.quick==='buy'?'Buy ':'Sell ')+(quote?quote[b.dataset.quick==='buy'?'ask':'bid']:'—')+' · PAPER';});
+      quick.hidden=!c.quickButtons||replay;const quote=s.quotes[market];quick.querySelectorAll('button').forEach(b=>{b.disabled=!quote||Date.now()/1000-quote.received_at>15;b.textContent=(b.dataset.quick==='buy'?'Buy ':'Sell ')+(quote?quote[b.dataset.quick==='buy'?'ask':'bid']:'—')+' · '+(s.tradingMode||'PAPER');});
       const levels=replay?[]:tradingLevels(s,market,c);if(!replay&&cell.id===ws.active.id)levels.push(...draftLevels());
       const live=new Set(levels.map(l=>l.key));if(drag?.cellId===cell.id&&!live.has(drag.level.key))drag=null;for(const [key,node] of nodes)if(!live.has(key)){node.remove();nodes.delete(key);}
       const occupied=[],preview=drag?.level.kind==='draft'?moveDraftBracket(drag.level.item,drag.level.field,drag.price,Number(quote?.tick||.01)):null;

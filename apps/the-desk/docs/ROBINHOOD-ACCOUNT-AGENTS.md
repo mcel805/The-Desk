@@ -2,8 +2,8 @@
 
 Open **Robinhood & agents** in the Desk header. This workspace has an independent
 official Robinhood OAuth connection; no Base wallet is required. The old wallet
-drawer remains available. This release provides account reads and explicit
-shadow evaluations. It exposes no broker submit, cancel, exercise, approval
+drawer remains available. This release provides account reads, chart-linked
+native limit previews and explicit shadow evaluations. It exposes no broker submit, cancel, exercise, approval
 mutation, or live activation route.
 
 ## Connection and account coverage
@@ -148,3 +148,58 @@ locked. A returned decision must match the submitted request ID, agent, revision
 account and exact ticket before it can be displayed. Unsaved edits are retained
 when clicking the active tab; save/discard is required before pause, agent/account
 switching, or another capture. Results include their original decision time.
+
+
+## Chart account and asset selection
+
+The chart account selector groups Paper, Robinhood, Wallet/exchanges and future
+Interactive Brokers. A green dot means this Desk has verified the Robinhood
+account within 60 seconds. The Codex connector and the Desk OAuth client are
+separate grants; connecting one does not connect the other. Wallet identity is
+labeled separately from venue authorization. Binance/Coinbase account routing
+and IBKR are unavailable rather than simulated connections.
+
+Selecting Robinhood replaces header cash, portfolio value and buying power with
+fresh account-scoped broker snapshots. Missing/stale balances and open P&L are
+unavailable; crypto sizing uses crypto buying power, excluding equity margin.
+Paper positions, order controls, export and ledger commands cannot operate under
+the Robinhood selection. The paper DOM tab is unavailable in the Robinhood
+context; chart limits use the native preview. The account workspace opens the
+same masked account and blocks account switches while a read is pending.
+
+Robinhood Assets is next to the account selector and in the watch rail. It loads
+all supported USD crypto pairs through bounded, advancing pagination and labels
+restrictions, halts and quantity/price steps. Stocks and ETFs use search (20
+results per query) and account-specific tradability checks, not a claim of an
+exhaustive equity catalog. The same selection sets the chart and ticket.
+Selection is revalidated after reload. Options/futures are not available in this
+ticket; the MCP account's eligibility is independent of other personal accounts.
+
+Matching crypto may use exact-symbol Hyperliquid perpetual reference charts or
+Coinbase spot charts, based on provider catalogs. There is no alias mapping
+(e.g. PEPE is not kPEPE). Robinhood spot quotes, symbol and spendable power remain
+separate. Where neither chart feed lists the pair, the ticket remains available
+with Robinhood quotes and an empty historical chart; candles are not invented.
+Stocks have Robinhood MCP historicals for 1m, 3m, 5m, 15m, 30m, 1h, 4h and 1D, regular
+session, split adjusted, with interpolated/invalid OHLC rows omitted. 3m and 15m aggregate only complete, consecutive source-bar buckets. Initial lookback includes ten calendar days to span closed sessions.
+
+The chart ticket offers a native Robinhood limit preview (GTC; equities regular
+hours), checks account eligibility, pair rules and a broker bid/ask no older than
+15 seconds, and preserves broker alerts/disclosures. A changed ticket/account/
+chart discards a pending review. Attached SL/TP is rejected. No real order,
+cancellation or autonomous live strategy is enabled. Agent Studio remains shadow
+only. Live acceptance requires the Desk's own OAuth grant and verified broker
+review/execution/reconciliation; synthetic tests do not establish this.
+
+Additional executable checks:
+
+```sh
+node --test tests/test_account_context.mjs
+python3 -B -m unittest discover -s tests -p 'test_robinhood_markets.py'
+```
+
+The browser fixture for this increment used port 18889, not the unrelated app
+already occupying 18886. Verified account selection, masked identity, green dot,
+replacement of paper balances, shared BTC selection and native preview. Its
+broker values and previews are explicitly synthetic; chart providers may use
+public exchange data.

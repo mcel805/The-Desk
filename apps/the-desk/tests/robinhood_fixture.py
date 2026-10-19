@@ -17,6 +17,7 @@ class FakeBroker:
         self.ask = '100.10'
         self.quote_age = 0
         self.clock = time.time
+        self.pairs = [{'id':'pair-btc','symbol':'BTC-USD','name':'Bitcoin','asset_currency':{'code':'BTC','name':'Bitcoin'},'display_only':False,'market_orders_only':False,'halted':False,'tradability':'tradable','tradability_by_account_type':{},'min_order_size':'0.00001','max_order_size':'100','min_order_price_increment':'0.01','min_order_quantity_increment':'0.00001','min_order_quote_amount':'1'}]
         self.portfolio = {'total_value': '200.00', 'cash': '200.00', 'currency': 'USD',
                           'buying_power': {'buying_power': '200.00'}, 'crypto_buying_power': {'buying_power': '200.00'}}
 
@@ -37,6 +38,15 @@ class FakeBroker:
         if name in self.fail: raise RuntimeError('PRIVATE_TOKEN TEST_MCP_55556666 provider detail')
         if name in self.malformed: return {'unexpected': None}
         if name == 'get_portfolio': return self.portfolio.copy()
+        if name == 'get_currency_pairs': return {'results':self.pairs,'next':''}
+        if name == 'search': return {'results':[{'symbol':'AAPL','name':'SYNTHETIC Apple','instrument_id':'instrument-aapl'}]}
+        if name == 'get_equity_tradability': return {'results':[{'symbol':s,'tradeable':True,'state':'active','account_type_tradabilities':[{'account_type':'individual','account_type_tradability':'tradable'}]} for s in args['symbols']]}
+        if name == 'get_equity_quotes':
+            stamp=datetime.fromtimestamp(self.clock()-self.quote_age,timezone.utc).isoformat()
+            return {'results':[{'quote':{'symbol':args['symbols'][0],'state':'active','has_traded':True,'bid_price':self.bid,'ask_price':self.ask,'venue_bid_time':stamp,'venue_ask_time':stamp}}]}
+        if name == 'get_equity_historicals':
+            stamp=datetime.fromtimestamp(self.clock()-3600,timezone.utc).isoformat()
+            return {'results':[{'symbol':args['symbols'][0],'bars':[{'begins_at':stamp,'open_price':'100','high_price':'101','low_price':'99','close_price':'100.5','volume':'12'}]}]}
         if name == 'get_crypto_quotes':
             stamp = datetime.fromtimestamp(self.clock()-self.quote_age, timezone.utc).isoformat()
             return {'results': [{'symbol': args['symbols'][0].replace('-', ''), 'bid_price': self.bid, 'ask_price': self.ask, 'updated_at': stamp, 'bid_time': stamp, 'ask_time': stamp, 'routing': 'SYNTHETIC'}]}
@@ -53,6 +63,10 @@ class FakeBroker:
 
     def start(self, owner, host, callback_path='/api/robinhood/callback'):
         raise ValueError('Synthetic fixture: OAuth is not exercised here.')
+
+    def preview(self,owner,payload):
+        self.calls.append((owner,'NATIVE_PREVIEW',payload))
+        return {'id':'synthetic-preview','blocked':False,'review':{'symbol':payload['symbol'],'side':payload['side'],'quantity':payload['quantity'],'limit_price':payload['limit_price'],'order_checks':{},'market_data_disclosure':'SYNTHETIC TEST FIXTURE · not live data'}}
 
     def disconnect(self, owner):
         self.sessions.pop(owner, None)

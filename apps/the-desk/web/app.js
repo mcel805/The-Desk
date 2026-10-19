@@ -7,11 +7,14 @@ import {buildChartMenuActions} from './chart-menu-actions.mjs';
 import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
 import {upgradeLiquidityWorkspace} from './liquidity-catalog-upgrade.mjs';
+import {setupChartAccount} from './chart-account.mjs';
+import {RobinhoodProvider,brokerMoney} from './account-context.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
 
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const usd=v=>Number.isFinite(Number(v))?'$'+number(v):'—', fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:8});
+let brokerContext=null,brokerScope='';
 let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,commandKey=null,dialogKey=null,contextKey='',menuPrice=null;
 const instruments=['hyperliquid:BTC','hyperliquid:ETH','hyperliquid:SOL','coinbase:BTC-USD','coinbase:ETH-USD','coinbase:SOL-USD'];
 
@@ -21,13 +24,15 @@ async function api(path,payload,headers={}){
 }
 function toast(text,error=false){$('#toast').textContent=text;$('#toast').classList.add('visible');$('#toast').style.borderColor=error?'#f23645':'#525d73';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),5000);}
 async function command(action,payload,key=($('#dialog').open?dialogKey:crypto.randomUUID())){
+ if(brokerContext?.selected)throw Error('Robinhood selected. Paper ledger actions are unavailable; use the broker workspace.');
  const result=await api('/api/command',{action,payload},{'Idempotency-Key':key});await refresh();return result;
 }
 function instrument(){return marketIdentity(ws?.chart);}
 function tradeConfig(){return tradingConfig(settings.trading);}
-function stageTrade(next,kind='market',price){stage(next,kind,price);if(tradeConfig().instant&&!ws.replay.state.active)$('#orderForm').requestSubmit();}
+function stageTrade(next,kind='market',price){stage(next,kind,price);if(!brokerContext?.selected&&tradeConfig().instant&&!ws.replay.state.active)$('#orderForm').requestSubmit();}
 function stageChartTrade(next,kind='limit',price){
  stage(next,kind,price);if(!draft||ws.replay.state.active)return;
+ if(brokerContext?.selected){reviewChartOrder();return;}
  const q=quote();if(!q)return;
  const native=ws.chart.renderer.renderer,pane=native?.scene?.panes.get('price'),entry=entryReference();
  const y=pane?native.coords.priceToY(entry,pane.scale,pane.bounds):null;
@@ -37,6 +42,7 @@ function stageChartTrade(next,kind='limit',price){
  updateTicket();reviewChartOrder();
 }
 function reviewChartOrder(){
+ if(brokerContext?.selected){$('#orderForm').requestSubmit();return;}
  if(!draft||ws.replay.state.active||$('#orderKind').value!=='limit')return;
  const p=payload(),scope={account:activeAccount,instrument:instrument()},a=account();
  showDialog('Place paper '+p.side+' '+p.kind,
@@ -57,6 +63,7 @@ function reviewChartOrder(){
 async function captureShadowIntent(){
  const button=$('#shadowAgentButton');button.disabled=true;
  try{
+  if(brokerContext?.selected)throw Error('Agent Studio supports paper-ticket shadow evaluation. Broker tickets currently support native review only.');
   if(!ws||ws.replay.state.active)throw Error('Exit chart replay before capturing a shadow ticket.');
   if($('#orderKind').value!=='limit')throw Error('Select a limit ticket with an exact price for shadow evaluation.');
   const p=payload(),tf=canonicalTimeframe(ws.chart.market.timeframe),q=quote();
@@ -70,10 +77,11 @@ async function captureShadowIntent(){
   window.dispatchEvent(new CustomEvent('desk:shadow-chart-intent',{detail:intent}));
  }catch(e){toast(e.message,true);}finally{button.disabled=false;}
 }
-$('#shadowAgentButton').onclick=captureShadowIntent;
+$('#shadowAgentButton').onclick=()=>brokerContext?.selected?window.dispatchEvent(new CustomEvent('desk:open-robinhood-account',{detail:{accountId:brokerContext.selected,tab:'agents'}})):captureShadowIntent();
 window.addEventListener('desk:request-shadow-chart',captureShadowIntent);
-function account(){return state?.accounts.find(a=>a.id===activeAccount);}
-function quote(){return state?.quotes[instrument()];}
+function account(){return brokerContext?.selected?{id:'rh:'+brokerContext.selected,name:brokerContext.account()?.name||'Robinhood',balance:brokerContext.metrics[brokerContext.asset?.kind==='crypto'?'cryptoBuyingPower':'buyingPower']}:state?.accounts.find(a=>a.id===activeAccount);}
+function quote(){return brokerContext?.selected?brokerContext.quote():state?.quotes[instrument()];}
+function chartTradingState(){if(!brokerContext?.selected)return state;return {...state,active_account:'rh:'+brokerContext.selected,tradingMode:'ROBINHOOD · REVIEW',positions:[],orders:[],fills:[],quotes:quote()?{[instrument()]:quote()}: {}};}
 function snap(v){const tick=Number(quote()?.tick||.01);return Number((Math.round(Number(v)/tick)*tick).toPrecision(12));}
 function quantity(){
  const amount=Number($('#quantity').value),q=quote(),price=entryReference();let qty=amount;
@@ -92,16 +100,28 @@ function updateTicket(){
  $('#entryPrice').disabled=$('#limitField').hidden;$('#triggerPrice').disabled=$('#triggerField').hidden;
  $('#sizeName').textContent=({units:'Quantity',cash:'Notional · USD',balance:'Balance · %',risk:'Risk · USD'})[$('#sizeMode').value];
  if($('#sizeMode').value==='balance')$('#quantity').max=100;else $('#quantity').removeAttribute('max');
- $('#ticketInstrument').textContent=instrument().toUpperCase()+' · '+(a?.name||'Choose account')+' · PAPER';
+ const broker=!!brokerContext?.selected;
+ const domButton=document.querySelector('[data-rail="dom"]');domButton.disabled=broker;domButton.title=broker?'Robinhood DOM routing is not enabled. Use the chart limit preview.':'Depth of market';
+ if(broker&&rail==='dom')document.querySelector('[data-rail="watch"]').click();
+ $('#balance').parentElement.firstChild.textContent=broker?'Cash ':'Balance ';$('#equity').parentElement.firstChild.textContent=broker?'Account value ':'Equity ';
+ $('#ticketInstrument').textContent=broker?'ROBINHOOD · '+(brokerContext.asset?.symbol||'Select an asset')+' · '+(brokerContext.account()?.account||'disconnected')+' · chart '+instrument():instrument().toUpperCase()+' · '+(a?.name||'Choose account')+' · PAPER';
+ document.querySelector('.desk-header .mode').textContent=broker?'ROBINHOOD · REVIEW':'PAPER';document.querySelector('.ticket-heading .mode').textContent=broker?'PREVIEW':'SIM';
+ $('#exportAccount').disabled=broker;$('#journalBadge').hidden=broker;
+ $('#shadowAgentButton').disabled=false;$('#shadowAgentButton').textContent=broker?'Open account Agent Studio':'Send chart ticket to shadow agent';$('#brokerChartFeed').hidden=!broker||!brokerContext.asset;if(broker&&brokerContext.matches)$('#brokerChartFeed').value=instrument();
+ $('#sideBuy').textContent=broker?'Buy':'Buy / Long';$('#sideSell').textContent=broker?'Sell owned':'Sell / Short';
+ document.querySelector('.ticket > p.small').textContent=broker?'Robinhood native limit review · GTC; equities regular session. Reference charts do not supply execution quotes. No live order submission is enabled.':'Public bid/ask and Hyperliquid limit-touch simulation. Full quantity modeled; no queue or funding model. Fees follow this account’s settings.';
  $('#sideBuy').classList.toggle('selected',side==='buy');$('#sideSell').classList.toggle('selected',side==='sell');$('#sideBuy').setAttribute('aria-pressed',side==='buy');$('#sideSell').setAttribute('aria-pressed',side==='sell');
  const px=entryReference(),qty=quantity(),risk=$('#stopPrice').value?Math.abs(px-Number($('#stopPrice').value))*qty:null,reward=$('#targetPrice').value?Math.abs(Number($('#targetPrice').value)-px)*qty:null;
  $('#ticketSummary').innerHTML=`<dt>Estimated quantity</dt><dd>${Number.isFinite(qty)?fmt(qty):'Set a valid stop'}</dd><dt>Notional</dt><dd>${usd(Number.isFinite(qty)?qty*px:0)}</dd><dt>Commission / side</dt><dd>${usd(qty*px*Number(a?.fee_bps||0)/10000)}</dd><dt>Stop risk</dt><dd>${risk===null?'—':usd(risk)}</dd><dt>Reward / risk</dt><dd>${risk&&reward?number(reward/risk)+' R':'—'}</dd><dt>Price / size step</dt><dd>${q?fmt(q.tick)+' / '+fmt(q.qty_step):'Waiting for quote'}</dd>`;
+ $('#timeInForce').disabled=broker;$('#timeInForce').options[0].textContent=broker?'Good until cancelled · Robinhood':'Good until cancelled · SIM';
+ if(broker)$('#timeInForce').value='0';
  const replay=!!ws?.replay?.state?.active;
- $('#submitOrder').disabled=busy||!a||!q||q.age>15||replay;
- $('#submitOrder').textContent=replay?'Trading disabled during chart replay':busy?'Submitting…':'Place paper '+(side==='buy'?'Buy':'Sell');
+ $('#submitOrder').disabled=busy||!a||!q||q.age>15||replay||(broker&&(!brokerContext.valid()||!brokerContext.account()?.tradable||!brokerContext.matches||kind!=='limit'||!brokerContext.asset?.eligible));
+ $('#submitOrder').textContent=replay?'Trading disabled during chart replay':busy?'Submitting…':broker?'Review Robinhood '+(side==='buy'?'Buy':'Sell'):'Place paper '+(side==='buy'?'Buy':'Sell');
  for(const id of ['entryPrice','triggerPrice','stopPrice','targetPrice'])if(q){$('#'+id).step=q.tick;$('#'+id).min=q.tick;}
  if(q){$('#bid').textContent=fmt(q.bid);$('#ask').textContent=fmt(q.ask);$('#feedState').textContent=(q.age>15?'STALE':'PUBLIC QUOTE')+' · '+number(q.age,0)+'s · '+q.transport;}
  else{$('#bid').textContent=$('#ask').textContent='—';$('#feedState').textContent='Server quote unavailable';}
+ if(broker){$('#ticketSummary').innerHTML='<dt>Broker asset</dt><dd>'+esc(brokerContext.asset?.symbol||'Select an asset')+'</dd><dt>Broker buying power</dt><dd>'+brokerMoney(a?.balance)+'</dd><dt>Estimated quantity</dt><dd>'+fmt(qty)+'</dd><dt>Notional</dt><dd>'+brokerMoney(qty*px)+'</dd><dt>Fees / restrictions</dt><dd>From Robinhood review</dd><dt>Price / size step</dt><dd>'+esc(brokerContext.asset?.priceStep||'—')+' / '+esc(brokerContext.asset?.quantityStep||'—')+'</dd><dt>Execution</dt><dd>Preview only · live submission unavailable</dd>';$('#feedState').textContent=brokerContext.asset?.symbol+' · Robinhood bid / ask '+(q?(q.age>15?'STALE':'')+' · '+number(q.age,0)+'s':'unavailable')+(instrument().startsWith('hyperliquid:')?' · chart: perpetual reference':instrument().startsWith('coinbase:')?' · chart: spot reference':' · chart: Robinhood');}
  $('#instrumentLabel').textContent=instrument().toUpperCase();
 }
 
@@ -119,6 +139,7 @@ $('#orderKind').onchange=()=>{if(!$('#entryPrice').value)$('#entryPrice').value=
 $('#orderForm').onsubmit=async e=>{
  e.preventDefault();if(busy)return;
  if(ws.replay.state.active)return toast('Paper orders are disabled during chart replay.',true);
+ if(brokerContext?.selected){await reviewBrokerTicket();return;}
  const p=payload();if(!Number.isFinite(Number(p.qty))||Number(p.qty)<=0){$('#orderError').textContent='Set a valid quantity and stop for risk sizing.';return;}
  busy=true;commandKey ||= crypto.randomUUID();$('#orderError').textContent='';updateTicket();
  try{await command('order',p,commandKey);draft=false;commandKey=null;toast('Paper order accepted by The Desk.');setPanel('orders');}
@@ -137,7 +158,7 @@ function showDialog(title,body,submit,{submitLabel='Confirm',cancelLabel='Cancel
  $('#dialog').showModal();
 }
 $('#addAccount').onclick=()=>showDialog('Create paper account',`<label>Account name<input name="name" value="My paper account" required maxlength="80"></label><div class="two-col"><label>Starting capital · USD<input name="capital" type="number" min="1" max="1000000000" value="10000" required></label><label>Commission · bps / side<input name="fee_bps" type="number" min="0" max="1000" step="any" value="5" required></label></div><label>Perpetual paper leverage<select name="leverage"><option>1</option><option>2</option><option>5</option><option>10</option><option>20</option></select></label><p class="muted small">Separate virtual capital and ledger. Coinbase spot uses owned inventory; Hyperliquid supports paper longs and shorts.</p>`,async fd=>{const a=await command('account',Object.fromEntries(fd));activeAccount=a.id;localStorage.setItem('the-desk.account',activeAccount);draft=false;await refresh();toast('Paper account created and queued for Lux Journal.');});
-$('#accountSelect').onchange=async e=>{activeAccount=e.target.value;localStorage.setItem('the-desk.account',activeAccount);draft=false;commandKey=null;await refresh();};
+
 
 $('#manageAccount').onclick=()=>{
  const a=account();if(!a)return toast('Create a paper account first.',true);
@@ -181,11 +202,13 @@ $('#manageAccount').onclick=()=>{
 };
 
 function drawWatch(){
+ if(brokerContext?.selected){$('#watchPanel .rail-heading').innerHTML='ROBINHOOD MARKETS <span>USD</span>';$('#watchPanel > p.small').textContent='Robinhood account catalog · choose an asset to chart';$('#watchlist').innerHTML='<div class="rh-empty"><strong>ROBINHOOD ASSETS</strong><p>'+esc(brokerContext.asset?.symbol||'Select an asset')+'</p><button id="openWatchBrokerAssets">Browse Robinhood assets</button><p class="small muted">Account-scoped crypto catalog and stock / ETF search. Selection is shared by chart and ticket.</p></div>';$('#openWatchBrokerAssets').onclick=brokerContext.openAssets;return;}
+ $('#watchPanel .rail-heading').innerHTML='CRYPTO MARKETS <span>USD</span>';$('#watchPanel > p.small').textContent='Public exchange data · choose a row to chart';
  $('#watchlist').innerHTML=instruments.map(i=>{const q=state?.quotes[i];return `<button class="watch-row ${i===instrument()?'active':''}" data-instrument="${esc(i)}"><span><span class="ticker">${esc(i.split(':')[1].replace('-USD',''))}</span><br><small>${i.startsWith('coinbase')?'COINBASE · SPOT':'HYPERLIQUID · PERP'}</small></span><span class="watch-value">${q?number(q.last):'—'}</span><span class="muted small">${q&&q.age<15?'●':'○'}</span></button>`;}).join('');
  $('#watchlist').querySelectorAll('button').forEach(b=>b.onclick=async()=>{draft=false;commandKey=null;try{await ws.chart.setMarket({symbol:b.dataset.instrument});updateTicket();drawWatch();}catch(e){toast(e.message,true);}});
 }
 const dom=setupDOM({instrument,quote,stage:stageTrade,account,replay:()=>!!ws?.replay?.state?.active});
-const domTrader=setupDOMTrader({state:()=>state,instrument,quote,accountId:()=>activeAccount,replay:()=>!!ws?.replay?.state?.active,stage:stageTrade,book:()=>dom.book(),editOrder,closePosition,editBracket,showDialog,command,toast,config:tradeConfig});
+const domTrader=setupDOMTrader({state:chartTradingState,instrument,quote,accountId:()=>activeAccount,replay:()=>!!ws?.replay?.state?.active,stage:stageTrade,book:()=>dom.book(),editOrder,closePosition,editBracket,showDialog,command,toast,config:tradeConfig});
 function drawDOM(){dom.sync();domTrader.paint();}
 document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{
  rail=b.dataset.rail;$('#watchPanel').hidden=rail!=='watch';$('#domPanel').hidden=rail!=='dom';
@@ -206,6 +229,7 @@ function instrumentShort(i){return i.toUpperCase();}
 function renderManager(){
  if(!state)return;
  const host=$('#managerContent');
+ if(brokerContext?.selected){host.innerHTML='<div class="rh-empty"><strong>Robinhood · '+esc(brokerContext.account()?.account||'disconnected')+'</strong><p>View broker positions, orders and account history in the account workspace.</p><button id="openBrokerLedger">Open Robinhood account & agents</button></div>';$('#openBrokerLedger').onclick=()=>window.dispatchEvent(new CustomEvent('desk:open-robinhood-account',{detail:{accountId:brokerContext.selected}}));return;}
  if(panel==='journal'){
    const url=state.journal_url+'/?'+new URLSearchParams({...(state.journal.account_id?{accounts:state.journal.account_id}:{}),range:'all'});
    if(!host.querySelector('iframe'))host.innerHTML=`<div class="journal-toolbar"><span>Existing LuxAlgo Trade Journal</span><a id="fullJournal" target="_blank" rel="noopener">Open full journal ↗</a><button id="refreshJournal">Refresh journal</button><button id="retryJournal">Retry pending delivery</button><span id="journalDelivery" class="muted"></span></div><iframe class="journal-frame" title="LuxAlgo Trade Journal"></iframe>`;
@@ -265,15 +289,16 @@ $('#templatesButton').onclick=()=>{
  $('#dialogBody').querySelectorAll('[data-load-template]').forEach(b=>b.onclick=async()=>{try{await ws.applyState(templates[Number(b.dataset.loadTemplate)].state);$('#dialog').close();toast('Chart template restored.');}catch(e){$('#dialogError').textContent=e.message;}});
 };
 $('#themeButton').onclick=async()=>{const light=!document.body.classList.contains('light');document.body.classList.toggle('light',light);ws.setTheme(light?'light':'dark');await saveSettings({appearance:{theme:light?'light':'dark'}});};
-$('#journalButton').onclick=()=>setPanel('journal');
+$('#journalButton').onclick=()=>brokerContext?.selected?window.dispatchEvent(new CustomEvent('desk:open-robinhood-account',{detail:{accountId:brokerContext.selected,tab:'performance'}})):setPanel('journal');
 $('#exportAccount').onclick=async()=>{try{const data=await api('/api/export?account_id='+encodeURIComponent(activeAccount));const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='The-Desk-PAPER-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(a.href);}catch(e){toast(e.message,true);}};
 
 async function refresh(){
  if(polling)return;polling=true;
  try{
-  state=await api('/api/state?account_id='+encodeURIComponent(activeAccount||''));activeAccount=state.active_account;const options=state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===activeAccount?'selected':''}>${esc(a.name)} · PAPER</option>`).join('');if($('#accountSelect').innerHTML!==options)$('#accountSelect').innerHTML=options;
-  const a=account();for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']])$('#'+id).textContent=usd(a?.[key]);$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
-  $('#positionCount').textContent=state.positions.length;$('#orderCount').textContent=state.orders.filter(o=>['working','triggered'].includes(o.status)).length;
+  state=await api('/api/state?account_id='+encodeURIComponent(activeAccount||''));activeAccount=state.active_account;
+  const a=state.accounts.find(a=>a.id===activeAccount);for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']])$('#'+id).textContent=usd(a?.[key]);$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
+  brokerContext?.render();
+  $('#positionCount').textContent=brokerContext?.selected?'—':state.positions.length;$('#orderCount').textContent=brokerContext?.selected?'—':state.orders.filter(o=>['working','triggered'].includes(o.status)).length;
   $('#journalBadge').textContent=state.journal.pending?state.journal.pending+' queued':'synced';$('#journalStatus').textContent='Lux Journal '+(state.journal_available?'connected':'unavailable')+' · '+state.journal.pending+' queued / '+state.journal.delivered+' delivered';
   $('#healthDot').className='status-dot ok';$('#healthText').textContent='The Desk · server connected';updateTicket();drawWatch();drawDOM();renderManager();
   const alerts=state.events.filter(e=>e.kind==='alert');if(refresh.lastAlert&&alerts.length&&alerts[0].id>refresh.lastAlert)toast(JSON.parse(alerts[0].content).message);if(alerts.length)refresh.lastAlert=alerts[0].id;
@@ -301,7 +326,7 @@ function amendDraft(field,value){
 }
 function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';commandKey=null;updateTicket();}
 function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
-const chartTrader=setupChartTrader({workspace:()=>ws,state:()=>state,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
+const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
 function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
@@ -309,12 +334,28 @@ $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading set
 
 setupPineEditor({saveSettings});
 
+async function reviewBrokerTicket(){
+ if(busy)return;
+ if(ws.replay.state.active)return toast('Exit replay before broker review.',true);
+ if($('#orderKind').value!=='limit')return toast('Choose a limit order for Robinhood review.',true);
+ if($('#stopPrice').value||$('#targetPrice').value)return toast('Remove attached SL / TP. This ticket reviews a standalone limit only.',true);
+ const p=payload(),scope={account:brokerContext.selected,instrument:instrument(),asset:brokerContext.asset?.id};
+ const frozen=JSON.stringify(p);busy=true;updateTicket();
+ try{
+  const result=await brokerContext.review(p);
+  if(scope.account!==brokerContext.selected||scope.instrument!==instrument()||scope.asset!==brokerContext.asset?.id||frozen!==JSON.stringify(payload())||ws.replay.state.active)throw Error('Account, chart or ticket changed. Review again.');
+  showDialog('Robinhood native preview',`<p>${esc(brokerContext.account()?.name)} ${esc(brokerContext.account()?.account)} · ${esc(result.intent.symbol)} · ${esc(p.side)} ${esc(p.qty)} @ ${esc(p.price)}</p><p>${esc(result.disclosure)}</p><pre class="broker-review-json">${esc(JSON.stringify(result.review,null,2))}</pre><p>Live submission remains unavailable until the Desk broker route is verified. No order was sent.</p>`,null,{cancelLabel:'Close preview'});
+ }catch(e){$('#orderError').textContent=e.message;}finally{busy=false;updateTicket();}
+}
+brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;commandKey=null;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;commandKey=null;brokerScope=scope;if(brokerContext?.selected){$('#orderKind').value='limit';for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;commandKey=null;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
+
 async function boot(){
  try{settings=await api('/api/settings');try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
-  ws=new VelaWorkspace('#workspace',{layout:'1',symbol:'hyperliquid:BTC',timeframe:'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider()},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
+  if(brokerContext.selected)await brokerContext.refresh(true);
+  ws=new VelaWorkspace('#workspace',{layout:'1',symbol:'hyperliquid:BTC',timeframe:'60',bars:600,engines:{pine:createPineEngine},providers:{coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new HyperliquidProvider(),robinhood:()=>new RobinhoodProvider(()=>brokerContext?.selected)},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
-  await refresh();setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
+  await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});
   if(window.innerWidth<700){document.body.classList.add('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','false');}
  }catch(e){$('#saveStatus').textContent='Initialization failed';toast(e.message,true);}

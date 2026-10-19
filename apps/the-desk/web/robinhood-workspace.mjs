@@ -30,7 +30,7 @@ function account(){return status.accounts.find(a=>a.id===accountId);}
 function stamp(value){return value?new Date(value*1000).toLocaleString('en-US',{timeZone:'America/Los_Angeles'})+' Pacific':'Not observed';}
 async function loadStatus(){
  const mine=++epoch;await session();const next=await api('/status');if(mine!==epoch)return;
- status=next;const old=accountId;
+ status=next;window.dispatchEvent(new CustomEvent('desk:robinhood-connection'));const old=accountId;
  if(!status.accounts.some(a=>a.id===accountId))accountId=status.accounts.find(a=>a.tradable)?.id||status.accounts[0]?.id||'';
  if(old!==accountId)snapshot={sources:{}};
  $('#rhWorkspaceAccounts').innerHTML=status.accounts.map(a=>`<option value="${esc(a.id)}">${esc(a.name+' · '+a.account)}</option>`).join('');$('#rhWorkspaceAccounts').value=accountId;
@@ -60,7 +60,7 @@ function tableRows(rows){
 function overview(){
  const a=account(),p=snapshot.sources.portfolio?.data||{},setting=snapshot.sources.approval_setting?.data?.setting;
  return `<div class="rh-metrics">${[['Account value',p.total_value],['Cash',p.cash],['Equity buying power',p.buying_power?.buying_power],['Crypto buying power',p.crypto_buying_power?.buying_power]].map(([k,v])=>`<div class="rh-metric"><small>${k}</small><strong>${esc(money(v,p.currency||'USD'))}</strong></div>`).join('')}</div>
- <div class="rh-grid"><section class="rh-card"><h3>${esc(a?.name||'Account')} · ${esc(a?.account)}</h3><dl>${[['Account type',a?.type],['Brokerage trading type',a?.tradingType],['Crypto account',a?.cryptoAccount||'Not returned'],['Default account',a?.default?'Yes':'No'],['Account state',a?.state],['Options level',a?.optionsLevel||'Unavailable']].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section><section class="rh-card"><h3>Permission and freshness</h3><p>Robinhood per-trade human approval: <strong>${setting?setting.human_must_approve_trades?'ON when checked':'OFF when checked':'Not loaded / unavailable'}</strong>. You change this setting in Robinhood.</p><p>${esc(sourceLabel(snapshot.sources.portfolio,status.connected))} · ${esc(stamp(snapshot.sources.portfolio?.observedAt))}</p><p>The Desk account workspace is read-only. Charts still execute through the independent paper engine. Shadow journal records are decisions, not orders or fills.</p></section></div>${sourcesView(['portfolio','approval_setting'])}`;
+ <div class="rh-grid"><section class="rh-card"><h3>${esc(a?.name||'Account')} · ${esc(a?.account)}</h3><dl>${[['Account type',a?.type],['Brokerage trading type',a?.tradingType],['Crypto account',a?.cryptoAccount||'Not returned'],['Default account',a?.default?'Yes':'No'],['Account state',a?.state],['Options level',a?.optionsLevel||'Unavailable']].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section><section class="rh-card"><h3>Permission and freshness</h3><p>Robinhood per-trade human approval: <strong>${setting?setting.human_must_approve_trades?'ON when checked':'OFF when checked':'Not loaded / unavailable'}</strong>. You change this setting in Robinhood.</p><p>${esc(sourceLabel(snapshot.sources.portfolio,status.connected))} · ${esc(stamp(snapshot.sources.portfolio?.observedAt))}</p><p>Robinhood chart tickets support broker-native limit previews only. Paper accounts use the independent simulation engine. Shadow journal records are decisions, not orders or fills.</p></section></div>${sourcesView(['portfolio','approval_setting'])}`;
 }
 function agentStudio(){
  const a=selectedAgent?.accountId===accountId?selectedAgent:null;selectedAgent=a;
@@ -101,6 +101,13 @@ function render(){
 async function connect(){await task(async()=>{await session();const result=await api('/connect',{});const url=new URL(result.url);if(url.origin!=='https://robinhood.com'||url.pathname!=='/oauth')throw Error('Unexpected Robinhood authorization URL.');location.assign(url.href);});}
 async function open(){if(!dialog.open)dialog.showModal();if(dirty)return message('Unsaved agent edits retained. Save or discard them before refreshing.',true);await task(async()=>{await loadStatus();if(status.connected&&tabs[tab].length)await sync();});}
 $('#robinhoodButton').onclick=open;$('#rhWorkspaceClose').onclick=()=>dialog.close();$('#rhWorkspaceConnect').onclick=connect;
+window.addEventListener('desk:open-robinhood-account',async e=>{
+ if(busy)return message('Wait for the current account request to finish before opening another account.',true);
+ if(dirty&&(accountId!==e.detail?.accountId||e.detail?.tab&&e.detail.tab!==tab))return message('Save or discard agent edits before switching accounts or views.',true);
+ const next=e.detail?.accountId||accountId;
+ if(next!==accountId){++epoch;snapshot={sources:{}};intent=null;requestId=null;selectedAgent=null;}
+ accountId=next;if(e.detail?.tab&&tabs[e.detail.tab])tab=e.detail.tab;await open();
+});
 $('#rhWorkspaceDisconnect').onclick=()=>task(async()=>{++epoch;await api('/disconnect',{});status={connected:false,accounts:[]};accountId='';snapshot={sources:{}};intent=null;requestId=null;selectedAgent=null;await loadStatus();message('Disconnected from this Desk. Saved agents paused. Revoke the provider grant in Robinhood to remove consent.');});
 $('#rhWorkspaceAccounts').onchange=e=>{if(dirty){e.target.value=accountId;return message('Save or discard agent edits before changing accounts.',true);}accountId=e.target.value;++epoch;snapshot={sources:{}};selectedAgent=null;requestId=null;dirty=false;$('#rhAccountAccess').textContent=account()?.tradable?'Eligible MCP account · shadow only':'Read-only account';render();void task(async()=>{const mine=epoch,a=accountId;const data=await api('/snapshot?accountId='+encodeURIComponent(a));if(mine!==epoch)return;snapshot=data;await sync();});};
 $('#rhWorkspaceRefresh').onclick=()=>{if(dirty)return message('Save or discard agent edits before refreshing.',true);return task(async()=>{if(tab==='agents'||tab==='runs')await loadStatus();else await sync();});};

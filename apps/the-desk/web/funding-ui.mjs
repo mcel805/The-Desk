@@ -48,6 +48,7 @@ const controller=new WalletController(api,()=>{
   const signedIn=!!controller.session?.authenticated;drawer.dataset.connected=String(signedIn);$('#walletAccount').hidden=!signedIn;$('#fundingTitle').textContent=signedIn?'Your wallet':'Connect a wallet';$('#walletBack').hidden=signedIn||connectionView==='choices';$('#walletExplorer').href=signedIn?'https://basescan.org/address/'+controller.session.address:'https://basescan.org/';
   $('#walletIdentity').textContent=controller.session?.authenticated?`Signed in on Base · ${controller.provider?.kind==='ledger-usb'?'Ledger USB · keys stay on your device':controller.provider?.kind==='walletconnect'?'Mobile wallet':'Browser wallet'}`:'Sign in on Base with your USB hardware wallet. No browser extension required.';
   $('#walletLogout').hidden=!controller.session?.authenticated;
+  window.dispatchEvent(new CustomEvent('desk:wallet-context',{detail:{authenticated:!!controller.session?.authenticated,address:controller.session?.authenticated?controller.session.address:null}}));
   $('#walletConnection').hidden=!!controller.session?.authenticated;
   $('#hardwareScan').disabled=controller.busy||operation;
   $('#hardwareConnect').disabled=controller.busy||operation;

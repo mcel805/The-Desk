@@ -1,6 +1,7 @@
 """Local-profile Robinhood reads and durable, deterministic shadow-agent runs.
 
-This service never invokes a broker write or order preview. OAuth credentials
+This service never invokes a broker write. Explicit chart ticket reviews use
+the broker preview adapter; shadow-agent evaluations remain read-only. OAuth credentials
 remain in memory. Cached reads/configurations are private local SQLite records.
 The signed HttpOnly profile cookie is local app identity, not broker consent.
 """
@@ -20,6 +21,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from robinhood_markets import RobinhoodMarkets, MARKET_READS
 
 COOKIE = 'desk_robinhood_profile'
 PREFIX = '/api/robinhood/workspace'
@@ -39,7 +41,7 @@ READS = {
     'approvals': ('get_trade_approvals', 'approvals', 'account_number'),
     'approval_setting': ('get_trade_approval_setting', None, 'account_number'),
 }
-ALLOWED_TOOLS = {v[0] for v in READS.values()} | {'get_accounts', 'get_crypto_quotes'}
+ALLOWED_TOOLS = {v[0] for v in READS.values()} | {'get_accounts', 'get_crypto_quotes'} | MARKET_READS
 
 
 def positive(value, label):
@@ -101,7 +103,7 @@ def validate_config(payload):
             'executionState': 'DISARMED', 'runtime': 'deterministic-shadow-policy', 'liveEnabled': False}
 
 
-class RobinhoodWorkspace:
+class RobinhoodWorkspace(RobinhoodMarkets):
     def __init__(self, broker, root, clock=time.time):
         self.broker = broker
         self.cookie_name = f'{COOKIE}_{broker.port}'
@@ -467,6 +469,12 @@ class RobinhoodWorkspace:
             handler.send_response(303); handler.send_header('Location', '/?robinhood=connected'); handler.end_headers()
             return True
         if path == PREFIX + '/status': handler.json(self.status(owner)); return True
+        if path == PREFIX + '/markets/crypto': handler.json(self.crypto_catalog(owner, query.get('accountId',[''])[0])); return True
+        if path == PREFIX + '/markets/equities': handler.json(self.equity_search(owner, query.get('accountId',[''])[0],query.get('q',[''])[0])); return True
+        if path == PREFIX + '/markets/quote':
+            handler.json(self.broker_quote(owner,query.get('accountId',[''])[0],query.get('kind',[''])[0],query.get('symbol',[''])[0])); return True
+        if path == PREFIX + '/markets/bars':
+            handler.json(self.equity_bars(owner,query.get('accountId',[''])[0],query.get('symbol',[''])[0],query.get('timeframe',['60'])[0],query.get('to',[None])[0],query.get('from',[None])[0],query.get('limit',[600])[0])); return True
         if path == PREFIX + '/snapshot': handler.json(self.snapshot(owner, query.get('accountId', [''])[0])); return True
         if path == PREFIX + '/agents': handler.json({'agents': self.agents(owner)}); return True
         if path == PREFIX + '/runs': handler.json({'runs': self.runs(owner)}); return True
@@ -487,6 +495,7 @@ class RobinhoodWorkspace:
             handler.json(self.broker.start(owner, handler.headers.get('Host'), PREFIX + '/callback')); return True
         if path == PREFIX + '/disconnect': handler.json(self.disconnect(owner)); return True
         if path == PREFIX + '/sync': handler.json(self.sync(owner, payload.get('accountId'), payload.get('sources'), payload.get('more', False))); return True
+        if path == PREFIX + '/ticket/review': handler.json(self.ticket_review(owner,payload)); return True
         if path == PREFIX + '/agents/save': handler.json(self.save_agent(owner, payload)); return True
         if path == PREFIX + '/agents/pause': handler.json(self.pause(owner, payload.get('id'), payload.get('paused'))); return True
         if path == PREFIX + '/evaluate': handler.json(self.evaluate(owner, payload)); return True
