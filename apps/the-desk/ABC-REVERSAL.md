@@ -14,7 +14,7 @@ The supplied Wave Court ABC Entries 3.3 Lifecycle attachment is archived byte-fo
 - Only 1m/5m are enabled; 2m/3m from the source are disabled. Manual/Chart-swing arming is removed. The default contact tolerance is zero ticks, so a wick must hit the actual level; an explicitly chosen nonzero tolerance relaxes contact only.
 - The original optional Waves EMA bridge is disabled/hidden because the installed Elliott study does not export that contract. Market Geometry is optional visual context; it cannot arm this indicator or substitute for ABC. The source's own C-to-HL/LH geometry retest remains enabled and can pass its original checks.
 - The 63 source input declarations include 12 host-owned or inapplicable controls hidden from the Desk settings dialog; 51 settings are exposed. Connections cannot be enabled with a checkbox while their source is missing.
-- Active paths are brighter, forecast text is amber, and A/B/C labels are larger. Historical geometry snapshots and parallel projection rails default off to reduce clutter; both remain selectable. A compact active-campaign card shows stage, level, A/B, provisional/confirmed C and last check. Automatic mode suppresses idle cards while a campaign is active. The summary can be disabled.
+- Active paths are brighter, forecast text is amber, and A/B/C labels are larger. Historical geometry snapshots and parallel projection rails default off to reduce clutter; both remain selectable. A compact active-campaign card shows stage, level, A/B, provisional/confirmed C and last check. Automatic mode suppresses idle cards while a campaign is active. The summary can be disabled. Its floating panel shares Elliott’s drag and collapse controls: drag the header to reposition it, and use − / ＋ to collapse or expand. Position and collapse state persist per indicator instance, independently of Elliott. Both campaign tables appear inside the same panel when needed.
 
 The broker is scoped to a chart's Pine engine. Exactly one compatible Liquidity study, matching symbol/frame/chart style and completed OHLC, is required. Missing/ambiguous/stale producers wait. Removal or execution errors discard their authority and clear the consumer's campaigns. Reload restores inputs/source and reconnects after producer readiness. Runtime-only feed objects are excluded from settings/persistence.
 
@@ -23,7 +23,7 @@ The broker is scoped to a chart's Pine engine. Exactly one compatible Liquidity 
 Run from `apps/the-desk`:
 
 ```sh
-node --test tests/test_agentic_abc_reversal.mjs tests/test_agentic_market_geometry.mjs tests/test_pine.mjs tests/test_pine_editor.mjs tests/test_pine_serial.mjs
+node --test tests/test_agentic_panel.mjs tests/test_abc_panel_runtime.mjs tests/test_agentic_abc_reversal.mjs tests/test_agentic_market_geometry.mjs tests/test_pine.mjs tests/test_pine_editor.mjs tests/test_pine_serial.mjs
 node tests/verify_agentic_abc_browser.mjs http://127.0.0.1:18885/ /path/to/evidence
 ```
 
