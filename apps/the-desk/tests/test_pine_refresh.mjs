@@ -39,3 +39,8 @@ test('a suppressed quote does not arm a false execution timeout after a complete
  const f=fixture(),prepared=await f.engine.prepare(source,'elliot'),session=f.engine.execute({prepared,bars,mode:'static',historyState:'complete'},{onModel(){}});
  f.handler.onModel({series:[],lines:[],labels:[],tables:[]});session.notifyBars('tick');assert.equal(f.updates,0);assert.equal(f.engine.active.size,1);session.stop();
 });
+
+
+test('missing primary chart history fails promptly instead of starting a broken live stream',async()=>{
+ const f=fixture(),prepared=await f.engine.prepare(source,'missing-chart');const error=await new Promise(resolve=>f.engine.execute({prepared,bars:[],mode:'live',historyState:'complete'},{onModel(){},onError:resolve}));assert.match(error.message,/Chart candle history unavailable/);assert.equal(f.engine.active.size,0);
+});
