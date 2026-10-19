@@ -1,3 +1,4 @@
+import {createPineErrors} from './pine-errors.mjs';
 import {isABCSource} from './abc-reversal-bridge.mjs';
 import {registerWidgetAction,registerStatePersistence,registerLegendAction} from './vendor/vela.js';
 import {pineState,restorePineState} from './pine-state.mjs';
@@ -5,7 +6,7 @@ import {DeskPineEngine} from './pine-runtime.mjs';
 import {checkPineSource,sourceHash,drawingCounts,validationSource,plotRows,rowsToCsv,compareReference,timeframeDuration} from './pine-validation.mjs';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const engines=new Set();
+const engines=new Set(),runtimeErrors=createPineErrors();
 let services,context,library=[],tested=null,report=null,testing=false,generation=0,testAbort=null;
 const dialog=document.createElement('dialog');dialog.id='pineEditor';dialog.setAttribute('aria-label','Indicators and Pine Script');document.body.append(dialog);
 function download(name,content,type='application/json'){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -15,7 +16,7 @@ function message(text,error=false){const el=dialog.querySelector('#pineFeedback'
 function current(){return context?.chart;}
 function studyName(h){return getEngine().records.get(h.id)?.model.title||(h.source?.match(/^\s*indicator\s*\(\s*(?:title\s*=\s*)?["']([^"']+)/m)?.[1])||h.title;}
 function hideOtherDialogs(){current()?.renderer.closeDialogs();}
-export function createPineEngine(){const engine=new DeskPineEngine();engines.add(engine);return engine;}
+export function createPineEngine(){const engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event)});engines.add(engine);return engine;}
 function getEngine(){return {records:{get:id=>[...engines].map(e=>e.records.get(id)).find(Boolean)},cancelTests:()=>{for(const e of engines)e.cancelTests();}};}
 window.addEventListener('pagehide',()=>{for(const e of engines)e.terminate();});
 export function setupPineEditor(opts){

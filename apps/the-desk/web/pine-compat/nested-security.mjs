@@ -20,7 +20,10 @@ function capture(source,target,graph,parent){const fn=sourceFunction(source,targ
 function values(ctx,name){if(ctx.params[name])return ctx.params[name];const keys=Object.keys(ctx.params).filter(k=>suffix(k)===suffix(name));if(keys.length!==1)throw Error('Security expression history unavailable: '+name);return ctx.params[keys[0]];}
 function security(ctx){return async (...args)=>{
  const s=slots(args),rawSym=primitive(unwrap(s.symbol)),decoded=decodeTickerId(rawSym||ctx.tickerId),symbol=(typeof decoded==='object'?decoded.symbol:decoded)||rawSym||ctx.tickerId;
- const plain=v=>String(v).split(':').at(-1),sym=plain(symbol),current=plain(ctx.tickerId),tf=String(primitive(unwrap(s.timeframe))||ctx.timeframe),expr=unwrap(s.expression),name=wrapped(s.expression)?s.expression[1]:null;
+ // Keep the venue: bare requests depend on provider enumeration, which may
+ // fail during throttling. They must not lose the chart's explicit identity.
+ const qualify=value=>{const raw=String(value),at=raw.indexOf(':'),prefix=String(ctx.tickerId).split(':');return at>=0?raw.slice(0,at).toLowerCase()+raw.slice(at):prefix.length>1?prefix[0].toLowerCase()+':'+raw:raw;};
+ const sym=qualify(symbol),current=qualify(ctx.tickerId),tf=String(primitive(unwrap(s.timeframe))||ctx.timeframe),expr=unwrap(s.expression),name=wrapped(s.expression)?s.expression[1]:null;
  if(!name)throw Error('Security expression has no compiled identity.');
  const reqParts=splitTickerModifier(sym),curParts=splitTickerModifier(current),sameSymbol=reqParts.symbol===curParts.symbol&&(reqParts.modifier||'standard')===(curParts.modifier||'standard');
  const reqSec=seconds(tf),ctxSec=seconds(ctx.timeframe),sameTF=reqSec===ctxSec&&String(tf).replace(/^1D$/,'D')===String(ctx.timeframe).replace(/^1D$/,'D');

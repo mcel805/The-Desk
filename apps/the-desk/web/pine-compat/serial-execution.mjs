@@ -3,11 +3,16 @@
 // otherwise starts overlapping runs when the viewport changes during startup.
 export function executeSerial(engine,req,handlers){
  if(req.mode==='live')return engine.execute(req,handlers);
- let session,running=req.historyState!=='backfill',activeCount=1,stopped=false;
+ let session,deferred=req.historyState==='backfill',running=!deferred,activeCount=1,stopped=false;
  const queue=[];
  const start=job=>{running=true;activeCount=job.count;session[job.kind](...job.args);};
  const enqueue=(kind,args)=>{
   if(stopped)return;
+  // The public engine stores viewport/inputs during backfill without running
+  // or emitting onDone. Acknowledge these commands or the worker proxy waits
+  // forever and cannot forward the complete-history notification.
+  if(deferred&&kind!=='notifyBars'){session[kind](...args);handlers.onDone?.();return;}
+  if(kind==='notifyBars')deferred=false;
   if(!running){start({kind,args,count:1});return;}
   const last=queue.at(-1);
   if(last?.kind===kind){last.count++;if(kind==='update')last.args=[{...last.args[0],...args[0]},{...last.args[1],...args[1]}];else last.args=args;}
