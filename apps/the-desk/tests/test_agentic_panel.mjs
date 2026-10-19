@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 class Element{
- constructor(tag){this.tagName=tag;this.children=[];this.style={};this.dataset={};this.className='';this.hidden=false;this.attributes={};this.classList={toggle(){}};}
- append(...children){this.children.push(...children);}
+ constructor(tag){this.tagName=tag;this.children=[];this.style={};this.dataset={};this.className='';this.hidden=false;this.attributes={};this.listeners=new Map();this.classList={toggle(){}};}
+ append(...children){for(const child of children)child.parentElement=this;this.children.push(...children);}
  replaceChildren(...children){this.children=children;}
  setAttribute(key,value){this.attributes[key]=value;}
- setPointerCapture(){}
+ addEventListener(type,handler){const handlers=this.listeners.get(type)||[];handlers.push(handler);this.listeners.set(type,handlers);}
+ dispatchEvent(event){event.target??=this;event.stopPropagation??=()=>{event.stopped=true;};this['on'+event.type]?.(event);for(const handler of this.listeners.get(event.type)||[])handler(event);if(!event.stopped)this.parentElement?.dispatchEvent(event);}
+ setPointerCapture(pointerId){Element.capture={pointerId,owner:this};}
  remove(){this.removed=true;}
 }
 
@@ -48,4 +50,32 @@ test('ABC panel renders both campaign tables, collapses, drags and restores inde
  restored.update({tables:[model.tables[1]]});assert.equal(restored.root.style.left,'120px');assert.equal(restored.root.style.top,'130px');
  restored.update({tables:[]});assert.equal(restored.root.hidden,true);restored.update(model);assert.equal(restored.root.hidden,false);assert.equal(restored.root.style.left,'120px');
  restored.destroy();elliott.destroy();
+});
+
+// The native plot listens for bubbling pointerdown and captures the pointer itself.
+// Calling header handlers directly misses that capture theft.
+test('ABC drag keeps pointer ownership and isolates chart gestures for mouse and touch',()=>{
+ for(const pointerType of ['mouse','touch']){
+  const plot=new Element('plot'),overlay=new Element('overlay');plot.append(overlay);
+  overlay.getBoundingClientRect=()=>({width:800,height:600});
+  const chartEvents=[];
+  for(const type of ['pointerdown','pointermove','pointerup','pointercancel','mousedown','mousemove','mouseup','click','dblclick','contextmenu','wheel'])plot.addEventListener(type,e=>{chartEvents.push(type);if(type==='pointerdown')plot.setPointerCapture(e.pointerId);});
+  const panel=createAgenticABCPanel(overlay,'gesture-'+pointerType),model={tables:[{position:'bottom_right',cells:[[{text:'ABC'}]]}]};panel.update(model);
+  Object.assign(panel.root,{offsetLeft:300,offsetTop:200,offsetWidth:240,offsetHeight:180});
+  const [bar,content]=panel.root.children,[title,toggle]=bar.children;
+  const send=(target,type,extra={})=>target.dispatchEvent({type,button:0,pointerId:17,pointerType,clientX:350,clientY:210,preventDefault(){},...extra});
+  send(title,'pointerdown');assert.equal(Element.capture.owner,bar,'chart must not steal header capture');
+  send(Element.capture.owner,'pointermove',{clientX:170,clientY:110});
+  // Live model refresh during the drag must preserve the position and header.
+  panel.update(model);
+  send(Element.capture.owner,'pointerup');
+  assert.equal(panel.root.style.left,'120px');assert.equal(panel.root.style.top,'100px');
+  for(const type of ['pointerdown','pointerup','mousedown','mouseup','click'])send(toggle,type);
+  assert.equal(content.hidden,true,'collapse click remains functional');
+  for(const type of ['pointerdown','pointermove','pointerup','pointercancel','mousedown','mousemove','mouseup','dblclick','contextmenu','wheel'])send(content,type);
+  assert.deepEqual(chartEvents,[],'panel gestures must not pan, zoom or draw on the chart');
+  panel.destroy();
+  const restored=createAgenticABCPanel(overlay,'gesture-'+pointerType);restored.update(model);
+  assert.equal(restored.root.style.left,'120px');assert.equal(restored.root.style.top,'100px');assert.equal(restored.root.children[1].hidden,true);restored.destroy();
+ }
 });
