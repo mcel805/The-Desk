@@ -1,0 +1,36 @@
+async () => {
+ if(location.hostname!=='127.0.0.1'||location.port!=='18886')throw Error('Synthetic fixture on port 18886 required.');
+ const $=s=>document.querySelector(s),results=[];
+ const wait=async(fn,label)=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out: '+label);};
+ const check=(name,ok)=>{if(!ok)throw Error(name);results.push(name);};
+ const ready=()=>!$('#rhWorkspaceRefresh').disabled;
+ if(!$('#robinhoodWorkspace').open)$('#robinhoodButton').click();
+ await wait(()=>$('#rhWorkspaceAccounts option')&&ready(),'account reads');
+ check('Synthetic account discovery and broker balances',$('#rhWorkspaceAccounts').textContent.includes('SYNTHETIC')&&$('#rhWorkspaceContent').textContent.includes('$200.00'));
+ $('[data-rh-tab="positions"]').click();await wait(()=>ready()&&$('#rhWorkspaceContent').textContent.includes('Crypto positions'),'positions');
+ check('Positions and empty-result coverage rendered',$('#rhWorkspaceContent').textContent.includes('No records returned'));
+ $('[data-rh-tab="orders"]').click();await wait(()=>ready()&&$('[data-rh-more="equity_orders"]'),'order pagination');
+ $('[data-rh-more="equity_orders"]').click();await wait(()=>ready()&&!$('[data-rh-more="equity_orders"]'),'second order page');
+ check('Server-cursor pagination completed without duplicate rows',$('#rhWorkspaceContent').textContent.includes('2 page(s)'));
+ const options=[...$('#rhWorkspaceAccounts').options],mcp=options.find(o=>o.textContent.includes('MCP')).value,personal=options.find(o=>o.value!==mcp).value;
+ $('#rhWorkspaceAccounts').value=personal;$('#rhWorkspaceAccounts').dispatchEvent(new Event('change'));await wait(ready,'personal account');
+ check('Switching accounts preserves caller-relative read-only label',$('#rhAccountAccess').textContent==='Read-only account');
+ $('#rhWorkspaceAccounts').value=mcp;$('#rhWorkspaceAccounts').dispatchEvent(new Event('change'));await wait(ready,'MCP account');
+ $('[data-rh-tab="agents"]').click();await wait(()=>!!$('#rhAgentForm'),'Agent Studio');$('#rhNewAgent').click();
+ const fill=(name,value)=>{const el=$('#rhAgentForm [name="'+name+'"]');el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));};
+ const agentName='Browser fixture '+Date.now();fill('name',agentName);fill('symbols','BTC-USD');fill('maxOrderUSD','100');fill('maxQuoteAgeSeconds','15');fill('maxSpreadBps','20');
+ $('#rhAgentForm').requestSubmit();await wait(()=>ready()&&$('#rhAgentPause'),'saved agent');
+ check('Saving persists a versioned paused shadow agent',$('#rhAgentState').textContent.includes('Revision 1')&&$('#rhAgentPause').textContent.includes('Resume'));
+ $('#rhAgentPause').click();await wait(()=>ready()&&$('#rhAgentPause').textContent.includes('Pause'),'resume shadow');
+ $('#rhWorkspaceClose').click();
+ const spot=[...document.querySelectorAll('#watchlist button')].find(b=>b.dataset.instrument==='coinbase:BTC-USD');spot.click();
+ await wait(()=>$('#instrumentLabel').textContent.includes('COINBASE:BTC-USD'),'spot chart selection');
+ $('#orderKind').value='limit';$('#orderKind').dispatchEvent(new Event('change'));$('#quantity').value='0.5';$('#entryPrice').value='100';$('#orderForm').dispatchEvent(new Event('input',{bubbles:true}));
+ $('#shadowAgentButton').click();await wait(()=>$('#robinhoodWorkspace').open&&$('#rhChartIntent')&&ready(),'chart intent capture');
+ check('Real chart ticket button preserves instrument, quantity, price and completed-bar cutoff',$('#rhChartIntent').textContent.includes('coinbase:BTC-USD')&&$('#rhChartIntent').textContent.includes('completedBarCutoff')&&$('#rhChartIntent').textContent.includes('"quantity": "0.5"'));
+ $('#rhEvaluate').click();await wait(()=>ready()&&$('#rhShadowResult').textContent.includes('checks passed'),'shadow evaluation');
+ check('Shadow policy passes with fresh synthetic broker quotes',$('#rhShadowResult').textContent.includes('No order sent'));
+ $('[data-rh-tab="runs"]').click();await wait(()=>$('#rhWorkspaceContent').textContent.includes(agentName),'shadow journal');
+ check('Durable journal links the agent revision and original chart intent',$('#rhWorkspaceContent').textContent.includes('shadow eligible')&&$('#rhWorkspaceContent').textContent.includes('coinbase:BTC-USD'));
+ return {passed:results,fixture:'SYNTHETIC ONLY',liveOrders:false,agentName};
+}

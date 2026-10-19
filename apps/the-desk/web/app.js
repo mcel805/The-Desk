@@ -53,6 +53,25 @@ function reviewChartOrder(){
    toast(result.status==='filled'?'Paper order filled.':'Paper '+p.side+' limit accepted · WORKING.');
   },{submitLabel:'Place paper '+p.side+' limit',cancelLabel:'Edit on chart'});
 }
+// Explicit chart-to-agent handoff. This never calls the paper command or a broker order tool.
+async function captureShadowIntent(){
+ const button=$('#shadowAgentButton');button.disabled=true;
+ try{
+  if(!ws||ws.replay.state.active)throw Error('Exit chart replay before capturing a shadow ticket.');
+  if($('#orderKind').value!=='limit')throw Error('Select a limit ticket with an exact price for shadow evaluation.');
+  const p=payload(),tf=canonicalTimeframe(ws.chart.market.timeframe),q=quote();
+  if(!q||q.age>15)throw Error('A fresh chart quote is required.');
+  if(!Number.isFinite(Number(p.qty))||Number(p.qty)<=0||!p.price)throw Error('Set a positive quantity and limit price.');
+  const data=await api('/api/bars?'+new URLSearchParams({instrument:p.instrument,timeframe:tf,limit:'50'}));
+  if(p.account_id!==activeAccount||p.instrument!==instrument()||tf!==canonicalTimeframe(ws.chart.market.timeframe)||ws.replay.state.active)throw Error('Chart or account changed. Capture the ticket again.');
+  const ms=timeframeMs(tf),completed=data.bars.filter(b=>b.time+ms<=data.as_of);
+  if(!completed.length)throw Error('No completed provider bar is available for the chart cutoff.');
+  const intent={chartInstrument:p.instrument,timeframe:tf,completedBarCutoff:new Date(completed.at(-1).time+ms).toISOString(),chartObservedAt:new Date(q.received_at*1000).toISOString(),replay:false,side:p.side,kind:'limit',quantity:p.qty,limitPrice:p.price,stopPrice:p.stop,targetPrice:p.target,paperAccountId:p.account_id};
+  window.dispatchEvent(new CustomEvent('desk:shadow-chart-intent',{detail:intent}));
+ }catch(e){toast(e.message,true);}finally{button.disabled=false;}
+}
+$('#shadowAgentButton').onclick=captureShadowIntent;
+window.addEventListener('desk:request-shadow-chart',captureShadowIntent);
 function account(){return state?.accounts.find(a=>a.id===activeAccount);}
 function quote(){return state?.quotes[instrument()];}
 function snap(v){const tick=Number(quote()?.tick||.01);return Number((Math.round(Number(v)/tick)*tick).toPrecision(12));}

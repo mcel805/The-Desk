@@ -18,6 +18,7 @@ docs/elliott-indicator/MYM_*-AUDIT*.md
 **/.env.*
 *.sqlite
 *.sqlite3
+robinhood-profile.key
 count-dashboard/data/quant-game-mcp/
 *.db
 *.log
