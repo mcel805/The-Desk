@@ -1,12 +1,14 @@
+import {createAgenticABCPanel} from './agentic-abc-panel.mjs';
 import {marketIdentity,tradingLevels,tradeLevelPlacement,paperExecutionMarkers,formatTradePrice} from './trading-model.mjs';
 import {moveDraftBracket,bracketLabel} from './chart-bracket-model.mjs';
 import {createAgenticElliotPanel} from './agentic-elliot-panel.mjs';
 
 export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,placeDraft,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,toast}){
-  const wraps=new Map();let drag=null;
+  const wraps=new Map(),abcModels=new Map();let drag=null;
   const agenticPosition=value=>typeof value==='string'?value.trim().toLowerCase().replace(/\s+/g,'_'):null;
   function agenticModel(event){const {id,model}=event.detail||{};if(!id)return;const cells=workspace()?.cells()||[],exact=[];for(const cell of cells)for(const study of cell.chart.indicators?.()||[])if(study.id===id||study.instanceId===id)exact.push({cell,study});let matches=exact;if(!matches.length){for(const cell of cells)for(const study of cell.chart.indicators?.()||[])if(study.title==='Agentic - Elliot Waves'||study.name==='Agentic - Elliot Waves'||study.source?.includes('indicator("Agentic - Elliot Waves", "Agentic - Elliot Waves"'))matches.push({cell,study});if(matches.length!==1)return;}for(const {cell,study} of matches){const wrap=wraps.get(cell.id);if(!wrap)continue;const key=study.id||study.instanceId||id;let panel=wrap.elliotPanels.get(key);if(!panel){panel=createAgenticElliotPanel(wrap.overlay,key);wrap.elliotPanels.set(key,panel);}panel.update(model);}}
   window.addEventListener('desk:agentic-elliot-model',agenticModel);
+  window.addEventListener('desk:agentic-abc-model',({detail})=>{if(detail?.id)abcModels.set(detail.id,detail.model);});
   function validDrag(d){const ws=workspace(),s=state();return !!ws&&!!s&&!ws.replay.state.active&&s.active_account===d.account&&ws.active.id===d.cellId&&marketIdentity(ws.active.chart)===d.market;}
   function attach(cell){
     if(cell.deskAttached)return;cell.deskAttached=true;
@@ -15,10 +17,10 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
       const overlay=document.createElement('div');overlay.className='trade-overlay';native.plot.append(overlay);
       const quick=document.createElement('div');quick.className='chart-quick-trade';quick.innerHTML='<button class="sell" data-quick="sell">Sell · PAPER</button><button class="buy" data-quick="buy">Buy · PAPER</button>';overlay.append(quick);quick.querySelectorAll('button').forEach(b=>b.onclick=()=>{workspace().setActiveCell(cell.id);stage(b.dataset.quick,'market');});
       const plus=document.createElement('button');plus.className='chart-price-plus';plus.textContent='+';plus.title='Trade at this chart price';plus.setAttribute('aria-label','Trade at hovered chart price');plus.hidden=true;overlay.append(plus);
-      const wrap={overlay,nodes:new Map(),fills:new Map(),elliotPanels:new Map(),native,quick,plus,cursorTime:null,cursorPrice:null};wraps.set(cell.id,wrap);
+      const wrap={overlay,nodes:new Map(),fills:new Map(),elliotPanels:new Map(),abcPanels:new Map(),native,quick,plus,cursorTime:null,cursorPrice:null};wraps.set(cell.id,wrap);
       wrap.offIndicatorInputs=cell.chart.on?.('indicator:inputs',({id})=>{const panel=wrap.elliotPanels.get(id);if(!panel)return;const study=cell.chart.indicators?.().find(h=>h.id===id||h.instanceId===id);panel.syncPosition(agenticPosition(study?.inputValues?.().agenticPosition));});
       cell.chart.renderer.onCrosshairMove(({time,price,paneKind})=>{if(paneKind==='price'){wrap.cursorTime=time;wrap.cursorPrice=price;}});
-      native.plot.addEventListener('contextmenu',e=>{if(e.target.closest('.trade-line,.chart-price-plus'))return;const pane=native.scene.panes.get('price'),rect=native.plot.getBoundingClientRect();if(!pane||e.clientY-rect.top>pane.bounds.top+pane.bounds.height)return;const price=native.coords.yToPrice(e.clientY-rect.top,pane.scale,pane.bounds);if(!(price>0))return;e.preventDefault();e.stopImmediatePropagation();workspace().setActiveCell(cell.id);menu(price,e.clientX,e.clientY,cell,wrap.cursorTime);},true);
+      native.plot.addEventListener('contextmenu',e=>{if(e.target.closest('.trade-line,.chart-price-plus,.agentic-elliot-float'))return;const pane=native.scene.panes.get('price'),rect=native.plot.getBoundingClientRect();if(!pane||e.clientY-rect.top>pane.bounds.top+pane.bounds.height)return;const price=native.coords.yToPrice(e.clientY-rect.top,pane.scale,pane.bounds);if(!(price>0))return;e.preventDefault();e.stopImmediatePropagation();workspace().setActiveCell(cell.id);menu(price,e.clientX,e.clientY,cell,wrap.cursorTime);},true);
       native.plot.addEventListener('pointermove',e=>{if(drag)return;const pane=native.scene.panes.get('price'),rect=native.plot.getBoundingClientRect(),y=e.clientY-rect.top;if(!pane||y<pane.bounds.top||y>pane.bounds.top+pane.bounds.height){plus.hidden=true;return;}const x=e.clientX-rect.left;plus.hidden=x<rect.width-85||workspace().replay.state.active;if(!plus.hidden){plus.style.top=Math.max(0,y-11)+'px';plus.dataset.price=cellSnap(cell,native.coords.yToPrice(y,pane.scale,pane.bounds));}});
       native.plot.addEventListener('pointerleave',()=>{plus.hidden=true;});plus.onclick=e=>{workspace().setActiveCell(cell.id);menu(Number(plus.dataset.price),e.clientX,e.clientY,cell,wrap.cursorTime);};
     }).catch(e=>toast('Chart trader initialization: '+e.message,true));
@@ -50,6 +52,8 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
       const wrap=wraps.get(cell.id);if(!wrap)continue;
       const {overlay,nodes,native,quick}=wrap,pane=native.scene?.panes.get('price');if(!pane)continue;
       const studyIds=new Set((cell.chart.indicators?.()||[]).flatMap(h=>[h.id,h.instanceId].filter(Boolean)));for(const [id,panel] of wrap.elliotPanels)if(!studyIds.has(id)){panel.destroy();wrap.elliotPanels.delete(id);}
+      for(const [id,panel] of wrap.abcPanels)if(!studyIds.has(id)){panel.destroy();wrap.abcPanels.delete(id);}
+      for(const study of cell.chart.indicators?.()||[]){const key=study.id||study.instanceId,model=abcModels.get(key)||abcModels.get(study.instanceId);let panel=wrap.abcPanels.get(key);if(!model){if(panel)panel.root.hidden=true;continue;}if(!panel){panel=createAgenticABCPanel(overlay,key);wrap.abcPanels.set(key,panel);}if(panel.model!==model){panel.update(model);panel.model=model;}panel.root.hidden=!study.visible||study.inputValues?.().abcSummary===false||!model.tables?.length;}
       const market=marketIdentity(cell.chart),replay=ws.replay.state.active;
       quick.hidden=!c.quickButtons||replay;const quote=s.quotes[market];quick.querySelectorAll('button').forEach(b=>{b.disabled=!quote||Date.now()/1000-quote.received_at>15;b.textContent=(b.dataset.quick==='buy'?'Buy ':'Sell ')+(quote?quote[b.dataset.quick==='buy'?'ask':'bid']:'—')+' · PAPER';});
       const levels=replay?[]:tradingLevels(s,market,c);if(!replay&&cell.id===ws.active.id)levels.push(...draftLevels());
@@ -74,8 +78,9 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
       const executions=paperExecutionMarkers(s,market,c,replay),ids=new Set(executions.map(f=>f.id));for(const [id,n] of wrap.fills)if(!ids.has(id)){n.remove();wrap.fills.delete(id);}
       for(const fill of executions){let n=wrap.fills.get(fill.id);if(!n){n=document.createElement('div');n.className='chart-execution';n.dataset.fillId=fill.id;n.title='PAPER · '+fill.side.toUpperCase()+' '+fill.qty+' '+fill.instrument+' at '+fill.price+' · '+fill.reason+' · '+fill.executed_at;n.setAttribute('aria-label',n.title);overlay.append(n);wrap.fills.set(fill.id,n);}const x=native.coords.timeToX(Date.parse(fill.executed_at)),y=native.coords.priceToY(Number(fill.price),pane.scale,pane.bounds);n.style.display=Number.isFinite(x)&&x>=0&&x<=native.coords.width&&y>=pane.bounds.top&&y<=pane.bounds.top+pane.bounds.height?'':'none';n.style.left=x+'px';n.style.top=y+'px';n.classList.toggle('buy',fill.side==='buy');n.classList.toggle('sell',fill.side==='sell');n.textContent=fill.side==='buy'?'▲':'▼';}
     }
+    const activeStudyIds=new Set((ws?.cells()||[]).flatMap(cell=>(cell.chart.indicators?.()||[]).flatMap(h=>[h.id,h.instanceId].filter(Boolean))));for(const id of abcModels.keys())if(!activeStudyIds.has(id))abcModels.delete(id);
     requestAnimationFrame(frame);
   }
-  function cleanup(){for(const [id,wrap] of wraps)if(!workspace().cells().some(c=>c.id===id)){wrap.offIndicatorInputs?.();for(const panel of wrap.elliotPanels.values())panel.destroy();wrap.overlay.remove();wraps.delete(id);}}
+  function cleanup(){for(const [id,wrap] of wraps)if(!workspace().cells().some(c=>c.id===id)){wrap.offIndicatorInputs?.();for(const panel of wrap.elliotPanels.values())panel.destroy();for(const panel of wrap.abcPanels.values())panel.destroy();wrap.overlay.remove();wraps.delete(id);}}
   return {attach,cleanup,start:()=>requestAnimationFrame(frame)};
 }

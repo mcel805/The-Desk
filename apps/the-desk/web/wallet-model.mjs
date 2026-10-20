@@ -46,12 +46,12 @@ export class WalletController {
   async assertIdentity(address=this.session?.address) {
     if (!this.provider || !validAddress(address)) throw new Error('Connect and sign in with your wallet first.');
     const [accounts,chain]=await Promise.all([this.provider.request({method:'eth_accounts'}),this.provider.request({method:'eth_chainId'})]);
-    if (accounts?.[0]?.toLowerCase()!==address.toLowerCase() || chain.toLowerCase()!==BASE.chainId) throw new Error('Wallet account or network changed. Sign in again on Base.');
+    if (!accounts?.some(item=>typeof item==='string' && item.toLowerCase()===address.toLowerCase()) || chain.toLowerCase()!==BASE.chainId) throw new Error('Wallet account or network changed. Sign in again on Base.');
     const server=await this.api('/api/wallet/session');
     if (!server.authenticated || server.address.toLowerCase()!==address.toLowerCase()) throw new Error('Wallet session expired. Sign in again.');
     return address;
   }
-  async login(provider) {
+  async login(provider, requestedAddress=null) {
     if(this.busy) throw new Error('A wallet request is already pending.');
     this.busy=true;this.error='';
     this.listeners.forEach(([p,event,fn])=>p.removeListener?.(event,fn));this.listeners=[];
@@ -60,8 +60,9 @@ export class WalletController {
     const epoch=++this.epoch;this.emit();
     try {
       await this.revoking;
-      const accounts=await provider.request({method:'eth_requestAccounts'}),address=accounts?.[0];
-      if(!validAddress(address)) throw new Error('No wallet account selected.');
+      const accounts=await provider.request({method:'eth_requestAccounts'});
+      const address=requestedAddress || accounts?.[0];
+      if(!validAddress(address) || !accounts?.some(item=>typeof item==='string' && item.toLowerCase()===address.toLowerCase())) throw new Error('Choose an account exposed by this wallet.');
       const chain=await provider.request({method:'eth_chainId'});
       if(chain.toLowerCase()!==BASE.chainId) {
         try {await provider.request({method:'wallet_switchEthereumChain',params:[{chainId:BASE.chainId}]});}
@@ -78,7 +79,7 @@ export class WalletController {
       const signature=await provider.request({method:'personal_sign',params:[message,address]});
       if(epoch!==this.epoch) throw new Error('Wallet changed during sign-in.');
       const current=await provider.request({method:'eth_accounts'});
-      if(current?.[0]?.toLowerCase()!==address.toLowerCase()) throw new Error('Wallet account changed during sign-in.');
+      if(!current?.some(item=>typeof item==='string' && item.toLowerCase()===address.toLowerCase())) throw new Error('Wallet account changed during sign-in.');
       if((await provider.request({method:'eth_chainId'})).toLowerCase()!==BASE.chainId) throw new Error('Wallet network changed during sign-in.');
       const session=await this.api('/api/wallet/verify',{address,...c,signature});
       if(epoch!==this.epoch) {await this.invalidate();throw new Error('Wallet changed during sign-in.');}

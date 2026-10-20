@@ -12,3 +12,5 @@
 .agentic-elliot-table tr:last-child td{border-bottom:0;color:#9ca5b5;font-size:9px}
 .agentic-elliot-float.is-collapsed{width:max-content}
 @media(max-width:700px){.agentic-elliot-float{max-width:calc(100% - 12px)}.agentic-elliot-float-content{max-width:calc(100vw - 30px)}.agentic-elliot-table th,.agentic-elliot-table td{padding:4px 5px;font-size:9px}}
+
+.agentic-abc-float .agentic-elliot-table+.agentic-elliot-table{border-top:2px solid #626c80}

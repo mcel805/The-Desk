@@ -24,7 +24,7 @@ drawer.innerHTML=`<header class="funding-heading"><button id="walletBack" class=
   <div id="mobileLogin" hidden><div class="wallet-step-icon wc-logo">⌁</div><h3>Scan to connect</h3><p class="wallet-intro">Use WalletConnect in your mobile wallet.</p><div id="mobileQR" class="wallet-qr" hidden><img id="pairingQR" alt="WalletConnect pairing QR code"><button id="copyPairing">Copy pairing link</button></div><p id="pairingStatus" class="wallet-message" role="status"></p><button id="retryPairing" class="primary wallet-wide" hidden>Try pairing again</button><details id="pairingSetup" class="wallet-help" hidden><summary>Mobile pairing setup</summary><p>This app needs its own Reown project ID before it can create a real QR connection. No pairing QR has been generated.</p><a href="https://dashboard.reown.com/" target="_blank" rel="noopener noreferrer">Open Reown dashboard ↗</a><p>Set DESK_WALLETCONNECT_PROJECT_ID on the Desk server and restart it. Ledger USB works without this service.</p></details><button id="cancelPairing" class="wallet-wide">Cancel pairing</button><a class="wallet-license" href="/vendor/WALLET-NOTICE.txt" target="_blank" rel="noopener noreferrer">WalletConnect · notices</a></div>
 </div>
 <p id="fundingStatus" role="status" aria-live="polite" hidden></p>
-<div id="walletAccount" hidden><div class="funding-identity"><span class="wallet-avatar">◈</span><div><strong id="connectedWallet">Your wallet</strong><p id="walletIdentity" class="muted"></p></div><button id="copyAccount" class="wallet-icon-button" aria-label="Copy wallet address">⧉</button><button id="walletLogout" class="wallet-icon-button" aria-label="Disconnect wallet" title="Disconnect">⏻</button></div><a id="walletExplorer" class="wallet-explorer" target="_blank" rel="noopener noreferrer">View on BaseScan ↗</a>
+<div id="walletAccount" hidden><div class="funding-identity"><span class="wallet-avatar">◈</span><div class="funding-account-heading"><strong id="connectedWallet">Your wallet</strong><p id="walletIdentity" class="muted"></p><select id="walletAccountSelect" aria-label="Switch wallet account" hidden></select></div><button id="copyAccount" class="wallet-icon-button" aria-label="Copy wallet address">⧉</button><button id="walletLogout" class="wallet-icon-button" aria-label="Disconnect wallet" title="Disconnect">⏻</button></div><a id="walletExplorer" class="wallet-explorer" target="_blank" rel="noopener noreferrer">View on BaseScan ↗</a>
 <nav class="funding-tabs" aria-label="Account connections"><button data-funding-tab="wallet" class="active">Tokens</button><button data-funding-tab="hyperliquid">Hyperliquid</button><button data-funding-tab="robinhood">Robinhood</button></nav>
 <section data-funding-panel="wallet"><div class="funding-row"><h3>On Base</h3><button id="refreshWallet" class="wallet-icon-button" aria-label="Refresh balances">↻</button></div><div class="wallet-token"><span class="wallet-logo usdc-logo">$</span><span><strong>USD Coin</strong><small>Native USDC</small></span><strong id="walletUSDC">—</strong></div><div class="wallet-token"><span class="wallet-logo eth-logo">♦</span><span><strong>Ethereum</strong><small>ETH · gas</small></span><strong id="walletETH">—</strong></div><p class="muted" id="balanceAsOf">Refresh to read balances.</p><div class="funding-actions wallet-quick-actions"><button id="receiveWallet">↓<span>Receive</span></button><a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer">⇄<span>Swap ↗</span></a><a href="https://docs.base.org/base-chain/network-information/ecosystem-bridges" target="_blank" rel="noopener noreferrer">↗<span>Bridge ↗</span></a><button id="sendWallet" disabled title="Base transfers are not enabled">↑<span>Send</span></button></div>
 <div id="receivePanel" class="funding-card" hidden><div class="funding-row"><h3>Receive on Base</h3><button id="receiveClose" aria-label="Close receive address">×</button></div><div class="wallet-qr"><img id="receiveQR" alt="Your Base wallet receive address"></div><code id="receiveAddress"></code><button id="copyWallet" class="wallet-wide">Copy address</button><p class="muted">Use the Base network. Native USDC contract:</p><code>${USDC}</code><p class="muted">Hyperliquid collateral and Robinhood buying power are separate.</p></div>
@@ -48,6 +48,7 @@ const controller=new WalletController(api,()=>{
   const signedIn=!!controller.session?.authenticated;drawer.dataset.connected=String(signedIn);$('#walletAccount').hidden=!signedIn;$('#fundingTitle').textContent=signedIn?'Your wallet':'Connect a wallet';$('#walletBack').hidden=signedIn||connectionView==='choices';$('#walletExplorer').href=signedIn?'https://basescan.org/address/'+controller.session.address:'https://basescan.org/';
   $('#walletIdentity').textContent=controller.session?.authenticated?`Signed in on Base · ${controller.provider?.kind==='ledger-usb'?'Ledger USB · keys stay on your device':controller.provider?.kind==='walletconnect'?'Mobile wallet':'Browser wallet'}`:'Sign in on Base with your USB hardware wallet. No browser extension required.';
   $('#walletLogout').hidden=!controller.session?.authenticated;
+  refreshAccountChoices();
   $('#walletConnection').hidden=!!controller.session?.authenticated;
   $('#hardwareScan').disabled=controller.busy||operation;
   $('#hardwareConnect').disabled=controller.busy||operation;
@@ -56,11 +57,51 @@ const controller=new WalletController(api,()=>{
   if(!controller.session?.authenticated){hl=null;rh=null;hlRequests=[];renderHLRequests();$('#walletETH').textContent='—';$('#walletUSDC').textContent='—';$('#balanceAsOf').textContent='Connect a wallet to read balances.';$('#receivePanel').hidden=true;$('#receiveAddress').textContent='';$('#receiveQR').removeAttribute('src');$('#hlValue').textContent='—';$('#hlAvailable').textContent='—';$('#hlOrders').textContent='No snapshot loaded.';$('#hlPositions').textContent='No snapshot loaded.';$('#hlFills').textContent='';$('#hlAsOf').textContent='No snapshot for this wallet.';$('#rhStatus').textContent='Sign in with your Base wallet, then connect through Robinhood’s hosted consent screen.';$('#walletActivity').textContent='No transfer submitted from this page in this session.';$('#rhAccounts').innerHTML='';$('#rhPortfolio').innerHTML='';$('#rhDisconnect').hidden=true;$('#rhConnect').hidden=false;}
   if(controller.error)status(controller.error,true);
 });
+function ledgerChoice(){
+  try{const value=JSON.parse(sessionStorage.getItem('desk-ledger-account')||'null');return value&&/^[a-f0-9]{64}$/.test(value.deviceId)&&['ledger-live','legacy'].includes(value.scheme)&&Number.isInteger(value.index)&&value.index>=0&&value.index<20?value:null;}catch{return null;}
+}
+function saveLedgerChoice(value){sessionStorage.setItem('desk-ledger-account',JSON.stringify(value));}
+function refreshAccountChoices(){
+  const select=$('#walletAccountSelect');
+  const address=controller.session?.address;
+  const provider=controller.provider;
+  if(!address||!provider?.request){select.hidden=true;select.innerHTML='';return;}
+  if(provider.kind==='ledger-usb'){
+    const choice=ledgerChoice();
+    if(!choice){select.hidden=true;select.innerHTML='';return;}
+    select.innerHTML=Array.from({length:20},(_,index)=>`<option value="${index}">Ledger Account ${index+1}${index===choice.index?' · connected':''}</option>`).join('');
+    select.value=String(choice.index);select.hidden=false;return;
+  }
+  provider.request({method:'eth_accounts'}).then(accounts=>{
+    if(controller.provider!==provider||controller.session?.address!==address)return;
+    const valid=(accounts||[]).filter(a=>/^0x[0-9a-fA-F]{40}$/.test(a));
+    select.innerHTML=valid.map((a,i)=>`<option value="${esc(a)}">${i===0?'Account 1':'Account '+(i+1)} · ${esc(shortAddress(a))}</option>`).join('');
+    select.value=valid.find(a=>a.toLowerCase()===address.toLowerCase())||'';
+    select.hidden=valid.length<2;
+  }).catch(()=>{select.hidden=true;});
+}
 function status(message,error=false){$('#fundingStatus').hidden=!message;$('#fundingStatus').textContent=message;$('#fundingStatus').classList.toggle('error',error);}
 function setConnectionView(view){connectionEpoch++;connectionView=view;for(const [id,name] of [['walletChoices','choices'],['hardwareLogin','ledger'],['walletLogin','browser'],['mobileLogin','mobile']])$('#'+id).hidden=view!==name;$('#walletBack').hidden=view==='choices'||!!controller.session?.authenticated;status('');}
 function lockControls(){for(const id of ['hardwareScan','hardwareConnect','hardwareDevices','hardwareScheme','hardwareIndex','chooseLedger','chooseMobile','chooseBrowser','walletBack'])$('#'+id).disabled=operation||controller.busy;document.querySelectorAll('[data-wallet-id]').forEach(b=>b.disabled=operation||controller.busy);}
 async function run(fn){if(operation)return;operation=true;lockControls();try{await fn();}catch(e){status(e.code===4001?'Wallet request declined.':e.message,true);}finally{operation=false;lockControls();}}
 async function cancelPairing(){++pairingAttempt;qrRequest++;pairingURI='';$('#mobileQR').hidden=true;$('#pairingQR').removeAttribute('src');await pairing?.disconnect().catch(()=>{});}
+$('#walletAccountSelect').onchange=()=>run(async()=>{
+  const provider=controller.provider;
+  if(!provider)throw new Error('Reconnect your wallet to switch accounts.');
+  if(provider.kind==='ledger-usb'){
+    const choice=ledgerChoice(),index=Number($('#walletAccountSelect').value);
+    if(!choice||!Number.isInteger(index)||index<0||index>19||index===choice.index)return;
+    status(`Confirm Ledger Account ${index+1} on your device. Verify the address before approving sign-in.`);
+    const value=await api('/api/wallet/hardware/connect',{deviceId:choice.deviceId,scheme:choice.scheme,index});
+    hardware.setAccount(value.address);saveLedgerChoice({...choice,index});
+    await controller.login(hardware,value.address);
+  }else{
+    const address=$('#walletAccountSelect').value;
+    if(!address||address.toLowerCase()===controller.session?.address?.toLowerCase())return;
+    status('Approve the sign-in message for '+shortAddress(address)+'.');await controller.login(provider,address);
+  }
+  status('');await refreshBalances();await loadHLRequests();
+});
 $('#walletButton').onclick=()=>{if(!controller.session?.authenticated&&!operation)setConnectionView('choices');drawer.showModal();};
 $('#fundingClose').onclick=()=>drawer.close();drawer.addEventListener('close',()=>{connectionEpoch++;if(controller.busy)void controller.invalidate('Sign-in cancelled.');if(connectionView==='mobile'&&!controller.session?.authenticated)void cancelPairing();});
 $('#walletBack').onclick=async()=>{await cancelPairing();setConnectionView('choices');};
@@ -86,7 +127,7 @@ $('#hardwareConnect').onclick=()=>run(async()=>{
   const attempt=connectionEpoch;await controller.invalidate();status('Confirm the selected account address on your Ledger, then approve the Base login message. Reject on the device to cancel.');
   const value=await api('/api/wallet/hardware/connect',{deviceId:$('#hardwareDevices').value,scheme:$('#hardwareScheme').value,index:Number($('#hardwareIndex').value)});
   if(attempt!==connectionEpoch){await api('/api/wallet/hardware/disconnect',{});throw new Error('Sign-in cancelled.');}
-  hardware.setAccount(value.address);await controller.login(hardware);sessionStorage.setItem('desk-wallet-provider','ledger-usb');
+  hardware.setAccount(value.address);saveLedgerChoice({deviceId:$('#hardwareDevices').value,scheme:$('#hardwareScheme').value,index:Number($('#hardwareIndex').value)});await controller.login(hardware);sessionStorage.setItem('desk-wallet-provider','ledger-usb');
   $('#hardwareStatus').textContent=`Connected · ${value.path}`;status('');
   await refreshBalances();await loadHLRequests();
 });
@@ -108,7 +149,7 @@ $('#chooseMobile').onclick=()=>{setConnectionView('mobile');void beginPairing();
 $('#retryPairing').onclick=async()=>{await cancelPairing();void beginPairing();};
 $('#cancelPairing').onclick=async()=>{await cancelPairing();setConnectionView('choices');};
 $('#copyPairing').onclick=()=>run(async()=>{if(!pairingURI)throw new Error('Create a new pairing first.');await navigator.clipboard.writeText(pairingURI);$('#pairingStatus').textContent='Pairing link copied. Open it only in your wallet.';});
-$('#walletLogout').onclick=()=>run(async()=>{const direct=controller.provider?.kind==='ledger-usb',mobile=controller.provider?.kind==='walletconnect';await controller.invalidate();if(direct)await hardware.disconnect();if(mobile)await pairing?.disconnect();sessionStorage.removeItem('desk-wallet-provider');$('#hardwareSelection').hidden=true;$('#hardwareScan').hidden=false;hlRequests=[];renderHLRequests();setConnectionView('choices');});
+$('#walletLogout').onclick=()=>run(async()=>{const direct=controller.provider?.kind==='ledger-usb',mobile=controller.provider?.kind==='walletconnect';await controller.invalidate();if(direct)await hardware.disconnect();if(mobile)await pairing?.disconnect();sessionStorage.removeItem('desk-wallet-provider');sessionStorage.removeItem('desk-ledger-account');$('#hardwareSelection').hidden=true;$('#hardwareScan').hidden=false;hlRequests=[];renderHLRequests();setConnectionView('choices');});
 async function refreshBalances(){const b=await controller.balances();$('#walletETH').textContent=b.eth;$('#walletUSDC').textContent=b.usdc;$('#balanceAsOf').textContent=`Base block ${BigInt(b.block)} · ${new Date(b.observedAt).toLocaleTimeString()} · Refresh for current balances`;}
 $('#refreshWallet').onclick=()=>run(async()=>{await refreshBalances();status('');});
 $('#receiveWallet').onclick=()=>run(async()=>{const address=await controller.assertIdentity(),epoch=controller.epoch;const {qrImage}=await qrRenderer();const image=await qrImage('ethereum:'+address+'@8453',{width:220,margin:1});if(epoch!==controller.epoch)return;$('#receiveAddress').textContent=address;$('#receiveQR').src=image;$('#receivePanel').hidden=false;});
