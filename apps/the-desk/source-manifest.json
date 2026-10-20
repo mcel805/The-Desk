@@ -43,5 +43,15 @@
     "original_sha256": "263c04e862ba346caa6d7973179f260ea26174b3bd686c9e514966e35f35ac1b",
     "source_sha256": "a89bf4f837aa7bad8855751075008c4164c1865d03a7afb47ba244e9108fc08f",
     "scope": "Original lifecycle preserved; automatic same-chart Liquidity bridge, both-side mode, 1m/5m restriction and visual redesign. This is an adapted port, not a name-only port. TradingView parity unverified."
+  },
+  "agentic_three_drive_pattern": {
+    "original": "web/pine-examples/agentic-three-drive-pattern-original.pine",
+    "source": "web/pine-examples/agentic-three-drive-pattern.pine",
+    "original_sha256": "72878348af31acdfd6e7fea19526ce795506f8a380251b3e3537d2d467d74f06",
+    "source_sha256": "8deea7b0d2a53b271497003db8f69044a386afcb58bb0cb8831cff4bce732365",
+    "author": "LuxAlgo",
+    "license": "CC BY-NC-SA 4.0; user reports written permission to use supplied source",
+    "reference_url": "https://www.luxalgo.com/library/indicator/three-drive-pattern-detector/",
+    "parity": "User-supplied Pine preserved byte-for-byte except title and shorttitle. Scoped host correction restores shadowed lab(num) parameter in pinned PineTS. Matching-data TradingView visual and numeric parity pending."
   }
 }

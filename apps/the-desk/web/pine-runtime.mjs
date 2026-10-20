@@ -11,7 +11,8 @@ const isCleoLiquiditySource=source=>typeof source==='string'&&source.includes(CL
 export const isAgenticElliotSource=source=>typeof source==='string'&&source.includes('indicator("Agentic - Elliot Waves", "Agentic - Elliot Waves"')&&/f_reconstruct\s*\(/.test(source)&&/f_capture\s*\(/.test(source);
 export const isAgenticLiquiditySource=source=>typeof source==='string'&&source.includes('indicator("Agentic - Liquidity", "Agentic - Liquidity"')&&/f_masterPools\s*\(/.test(source)&&/f_smallCount\s*\(/.test(source);
 export const isAgenticMarketGeometrySource=source=>typeof source==='string'&&source.includes('indicator("Agentic - Market Geometry", "Agentic - Market Geometry"')&&/f_geometryCandidate\s*\(/.test(source)&&/f_drawWickChannels\s*\(/.test(source);
-const needsCompatibleWorker=source=>isCleoLiquiditySource(source)||isAgenticElliotSource(source)||isAgenticLiquiditySource(source)||isAgenticMarketGeometrySource(source)||isABCSource(source);
+export const isAgenticThreeDriveSource=source=>typeof source==='string'&&source.includes("indicator('Agentic - Three Drive Pattern', shorttitle='Agentic - Three Drive Pattern'")&&/method zigzag\s*\(/.test(source)&&/method lab\s*\(/.test(source);
+const needsCompatibleWorker=source=>isAgenticThreeDriveSource(source)||isCleoLiquiditySource(source)||isAgenticElliotSource(source)||isAgenticLiquiditySource(source)||isAgenticMarketGeometrySource(source)||isABCSource(source);
 const CLEO_EXECUTION_TIMEOUT=120000;
 export const pineWorkerOptions=source=>needsCompatibleWorker(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
 

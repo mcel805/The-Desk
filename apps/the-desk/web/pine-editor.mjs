@@ -49,6 +49,7 @@ async function renderTab(tab,source=''){
   body.innerHTML='<label>Search built-in indicators<input id="pineLibrarySearch" type="search" placeholder="Search indicators"></label><div id="pineOnChart"></div><div id="pineFeatured" class="pine-catalog"></div><div id="pineBuiltins" class="pine-catalog"></div>';
   const items=await current().availableNativeIndicators();if(revision!==generation)return;
   const premiums=[
+   {id:'pineThreeDrive',name:'Agentic - Three Drive Pattern',detail:'Multi-length harmonic swings · Original rules',match:'agentic - three drive pattern detector premium harmonic luxalgo',source:'/pine-examples/agentic-three-drive-pattern.pine'},
    {id:'pineABCReversal',name:'Agentic - ABC Reversal',detail:'Liquidity contact → micro ABC · 1m / 5m',match:'agentic - abc reversal premium liquidity reversal zone',source:'/pine-examples/agentic-abc-reversal.pine'},
    {id:'pineMarketGeometry',name:'Agentic - Market Geometry',detail:'Wick-safe channels · Chart timeframe',match:'agentic - market geometry premium wick channels',source:'/pine-examples/agentic-market-geometry.pine'},
    {id:'pineLiquidity',name:'Agentic - Liquidity',detail:'Clean pools · 60 + 30 + 15M',match:'agentic - liquidity premium pools',source:'/pine-examples/agentic-liquidity.pine'},

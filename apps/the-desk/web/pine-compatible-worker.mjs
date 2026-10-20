@@ -1,8 +1,10 @@
+import {installThreeDriveCompatibility} from './pine-compat/three-drive.mjs';
 import {installABCExternalSources} from './pine-compat/external-sources.mjs';
 import {PineEngine} from '@luxalgo/vela-pinets';
 import {installNestedSecurity} from './pine-compat/nested-security.mjs';
 import {executeSerial} from './pine-compat/serial-execution.mjs';
 installNestedSecurity();
+installThreeDriveCompatibility();
 installABCExternalSources();
 const engine=new PineEngine(),sessions=new Map(),fetches=new Map();let requestId=0;
 const post=m=>self.postMessage(m);
