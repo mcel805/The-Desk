@@ -29,7 +29,7 @@ export function discoverWallets(win, onChange) {
 export class WalletController {
   constructor(api,onChange=()=>{}) {this.api=api;this.onChange=onChange;this.provider=null;this.session=null;this.epoch=0;this.busy=false;this.error='';this.listeners=[];this.revoking=Promise.resolve();}
   emit(){this.onChange(this);}
-  async restore({emit=true}={}){this.session=await this.api('/api/wallet/session');if(emit)this.emit();return this.session;}
+  async restore({emit=true}={}){if(!this.provider){await this.invalidate();return false;}this.session=await this.api('/api/wallet/session');if(emit)this.emit();return this.session;}
   bind(provider){
     this.listeners.forEach(([p,event,fn])=>p.removeListener?.(event,fn));this.listeners=[];this.provider=provider;
     for (const event of ['accountsChanged','chainChanged','disconnect']) {
@@ -103,12 +103,14 @@ export class WalletController {
 // Cookie authentication is shared across tabs; wallet providers are not.
 // Render a restored login only after its original signer is rebound here.
 export async function restoreWalletSession(controller, resolveProvider) {
-  const session=await controller.restore({emit:false});
-  if(!session?.authenticated){controller.emit();return null;}
+  const session=await controller.api('/api/wallet/session');
+  if(!session?.authenticated){controller.session=session;controller.emit();return null;}
   let provider=null;
   try{provider=await resolveProvider(session);}catch{}
   if(!provider){await controller.invalidate('Wallet connection needs a fresh sign-in.');return null;}
   controller.bind(provider);
+  const restored=await controller.restore({emit:false});
+  if(!restored?.authenticated||restored.address?.toLowerCase()!==session.address?.toLowerCase()){await controller.invalidate('Wallet session changed during restoration.');return null;}
   controller.emit();
   return provider;
 }
