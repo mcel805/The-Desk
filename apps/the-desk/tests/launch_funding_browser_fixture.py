@@ -14,7 +14,7 @@ root=Path(__file__).resolve().parents[1]
 browser_port=os.environ.get('QA_BROWSER_PORT','18883')
 with tempfile.TemporaryDirectory(prefix='desk-wallet-browser-') as tmp:
     target=Path(tmp);(target/'web/vendor').mkdir(parents=True)
-    for name in ['server.py','engine.py','market_stream.py','wallet_auth.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py','hardware_wallet.py']:shutil.copyfile(root/name,target/name)
+    for name in ['server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py','hardware_wallet.py']:shutil.copyfile(root/name,target/name)
     for name in ['funding-ui.mjs','wallet-pairing.mjs','wallet-model.mjs','hardware-wallet.mjs','funding.css','desk.css']:shutil.copyfile(root/'web'/name,target/'web'/name)
     shutil.copyfile(root/'web/vendor/wallet-transports.js',target/'web/vendor/wallet-transports.js')
     shutil.copyfile(root/'web/vendor/wallet-qr.js',target/'web/vendor/wallet-qr.js')

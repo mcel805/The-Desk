@@ -76,7 +76,7 @@ test('the installed host attaches the reference pattern to Liquidity models with
  const execute=async script=>{
   const engine=new DeskPineEngine({factory:()=>({prepare:async(source,id)=>({token:{source,instanceId:id}}),terminate(){},execute(req,h){queueMicrotask(()=>h.onModel({lines:[{style:'dashed',width:1}],series:[],labels:[],boxes:[],linefills:[],tables:[]}));return {stop(){}};}})});
   const prepared=await engine.prepare(script,'host-display');let session;
-  try{return await new Promise(resolve=>{session=engine.execute({prepared,bars:[]},{onModel:resolve});});}finally{session?.stop();}
+  try{return await new Promise(resolve=>{session=engine.execute({prepared,bars:[{time:1,open:1,high:2,low:1,close:2,volume:1}]},{onModel:resolve});});}finally{session?.stop();}
  };
  assert.deepEqual((await execute(source)).lines[0].deskDashPattern,[5,6]);
  assert.equal((await execute('//@version=6\nindicator("Other")\nplot(close)')).lines[0].deskDashPattern,undefined);

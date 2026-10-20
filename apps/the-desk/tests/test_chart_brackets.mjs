@@ -34,7 +34,7 @@ test('draft and working orders use compact labels, cyan entries, red stops and l
  const state={orders:[item,{...item,id:'done',status:'filled'},{...item,id:'other',instrument:'coinbase:BTC-USD'}],positions:[],quotes:{[item.instrument]:q}};
  assert.equal(tradingLevels(state,item.instrument,tradingConfig()).length,3);
  assert.equal(tradingLevels(state,item.instrument,tradingConfig())[0].color,tradeColors.entry);
- assert.equal(tradingLevels(state,item.instrument,tradingConfig())[0].label,'SELL limit · 2 · WORKING');
+ assert.equal(tradingLevels(state,item.instrument,tradingConfig())[0].label,'SELL LIMIT · 2 @ 100 · WORKING');
  assert.equal(tradingLevels(state,item.instrument,tradingConfig({brackets:false})).length,1);
  assert.equal(draftTradingLevels({...item,side:'buy'},q,()=>{},()=>{})[0].color,tradeColors.entry);
  assert.equal(bracketLabel({...item,entry:undefined,price:null,trigger:100,kind:'stop'},'trigger',q),'Entry');
