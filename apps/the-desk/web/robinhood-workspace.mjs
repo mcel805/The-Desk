@@ -1,0 +1,117 @@
+import {money,sourceLabel,collection,configPayload,evaluationMatches} from './robinhood-model.mjs';
+const base='/api/robinhood/workspace';
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=s=>document.querySelector(s);
+const names={portfolio:'Portfolio',equity_positions:'Equity positions',option_positions:'Options positions',crypto_positions:'Crypto positions',equity_orders:'Equity orders',option_orders:'Options orders',crypto_orders:'Crypto orders',advanced_orders:'Advanced orders',realized_pnl:'Realized P&L · month',pnl_trades:'Realized trades · month',approvals:'Robinhood approvals',approval_setting:'Broker approval setting'};
+const tabs={overview:['portfolio','approval_setting'],positions:['equity_positions','option_positions','crypto_positions'],orders:['equity_orders','option_orders','crypto_orders','advanced_orders','approvals'],performance:['realized_pnl','pnl_trades'],agents:[],runs:[]};
+let status={connected:false,accounts:[]},snapshot={sources:{}},accountId='',tab='overview',agents=[],runs=[],selectedAgent=null,intent=null,requestId=null,epoch=0,busy=false,sessionReady=false,dirty=false;
+const dialog=document.createElement('dialog');dialog.id='robinhoodWorkspace';dialog.setAttribute('aria-labelledby','rhTitle');
+dialog.innerHTML=`<header class="rh-header"><div class="rh-heading"><h2 id="rhTitle">Robinhood account & agents</h2><p id="rhConnectionText">Account visibility and chart-linked shadow evaluation</p></div><span class="rh-mode">READ ONLY · SHADOW</span><button id="rhWorkspaceConnect" class="primary">Connect Robinhood</button><button id="rhWorkspaceDisconnect" hidden>Disconnect</button><button id="rhWorkspaceClose" class="rh-close" aria-label="Close Robinhood workspace">×</button></header>
+<div class="rh-controls"><label>Account<select id="rhWorkspaceAccounts" aria-label="Robinhood workspace account"></select></label><span id="rhAccountAccess" class="rh-badge">Not connected</span><button id="rhWorkspaceRefresh">Refresh view</button><label class="rh-auto"><input id="rhAutoRefresh" type="checkbox"> Refresh every 30s while open</label></div>
+<nav class="rh-tabs" role="tablist" aria-label="Robinhood workspace views">${Object.keys(tabs).map((t,i)=>`<button role="tab" id="rhTab-${t}" aria-controls="rhWorkspaceContent" aria-selected="${i===0}" data-rh-tab="${t}">${({overview:'Overview',positions:'Positions',orders:'Orders & approvals',performance:'Performance',agents:'Agent Studio',runs:'Shadow journal'})[t]}</button>`).join('')}</nav>
+<p id="rhWorkspaceMessage" class="rh-message" role="status">Opening a workspace never sends an order.</p><div id="rhWorkspaceContent" class="rh-content" role="tabpanel" aria-labelledby="rhTab-overview"></div><footer class="rh-footer"><span>Broker credentials stay in server memory. Reconnect after a server restart.</span><span>Live orders, cancellation and options exercise are unavailable.</span></footer>`;
+document.body.append(dialog);
+function message(text,error=false){$('#rhWorkspaceMessage').textContent=text;$('#rhWorkspaceMessage').dataset.error=String(error);}
+async function api(path,payload){
+ const res=await fetch(base+path,{method:payload===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',headers:payload===undefined?{}:{'Content-Type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload)});
+ const data=await res.json();if(!res.ok)throw Error(data.error||'Robinhood workspace request failed.');return data;
+}
+async function session(){if(!sessionReady){await api('/session',{});sessionReady=true;}}
+async function task(fn){
+ if(busy)return;busy=true;dialog.setAttribute('aria-busy','true');
+ const controls=[...dialog.querySelectorAll('button,input,select,textarea')].filter(el=>el.id!=='rhWorkspaceClose').map(el=>[el,el.disabled]);
+ for(const [el] of controls)el.disabled=true;
+ try{await fn();}catch(e){message(e.message,true);}finally{
+  busy=false;dialog.setAttribute('aria-busy','false');
+  for(const [el,disabled] of controls)if(el.isConnected)el.disabled=disabled;
+ }
+}
+function account(){return status.accounts.find(a=>a.id===accountId);}
+function stamp(value){return value?new Date(value*1000).toLocaleString('en-US',{timeZone:'America/Los_Angeles'})+' Pacific':'Not observed';}
+async function loadStatus(){
+ const mine=++epoch;await session();const next=await api('/status');if(mine!==epoch)return;
+ status=next;window.dispatchEvent(new CustomEvent('desk:robinhood-connection'));const old=accountId;
+ if(!status.accounts.some(a=>a.id===accountId))accountId=status.accounts.find(a=>a.tradable)?.id||status.accounts[0]?.id||'';
+ if(old!==accountId)snapshot={sources:{}};
+ $('#rhWorkspaceAccounts').innerHTML=status.accounts.map(a=>`<option value="${esc(a.id)}">${esc(a.name+' · '+a.account)}</option>`).join('');$('#rhWorkspaceAccounts').value=accountId;
+ $('#rhWorkspaceConnect').textContent=status.connected?'Reconnect Robinhood':'Connect Robinhood';$('#rhWorkspaceDisconnect').hidden=!status.connected;
+ $('#rhConnectionText').textContent=status.connected?'Own-app OAuth connection · read-only workspace · live routing disarmed':'Disconnected · saved shadow configurations remain local';
+ $('#rhAccountAccess').textContent=account()?.tradable?'Eligible MCP account · shadow only':status.connected?'Read-only account':'Not connected';
+ const results=await Promise.all([api('/agents'),api('/runs'),accountId?api('/snapshot?accountId='+encodeURIComponent(accountId)):Promise.resolve({sources:{}})]);
+ if(mine!==epoch)return;agents=results[0].agents;runs=results[1].runs;snapshot=results[2];
+ selectedAgent=agents.find(a=>a.id===selectedAgent?.id)||agents.find(a=>a.accountId===accountId)||null;render();
+}
+async function sync(sources=tabs[tab],more=false){
+ if(!status.connected||!accountId||!sources.length)return;
+ const mine=epoch,selected=accountId;message('Reading '+sources.map(x=>names[x]).join(', ')+'…');
+ const data=await api('/sync',{accountId:selected,sources,more});
+ if(mine!==epoch||selected!==accountId)return;snapshot=data;render();
+ const failures=sources.filter(x=>['error','unavailable'].includes(snapshot.sources[x]?.status));
+ message(failures.length?'Some sources are unavailable or failed. Coverage and retained data are labeled below.':'View refreshed from Robinhood. All amounts are broker snapshots.',failures.length>0);
+}
+function sourcesView(sources){return sources.map(source=>{
+ const s=snapshot.sources[source],rows=collection(s,['positions','orders','results','advanced_orders','trades','approvals']);
+ return `<section class="rh-source"><div class="rh-source-head"><strong>${esc(names[source])}</strong><span>${esc(sourceLabel(s,status.connected))}</span><span>${esc(stamp(s?.observedAt))}${s?' · '+s.pages+' page(s)':''}</span>${s?.hasMore?`<button data-rh-more="${source}">Load next page</button>`:''}</div>${rows?rows.length?tableRows(rows):'<div class="rh-empty">No records returned in the loaded scope.</div>':s?.data?'<div class="rh-empty">Broker response available in details below.</div>':'<div class="rh-empty">No data loaded for this source. Refresh this view.</div>'}${s?.data?`<details><summary>Broker fields · masked identifiers</summary><pre>${esc(JSON.stringify(s.data,null,2))}</pre></details>`:''}</section>`;
+ }).join('');}
+function tableRows(rows){
+ const cell=(row,keys)=>{for(const key of keys){const v=row[key];if(v!==undefined&&v!==null&&typeof v!=='object')return v;}return '—';};
+ return `<div class="rh-table"><table><thead><tr><th>Instrument / broker ID</th><th>Side / type</th><th>Quantity</th><th>Price / cost</th><th>State / realized P&L</th><th>Time</th></tr></thead><tbody>${rows.filter(r=>r&&typeof r==='object').map(r=>`<tr><td>${esc(cell(r,['symbol','ticker','chain_symbol','currency_pair_id','instrument_id','instrument','id']))}</td><td>${esc(cell(r,['side','type','position_type']))}</td><td>${esc(cell(r,['quantity','cumulative_quantity','total_quantity','quantity_available']))}</td><td>${esc(cell(r,['average_price','average_buy_price','price','limit_price','cost_basis']))}</td><td>${esc(cell(r,['state','status','realized_gain','realized_pnl']))}</td><td>${esc(cell(r,['executed_at','updated_at','created_at','timestamp']))}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function overview(){
+ const a=account(),p=snapshot.sources.portfolio?.data||{},setting=snapshot.sources.approval_setting?.data?.setting;
+ return `<div class="rh-metrics">${[['Account value',p.total_value],['Cash',p.cash],['Equity buying power',p.buying_power?.buying_power],['Crypto buying power',p.crypto_buying_power?.buying_power]].map(([k,v])=>`<div class="rh-metric"><small>${k}</small><strong>${esc(money(v,p.currency||'USD'))}</strong></div>`).join('')}</div>
+ <div class="rh-grid"><section class="rh-card"><h3>${esc(a?.name||'Account')} · ${esc(a?.account)}</h3><dl>${[['Account type',a?.type],['Brokerage trading type',a?.tradingType],['Crypto account',a?.cryptoAccount||'Not returned'],['Default account',a?.default?'Yes':'No'],['Account state',a?.state],['Options level',a?.optionsLevel||'Unavailable']].map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section><section class="rh-card"><h3>Permission and freshness</h3><p>Robinhood per-trade human approval: <strong>${setting?setting.human_must_approve_trades?'ON when checked':'OFF when checked':'Not loaded / unavailable'}</strong>. You change this setting in Robinhood.</p><p>${esc(sourceLabel(snapshot.sources.portfolio,status.connected))} · ${esc(stamp(snapshot.sources.portfolio?.observedAt))}</p><p>Robinhood chart tickets support broker-native limit previews only. Paper accounts use the independent simulation engine. Shadow journal records are decisions, not orders or fills.</p></section></div>${sourcesView(['portfolio','approval_setting'])}`;
+}
+function agentStudio(){
+ const a=selectedAgent?.accountId===accountId?selectedAgent:null;selectedAgent=a;
+ return `<div class="rh-banner">Rule-based shadow agent · <strong>chart-ticket-v1</strong>. Evaluates explicit spot-limit tickets against your symbol, notional, quote-age and spread rules. No LLM runtime, autonomous scheduler, broker preview, order submission or simulated fill is connected.</div>
+ <div class="rh-agent-header"><label for="rhAgentSelect">Saved agents</label><select id="rhAgentSelect"><option value="">New agent</option>${agents.filter(a=>a.accountId===accountId).map(x=>`<option value="${esc(x.id)}" ${x.id===a?.id?'selected':''}>${esc(x.name)} · v${x.revision} · ${x.paused?'paused':'shadow evaluation ready'}</option>`).join('')}</select><button id="rhNewAgent">New</button></div>
+ <div class="rh-grid"><section class="rh-card"><h3>${a?'Edit version '+a.revision:'Create a shadow agent'}</h3><form id="rhAgentForm" class="rh-form"><label>Name<input name="name" maxlength="80" required value="${esc(a?.name||'Desk shadow agent')}"></label><label>Mode<select name="mode"><option value="shadow" ${a?.mode!=='observe'?'selected':''}>Shadow evaluations</option><option value="observe" ${a?.mode==='observe'?'selected':''}>Observe only</option></select></label><label class="rh-span">Allowed USD spot pairs · comma separated<input name="symbols" required placeholder="BTC-USD, ETH-USD" value="${esc(a?.symbols.join(', ')||'')}"></label><label>Max order notional · USD<input name="maxOrderUSD" type="number" min="0.01" step="any" required placeholder="Choose your budget" value="${esc(a?.maxOrderUSD||'')}"></label><label>Maximum quote age · seconds<input name="maxQuoteAgeSeconds" type="number" min="1" max="60" step="1" required value="${a?.maxQuoteAgeSeconds??15}"></label><label>Maximum spread · basis points<input name="maxSpreadBps" type="number" min="1" max="500" step="1" required placeholder="Choose a spread limit" value="${esc(a?.maxSpreadBps??'')}"></label><label>Bound account<input readonly value="${esc(account()?.name+' · '+account()?.account)}"></label><label class="rh-span">Research notes · recorded, not executed<textarea name="notes" maxlength="2000">${esc(a?.notes||'')}</textarea></label><div class="rh-span rh-actions"><button id="rhDiscardAgent" type="button" hidden>Discard edits</button><button class="primary" type="submit" ${!account()?.tradable?'disabled':''}>Save new revision · paused</button>${a?`<button id="rhAgentPause" type="button">${a.paused?'Resume shadow evaluations':'Pause shadow evaluations'}</button>`:''}</div></form><p id="rhAgentState" class="rh-agent-status">${a?'Revision '+a.revision+' · '+(a.paused?'paused':'ready for explicit shadow evaluations'):'An eligible MCP account is required to save.'}</p></section>
+ <section class="rh-card"><h3>Chart → shadow agent</h3><p>Stage an exact limit ticket on a Coinbase USD spot chart. Use the chart ticket’s “Send to shadow agent” button or capture it here. Hyperliquid perpetuals and MYM futures are not converted into spot orders.</p><div class="rh-actions"><button id="rhCaptureChart">Capture current chart ticket</button></div>${intent?`<pre id="rhChartIntent">${esc(JSON.stringify(intent,null,2))}</pre>`:'<div class="rh-empty">No chart ticket captured.</div>'}<div class="rh-actions"><button id="rhEvaluate" class="primary" ${!a||a.paused||!intent?'disabled':''}>Evaluate shadow ticket</button></div><p id="rhShadowResult">${intent?'Exact chart context retained. Old quotes and changed revisions are rejected.':'No evaluation has been requested.'}</p><p>Protection prices are retained as research context. This evaluator does not validate order precision, fees, protective orders, available sell quantity, or complete trading eligibility. Shadow decisions reserve no capital.</p></section></div>`;
+}
+function journal(){return `<div class="rh-banner">Durable shadow journal · last 100 runs. No broker fills are fabricated and these records are not mixed into paper or realized broker P&L.</div>${runs.length?runs.map(r=>`<article class="rh-run"><strong>${esc(r.agentName)} · v${r.revision} · ${esc(r.decision.replaceAll('_',' '))}</strong><p>${esc(r.intent.chartInstrument)} · ${esc(r.intent.side)} ${esc(r.intent.quantity)} @ ${esc(r.intent.limitPrice)} · ${esc(stamp(r.createdAt))}</p>${r.reasons.length?'<ul>'+r.reasons.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p>Configured shadow checks passed. No broker order submitted.</p>'}<details><summary>Intent, broker quote and decision evidence</summary><pre>${esc(JSON.stringify(r,null,2))}</pre></details></article>`).join(''):'<div class="rh-empty">No shadow evaluations recorded.</div>'}`;}
+function render(){
+ const host=$('#rhWorkspaceContent');host.setAttribute('aria-labelledby','rhTab-'+tab);
+ document.querySelectorAll('[data-rh-tab]').forEach(b=>{b.setAttribute('aria-selected',String(b.dataset.rhTab===tab));b.tabIndex=b.dataset.rhTab===tab?0:-1;});
+ if(!status.connected&&tab!=='runs'&&tab!=='agents')host.innerHTML=`<section class="rh-disconnected"><span class="rh-badge">NOT CONNECTED</span><h3>Bring your Robinhood accounts into The Desk.</h3><p>Connect through Robinhood’s hosted consent screen. No Base wallet is required. You can inspect returned account balances, positions, orders, realized P&L and approval state.</p><p>Your OAuth tokens stay in server memory. The local profile retains private snapshots, saved agents and shadow journal records on this computer. Reconnect after restarting the server.</p><button id="rhStartConnection" class="primary">Connect Robinhood</button><p><a class="rh-link" href="https://robinhood.com/us/en/support/articles/onboarding-an-external-agent/" target="_blank" rel="noopener noreferrer">Robinhood external-agent setup ↗</a></p></section>`;
+ else if(tab==='overview')host.innerHTML=overview();
+ else if(tab==='agents')host.innerHTML=agentStudio();
+ else if(tab==='runs')host.innerHTML=journal();
+ else host.innerHTML=(tab==='performance'?'<div class="rh-banner">Broker-reported realized P&L and realizing trades for the requested month. Null means unavailable. This is not an all-time equity curve or a complete cashflow ledger.</div>':'')+sourcesView(tabs[tab]);
+ host.querySelectorAll('[data-rh-more]').forEach(b=>b.onclick=()=>task(()=>sync([b.dataset.rhMore],true)));
+ $('#rhStartConnection')?.addEventListener('click',connect);
+ $('#rhAgentSelect')?.addEventListener('change',e=>{if(busy||dirty){e.target.value=selectedAgent?.id||'';return message('Finish the current operation and save or discard agent edits before selecting another agent.',true);}selectedAgent=agents.find(a=>a.id===e.target.value)||null;dirty=false;requestId=null;render();});
+ $('#rhNewAgent')?.addEventListener('click',()=>{if(busy)return;selectedAgent=null;dirty=false;requestId=null;render();});
+ $('#rhAgentForm')?.addEventListener('input',()=>{dirty=true;$('#rhDiscardAgent').hidden=false;$('#rhAgentState').textContent='Unsaved configuration edits. Save a new revision before evaluating.';if($('#rhEvaluate'))$('#rhEvaluate').disabled=true;});
+ $('#rhDiscardAgent')?.addEventListener('click',()=>{dirty=false;render();});
+ $('#rhAgentForm')?.addEventListener('submit',e=>{e.preventDefault();const p=configPayload(new FormData(e.currentTarget),selectedAgent,accountId);void task(async()=>{selectedAgent=await api('/agents/save',p);agents=(await api('/agents')).agents;dirty=false;requestId=null;render();message('Agent revision saved in paused shadow mode.');});});
+ $('#rhAgentPause')?.addEventListener('click',()=>{if(dirty)return message('Save or discard agent edits before changing pause state.',true);return task(async()=>{await api('/agents/pause',{id:selectedAgent.id,paused:!selectedAgent.paused});agents=(await api('/agents')).agents;selectedAgent=agents.find(a=>a.id===selectedAgent.id);render();message(selectedAgent.paused?'Shadow evaluations paused.':'Ready for explicit shadow evaluations. Live routing remains disarmed.');});});
+ $('#rhCaptureChart')?.addEventListener('click',()=>{if(dirty)return message('Save or discard your agent edits before capturing a new ticket.',true);window.dispatchEvent(new CustomEvent('desk:request-shadow-chart'));});
+ $('#rhEvaluate')?.addEventListener('click',()=>task(async()=>{
+  if(dirty||!selectedAgent||!intent)throw Error('Save the agent and capture a current ticket first.');
+  requestId ||= crypto.randomUUID();
+  const submitted={requestId,agentId:selectedAgent.id,revision:selectedAgent.revision,intent:structuredClone(intent)},scope={epoch,accountId};
+  const result=await api('/evaluate',submitted);
+  if(!evaluationMatches(result,submitted,scope.accountId))throw Error('Shadow response did not match the submitted agent and ticket. Refresh the journal.');
+  runs=(await api('/runs')).runs;
+  if(epoch!==scope.epoch||accountId!==scope.accountId||selectedAgent?.id!==submitted.agentId||selectedAgent?.revision!==submitted.revision||JSON.stringify(intent)!==JSON.stringify(submitted.intent)||tab!=='agents')return message('Decision recorded for the original agent and ticket. Open the Shadow journal to inspect it.');
+  $('#rhShadowResult').textContent=(result.decision==='shadow_eligible'?'Configured shadow checks passed. No order sent.':result.reasons.join(' '))+' As of '+stamp(result.createdAt)+'.';message('Shadow decision recorded. Open the Shadow journal for the evidence trail.');
+ }));
+}
+async function connect(){await task(async()=>{await session();const result=await api('/connect',{});const url=new URL(result.url);if(url.origin!=='https://robinhood.com'||url.pathname!=='/oauth')throw Error('Unexpected Robinhood authorization URL.');location.assign(url.href);});}
+async function open(){if(!dialog.open)dialog.showModal();if(dirty)return message('Unsaved agent edits retained. Save or discard them before refreshing.',true);await task(async()=>{await loadStatus();if(status.connected&&tabs[tab].length)await sync();});}
+$('#robinhoodButton').onclick=open;$('#rhWorkspaceClose').onclick=()=>dialog.close();$('#rhWorkspaceConnect').onclick=connect;
+window.addEventListener('desk:open-robinhood-account',async e=>{
+ if(busy)return message('Wait for the current account request to finish before opening another account.',true);
+ if(dirty&&(accountId!==e.detail?.accountId||e.detail?.tab&&e.detail.tab!==tab))return message('Save or discard agent edits before switching accounts or views.',true);
+ const next=e.detail?.accountId||accountId;
+ if(next!==accountId){++epoch;snapshot={sources:{}};intent=null;requestId=null;selectedAgent=null;}
+ accountId=next;if(e.detail?.tab&&tabs[e.detail.tab])tab=e.detail.tab;await open();
+});
+$('#rhWorkspaceDisconnect').onclick=()=>task(async()=>{++epoch;await api('/disconnect',{});status={connected:false,accounts:[]};accountId='';snapshot={sources:{}};intent=null;requestId=null;selectedAgent=null;await loadStatus();message('Disconnected from this Desk. Saved agents paused. Revoke the provider grant in Robinhood to remove consent.');});
+$('#rhWorkspaceAccounts').onchange=e=>{if(dirty){e.target.value=accountId;return message('Save or discard agent edits before changing accounts.',true);}accountId=e.target.value;++epoch;snapshot={sources:{}};selectedAgent=null;requestId=null;dirty=false;$('#rhAccountAccess').textContent=account()?.tradable?'Eligible MCP account · shadow only':'Read-only account';render();void task(async()=>{const mine=epoch,a=accountId;const data=await api('/snapshot?accountId='+encodeURIComponent(a));if(mine!==epoch)return;snapshot=data;await sync();});};
+$('#rhWorkspaceRefresh').onclick=()=>{if(dirty)return message('Save or discard agent edits before refreshing.',true);return task(async()=>{if(tab==='agents'||tab==='runs')await loadStatus();else await sync();});};
+document.querySelectorAll('[data-rh-tab]').forEach(b=>{b.onclick=()=>{if(busy||b.dataset.rhTab===tab)return;if(dirty)return message('Save or discard agent edits before switching views.',true);tab=b.dataset.rhTab;render();void task(async()=>{if(tabs[tab].length)await sync();});};b.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const all=[...document.querySelectorAll('[data-rh-tab]')],i=all.indexOf(b),next=all[(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length];next.click();next.focus();}};});
+window.addEventListener('desk:shadow-chart-intent',e=>{if(busy)return message('Wait for the current workspace operation before capturing another ticket.',true);if(dirty){if(!dialog.open)dialog.showModal();return message('Save or discard agent edits before capturing a new ticket.',true);}intent=structuredClone(e.detail);requestId=null;tab='agents';if(dialog.open)render();else void open();message('Chart ticket captured for shadow evaluation. It has not been sent to Robinhood.');});
+setInterval(()=>{if(dialog.open&&status.connected&&!busy&&$('#rhAutoRefresh').checked&&tabs[tab].length)void task(()=>sync());},30000);
+if(new URLSearchParams(location.search).get('robinhood')==='connected'){history.replaceState(null,'',location.pathname+location.hash);void open();}

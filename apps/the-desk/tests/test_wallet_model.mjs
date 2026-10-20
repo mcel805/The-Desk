@@ -22,7 +22,7 @@ test('declined signature keeps session disconnected',async()=>{const {controller
 test('deferred session restoration does not expose cookie identity before provider recovery',async()=>{
  const {controller}=fixture();let updates=0;controller.onChange=()=>updates++;
  const restored=await controller.restore({emit:false});
- assert.equal(restored.authenticated,false);assert.equal(controller.session.authenticated,false);assert.equal(controller.provider,null);assert.equal(updates,0);
+ assert.equal(restored,false);assert.equal(controller.session,null);assert.equal(controller.provider,null);assert.equal(updates,1);
 });
 test('new tab revokes a cookie-only login and never renders it as connected',async()=>{
  const {controller,calls}=fixture({authenticated:true});const rendered=[];

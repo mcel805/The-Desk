@@ -129,3 +129,11 @@ Run transient-touch/recovery checks with `python3 -m unittest discover -s tests 
 ## Wallet, funding and connected venues
 
 The header wallet drawer defaults to Ledger direct USB (no browser extension), provides optional Rabby/MetaMask connections, and shows ETH/native USDC on Base. See [direct USB setup and acceptance](docs/BASE-HARDWARE-WALLET.md). It opens Hyperliquid and Robinhood account panels. Hyperliquid has a reviewed wallet-signed GTC limit ticket and cancellation flow; Testnet is the default, and Mainnet requires `DESK_HYPERLIQUID_LIVE_ENABLED=1`. Uncertain orders remain durably blocked until official venue reconciliation. Base transfers and Robinhood order submission remain disabled; Robinhood account access is read-only, and native options/futures tickets are unavailable. The chart/DOM engine remains paper. See [setup, scope and acceptance](docs/WALLET-FUNDING-AND-LIVE-TRADING.md). Test with `npm run build:wallet`, `npm run test:wallet` and the focused wallet-enabled Python suites using the server Python with `requirements-wallet.txt` installed.
+
+## Robinhood account workspace and Agent Studio
+
+Open **Robinhood & agents** in the header for independent OAuth account access,
+source-by-source position/order/P&L coverage, versioned shadow-agent setup, and
+the chart-ticket handoff into the durable shadow journal. No Base wallet is
+required. The new service is read-only and shadow-only; broker order routing
+remains unavailable. See [setup, scope, storage and tests](docs/ROBINHOOD-ACCOUNT-AGENTS.md).

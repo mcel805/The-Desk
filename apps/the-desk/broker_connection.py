@@ -72,7 +72,7 @@ class Robinhood:
         with self.lock:
             self.sessions.pop(key,None)
             self.pending={k:v for k,v in self.pending.items() if v['key']!=key}
-    def start(self,key,host=None):
+    def start(self,key,host=None,callback_path='/api/robinhood/callback'):
         with self.lock:
             metadata=self.http(DISCOVERY)
             if any(metadata.get(k)!=v for k,v in [('issuer',ISSUER),('authorization_endpoint',AUTH),('token_endpoint',TOKEN),('registration_endpoint',REGISTER)]):
@@ -81,7 +81,9 @@ class Robinhood:
             host=host or f'127.0.0.1:{self.port}'
             if host not in (f'127.0.0.1:{self.port}',f'localhost:{self.port}'):
                 raise ValueError('Robinhood login requires a trusted loopback host.')
-            redirect=f'http://{host}/api/robinhood/callback'
+            if callback_path not in ('/api/robinhood/callback','/api/robinhood/workspace/callback'):
+                raise ValueError('Unsupported Robinhood callback.')
+            redirect=f'http://{host}{callback_path}'
             client_id=self.client_id or self.client_ids.get(redirect)
             if not client_id:
                 registered=self.http(REGISTER,{'client_name':'The Desk local trading workspace','redirect_uris':[redirect],'grant_types':['authorization_code','refresh_token'],'response_types':['code'],'token_endpoint_auth_method':'none'})
@@ -97,7 +99,7 @@ class Robinhood:
     def callback(self,key,state,code,issuer):
         with self.lock:
             p=self.pending.get(state)
-            if not p or p['key']!=key or p['expires']<=time.time(): raise ValueError('Robinhood login expired or does not belong to this wallet session.')
+            if not p or p['key']!=key or p['expires']<=time.time(): raise ValueError('Robinhood login expired or does not belong to this Desk session.')
             if issuer!=ISSUER or not code: raise ValueError('Robinhood login issuer or code is invalid.')
             self.pending.pop(state)
             token=self.http(TOKEN,{'grant_type':'authorization_code','code':code,'redirect_uri':p['redirect'],'client_id':p['client_id'],'code_verifier':p['verifier'],'resource':RESOURCE},form=True)
