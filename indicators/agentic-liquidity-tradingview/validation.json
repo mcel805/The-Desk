@@ -1,0 +1,53 @@
+{
+  "status": "PASS",
+  "sha256": "ea6aeecf7a6c10d8109a9bd5fd55d31b80ea2d7d9ef268a7f5b774d67ae177c5",
+  "checks": [
+    {
+      "check": "1h screenshot defaults",
+      "lines": 14,
+      "labels": 8,
+      "boxes": 0,
+      "inputs": 96
+    },
+    {
+      "check": "4H and Daily source coverage, age-matched warm-up, manual opt-out",
+      "fourHourLines": 16,
+      "fourHourTags": [
+        "15 · 9/100",
+        "240+60+30+15 · 27-92/100 ×2",
+        "15 · 9/100",
+        "15 · 9/100",
+        "15 · 9/100",
+        "15 · 9/100",
+        "60+30+15 · 10-54/100 ×2",
+        "15 · 56/100"
+      ]
+    },
+    {
+      "check": "actual Pine retention regression: 24 highs and 24 lows, both older external anchors preserved; prior implementation loses lows and both anchors"
+    },
+    {
+      "check": "future tag column, opaque backgrounds, line endpoints before text"
+    },
+    {
+      "check": "synthetic Pine regression packets: crowded lows, crowded highs, one side empty, adjacent opposing tags",
+      "cases": 4
+    },
+    {
+      "check": "1m nested source and reference pools execute",
+      "lines": 16,
+      "boxes": 9
+    },
+    {
+      "check": "Original view preserves small pool strips",
+      "linefills": 47
+    },
+    {
+      "check": "alert message feeds occupy first four plot slots",
+      "plots": 28
+    }
+  ],
+  "tradingViewCompilation": "Not run; user will compile in Pine Editor.",
+  "visualParity": "Not verified against matching reference OHLC.",
+  "runtime": "Local Vela/PineTS with Desk nested-request compatibility and a test-copy main_period invariant substitution per official Pine documentation; not native TradingView."
+}
