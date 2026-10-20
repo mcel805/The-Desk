@@ -1,6 +1,6 @@
 import {DeskHyperliquidProvider} from './hyperliquid-provider.mjs';
 import {VelaWorkspace,CoinbaseProvider,HyperliquidProvider} from './vendor/vela.js';
-import {marketIdentity,tradingConfig,tradingDefaults} from './trading-model.mjs';
+import {marketIdentity,tradingConfig,tradingDefaults,positionMetrics,positionPnlIncrement,formatMoney} from './trading-model.mjs';
 import {setupDOMTrader} from './dom-trader.mjs';
 import {setupChartTrader} from './chart-trader.mjs';
 import {starterBracket,moveDraftBracket,draftTradingLevels} from './chart-bracket-model.mjs';
@@ -13,7 +13,7 @@ import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mj
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const usd=v=>Number.isFinite(Number(v))?'$'+number(v):'—', fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:8});
-let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,commandKey=null,dialogKey=null,contextKey='',menuPrice=null;
+let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,commandKey=null,dialogKey=null,contextKey='',menuPrice=null;
 const instruments=['hyperliquid:BTC','hyperliquid:ETH','hyperliquid:SOL','coinbase:BTC-USD','coinbase:ETH-USD','coinbase:SOL-USD'];
 
 async function api(path,payload,headers={}){
@@ -198,7 +198,7 @@ function renderManager(){
  }
  if(panel==='strategy'){if(!host.querySelector('#strategyForm'))renderStrategy();return;}
  if(panel==='positions'){
-  const rows=state.positions.map(p=>{const q=state.quotes[p.instrument],mark=Number(q?.[p.side==='buy'?'bid':'ask']||p.entry),pnl=(mark-Number(p.entry))*Number(p.qty)*(p.side==='buy'?1:-1);return `<tr><td>${esc(instrumentShort(p.instrument))}</td><td class="${p.side==='buy'?'positive':'negative'}">${p.side==='buy'?'Long':'Short'}</td><td>${fmt(p.qty)}</td><td>${fmt(p.entry)}</td><td>${fmt(mark)}</td><td class="${pnl>=0?'positive':'negative'}">${usd(pnl)}</td><td>${p.stop?fmt(p.stop):'—'} / ${p.target?fmt(p.target):'—'}</td><td><button data-bracket="${p.id}">SL / TP</button><button data-close="${p.id}">Close</button><button data-reverse="${p.id}">Reverse</button></td></tr>`;});
+  const rows=state.positions.map(p=>{const {mark,pnl,increment}=positionMetrics(p,state.quotes[p.instrument]);return `<tr data-position-id="${esc(p.id)}"><td>${esc(instrumentShort(p.instrument))}</td><td class="${p.side==='buy'?'positive':'negative'}">${p.side==='buy'?'Long':'Short'}</td><td>${fmt(p.qty)}</td><td>${fmt(p.entry)}</td><td data-position-mark>${fmt(mark)}</td><td data-position-pnl class="${pnl>=0?'positive':'negative'}">${formatMoney(pnl,increment)}</td><td>${p.stop?fmt(p.stop):'—'} / ${p.target?fmt(p.target):'—'}</td><td><button data-bracket="${p.id}">SL / TP</button><button data-close="${p.id}">Close</button><button data-reverse="${p.id}">Reverse</button></td></tr>`;});
   host.innerHTML=rows.length?table(['Instrument','Side','Quantity','Entry','Mark','Open P&L','SL / TP','Actions'],rows):empty('No open positions','Place a paper order from the chart, ticket or DOM.');
  }
  if(panel==='orders'){
@@ -251,16 +251,18 @@ $('#journalButton').onclick=()=>setPanel('journal');
 $('#exportAccount').onclick=async()=>{try{const data=await api('/api/export?account_id='+encodeURIComponent(activeAccount));const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='The-Desk-PAPER-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(a.href);}catch(e){toast(e.message,true);}};
 
 async function refresh(){
- if(polling)return;polling=true;
+ if(polling){refreshQueued=true;return;}polling=true;const requestedAccount=activeAccount;
  try{
-  state=await api('/api/state?account_id='+encodeURIComponent(activeAccount||''));activeAccount=state.active_account;const options=state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===activeAccount?'selected':''}>${esc(a.name)} · PAPER</option>`).join('');if($('#accountSelect').innerHTML!==options)$('#accountSelect').innerHTML=options;
-  const a=account();for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']])$('#'+id).textContent=usd(a?.[key]);$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
+  const nextState=await api('/api/state?account_id='+encodeURIComponent(requestedAccount||''));
+  if(requestedAccount!==activeAccount){refreshQueued=true;return;}
+  state=nextState;activeAccount=state.active_account;const options=state.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===activeAccount?'selected':''}>${esc(a.name)} · PAPER</option>`).join('');if($('#accountSelect').innerHTML!==options)$('#accountSelect').innerHTML=options;
+  const a=account(),pnlIncrement=positionPnlIncrement(state.positions,state.quotes);for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']]){$('#'+id).textContent=id==='unrealized'?formatMoney(a?.[key],pnlIncrement):usd(a?.[key]);$('#'+id).title=a?.[key]!=null?'USD '+a[key]:'';}$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
   $('#positionCount').textContent=state.positions.length;$('#orderCount').textContent=state.orders.filter(o=>['working','triggered'].includes(o.status)).length;
   $('#journalBadge').textContent=state.journal.pending?state.journal.pending+' queued':'synced';$('#journalStatus').textContent='Lux Journal '+(state.journal_available?'connected':'unavailable')+' · '+state.journal.pending+' queued / '+state.journal.delivered+' delivered';
   $('#healthDot').className='status-dot ok';$('#healthText').textContent='The Desk · server connected';updateTicket();drawWatch();drawDOM();renderManager();
   const alerts=state.events.filter(e=>e.kind==='alert');if(refresh.lastAlert&&alerts.length&&alerts[0].id>refresh.lastAlert)toast(JSON.parse(alerts[0].content).message);if(alerts.length)refresh.lastAlert=alerts[0].id;
  }catch(e){$('#healthDot').className='status-dot';$('#healthText').textContent='Server disconnected';$('#submitOrder').disabled=true;}
- finally{polling=false;}
+ finally{polling=false;if(refreshQueued){refreshQueued=false;void refresh();}}
 }
 
 function cancelChartOrder(o){showDialog('Cancel chart order',`<p>${esc(o.side.toUpperCase()+' '+o.kind+' '+o.qty+' · '+o.instrument)} · PAPER</p>`,async()=>{await command('cancel',{id:o.id,account_id:o.account_id,revision:o.revision});toast('Paper order cancelled.');});}

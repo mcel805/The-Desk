@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {tradingConfig,paperExecutionMarkers,positionMetrics,summarizePositions,tradingLevels,tradeLevelPlacement,ladderPrices,marketIdentity} from '../web/trading-model.mjs';
+import {formatMoney,formatPnl,positionPnlIncrement,tradingConfig,paperExecutionMarkers,positionMetrics,summarizePositions,tradingLevels,tradeLevelPlacement,ladderPrices,marketIdentity} from '../web/trading-model.mjs';
 test('provider aliases resolve to their executable instrument',()=>{assert.equal(marketIdentity({market:{symbol:'BTC'},data:{resolve:()=>({provider:{name:'Coinbase'},ticker:'BTC-USD'})}}),'coinbase:BTC-USD');});
 test('position metrics use executable bid for long and ask for short',()=>{let q={bid:110,ask:111,tick:.5};assert.equal(positionMetrics({entry:100,qty:2,side:'buy'},q).value,20);assert.equal(positionMetrics({entry:100,qty:2,side:'sell'},q,'ticks').value,-22);assert.equal(summarizePositions([{entry:100,qty:2,side:'buy'}],q,'percent').value,10);});
 test('chart levels obey market, lifecycle and configured visibility',()=>{let p={id:'p',instrument:'hyperliquid:BTC',side:'buy',entry:100,qty:2,stop:95,target:110};let s={positions:[p,{...p,id:'foreign',instrument:'coinbase:BTC-USD'}],quotes:{},orders:[{id:'o',instrument:p.instrument,status:'working',kind:'stop_limit',side:'sell',qty:1,price:99,trigger:98},{id:'done',instrument:p.instrument,status:'filled',price:100}]};assert.equal(tradingLevels(s,p.instrument,tradingConfig()).length,5);assert.equal(tradingLevels(s,p.instrument,tradingConfig({brackets:false,orders:false})).length,1);assert.equal(tradingLevels(s,p.instrument,tradingConfig({positions:false,orders:false})).length,0);});
@@ -38,4 +38,23 @@ test('paper execution history requires a new explicit opt-in and survives settin
  assert.deepEqual(paperExecutionMarkers(s,'hyperliquid:BTC',restored).map(f=>f.id),['own']);
  assert.deepEqual(paperExecutionMarkers(s,'hyperliquid:BTC',restored,true),[]);
  assert.equal(s.fills.length,3);
+});
+
+
+test('small ETH short P&L stays visible and consistent across row, account, chart and DOM units',()=>{
+ const p={instrument:'hyperliquid:ETH',side:'sell',entry:'2401.2',qty:'.001'};
+ for(const [ask,money,ticks] of [['2401.5','$-0.0003','−3.00 ticks'],['2402.0','$-0.0008','−8.00 ticks'],['2402.5','$-0.0013','−13.00 ticks'],['2411.5','$-0.0103','−103.00 ticks']]){
+  const q={bid:Number(ask)-.1,ask,tick:'.1'},metrics=positionMetrics(p,q),step=positionPnlIncrement([p],{[p.instrument]:q});
+  assert.equal(formatMoney(metrics.pnl,metrics.increment),money);
+  assert.equal(formatMoney(metrics.pnl,step),money);
+  assert.equal(formatPnl(metrics),'−'+money.replace('$-','$'));
+  assert.equal(formatPnl(summarizePositions([p],q)),formatPnl(metrics));
+  assert.equal(formatPnl(positionMetrics(p,q,'ticks')),ticks);
+ }
+ assert.equal(formatMoney(positionMetrics(p,{bid:2401,ask:2401.1,tick:.1}).pnl,.0001),'$0.0001');
+ assert.equal(formatMoney(positionMetrics({...p,side:'buy'},{bid:2401.5,ask:2401.6,tick:.1}).pnl,.0001),'$0.0003');
+ assert.equal(formatMoney(0,.0001),'$0.00');assert.equal(formatMoney(12.345), '$12.35');
+ for(const v of [null,undefined,'',NaN,Infinity])assert.equal(formatMoney(v),'—');
+ assert.equal(positionPnlIncrement([],{}),.01);
+ assert.equal(formatMoney(.00000003),'$0.00000003');
 });

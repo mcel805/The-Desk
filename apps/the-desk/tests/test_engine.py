@@ -29,6 +29,22 @@ class PaperTests(unittest.TestCase):
         with self.e.db() as db:
             payload=json.loads(db.execute("SELECT payload FROM outbox WHERE event_id=?",(s['fills'][0]['id'],)).fetchone()[0])
         self.assertEqual(payload['execution']['fee'],.0275);self.assertTrue(payload['provenance']['simulation'])
+    def test_small_eth_short_marks_and_account_totals_follow_each_quote(self):
+        i='hyperliquid:ETH'
+        self.quote('2401.2','2401.3',i)
+        self.order(instrument=i,side='sell',qty='.001')
+        position=self.state()['positions'][0]
+        for ask,pnl in [('2401.5','-.0003'),('2402.0','-.0008'),('2402.5','-.0013')]:
+            self.quote(str(Decimal(ask)-Decimal('.1')),ask,i)
+            s=self.state();a=next(a for a in s['accounts'] if a['id']==self.a)
+            self.assertEqual(Decimal(a['unrealized']),Decimal(pnl))
+            self.assertEqual(Decimal(a['equity']),Decimal(a['balance'])+Decimal(pnl))
+            self.assertEqual(s['quotes'][i]['ask'],ask)
+            self.assertEqual(s['positions'][0],position)
+        other=self.e.execute('other','account',{'name':'Other','capital':'1000'})['id']
+        self.assertFalse(self.e.state(other)['positions'])
+        self.assertEqual(Decimal(next(a for a in self.e.state(other)['accounts'] if a['id']==other)['unrealized']),0)
+
     def test_idempotency_and_changed_payload(self):
         one=self.order();two=self.order();self.assertEqual(one['id'],two['id']);self.assertEqual(len(self.state()['fills']),1)
         with self.assertRaisesRegex(ValueError,'different command'):self.order(qty='2')
