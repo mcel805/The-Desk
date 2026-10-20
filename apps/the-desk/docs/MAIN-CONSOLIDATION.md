@@ -17,6 +17,7 @@ material, dependency directories, logs, and generated test output are excluded.
 | Market Geometry | `codex/agentic-market-geometry` at `5d54afb` |
 | ABC Reversal | `codex/agentic-abc-reversal` at `f5f2bcb` |
 | Floating panels and gesture isolation | `codex/abc-floating-table` at `11e6b6d` |
+| Three Drive Pattern indicator and scoped ratio-label compatibility | `400a68e` |
 
 The remaining local branches and fetched remote tips were already ancestors
 of these histories. Explicit merges retain the feature and review commits;
@@ -54,3 +55,20 @@ preserves those source calculations rather than silently changing strategy
 rules to satisfy old assertions. Broker OAuth, live brokerage reconciliation,
 IBKR entitlements/Gateway connectivity, and matching-data chart parity remain
 separate acceptance work. No green CI claim is made.
+
+## Final validation record
+
+Three Drive commit `400a68e` was merged after its author confirmed no outstanding
+source edits. Its 15 focused tests pass, and the combined focused run now covers
+111 JavaScript tests. All 10 Liquidity display/renderer checks also pass.
+
+No-mistakes run `01M5BNMJBKWN29MYZRBJKDA72V` completed code review with zero
+findings on `8260293`. Its test agent then failed at the Codex usage limit after
+an isolated journal build stalled; it produced no source commits and returned
+branch custody as `user_owned`. The pipeline did not finish test/document/lint,
+publication, or CI. The executed local suites and synthetic browser checks above
+are the available validation evidence, not a completed no-mistakes verdict.
+
+The running installation keeps its original ignored account databases and
+journal runtime. No authentication token, database, or runtime log is added to
+Git by the consolidation.
