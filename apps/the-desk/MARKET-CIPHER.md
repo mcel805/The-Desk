@@ -1,6 +1,6 @@
-# Market Cipher A and B — The Desk reconstruction
+# Agentic - Market Synth A and Agentic Market Synth B
 
-Two independent Premium catalog entries, under Indicators → Built-in library. Search `cipher` or `cypher`, then Add each separately. A overlays price; B has its own pane. Settings, visibility, removal, source editing and saved-layout persistence use the existing Pine manager. Premium is The Desk's catalog treatment; these are independent implementations, with no affiliation or original proprietary source.
+Agentic - Market Synth A and Agentic Market Synth B are two independent Premium catalog entries, under Indicators → Built-in library. Search `cipher` or `cypher`, then Add each separately. A overlays price; B has its own pane. Settings, visibility, removal, source editing and saved-layout persistence use the existing Pine manager. Premium is The Desk's catalog treatment; these are independent implementations, with no affiliation or original proprietary source.
 
 ## Fidelity and research provenance
 
@@ -52,7 +52,7 @@ For exact comparison, obtain authorized original Pine source or original indicat
 - `node --test tests/test_market_cipher.mjs tests/test_pine_editor.mjs tests/test_pine.mjs`: 26 passed.
 - `node --check web/pine-editor.mjs` and `node --check tests/verify_market_cipher_browser.mjs`: passed.
 - `CHROME_DEVTOOLS_AXI_SESSION=market-cipher node tests/verify_market_cipher_browser.mjs http://127.0.0.1:18893/ <evidence-directory>`: seven browser checks passed. Two searchable Premium entries, distinct pane placement, settings, hide/show, saved reload, B editor compilation/execution, and independent removal.
-- B's editor run used `coinbase:BTC-USD`, 60-minute candles, 599 completed bars, cutoff `2026-10-20T02:00:00.000Z`. Runtime source hash is recorded in `web/pine-examples/market-cipher-manifest.json`.
+- B's editor run used `coinbase:BTC-USD`, 60-minute candles, 599 completed bars, cutoff `2026-10-20T02:00:00.000Z`. Current source hashes are recorded in `web/pine-examples/market-cipher-manifest.json`; the acceptance screenshots predate the subsequent title rename.
 - Screenshots and browser report: the chart workspace's `outputs/market-cipher/browser/` folder. Final visual inspection confirmed filled blue waves above and below zero, yellow fast waves and green/red flow. Explicit `fill()` pairs anchor all oscillator areas to a hidden zero series because native area-series rendering fills to the pane bottom.
 - The main app at `http://127.0.0.1:18880/` serves both new catalog entries. Its health check reported paper mode, market streaming and journal available; IBKR off. The isolated test instance at port 18893 deliberately uses `--no-workers`; its quote stream and journal are unavailable. No orders were submitted.
 

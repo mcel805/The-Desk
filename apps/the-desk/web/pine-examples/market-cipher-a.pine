@@ -1,7 +1,7 @@
 //@version=6
 // The Desk independent visual/concept reconstruction, not original Market Cipher source.
 // Proprietary signal formulas are unavailable. See MARKET-CIPHER.md for every rule.
-indicator("Market Cipher A · Desk Reconstruction", shorttitle="Cipher A · Desk", overlay=true, max_labels_count=500)
+indicator("Agentic - Market Synth A", shorttitle="Market Synth A", overlay=true, max_labels_count=500)
 showRibbon = input.bool(true, "EMA ribbon", group="Ribbon")
 source = input.source(close, "Source", group="Ribbon")
 bullColor = input.color(#29a8ff, "Bull ribbon", group="Ribbon")
@@ -73,5 +73,5 @@ plotshape(redDiamond and not bloodDiamond and showRedDiamonds, title="Red diamon
 plotshape(bloodDiamond and showBloodDiamonds, title="Blood diamond", style=shape.diamond, location=location.abovebar, color=#ff0033, size=size.tiny)
 plotshape(redX and showRedX, title="Red X", style=shape.xcross, location=location.abovebar, color=#ff3038, size=size.tiny)
 plotshape(yellowX and showYellowX, title="Yellow X", style=shape.xcross, location=location.abovebar, color=#ffff00, size=size.tiny)
-alertcondition(circle or triangle or yellowDiamond, "Cipher A bullish context", "Desk reconstructed Cipher A bullish context on completed candle")
-alertcondition(redDiamond or bloodDiamond or redX or yellowX, "Cipher A caution", "Desk reconstructed Cipher A caution on completed candle")
+alertcondition(circle or triangle or yellowDiamond, "Agentic - Market Synth A bullish context", "Desk reconstructed Agentic - Market Synth A bullish context on completed candle")
+alertcondition(redDiamond or bloodDiamond or redX or yellowX, "Agentic - Market Synth A caution", "Desk reconstructed Agentic - Market Synth A caution on completed candle")

@@ -30,11 +30,13 @@
   "files": [
     {
       "path": "market-cipher-a.pine",
-      "sha256": "4e9b6f4d1157d37e4609303f372d5c20fb838e3cecfafe6bc75b16cffe7d589a"
+      "sha256": "2429a8863d830bde151e01d6f74154e7e01b3b8c0a946a35db16b358dc7b9431",
+      "indicatorName": "Agentic - Market Synth A"
     },
     {
       "path": "market-cipher-b.pine",
-      "sha256": "6ae23d5ddf5cee7819e3ab1b740b288bd0714fccd6caddde79e5d4589dd2436e"
+      "sha256": "700033799b175748226379a324ae2586cd8e1422da83447b87e8b4b63b54f227",
+      "indicatorName": "Agentic Market Synth B"
     }
   ]
 }

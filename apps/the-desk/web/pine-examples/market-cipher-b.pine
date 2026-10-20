@@ -1,7 +1,7 @@
 //@version=6
 // The Desk independent visual/concept reconstruction. No original proprietary code.
 // Yellow fast wave is a momentum difference, NOT session/volume VWAP.
-indicator("Market Cipher B · Desk Reconstruction", shorttitle="Cipher B · Desk", overlay=false, max_labels_count=500)
+indicator("Agentic Market Synth B", shorttitle="Market Synth B", overlay=false, max_labels_count=500)
 source = input.source(hlc3, "Wave source", group="Momentum")
 channelLength = input.int(9, "Wave channel", minval=2, group="Momentum")
 averageLength = input.int(12, "Wave average", minval=2, group="Momentum")
@@ -98,6 +98,6 @@ if signalBar and not na(ph)
     prevHighPrice := high[pivotBars]
 plot(showDiv and bullDiv ? wt2 : na, "Confirmed bullish divergence", color=#ffe34b, linewidth=5, style=plot.style_circles)
 plot(showDiv and bearDiv ? wt2 : na, "Confirmed bearish divergence", color=#ff52ba, linewidth=5, style=plot.style_circles)
-alertcondition(extremeBull, "Cipher B oversold crossover", "Desk reconstructed Cipher B oversold crossover")
-alertcondition(extremeBear, "Cipher B overbought crossover", "Desk reconstructed Cipher B overbought crossover")
-alertcondition(bullDiv or bearDiv, "Cipher B confirmed divergence", "Desk reconstructed Cipher B divergence on confirmation candle")
+alertcondition(extremeBull, "Agentic Market Synth B oversold crossover", "Desk reconstructed Agentic Market Synth B oversold crossover")
+alertcondition(extremeBear, "Agentic Market Synth B overbought crossover", "Desk reconstructed Agentic Market Synth B overbought crossover")
+alertcondition(bullDiv or bearDiv, "Agentic Market Synth B confirmed divergence", "Desk reconstructed Agentic Market Synth B divergence on confirmation candle")

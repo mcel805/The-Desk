@@ -1,7 +1,7 @@
 import {createPineErrors} from './pine-errors.mjs';
 import {isABCSource} from './abc-reversal-bridge.mjs';
 import {registerWidgetAction,registerStatePersistence,registerLegendAction} from './vendor/vela.js';
-import {pineState,restorePineState} from './pine-state.mjs';
+import {pineState,restorePineState,renameSynthSource} from './pine-state.mjs';
 import {DeskPineEngine} from './pine-runtime.mjs';
 import {checkPineSource,sourceHash,drawingCounts,validationSource,plotRows,rowsToCsv,compareReference,timeframeDuration} from './pine-validation.mjs';
 
@@ -27,6 +27,8 @@ export function setupPineEditor(opts){
 }
 export async function loadPineLibrary(settings){
  library=Array.isArray(settings.pineLibrary)?settings.pineLibrary.filter(s=>s&&typeof s.source==='string'&&typeof s.name==='string').slice(0,6):[];
+ // Rename previously saved reconstructions while preserving their inputs and source logic.
+ for(let i=0;i<library.length;i++){const item=library[i],source=renameSynthSource(item.source);if(source!==item.source)library[i]={...item,source,name:source.match(/indicator\("([^"\n]+)"/)[1],id:await sourceHash(source),validation:undefined};}
  if(library.some(s=>s.name.trim().toLowerCase()==="taper's volume")||library.length>=6)return;
  try{
   const response=await fetch('/pine-examples/taper-volume.pine');if(!response.ok)return;
@@ -49,8 +51,8 @@ async function renderTab(tab,source=''){
   body.innerHTML='<label>Search built-in indicators<input id="pineLibrarySearch" type="search" placeholder="Search indicators"></label><div id="pineOnChart"></div><div id="pineFeatured" class="pine-catalog"></div><div id="pineBuiltins" class="pine-catalog"></div>';
   const items=await current().availableNativeIndicators();if(revision!==generation)return;
   const premiums=[
-   {id:'pineCipherA',name:'Market Cipher A',detail:'Desk reconstruction · EMA ribbon & symbols',match:'market cipher cypher a premium ribbon reconstruction',source:'/pine-examples/market-cipher-a.pine'},
-   {id:'pineCipherB',name:'Market Cipher B',detail:'Desk reconstruction · Momentum & money flow',match:'market cipher cypher b premium oscillator momentum money flow reconstruction',source:'/pine-examples/market-cipher-b.pine'},
+   {id:'pineCipherA',name:'Agentic - Market Synth A',detail:'Desk reconstruction · EMA ribbon & symbols',match:'agentic market synth a market cipher cypher a premium ribbon reconstruction',source:'/pine-examples/market-cipher-a.pine'},
+   {id:'pineCipherB',name:'Agentic Market Synth B',detail:'Desk reconstruction · Momentum & money flow',match:'agentic market synth b market cipher cypher b premium oscillator momentum money flow reconstruction',source:'/pine-examples/market-cipher-b.pine'},
    {id:'pineThreeDrive',name:'Agentic - Three Drive Pattern',detail:'Multi-length harmonic swings · Original rules',match:'agentic - three drive pattern detector premium harmonic luxalgo',source:'/pine-examples/agentic-three-drive-pattern.pine'},
    {id:'pineABCReversal',name:'Agentic - ABC Reversal',detail:'Liquidity contact → micro ABC · 1m / 5m',match:'agentic - abc reversal premium liquidity reversal zone',source:'/pine-examples/agentic-abc-reversal.pine'},
    {id:'pineMarketGeometry',name:'Agentic - Market Geometry',detail:'Wick-safe channels · Chart timeframe',match:'agentic - market geometry premium wick channels',source:'/pine-examples/agentic-market-geometry.pine'},
@@ -108,7 +110,7 @@ async function testSource(){
   const duration=timeframeDuration(chart.market.timeframe);
   const completed=diagnostic.bars.filter(b=>b.time+duration<=asOf);if(!completed.length)throw Error('No completed bars were available for validation.');
   const rows=plotRows(diagnostic.model,diagnostic.bars,completed.at(-1).time);
-  report={reconstruction:/^Market Cipher [AB] · Desk Reconstruction$/.test(name),status:'Runtime test passed; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15',name,market:record.market,bars:record.bars.length,completedBars:completed.length,completedCutoff:completed.at(-1).time,inputs,inputValues,drawings:record.counts,secondary:record.secondary,warnings:snapshot?.warnings||[],comparison:null,visualParity:'unverified',asOf:new Date(asOf).toISOString(),testedAt:new Date().toISOString()};
+  report={reconstruction:/^(?:Market Cipher [AB] · Desk Reconstruction|Agentic - Market Synth A|Agentic Market Synth B)$/.test(name),status:'Runtime test passed; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15',name,market:record.market,bars:record.bars.length,completedBars:completed.length,completedCutoff:completed.at(-1).time,inputs,inputValues,drawings:record.counts,secondary:record.secondary,warnings:snapshot?.warnings||[],comparison:null,visualParity:'unverified',asOf:new Date(asOf).toISOString(),testedAt:new Date().toISOString()};
   tested={id:hash,name,source,version:source.match(/@version\s*=\s*(\d+)/)[1],validation:report};
   dialog.querySelector('#pineName').value=name;dialog.querySelector('#pineAdd').disabled=false;dialog.querySelector('#pineSave').disabled=false;
   renderReport(rows,probeSource.source);message((report.reconstruction?'Independent Desk reconstruction':isABCSource(source)?'Adapted ABC source':'Original source')+' compiled and ran successfully. Exact TradingView parity requires reference evidence.');
