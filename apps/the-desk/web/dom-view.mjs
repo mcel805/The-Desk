@@ -51,7 +51,7 @@ export function setupDOM({instrument,quote,stage,account,replay}){
     const base=active.split(':')[1]?.replace('-USD','')||'';$('#domSizeLabel').textContent='Size ('+base+')';$('#domTotalLabel').textContent='Total ('+base+')';
     const name=active.toUpperCase();$('#domInstrument').textContent=name;
     status.className='dom-status '+(live?'live':'');
-    status.textContent=live?'● Streaming · '+age.toFixed(1)+'s':book?((age>15?'STALE':book.transport==='WebSocket'?'Reconnecting':'REST fallback')+' · '+age.toFixed(1)+'s'):'Connecting · '+streamState;
+    status.textContent=active.startsWith('ibkr:')?'IBKR · READ ONLY · Depth is not enabled':live?'● Streaming · '+age.toFixed(1)+'s':book?((age>15?'STALE':book.transport==='WebSocket'?'Reconnecting':'REST fallback')+' · '+age.toFixed(1)+'s'):'Connecting · '+streamState;
     $('#domFlow').textContent=pinned?'Prices pinned under pointer':live?(active.startsWith('hyperliquid:')&&mode.value==='fast'?'Fast feed · up to 5 per side':'Depth feed · up to 20 per side'):'Waiting for stream';
     $('#domFlow').dataset.updates=ticks;
     $('#domBuy').disabled=$('#domSell').disabled=!serverOK;

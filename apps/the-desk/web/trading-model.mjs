@@ -10,7 +10,7 @@ export function marketIdentity(chart){
   const m=chart?.market;if(!m)return 'hyperliquid:BTC';
   const symbol=m.symbol||'hyperliquid:BTC',resolved=chart.data?.resolve?.(symbol);
   const provider=String(resolved?.provider?.name||resolved?.provider||m.provider||symbol.split(':')[0]).toLowerCase();
-  return (provider.includes('robinhood')?'robinhood':provider.includes('coinbase')?'coinbase':provider.includes('hyperliquid')?'hyperliquid':provider)+':'+String(resolved?.ticker||symbol.split(':').at(-1));
+  return (provider.includes('ibkr')?'ibkr':provider.includes('robinhood')?'robinhood':provider.includes('coinbase')?'coinbase':provider.includes('hyperliquid')?'hyperliquid':provider)+':'+String(resolved?.ticker||symbol.split(':').at(-1));
 }
 export function positionMetrics(position,quote,unit='money'){
   const sign=position.side==='buy'?1:-1,entry=Number(position.entry),qty=Number(position.qty),mark=Number(quote?.[sign===1?'bid':'ask']??entry),difference=(mark-entry)*sign;

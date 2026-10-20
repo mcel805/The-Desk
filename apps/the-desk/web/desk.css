@@ -24,3 +24,10 @@
 
 /* Chart trader labels use white text while retaining level-colored outlines. */
 .trade-line .trade-line-controls .trade-line-label{color:#fff;font-size:11px;line-height:16px;padding:3px 8px}
+/* Always visible on the selected IBKR chart, independent of the order ticket. */
+#ibkrBanner{flex:none;padding:8px 12px;border-bottom:1px solid var(--amber);background:var(--surface);color:var(--amber);font-size:11px;overflow-wrap:anywhere}
+#workspace{min-height:0}
+#dialog code{display:inline-block;white-space:normal;overflow-wrap:anywhere;max-width:100%}
+@media(max-width:700px){#ibkrButton{display:inline-block!important}.desk-header #walletButton{display:none}}
+
+.ibkr-cell-badge{position:absolute;left:52px;bottom:52px;max-width:calc(100% - 70px);padding:3px 7px;z-index:20;background:var(--bg);border:1px solid var(--amber);border-radius:3px;color:var(--amber);font-size:10px;pointer-events:none;overflow-wrap:anywhere}

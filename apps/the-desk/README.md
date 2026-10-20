@@ -51,6 +51,14 @@ Replay is **chart study only**. Previously accepted server paper orders remain a
 
 Both native chart providers can expose additional search results, but the MVP paper engine intentionally accepts only the six listed instruments. Other instrument tickets remain unavailable without a server quote. History is provider-bounded, not a guaranteed complete historical archive.
 
+## IBKR futures data (read-only)
+
+An optional IBKR provider supports a single dated MYM contract, recent intraday
+candles and quotes, separately from the crypto paper engine. Try it without an
+account using the explicit **DEMO DATA** mode. See [setup, limits and account-free
+tests](IBKR-DATA.md). The default is off. This release does not enable futures
+orders, depth or actual IBKR account access.
+
 ## Existing journal integration
 
 The launcher shares `COUNT_DESK_JOURNAL_BRIDGE_TOKEN` with the existing journal process. It reads only that token and the journal URL from existing private environment files; otherwise it generates a local token in ignored `data/bridge-token` with mode 0600. Tokens are never printed or included in Git. The original journal database gets a one-time SQLite backup before this launcher starts its process. Existing journal login behavior and historical records are preserved.

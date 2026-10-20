@@ -58,3 +58,6 @@ test('small ETH short P&L stays visible and consistent across row, account, char
  assert.equal(positionPnlIncrement([],{}),.01);
  assert.equal(formatMoney(.00000003),'$0.00000003');
 });
+test('dated IBKR futures retain their provider identity instead of becoming Hyperliquid symbols',()=>{
+ for(const chart of [{market:{symbol:'ibkr:MYM-202612'}},{market:{symbol:'MYM-202612',provider:'ibkr'},data:{resolve:()=>({provider:{name:'IBKR'},ticker:'MYM-202612'})}}])assert.equal(marketIdentity(chart),'ibkr:MYM-202612');
+});

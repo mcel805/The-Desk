@@ -35,8 +35,12 @@ sources and `All retained` mode; no source replacement or settings reset is need
 - `web/pine-examples/cleos-liquidity.pine`: named port with the display changes above.
 - Provider, symbol, timeframe and cutoff come from the active chart; requests use
   that provider. Required missing secondary data fails visibly.
-- Supported Desk markets are Coinbase/Hyperliquid crypto. This app has no MYM
-  futures feed. MYM fixture tests use explicitly synthetic OHLC, never live MYM.
+- The paper engine's supported markets remain Coinbase/Hyperliquid crypto. The
+  optional IBKR provider adds one explicitly dated MYM futures chart with
+  read-only candles and quotes; its account-free mode is labeled **DEMO DATA**
+  and uses invented OHLCV. IBKR data never enters paper orders, P&L, the engine
+  or the journal. See [IBKR-DATA.md](IBKR-DATA.md) for its setup, limits and
+  verification boundary.
 - Screenshot similarity does not establish TradingView numerical parity. Exact
   cross-runtime parity needs matching completed OHLC, history, input values and
   a TradingView CSV/reference. The editor exports comparison artifacts for this.
