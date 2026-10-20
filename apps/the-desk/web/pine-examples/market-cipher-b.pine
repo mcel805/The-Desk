@@ -1,0 +1,103 @@
+//@version=6
+// The Desk independent visual/concept reconstruction. No original proprietary code.
+// Yellow fast wave is a momentum difference, NOT session/volume VWAP.
+indicator("Market Cipher B · Desk Reconstruction", shorttitle="Cipher B · Desk", overlay=false, max_labels_count=500)
+source = input.source(hlc3, "Wave source", group="Momentum")
+channelLength = input.int(9, "Wave channel", minval=2, group="Momentum")
+averageLength = input.int(12, "Wave average", minval=2, group="Momentum")
+signalLength = input.int(3, "Wave signal", minval=1, group="Momentum")
+showWaves = input.bool(true, "Blue momentum waves", group="Display")
+showFast = input.bool(true, "Yellow fast wave", group="Display")
+showFlow = input.bool(true, "Green / red money flow", group="Display")
+showRSI = input.bool(true, "RSI", group="Display")
+showStoch = input.bool(true, "Stochastic RSI", group="Display")
+showDots = input.bool(true, "Wave crossover dots", group="Display")
+showExtremes = input.bool(true, "Extreme dots on bottom strip", group="Display")
+showStrip = input.bool(true, "Money flow bottom strip", group="Display")
+showDiv = input.bool(true, "Confirmed regular divergences", group="Display")
+confirmedOnly = input.bool(true, "Signals on completed candles only", group="Signals")
+flowLength = input.int(60, "Money flow smoothing", minval=2, group="Money flow")
+flowScale = input.float(150.0, "Money flow multiplier", minval=1, group="Money flow")
+flowOffset = input.float(2.5, "Money flow offset", step=0.5, group="Money flow")
+rsiLength = input.int(14, "RSI length", minval=2, group="RSI")
+stochLength = input.int(40, "Stochastic RSI lookback", minval=2, group="RSI")
+kSmooth = input.int(3, "Stochastic K smoothing", minval=1, group="RSI")
+dSmooth = input.int(3, "Stochastic D smoothing", minval=1, group="RSI")
+ob = input.float(60.0, "Overbought", minval=1, group="Levels")
+os = input.float(-60.0, "Oversold", maxval=-1, group="Levels")
+extreme = input.float(80.0, "Extreme magnitude", minval=1, group="Levels")
+pivotBars = input.int(2, "Divergence left/right confirmation bars", minval=1, maxval=10, group="Divergences")
+waveColor = input.color(#1e83df, "Main blue wave", group="Colors")
+signalColor = input.color(#a9deff, "Light blue wave", group="Colors")
+positiveColor = input.color(#66dc09, "Positive money flow", group="Colors")
+negativeColor = input.color(#e33c30, "Negative money flow", group="Colors")
+fastColor = input.color(#f4df48, "Fast wave", group="Colors")
+esa = ta.ema(source, channelLength)
+dev = ta.ema(math.abs(source - esa), channelLength)
+ci = dev > 0 ? (source - esa) / (0.015 * dev) : 0.0
+wt1 = ta.ema(ci, averageLength)
+wt2 = ta.sma(wt1, signalLength)
+fast = wt1 - wt2
+candlePressure = high > low ? (close - open) / (high - low) : 0.0
+flow = ta.sma(candlePressure * flowScale, flowLength) - flowOffset
+rsi = ta.rsi(close, rsiLength)
+rsiLow = ta.lowest(rsi, stochLength)
+rsiHigh = ta.highest(rsi, stochLength)
+stoch = rsiHigh > rsiLow ? 100 * (rsi - rsiLow) / (rsiHigh - rsiLow) : 50.0
+k = ta.sma(stoch, kSmooth)
+d = ta.sma(k, dSmooth)
+ready = not na(wt2) and not na(flow) and not na(rsi)
+signalBar = ready and (not confirmedOnly or barstate.isconfirmed)
+crossUp = ta.crossover(wt1, wt2)
+crossDown = ta.crossunder(wt1, wt2)
+bullDot = signalBar and crossUp
+bearDot = signalBar and crossDown
+extremeBull = bullDot and wt2 <= os
+extremeBear = bearDot and wt2 >= ob
+zeroFill = plot(0, "Zero fill anchor", color=color.new(#000000, 100), display=display.none)
+waveSignal = plot(showWaves ? wt2 : na, "Light blue momentum", color=color.new(signalColor, 12), style=plot.style_line)
+waveMain = plot(showWaves ? wt1 : na, "Blue momentum", color=color.new(waveColor, 28), style=plot.style_line)
+fastPlot = plot(showFast ? fast : na, "Yellow fast wave", color=color.new(fastColor, 8), style=plot.style_line)
+flowPlot = plot(showFlow ? flow : na, "Money flow", color=flow >= 0 ? color.new(positiveColor, 22) : color.new(negativeColor, 22), style=plot.style_line)
+// Explicit zero anchors avoid native area-series fills to the pane bottom.
+fill(waveSignal, zeroFill, color=showWaves ? color.new(signalColor, 12) : na, title="Light blue wave fill")
+fill(waveMain, zeroFill, color=showWaves ? color.new(waveColor, 28) : na, title="Blue wave fill")
+fill(fastPlot, zeroFill, color=showFast ? color.new(fastColor, 8) : na, title="Fast wave fill")
+fill(flowPlot, zeroFill, color=showFlow ? (flow >= 0 ? color.new(positiveColor, 22) : color.new(negativeColor, 22)) : na, title="Money flow fill")
+plot(showRSI ? rsi : na, "RSI", color=#e42c37, linewidth=2)
+plot(showStoch ? k : na, "Stochastic RSI K", color=#b536d6, linewidth=1)
+plot(showStoch ? d : na, "Stochastic RSI D", color=#32db57, linewidth=1)
+hline(0, "Zero", color=#b3bac5)
+hline(ob, "Overbought", color=#b3bac5, linestyle=hline.style_dotted)
+hline(os, "Oversold", color=#b3bac5, linestyle=hline.style_dotted)
+hline(extreme, "Extreme overbought", color=#646f80, linestyle=hline.style_dotted)
+hline(-extreme, "Extreme oversold", color=#646f80, linestyle=hline.style_dotted)
+hline(100, "Upper range", color=#646f80, linestyle=hline.style_dotted)
+hline(-105, "Lower range", color=#646f80, linestyle=hline.style_dotted)
+plot(showStrip ? -100 : na, "Money flow strip", color=flow >= 0 ? #427d16 : #92202a, linewidth=6)
+plot(showDots and bullDot ? wt2 : na, "Green crossover dot", color=#20ee68, linewidth=4, style=plot.style_circles)
+plot(showDots and bearDot ? wt2 : na, "Red crossover dot", color=#ff415b, linewidth=4, style=plot.style_circles)
+plot(showExtremes and extremeBull ? -94 : na, "Oversold reversal dot", color=#36ff36, linewidth=5, style=plot.style_circles)
+plot(showExtremes and extremeBear ? 94 : na, "Overbought reversal dot", color=#ff415b, linewidth=5, style=plot.style_circles)
+// Pivots are recognized on the confirmation candle, never backdated.
+pl = ta.pivotlow(wt2, pivotBars, pivotBars)
+ph = ta.pivothigh(wt2, pivotBars, pivotBars)
+var float prevLowWave = na
+var float prevLowPrice = na
+var float prevHighWave = na
+var float prevHighPrice = na
+bool bullDiv = false
+bool bearDiv = false
+if signalBar and not na(pl)
+    bullDiv := not na(prevLowWave) and pl > prevLowWave and low[pivotBars] < prevLowPrice
+    prevLowWave := pl
+    prevLowPrice := low[pivotBars]
+if signalBar and not na(ph)
+    bearDiv := not na(prevHighWave) and ph < prevHighWave and high[pivotBars] > prevHighPrice
+    prevHighWave := ph
+    prevHighPrice := high[pivotBars]
+plot(showDiv and bullDiv ? wt2 : na, "Confirmed bullish divergence", color=#ffe34b, linewidth=5, style=plot.style_circles)
+plot(showDiv and bearDiv ? wt2 : na, "Confirmed bearish divergence", color=#ff52ba, linewidth=5, style=plot.style_circles)
+alertcondition(extremeBull, "Cipher B oversold crossover", "Desk reconstructed Cipher B oversold crossover")
+alertcondition(extremeBear, "Cipher B overbought crossover", "Desk reconstructed Cipher B overbought crossover")
+alertcondition(bullDiv or bearDiv, "Cipher B confirmed divergence", "Desk reconstructed Cipher B divergence on confirmation candle")
