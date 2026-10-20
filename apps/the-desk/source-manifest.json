@@ -13,7 +13,7 @@
     "path": "integrations/open-source/trade-journal",
     "license": "MIT",
     "source_repository_commit_at_import": "e75d1af508f53841a0340f92de6d42c30c638802",
-    "bridge_route_sha256": "799657b9d97dce61fcd181ce60b65a2e0280e63948c57e7f0c605ce5f201f393"
+    "bridge_route_sha256": "ce7a81068644cd92595b8182f016082256db67c8aca560d401bc00e8fa0638cf"
   },
   "sma_study": {
     "source": "count-dashboard/web/quant-backtest.mjs",

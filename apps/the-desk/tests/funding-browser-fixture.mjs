@@ -29,7 +29,6 @@ window.addEventListener('eip6963:requestProvider',()=>{
   for(const [id,name] of [['qa-rabby','Rabby · synthetic test wallet'],['qa-metamask','MetaMask · synthetic test wallet']])window.dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{uuid:id,name},provider}}));
 });
 const brokerFixture=new URLSearchParams(location.search).has('broker');
-const venueRequests=[];
 window.fixtureReconcileFound=false;
 window.fixtureBrokerRequests=[];
 const original=window.fetch.bind(window);
@@ -45,7 +44,7 @@ window.fetch=async(path,options)=>{
     if(String(path).endsWith('/disconnect'))return Response.json({connected:false});
     throw new Error('Unsupported hardware fixture request.');
   }
-  if(String(path)==='/api/integrations')return Response.json({liveEnabled:false,hyperliquidLiveEnabled:false,walletVerificationAvailable:true});
+  if(String(path)==='/api/integrations')return Response.json({liveEnabled:false,walletVerificationAvailable:true});
   if(brokerFixture && String(path).startsWith('/api/robinhood/')) {
     const body=options?.body?JSON.parse(options.body):null;
     window.fixtureBrokerRequests.push({path,body});
@@ -54,14 +53,7 @@ window.fetch=async(path,options)=>{
     if(String(path)==='/api/robinhood/preview')return Response.json({id:'synthetic-preview',blocked:false,review:{...body,market_data_disclosure:'SYNTHETIC QUOTE · TEST ONLY',order_checks:{}}});
     throw new Error('Broker endpoint is not available in this synthetic fixture.');
   }
-  const url=new URL(path,location.origin),body=options?.body?JSON.parse(options.body):{};
-  if(url.pathname==='/api/integrations/hyperliquid/requests'){const network=url.searchParams.get('network')||'testnet';return Response.json({network,requests:venueRequests.filter(x=>x.network===network&&['reserved','submitting','uncertain'].includes(x.state))});}
-  if(url.pathname==='/api/integrations/hyperliquid/reserve'){if(venueRequests.some(x=>x.network===body.network&&['reserved','submitting','uncertain'].includes(x.state)))return Response.json({error:'Reconcile first.'},{status:409});venueRequests.push({...body,state:'reserved'});return Response.json({request:venueRequests.at(-1)});}
-  if(url.pathname==='/api/integrations/hyperliquid/submitting'){const item=venueRequests.find(x=>x.clientOrderId===body.clientOrderId);if(!item||item.state!=='reserved')return Response.json({error:'Not reserved.'},{status:409});item.state='submitting';return Response.json({request:item});}
-  if(url.pathname==='/api/integrations/hyperliquid/release'){const item=venueRequests.find(x=>x.clientOrderId===body.clientOrderId);if(!item||item.state!=='reserved')return Response.json({error:'Cannot release after signing.'},{status:409});item.state='released';return Response.json({request:item});}
-  if(url.pathname==='/api/integrations/hyperliquid/uncertain'){const item=venueRequests.find(x=>x.clientOrderId===body.clientOrderId);if(item)item.state='uncertain';return Response.json({request:item});}
-  if(url.pathname==='/api/integrations/hyperliquid/reconcile'){const item=venueRequests.find(x=>x.clientOrderId===body.clientOrderId);if(item&&window.fixtureReconcileFound){item.state='acknowledged';item.venueState='resting';item.venueOrderId='123';return Response.json({found:true,request:item});}if(item)item.state='uncertain';return Response.json({found:false,request:item});}
-  if(url.pathname==='/api/integrations/hyperliquid'&&options?.method==='POST')return Response.json({error:'No other order routes exist in the browser fixture.'},{status:404});
+  const url=new URL(path,location.origin);
   if(url.pathname==='/api/integrations/hyperliquid'){
     const network=new URL(path,location.origin).searchParams.get('network');
     return Response.json({network,address:wallet.address,perps:{marginSummary:{accountValue:'1000'},withdrawable:'1000',assetPositions:[]},spot:{balances:[]},orders:[],fills:[],meta:{universe:[{name:'BTC',szDecimals:5},{name:'ETH',szDecimals:4},{name:'SOL',szDecimals:2}]},observedAt:Date.now()/1000});

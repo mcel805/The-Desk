@@ -1,8 +1,7 @@
-"""Wallet identity, Hyperliquid reconciliation, snapshots, and Robinhood login.
+"""Wallet identity, read-only Hyperliquid snapshots, and Robinhood login.
 
-The paper engine remains independent. Hyperliquid signs venue actions in the
-browser wallet; this server records request intent and reconciles venue status.
-Loading a page or signing in never sends an order or transfer.
+The paper engine remains independent. Loading a page or signing in never sends
+an order or transfer.
 """
 import hashlib
 from http.cookies import SimpleCookie, CookieError
@@ -21,7 +20,6 @@ from hardware_wallet import HardwareWallet, COOKIE as HARDWARE_COOKIE
 class FundingRoutes:
     def __init__(self,port,data_dir=None):
         self.port=port
-        self.hyperliquid_live=os.environ.get('DESK_HYPERLIQUID_LIVE_ENABLED')=='1'
         self.broker=Robinhood(port)
         self.hardware=HardwareWallet()
         root=Path(data_dir) if data_dir else Path(__file__).resolve().parent/'data'
@@ -54,7 +52,7 @@ class FundingRoutes:
         with urlopen(req,timeout=12) as response:return json.load(response)
     def get(self,h,path,q):
         if path=='/api/integrations':
-            h.json({'baseChainId':8453,'walletConnectProjectId':os.environ.get('DESK_WALLETCONNECT_PROJECT_ID','') if re.fullmatch(r'[a-fA-F0-9]{32}',os.environ.get('DESK_WALLETCONNECT_PROJECT_ID','')) else '','liveEnabled':False,'hyperliquidLiveEnabled':self.hyperliquid_live,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
+            h.json({'baseChainId':8453,'walletConnectProjectId':os.environ.get('DESK_WALLETCONNECT_PROJECT_ID','') if re.fullmatch(r'[a-fA-F0-9]{32}',os.environ.get('DESK_WALLETCONNECT_PROJECT_ID','')) else '','liveEnabled':False,'walletVerificationAvailable':wallet.Account is not None,'hyperliquidDefault':'testnet','robinhoodMcp':'https://agent.robinhood.com/mcp/trading','robinhoodFutures':False,'robinhoodOptionsTicket':False});return True
         if path=='/api/wallet/hardware/capabilities':
             h.json(self.hardware.capabilities());return True
         if path=='/api/wallet/session':
