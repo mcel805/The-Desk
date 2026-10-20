@@ -1,0 +1,31 @@
+async () => {
+ if(location.origin!=='http://127.0.0.1:18891')throw Error('Refusing mutations outside the isolated synthetic Agents fixture.');
+ const get=async path=>(await fetch(path)).json(),health=await get('/api/health');
+ if(health.market_stream!=='SYNTHETIC AGENTS FIXTURE')throw Error('Synthetic fixture required.');
+ const wait=async(fn,label,timeout=18000)=>{const end=Date.now()+timeout;while(Date.now()<end){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out: '+label);};
+ const assert=(value,label)=>{if(!value)throw Error(label);};const checks=[];
+ await wait(()=>document.getElementById('agentsButton'),'robot launcher');
+ const before=await get('/api/agents/state'),agent=before.agents.find(a=>a.name==='Test Agent');
+ assert(agent&&agent.state==='paused'&&agent.runCount===0,'Test Agent must start paused without seeded runs');checks.push('paused zero-history Test Agent');
+ const oldPrompt=window.prompt;window.prompt=()=> '100';window.dispatchEvent(new CustomEvent('desk:agents-add-line'));window.prompt=oldPrompt;
+ await wait(async()=>{const s=await get('/api/agents/state');return s.chart?.levels.some(l=>l.source==='manual-cyan'&&l.price==='100');},'real chart drawing bridge');checks.push('actual cyan drawing publishes exact level');
+ document.getElementById('agentsButton').click();await wait(()=>document.querySelector('[data-ag-select]'),'profile cards');
+ document.querySelector(`[data-ag-select="${agent.id}"]`).click();await wait(()=>document.querySelector('[data-ag-section="levels"]'),'agent detail');
+ document.querySelector('[data-ag-section="levels"]').click();assert(document.getElementById('agContent').innerText.includes('100'),'line visible in agent levels');checks.push('shared chart-level detail');
+ document.querySelector(`[data-ag-action="arm"][data-agent="${agent.id}"]`).click();
+ const run=await wait(async()=>{const d=await get('/api/agents/detail?id='+agent.id);return d.runs.find(r=>r.order_id);},'touch creates a simulated order',22000);
+ assert(run.payload.simulation===true&&run.payload.level.source==='manual-cyan','run source and simulation provenance');checks.push('armed touch produces attributed paper order');
+ const closed=await wait(async()=>{const d=await get('/api/agents/detail?id='+agent.id);return d.agent.metrics.closedTrades>0?d:null;},'protective target exit');
+ assert(closed.fills.length>=2&&closed.agent.metrics.fees!=='0','actual engine entry/exit fees');checks.push('protective exit reconciles fees and closed trade');
+ await wait(()=>document.querySelector('[data-ag-action="pause"]'),'pause control');document.querySelector('[data-ag-action="pause"]').click();
+ await wait(async()=>(await get('/api/agents/detail?id='+agent.id)).agent.state==='paused','paused state');checks.push('explicit pause');
+ document.querySelector('[data-ag-section="runs"]').click();await wait(()=>document.querySelector('[data-ag-run]'),'run evidence button');document.querySelector('[data-ag-run]').click();
+ assert(document.querySelector('.ag-run-dialog').innerText.includes('simulation'),'inspect immutable evidence');document.querySelector('.ag-run-dialog button').click();checks.push('run evidence contains exact simulation intent');
+ document.querySelector('[data-ag-section="performance"]').click();assert(document.getElementById('agContent').innerText.includes('Measured trade outcomes'),'performance tab');checks.push('measured performance, no prefilled score');
+ await wait(()=>document.getElementById('agentsWorkspace').getAttribute('aria-busy')==='false','idle UI before clone');
+ document.querySelector(`[data-ag-clone="${agent.id}"]`).click();await wait(()=>document.getElementById('agForm'),'modular clone editor');
+ const form=document.getElementById('agForm');assert(form.querySelectorAll('h3').length===5,'five builder sections');form.elements.name.value='SYNTHETIC UI clone';form.dispatchEvent(new Event('input',{bubbles:true}));form.requestSubmit();
+ const clone=await wait(async()=>(await get('/api/agents/state')).agents.find(a=>a.name==='SYNTHETIC UI clone'),'saved cloned configuration');assert(clone.state==='paused'&&clone.runCount===0,'clone saved paused without copying performance');checks.push('clone modular profile starts paused and untraded');
+ const final=await get('/api/agents/detail?id='+agent.id);assert(final.runs.filter(r=>r.order_id).length===1,'one-shot line deduplication');checks.push('one line triggers once per arm session');
+ return {checks,synthetic:true,venue:'simulation',runId:run.id,orderId:run.order_id,closedTrades:final.agent.metrics.closedTrades};
+}

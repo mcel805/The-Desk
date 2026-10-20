@@ -336,6 +336,8 @@ class Engine:
         db.execute('UPDATE positions SET qty=?,status=?,revision=revision+1 WHERE id=?',(str(remain),'open' if remain else 'closed',p['id']))
 
     def fill_order(self,db,o,price,evidence=None):
+        guard=getattr(self,'agent_fill_guard',None)
+        if guard:guard(db,o)
         a=self.account(db,o['account_id']);remain=dec(o['qty']);posid=None
         # Revalidate spot inventory at fill time; another exit may have consumed it.
         if o['instrument'].startswith('coinbase:') and o['side']=='sell':

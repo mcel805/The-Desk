@@ -9,6 +9,7 @@ import {buildChartMenuActions} from './chart-menu-actions.mjs';
 import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
 import {upgradeLiquidityWorkspace} from './liquidity-catalog-upgrade.mjs';
+import {setupAgentsChart} from './agents-chart.mjs';
 import {setupChartAccount} from './chart-account.mjs';
 import {RobinhoodProvider,brokerMoney} from './account-context.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
@@ -65,7 +66,7 @@ function reviewChartOrder(){
 async function captureShadowIntent(){
  const button=$('#shadowAgentButton');button.disabled=true;
  try{
-  if(brokerContext?.selected)throw Error('Agent Studio supports paper-ticket shadow evaluation. Broker tickets currently support native review only.');
+  if(brokerContext?.selected)throw Error('Agents supports paper-ticket shadow evaluation. Broker tickets currently support native review only.');
   if(!ws||ws.replay.state.active)throw Error('Exit chart replay before capturing a shadow ticket.');
   if($('#orderKind').value!=='limit')throw Error('Select a limit ticket with an exact price for shadow evaluation.');
   const p=payload(),tf=canonicalTimeframe(ws.chart.market.timeframe),q=quote();
@@ -79,7 +80,7 @@ async function captureShadowIntent(){
   window.dispatchEvent(new CustomEvent('desk:shadow-chart-intent',{detail:intent}));
  }catch(e){toast(e.message,true);}finally{button.disabled=false;}
 }
-$('#shadowAgentButton').onclick=()=>brokerContext?.selected?window.dispatchEvent(new CustomEvent('desk:open-robinhood-account',{detail:{accountId:brokerContext.selected,tab:'agents'}})):captureShadowIntent();
+$('#shadowAgentButton').onclick=()=>window.dispatchEvent(new CustomEvent('desk:open-agents'));
 window.addEventListener('desk:request-shadow-chart',captureShadowIntent);
 function account(){return brokerContext?.selected?{id:'rh:'+brokerContext.selected,name:brokerContext.account()?.name||'Robinhood',balance:brokerContext.metrics[brokerContext.asset?.kind==='crypto'?'cryptoBuyingPower':'buyingPower']}:state?.accounts.find(a=>a.id===activeAccount);}
 function quote(){if(readonlyMarket())return undefined;return brokerContext?.selected?brokerContext.quote():state?.quotes[instrument()];}
@@ -123,7 +124,7 @@ function updateTicket(){
  $('#ticketInstrument').textContent=broker?'ROBINHOOD · '+(brokerContext.asset?.symbol||'Select an asset')+' · '+(brokerContext.account()?.account||'disconnected')+' · chart '+instrument():instrument().toUpperCase()+' · '+(a?.name||'Choose account')+' · PAPER';
  document.querySelector('.desk-header .mode').textContent=broker?'ROBINHOOD · REVIEW':'PAPER';document.querySelector('.ticket-heading .mode').textContent=broker?'PREVIEW':'SIM';
  $('#exportAccount').disabled=broker;$('#journalBadge').hidden=broker;
- $('#shadowAgentButton').disabled=false;$('#shadowAgentButton').textContent=broker?'Open account Agent Studio':'Send chart ticket to shadow agent';$('#brokerChartFeed').hidden=!broker||!brokerContext.asset;if(broker&&brokerContext.matches)$('#brokerChartFeed').value=instrument();
+ $('#shadowAgentButton').disabled=false;$('#shadowAgentButton').textContent='Open Agents';$('#brokerChartFeed').hidden=!broker||!brokerContext.asset;if(broker&&brokerContext.matches)$('#brokerChartFeed').value=instrument();
  $('#sideBuy').textContent=broker?'Buy':'Buy / Long';$('#sideSell').textContent=broker?'Sell owned':'Sell / Short';
  document.querySelector('.ticket > p.small').textContent=broker?'Robinhood native limit review · GTC; equities regular session. Reference charts do not supply execution quotes. No live order submission is enabled.':'Public bid/ask and Hyperliquid limit-touch simulation. Full quantity modeled; no queue or funding model. Fees follow this account’s settings.';
  $('#sideBuy').classList.toggle('selected',side==='buy');$('#sideSell').classList.toggle('selected',side==='sell');$('#sideBuy').setAttribute('aria-pressed',side==='buy');$('#sideSell').setAttribute('aria-pressed',side==='sell');
@@ -361,7 +362,7 @@ function amendDraft(field,value){
 function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';commandKey=null;updateTicket();}
 function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
 const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
-function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});}chartTrader.attach(cell);}
+function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();window.dispatchEvent(new CustomEvent('desk:agents-sync-chart'));});}chartTrader.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
 $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. Chart context-menu limits open a placement review. Drafts do not execute until submitted. One-click placement affects other paper-entry shortcuts; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
@@ -383,11 +384,14 @@ async function reviewBrokerTicket(){
 }
 brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;commandKey=null;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;commandKey=null;brokerScope=scope;if(brokerContext?.selected){$('#orderKind').value='limit';for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;commandKey=null;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
 
+const agentsChart=setupAgentsChart({workspace:()=>ws,instrument,toast});
+
 async function boot(){
  try{settings=await api('/api/settings');await refreshIBKR();try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   if(brokerContext.selected)await brokerContext.refresh(true);
   ws=new VelaWorkspace('#workspace',{layout:'1',symbol:ibkrStatus?.configured_mode==='demo'?ibkrStatus.instrument:'hyperliquid:BTC',timeframe:ibkrStatus?.configured_mode==='demo'?'1':'60',bars:600,engines:{pine:createPineEngine},providers:{ibkr:()=>ibkrProvider,coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new DeskHyperliquidProvider(),robinhood:()=>new RobinhoodProvider(()=>brokerContext?.selected)},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
+  agentsChart.attach();
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
   await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});

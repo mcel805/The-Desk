@@ -19,6 +19,7 @@ from market_stream import HyperliquidStream
 from funding_routes import FundingRoutes
 from robinhood_workspace import RobinhoodWorkspace
 from ibkr_data import IBKRData, FeedUnavailable
+from agents import Agents
 
 ROOT=Path(__file__).resolve().parent
 
@@ -148,6 +149,8 @@ def main():
     ibkr=IBKRData(args.ibkr_mode);ibkr.start()
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
+    agents=Agents(engine)
+    if not args.no_workers:agents.start()
     if not args.no_workers:workers.start()
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'web'),**kw)
@@ -172,6 +175,7 @@ def main():
             if not self.trusted():return self.json({'error':'Loopback origin required'},403)
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
+                if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
                 if parsed.path=='/api/ibkr/status':return self.json(ibkr.status())
@@ -196,6 +200,7 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
+                if agents.post(self,path,p):return
                 if robinhood.post(self,path,p):return
                 if funding.post(self,path,p):return
                 if path=='/api/ibkr/demo':
@@ -225,6 +230,6 @@ def main():
     httpd=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('The Desk: http://127.0.0.1:'+str(args.port),flush=True)
     try:httpd.serve_forever()
-    finally:ibkr.close();workers.stop.set();httpd.server_close()
+    finally:agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
 
 if __name__=='__main__':main()
