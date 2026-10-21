@@ -11,14 +11,15 @@ import {DeskPineEngine} from '../web/pine-runtime.mjs';
 import {syncLiquidityGutter,resetLiquidityGutter,liquidityDefaultRightOffset,liquidityGutterPixels} from '../web/pine-compat/liquidity-badge-layout.mjs';
 import {fontPixelsBuild} from '../web/pine-compat/font-pixels-build.mjs';
 const source=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity-reference.pine',import.meta.url),'utf8');
+const currentSource=await fs.readFile(new URL('../web/pine-examples/agentic-liquidity.pine',import.meta.url),'utf8');
 const dir=await fs.mkdtemp(path.join(os.tmpdir(),'liquidity-display-'));
 await build({stdin:{contents:"import {installNestedSecurity} from './web/pine-compat/nested-security.mjs';installNestedSecurity();export {PineEngine} from '@luxalgo/vela-pinets';export {DrawingSceneRenderer} from '../../integrations/vela/src/renderers/shared/DrawingSceneRenderer.ts';",resolveDir:process.cwd(),loader:'js'},outfile:path.join(dir,'display.mjs'),bundle:true,platform:'node',format:'esm',plugins:[liquidityDashesBuild(fontPixelsBuild())],external:['fs','path','url']});
 const {PineEngine,DrawingSceneRenderer}=await import(pathToFileURL(path.join(dir,'display.mjs')).href);
 test.after(()=>fs.rm(dir,{recursive:true,force:true}));
 const end=Date.UTC(2026,9,17),hour=3600000,ms=tf=>({'1':1,'30':30,'60':60}[tf])*60000;
 const fixture=(tf,n=300)=>Array.from({length:n},(_,i)=>{const time=end-(n-i)*ms(tf),p=51000+250*Math.sin(time/14400000)+50*Math.sin(time/900000);return {time,open:p,high:p+15,low:p-15,close:p+5,volume:1000};});
-async function run(inputs={}){
- const engine=new PineEngine(),prepared=await engine.prepare(source,'display-contract');let session,model;
+async function run(inputs={},script=source){
+ const engine=new PineEngine(),prepared=await engine.prepare(script,'display-contract');let session,model;
  try{await new Promise((resolve,reject)=>{session=engine.execute({prepared,bars:fixture('60'),market:{symbol:'fixture:MYM',timeframe:'60',symbolInfo:{tickerid:'fixture:MYM',mintick:1,type:'futures'}},inputs,mode:'static',historyState:'complete',fetchSeries:async(_,tf,r)=>fixture(tf,r.limit||300)},{onModel:m=>model=m,onDone:resolve,onError:reject});});return {model,context:await session.getContext(['variables'])};}finally{session?.stop();}
 }
 const color=(hex,transparency)=>hex.toUpperCase()+Math.round(255*(1-transparency/100)).toString(16).padStart(2,'0').toUpperCase();
@@ -35,10 +36,22 @@ test('main levels obey source pivot anchors, consumed endpoints, exact colors, w
   assert.equal(line.x1,origin);assert.equal(line.y1,price);assert.equal(line.y2,price);assert.equal(line.xloc,'bar_time');assert.equal(line.extend,'none');assert.equal(line.width,2);
   assert.equal(line.x2,retired?(ended||touch):end+12*hour);
   assert.equal(line.color.toUpperCase(),retired?color('#FFFFFF',25):color(side===1?'#AA2430':'#66BB6A',12));
+  assert.equal(line.width,2);
   assert.equal(line.style,retired?(status===1?'dashed':'dotted'):'solid');
   if(!retired){const b=model.boxes[band++],depth=Math.max(1,Math.abs(price)*.0007);assert.equal(b.left,origin);assert.equal(b.right,line.x2);samePrice(b.top,side===1?price+depth:price);samePrice(b.bottom,side===1?price:price-depth);assert.equal(b.bgColor.toUpperCase(),color(side===1?'#AA2430':'#66BB6A',86));assert.equal(b.borderColor,undefined,'source na border must stay invisible');}
  }
- assert.equal(model.boxes.length,band,'retired levels have white lines only');assert.equal(model.labels.length,0);
+ assert.equal(model.boxes.length,band,'retired levels have no active bands');assert.equal(model.labels.length,0);
+});
+test('close-through broken pools retain side color and two-pixel dashed lines, with all tags removed',async()=>{
+ const {model,context}=await run({showSmallPools:false,showPockets:false,showStructureAlerts:false,showOriginDots:true,showDots:true,showTags:true,showRetired:true,showRetiredTags:true,displayView:'Original',useLiveStrength:false,lineWidth:1,alpha:12,retiredAlpha:25,consumption:'Close through'},currentSource);
+ const broken=context.variables.rawPacket.split(';').map(row=>row.split(',').map(Number)).filter(row=>row[3]===1&&row[5]===1);
+ assert.ok(broken.length>0,'fixture contains close-through pools');
+ for(const row of broken){
+  const price=row[1],ended=row[4],first=row[6],side=row[7];const line=model.lines.find(l=>l.y1===price&&l.x2===(ended||first));
+  assert.ok(line,'broken history line exists '+JSON.stringify({row,lines:model.lines.filter(l=>l.y1===price)}));assert.equal(line.color.toUpperCase(),color(side===1?'#AA2430':'#66BB6A',12));
+  assert.equal(line.width,2);assert.equal(line.style,'dashed');
+ }
+ assert.ok(!model.labels.some(label=>label.tooltip?.includes('Close-through')),'broken pools omit timeframe, origin and contact tags');
 });
 test('default live-strength styling, source dots and optional tags retain the Pine display rules',async()=>{
  const {model,context}=await run({showSmallPools:true,showPockets:false,showStructureAlerts:false,showTags:true,strengthTicks:500});
@@ -82,31 +95,31 @@ test('the installed host attaches the reference pattern to Liquidity models with
  assert.equal((await execute('//@version=6\nindicator("Other")\nplot(close)')).lines[0].deskDashPattern,undefined);
 });
 
-test('clean badge collisions use actual pane pixels, reflow on zoom, and leave ordinary labels untouched',()=>{
+test('all on-screen clean badges survive crowded panes and zoom; ordinary labels stay untouched',()=>{
  const label=(id,y,text)=>({id,paneId:'price',xloc:'bar_index',x:150,yloc:'price',y,text,style:'label_right',size:'tiny',color:'#AA2430A6',textColor:'#FFFFFF',tooltip:text});
  const models=liquidityDisplayModel({lines:[],labels:[label('a',100,'60+30+15 · 73/100'),label('b',105,'60+30 · 60/100'),label('c',150,'30+15 · 50/100'),label('ordinary',105,'Unrelated annotation')]});
  assert.ok(models.labels.slice(0,3).every(l=>l.deskLiquidityBadge));assert.equal(models.labels[3].deskLiquidityBadge,undefined);
  const painted=[],ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:text=>painted.push(text)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
  const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
  renderer.setSet({lines:[],boxes:[],labels:models.labels,linefills:[],polylines:[]});renderer.render(ctx,300,200,v=>v,v=>v);
- assert.deepEqual(painted,['60+30+15 · 73/100','30+15 · 50/100','Unrelated annotation']);
+ assert.deepEqual(painted,['60+30+15 · 73/100','60+30 · 60/100','30+15 · 50/100','Unrelated annotation']);
  painted.length=0;renderer.render(ctx,300,200,v=>v,v=>v*5-450);
  assert.deepEqual(painted,['60+30+15 · 73/100','60+30 · 60/100','Unrelated annotation'],'zoom restores the second badge while offscreen badges reserve no room');
 });
 
-test('clean main lines have no shading and stop ten pixels before the measured text column at every zoom',()=>{
+test('clean main lines have no shading and stop fourteen pixels before the measured text column at every zoom',()=>{
  const adapted=liquidityDisplayModel({lines:[{id:'active',paneId:'price',xloc:'bar_index',x1:20,x2:900,y1:100,y2:100,extend:'none',width:2,style:'solid',color:'#AA2430'}],boxes:[{id:'band',paneId:'price',xloc:'bar_index',left:30,right:900,top:104,bottom:100,extend:'none',bgColor:'#AA243030'}],labels:[{id:'badge',paneId:'price',xloc:'bar_index',x:900,yloc:'price',y:100,text:'60+30+15 · 73/100',style:'label_right',size:10,color:'#AA2430',textColor:'#FFFFFF',tooltip:'Convergence'}]});
  assert.equal(adapted.lines[0].x2,900);assert.equal(adapted.boxes.length,0,'main-line shading is removed');
  for(const width of [320,1000])for(const zoom of [.1,4]){
   const texts=[],strokes=[],fills=[];let end;
-  const ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:(text,x,y)=>texts.push({text,x,y}),moveTo(){},lineTo:(x,y)=>{end=[x,y]},stroke:()=>strokes.push(end),fillRect:(...rect)=>fills.push(rect)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
+  const ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:(text,x,y)=>{if(text!=='1×')texts.push({text,x,y});},moveTo(){},lineTo:(x,y)=>{end=[x,y]},stroke:()=>strokes.push(end),fillRect:(...rect)=>fills.push(rect)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
   const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
   renderer.setSet({...adapted,linefills:[],polylines:[]});renderer.render(ctx,width,200,v=>v*zoom,v=>v);
   assert.equal(texts.length,1,'badge remains visible even when its original future timestamp is offscreen');
   assert.equal(texts[0].x,width-12-7-6-('60+30+15 · 73/100'.length*5)/2);
   assert.equal(texts[0].y,100);
   const badgeLeft=width-12-7-12-('60+30+15 · 73/100'.length*5);
-  assert.deepEqual(strokes[0],[badgeLeft-10,100],'line stops before the badge background and text');
+  assert.deepEqual(strokes[0],[badgeLeft-14,100],'line stops before the badge background and shared marker');
   assert.equal(fills.length,0,'no main band reaches the canvas');
  }
 });

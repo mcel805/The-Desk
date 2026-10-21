@@ -19,10 +19,10 @@ test('Original view retains original calculations and geometry for the same sour
 });
 for(const tf of ['1','5','15','30','60','240','1D'])test(`Clean view on ${tf}: solid 2px source prices, bounded pockets and no swept strips`,async()=>{
  const {model,prepared,calls,warnings,context}=await run(source,{tf,inputs:{showStructureAlerts:false,showReference5:false}});
- assert.equal(prepared.inputs.length,87);assert.equal(model.inputValues.displayView,'Clean');assert.equal(model.inputValues.use15,true);
- assert.ok(calls.includes('15'));assert.equal(model.series.length,28);assert.equal(model.linefills.length,0);
+ assert.equal(prepared.inputs.length,86);assert.equal(model.inputValues.displayView,'Clean');assert.equal(model.inputValues.use15,true);
+ assert.ok(tf==='15'||calls.includes('15'));assert.equal(model.series.length,28);assert.equal(model.linefills.length,0);
  const active=context.variables.rawPacket.split(';').map(r=>r.split(',').map(Number)).filter(r=>!r[3]&&!r[6]);
- assert.ok(model.lines.length>0);assert.ok(model.lines.length<=48);assert.ok(model.boxes.length<=38);assert.ok(model.labels.length<=8);
+ assert.ok(model.lines.length>0);assert.ok(model.lines.length<=48);assert.ok(model.boxes.length<=38);assert.ok(model.labels.length<=model.lines.length);assert.ok(!("cleanLabelLimit" in model.inputValues));
  for(const line of model.lines){assert.equal(line.width,2);assert.equal(line.style,'solid');assert.equal(line.y1,line.y2);assert.ok(active.some(r=>r[1]===line.y1&&r[0]===line.x1),'line stays on an actual retained source pivot');assert.equal(line.x2,end+12*minutes(tf)*60000);}
  assert.ok(model.boxes.every(b=>[b.left,b.right,b.top,b.bottom].every(Number.isFinite)&&b.top>=b.bottom));
  assert.ok(model.labels.every(l=>/^\S+ · \d+\/100$/.test(l.text)));
@@ -160,4 +160,17 @@ for g in groups
         plot(g.ladderUnits,"units")`;
  const {model}=await run(helperSource+body,{bars:fixture('60',20)}),p=Object.fromEntries(model.series.map(s=>[s.title,s.points.at(-1).value]));
  assert.equal(p.count,1);assert.equal(p.units,3);
+});
+
+// Force more than the old eight-badge cap through the real Pine display pass.
+test('every visible clean group receives its badge even with a saved legacy cap of one',async()=>{
+ const displayFixture=source.replace('array<CleanGroup> groups=f_cleanGroups(active)',`array.clear(active)
+    for n=0 to 11
+        array.push(active,Pool.new(time,time,math.round(close)+100+n*100,1,4,"",0,false))
+    array<CleanGroup> groups=f_cleanGroups(active)`);
+ const {model}=await run(displayFixture,{inputs:{cleanZoneLimit:24,cleanLabelLimit:1,cleanMergePercent:0,clusterTicks:1,showStructureAlerts:false,showReference5:false}});
+ const unique=new Set(model.lines.map(l=>l.y1));
+ assert.ok(model.labels.length>8,'exercise the old cap');
+ assert.ok(model.labels.every(l=>/Shared sources: \d+/.test(l.tooltip)));
+ for(const price of unique)assert.ok(model.labels.some(l=>{const span=/Exact source-price span (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) to (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)/.exec(l.tooltip);return span&&price>=Number(span[1])-1e-8&&price<=Number(span[2])+1e-8;}),'every rendered source price belongs to a labelled group');
 });

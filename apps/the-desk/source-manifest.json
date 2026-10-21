@@ -6,7 +6,7 @@
     "version": "0.8.0",
     "commit": "9cc5e2fbdd4de340afaea50c697d22698fdf498b",
     "license": "Apache-2.0",
-    "browser_bundle_sha256": "81a004aecca52832fe7d7d59ad2adc8c36ff31aafa218459f0cc97da226f3722",
+    "browser_bundle_sha256": "78e41349c4bd61e537822118a5375d1b8229456d57313a996cc04014e8d78d40",
     "build": "node build-vendor.mjs"
   },
   "journal": {
@@ -27,9 +27,9 @@
   },
   "agentic_liquidity": {
     "original_sha256": "40139ef8dd660366e8471413bcc7a584acc826d5d68caa4f9f493c61a2af91bf",
-    "source_sha256": "3dd5c83e77e22866ff13896843a0236737a2da62072506b5ec088d36916cc6c2",
+    "source_sha256": "1aeedef15a5dc9490a3219698bfc99db31fe780d9eff91e42653755e91719c38",
     "source": "web/pine-examples/agentic-liquidity.pine",
-    "parity": "Original attachment and name-only reference preserved. Clean view adds unified convergence/buildup presentation and enables 15M alongside 60M/30M by default. Source detection, consumption, ranking and alerts retain their original rules. Original view remains selectable.",
+    "parity": "Original attachment and name-only reference preserved. Clean view adds unified convergence/buildup presentation and enables 15M alongside 60M/30M by default. Source detection, consumption, ranking and alerts retain their original rules. Original view remains selectable. Clean badges cover every displayed group without a badge-count cap; shared-source badges carry source counts for the purple shared markers. Broken close-through lines retain side color at 2px with dashed style and no tags or source dots.",
     "reference_sha256": "f66dc3f2158886070dc1c4d1d61a8d8a8e165ca222816fee826b5c95eef220fd"
   },
   "agentic_market_geometry": {

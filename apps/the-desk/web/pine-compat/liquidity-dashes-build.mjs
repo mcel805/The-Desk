@@ -36,8 +36,8 @@ function adaptBadges(contents){
  const font='const fontPx = fontSizePx(lb.size);',at=contents.indexOf(font,start);
  if(at<0)throw Error('Pinned Vela label renderer changed; review the Liquidity badge adapter.');
  const end=at+font.length,body=contents.indexOf('{',start)+1;
- contents=contents.slice(0,end)+'\n if(lb.deskLiquidityBadge && !reserveLiquidityBadge(deskBadgeRows,py,fontPx,H)) continue;'+contents.slice(end);
- contents=contents.slice(0,body)+'\n const deskBadgeRows=[];'+contents.slice(body);
+ contents=contents.slice(0,end)+'\n if(lb.deskLiquidityBadge){const placed=deskBadgeRows.get(lb);if(placed===undefined)continue;drawLiquidityConnector(ctx,lb,deskLiquidityLabelLineEnd,px,py,placed,this.labelFont(lb,fontPx));py=placed;}'+contents.slice(end);
+ contents=contents.slice(0,body)+'\n const deskBadgeRows=layoutLiquidityBadges(this.set.labels,yOf,lb=>fontSizePx(lb.size),H);\n const deskLiquidityLabelLineEnd=liquidityLineEnd(ctx,this.set.labels,W,lb=>this.labelFont(lb,fontSizePx(lb.size)));'+contents.slice(body);
  const labelX='const px = xOf(this.logicalOf(lb.xloc, lb.x));';
  if(!contents.includes(labelX))throw Error('Pinned Vela label X changed.');
  contents=contents.replace(labelX,'const px = lb.deskLiquidityBadge ? liquidityBadgeX(W) : xOf(this.logicalOf(lb.xloc, lb.x));');
@@ -47,7 +47,13 @@ function adaptBadges(contents){
  const lineX='const x2 = xOf(this.logicalOf(ln.xloc, ln.x2));';
  if(!contents.includes(lineX))throw Error('Pinned Vela line endpoint changed.');
  contents=contents.replace(lineX,'const x2 = ln.deskLiquidityRightEdge ? deskLiquidityLineEnd : xOf(this.logicalOf(ln.xloc, ln.x2));\n if(ln.deskLiquidityRightEdge && x1>x2) continue;');
- return 'import {reserveLiquidityBadge,liquidityBadgeX,liquidityLineEnd} from '+badgeLayout+';\n'+contents;
+ const afterLine='const p2Right = x2 >= x1;';
+ if(!contents.includes(afterLine))throw Error('Pinned Vela line decoration changed.');
+ contents=contents.replace(afterLine,'if(ln.deskLiquidityShared)drawLiquiditySharedMarker(ctx,x2,y2);\n '+afterLine);
+ const bubble='const r = this.drawBubble(ctx, lb, px, py, fontPx, color);';
+ if(!contents.includes(bubble))throw Error('Pinned Vela bubble renderer changed.');
+ contents=contents.replace(bubble,bubble+'\n if(lb.deskLiquidityBadge)drawLiquiditySharedOutline(ctx,lb,r);');
+ return 'import {layoutLiquidityBadges,drawLiquidityConnector,drawLiquiditySharedMarker,drawLiquiditySharedOutline,liquidityBadgeX,liquidityLineEnd} from '+badgeLayout+';\n'+contents;
 }
 const needle='ctx.setLineDash(dashPattern(ln.style, ln.width));';
 const replacement='ctx.setLineDash(ln.deskDashPattern ?? dashPattern(ln.style, ln.width));';

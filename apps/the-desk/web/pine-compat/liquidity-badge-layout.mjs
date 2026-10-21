@@ -1,17 +1,42 @@
-// Reserve one compact Liquidity badge at its real pane Y coordinate. Price
-// coordinates never move; zooming simply changes which badges fit on screen.
-export function reserveLiquidityBadge(rows,y,fontPx,height){
- if(!Number.isFinite(y)||!Number.isFinite(fontPx))return false;
- const half=fontPx*0.625+4,top=y-half,bottom=y+half;
- if(top<0||bottom>height)return false;
- if(rows.some(r=>top<r.bottom+4&&bottom>r.top-4))return false;
- rows.push({top,bottom});return true;
+export const liquiditySharedPurple='#B388FF';
+// Lay out every on-screen badge. Displace text, never its actual source price.
+// Extremely dense panes compress spacing rather than dropping any badge.
+export function layoutLiquidityBadges(labels,yOf,fontOf,height){
+ const rows=labels.filter(l=>l.deskLiquidityBadge&&!l.invisible).map(label=>({label,y:yOf(label.y),half:fontOf(label)*.625+4}))
+  .filter(r=>Number.isFinite(r.y)&&r.y>=0&&r.y<=height).sort((a,b)=>a.y-b.y);
+ const placed=new Map();
+ if(!rows.length)return placed;
+ const half=Math.max(...rows.map(r=>r.half)),low=Math.min(half,height/2),high=Math.max(low,height-half);
+ const gap=rows.length>1?Math.min(2*half+4,(high-low)/(rows.length-1)):0;
+ for(let i=0;i<rows.length;i++)rows[i].placed=Math.max(low,rows[i].y,i?rows[i-1].placed+gap:low);
+ rows.at(-1).placed=Math.min(high,rows.at(-1).placed);
+ for(let i=rows.length-2;i>=0;i--)rows[i].placed=Math.min(rows[i].placed,rows[i+1].placed-gap);
+ for(const row of rows)placed.set(row.label,row.placed);
+ return placed;
+}
+export function drawLiquidityConnector(ctx,label,lineEnd,x,from,to,font){
+ if(Math.abs(from-to)<.5)return;
+ ctx.save();ctx.font=font;
+ const textWidth=Math.max(1,...(label.text||'').split('\n').map(t=>ctx.measureText(t).width));
+ const left=x-7-12-textWidth;
+ ctx.strokeStyle=label.deskLiquidityShared?liquiditySharedPurple:'#8D96A6';ctx.lineWidth=.75;ctx.setLineDash([]);
+ ctx.beginPath();ctx.moveTo(lineEnd+(label.deskLiquidityShared?6:0),from);ctx.lineTo(left,to);ctx.stroke();ctx.restore();
+}
+export function drawLiquiditySharedMarker(ctx,x,y){
+ ctx.save();ctx.setLineDash([]);ctx.fillStyle=liquiditySharedPurple;
+ ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();
+ ctx.font='6px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#160F25';ctx.fillText('1×',x,y+.25);ctx.restore();
+}
+export function drawLiquiditySharedOutline(ctx,label,r){
+ if(!label.deskLiquidityShared)return;
+ ctx.save();ctx.strokeStyle=liquiditySharedPurple;ctx.lineWidth=1;ctx.setLineDash([]);
+ ctx.beginPath();ctx.roundRect(r.x-.5,r.y-.5,r.w+1,r.h+1,4);ctx.stroke();ctx.restore();
 }
 
 // CSS-pixel gutter: independent of timeframe, candle pitch and device pixel ratio.
 export const liquidityBadgeX=width=>Math.max(0,width-12);
 // Reserve the full measured badge column plus a ten-pixel reading gap.
-// All live lines share this stop, including levels whose badges were culled.
+// All live lines share this stop; the gap leaves room for shared-source dots.
 export function liquidityLineEnd(ctx,labels,width,fontOf){
  const font=ctx.font;
  let textWidth=0;
@@ -21,7 +46,7 @@ export function liquidityLineEnd(ctx,labels,width,fontOf){
   for(const line of (label.text??'').split('\n'))textWidth=Math.max(textWidth,ctx.measureText(line).width);
  }
  ctx.font=font;
- return Math.max(0,liquidityBadgeX(width)-7-12-textWidth-10);
+ return Math.max(0,liquidityBadgeX(width)-7-12-textWidth-14);
 }
 export const liquidityGutterPixels=width=>Math.min(230,Math.max(0,width)*.42);
 const gutters=new WeakMap();

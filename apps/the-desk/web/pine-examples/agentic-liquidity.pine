@@ -96,7 +96,6 @@ bool cleanView=displayView=="Clean"
 float cleanMergePercent=input.float(0.03,"Convergence distance %",minval=0,maxval=0.5,step=0.005,group=V,tooltip="Same-side source levels form a pocket only when their entire price span fits within the larger of this percentage or Maximum cluster span ticks. No chaining across distant levels.")
 int cleanZoneLimit=input.int(12,"Nearest active pockets / levels",minval=2,maxval=24,group=V)
 bool cleanTags=input.bool(true,"Show timeframe and strength badges",group=V)
-int cleanLabelLimit=input.int(8,"Maximum strength badges",minval=1,maxval=16,group=V)
 int cleanSmallLimit=input.int(14,"Standalone unswept small zones",minval=0,maxval=40,group=V,tooltip="Small pools near a main level are absorbed into its shared pocket and counted once. Only the nearest remaining unswept small pools get their own subtle strips.")
 bool cleanHistory=input.bool(false,"Show faint consumed main-line history",group=V)
 float cleanApproachPercent=input.float(0.5,"Price-buildup corridor %",minval=0,maxval=3,step=0.05,group=V,tooltip="Confirmed lower highs can build outer resistance; higher lows can build outer support. Only newer same-side swings inside this fixed price distance qualify. No elapsed-time bonus, recursive chaining or merging of separate source lines.")
@@ -903,13 +902,14 @@ if not cleanView and (barstate.islastconfirmedhistory or barstate.islast)
                 int side=int(f_num(v,7))
                 if not retired or showRetired
                     int endAt=retired?(ended>0?ended:first):rightAt
-                    color base=retired?color.white:side==1?highColor:lowColor
+                    color base=retired and status!=1?color.white:side==1?highColor:lowColor
                     int poolCount=retired?0:f_smallCount(smallPools,price,side)
                     float liveScore=f_liveScore(poolCount)
                     int liveAlpha=int(math.round(65*(1-liveScore/100)))
                     int activeAlpha=useLiveStrength?liveAlpha:alpha
                     int activeWidth=useLiveStrength?f_liveWidth(liveScore):lineWidth
-                    color ink=color.new(base,retired?retiredAlpha:activeAlpha)
+                    int lineAlpha=retired and status==1?activeAlpha:retired?retiredAlpha:activeAlpha
+                    color ink=color.new(base,lineAlpha)
                     string stroke=retired?(status==1?line.style_dashed:line.style_dotted):f_activeStroke()
                     if endAt>origin
                         if showBands and not retired
@@ -918,11 +918,11 @@ if not cleanView and (barstate.islastconfirmedhistory or barstate.islast)
                             float bottom=side==1?price:price-depth
                             box band=box.new(origin,top,endAt,bottom,xloc=xloc.bar_time,border_color=retired?color.new(color.white,85):na,border_style=stroke,bgcolor=color.new(base,bandAlpha))
                             array.push(pockets,band)
-                        line levelLine=line.new(origin,price,endAt,price,xloc=xloc.bar_time,color=ink,width=retired?lineWidth:activeWidth,style=stroke)
+                        line levelLine=line.new(origin,price,endAt,price,xloc=xloc.bar_time,color=ink,width=retired and status==1?2:retired?lineWidth:activeWidth,style=stroke)
                         array.push(lines,levelLine)
                         string state=retired?(status==1?" · BRK":" · SWP"):""
                         string tip=(side==1?"Confirmed high pool":"Confirmed low pool")+" at "+str.tostring(price,format.mintick)+". "+(retired?(status==1?"Close-through at recorded consumption.":"Touched / swept; white line is historical only. In-play band is owned by the paired ABC tracker."):"Active pool. Live strength "+str.tostring(liveScore,"#.0")+" / 100 from "+str.tostring(poolCount)+" unswept same-side small pools.")+" Band is visual padding, not a new liquidity calculation or entry signal."
-                        if showTags and (not retired or showRetiredTags)
+                        if showTags and status!=1 and (not retired or showRetiredTags)
                             string tagKey=str.tostring(price,format.mintick)+":"+str.tostring(endAt)+":"+str.tostring(side)
                             if map.contains(mergedTags,tagKey)
                                 label priorTag=map.get(mergedTags,tagKey)
@@ -934,10 +934,10 @@ if not cleanView and (barstate.islastconfirmedhistory or barstate.islast)
                                 label tag=label.new(endAt,price,f_frameTag(id)+state,xloc=xloc.bar_time,style=label.style_none,textcolor=ink,size=8,tooltip=tip)
                                 map.put(mergedTags,tagKey,tag)
                                 array.push(labels,tag)
-                        if showOriginDots
+                        if showOriginDots and status!=1
                             label originDot=label.new(origin,price,"•",xloc=xloc.bar_time,style=label.style_none,textcolor=ink,size=11,tooltip=tip+" Source pivot origin: recognized only after source confirmation; retrospective mark.")
                             array.push(labels,originDot)
-                        if showDots and first>0
+                        if showDots and status!=1 and first>0
                             label contactDot=label.new(first,price,"•",xloc=xloc.bar_time,style=label.style_none,textcolor=ink,size=10,tooltip="First observed 1M wick contact AFTER the pool was confirmed. Recorded at that minute close; not an entry.")
                             array.push(labels,contactDot)
                         count+=1
@@ -1014,7 +1014,6 @@ if cleanView and (barstate.islastconfirmedhistory or barstate.islast)
     int rightAt=time_close+rightBars*chartMs
     int displayed=0
     int lineCount=0
-    int badgeCount=0
     array<CleanGroup> visibleGroups=array.new<CleanGroup>()
     for g in ranked
         if displayed>=cleanZoneLimit or lineCount>=shown
@@ -1050,13 +1049,13 @@ if cleanView and (barstate.islastconfirmedhistory or barstate.islast)
                 lineCount+=1
         array.push(visibleGroups,g)
         displayed+=1
-    // Multi-frame badges get first claim on space; a nearby weak single source cannot hide convergence.
+    // Every displayed group receives a badge. The Desk stacks crowded badges without hiding them.
     for badgePass=0 to 1
         for g in visibleGroups
             int members=f_members(g.mask)
             bool priority=badgePass==0?members>=2:members==1
             float mid=(g.lo+g.hi)/2
-            if cleanTags and priority and badgeCount<cleanLabelLimit
+            if cleanTags and priority
                 int repeats=math.max(0,g.sourceCount-members)
                 float convergence=f_cleanConvergence(g.mask,g.weight)
                 float buildup=f_cleanBuild(g.smallUnits+g.ladderUnits,repeats)
@@ -1064,10 +1063,9 @@ if cleanView and (barstate.islastconfirmedhistory or barstate.islast)
                 color base=g.side==1?highColor:lowColor
                 string frames=f_cleanFrames(g.mask)
                 string badgeText=frames+" · "+str.tostring(score,"#")+"/100"
-                string tip="Active "+(g.side==1?"high":"low")+" liquidity. Source frames: "+frames+". Exact source-price span "+str.tostring(g.lo,format.mintick)+" to "+str.tostring(g.hi,format.mintick)+". Convergence "+str.tostring(convergence,"#")+"/100; price buildup "+str.tostring(buildup,"#")+"/100. Total = "+str.tostring(cleanBuildWeight,"#")+"% price buildup + "+str.tostring(100-cleanBuildWeight,"#")+"% convergence. "+str.tostring(g.ladderCount)+" confirmed inner main swings (3 evidence units each), "+str.tostring(g.smallCount)+" assigned unswept chart swings (1 unit each, source duplicates excluded), plus "+str.tostring(repeats)+" repeated source pivots. Newer lower highs build outer resistance; newer higher lows build outer support within the configured price corridor. No time bonus or recursive score transfer. Swept pools contribute zero. Descriptive chart evidence, not measured resting orders or a success probability. Exact source lines remain separate."
+                string tip="Shared sources: "+str.tostring(g.sourceCount)+". Active "+(g.side==1?"high":"low")+" liquidity. Source frames: "+frames+". Exact source-price span "+str.tostring(g.lo,format.mintick)+" to "+str.tostring(g.hi,format.mintick)+". Convergence "+str.tostring(convergence,"#")+"/100; price buildup "+str.tostring(buildup,"#")+"/100. Total = "+str.tostring(cleanBuildWeight,"#")+"% price buildup + "+str.tostring(100-cleanBuildWeight,"#")+"% convergence. "+str.tostring(g.ladderCount)+" confirmed inner main swings (3 evidence units each), "+str.tostring(g.smallCount)+" assigned unswept chart swings (1 unit each, source duplicates excluded), plus "+str.tostring(repeats)+" repeated source pivots. Newer lower highs build outer resistance; newer higher lows build outer support within the configured price corridor. No time bonus or recursive score transfer. Swept pools contribute zero. Descriptive chart evidence, not measured resting orders or a success probability. Exact source lines remain separate."
                 label badge=label.new(rightAt,mid,badgeText,xloc=xloc.bar_time,style=label.style_label_right,color=color.new(base,35),textcolor=color.white,size=10,tooltip=tip)
                 array.push(labels,badge)
-                badgeCount+=1
     // Unassociated small pools remain quiet; associated pools already belong to one shared pocket.
     array<int> smallOrder=array.new<int>()
     if array.size(smallPools)>0
@@ -1093,10 +1091,11 @@ if cleanView and (barstate.islastconfirmedhistory or barstate.islast)
         f_sortPools(retiredPools)
         int historyCount=0
         for p in retiredPools
-            if historyCount>=8
+            if historyCount>=24
                 break
             if p.takenAt>p.t
-                line history=line.new(p.t,p.p,p.takenAt,p.p,xloc=xloc.bar_time,color=color.new(color.white,82),width=1,style=p.breakStatus==1?line.style_dashed:line.style_dotted)
+                color historyBase=p.breakStatus==1?(p.side==1?highColor:lowColor):color.white
+                line history=line.new(p.t,p.p,p.takenAt,p.p,xloc=xloc.bar_time,color=color.new(historyBase,p.breakStatus==1?alpha:82),width=p.breakStatus==1?2:1,style=p.breakStatus==1?line.style_dashed:line.style_dotted)
                 array.push(lines,history)
                 historyCount+=1
 
