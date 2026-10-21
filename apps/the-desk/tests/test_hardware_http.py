@@ -16,12 +16,13 @@ class HardwareHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory(prefix='desk-usb-http-');target=Path(cls.temp.name);root=Path(__file__).resolve().parents[1]
-        for name in ['server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
+        for name in ['agents.py','agent_adapters.py','agent_workspaces.py','agent_signals.py','server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
         # Explicitly test-only RPC fixture in a disposable copy. The installed
         # application has no synthetic/device test switch or synthetic key.
         with (target/'hardware_wallet.py').open('a') as f:f.write("\nHardwareWallet._rpc = lambda self, method, params: '0x2105' if method == 'eth_chainId' else '0x10'\n")
         subprocess.run([str(root/'node_modules/esbuild/bin/esbuild'),str(root/'tests/hardware-native-fixture.mjs'),'--bundle','--platform=node','--format=esm','--outfile='+str(target/'native-ledger.mjs')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        (target/'web').mkdir()
+        (target/'web/pine-examples').mkdir(parents=True)
+        shutil.copyfile(root/'web/pine-examples/agentic-liquidity.pine',target/'web/pine-examples/agentic-liquidity.pine')
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));cls.port=sock.getsockname()[1]
         cls.base=f'http://127.0.0.1:{cls.port}'
         cls.proc=subprocess.Popen([sys.executable,str(target/'server.py'),'--port',str(cls.port),'--data-dir',str(target/'data'),'--no-workers'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

@@ -71,3 +71,28 @@ The runtime is deterministic, not an LLM deciding trades. An LLM strategist can
 be plugged into the signal/proposal contract later without bypassing risk or
 adapter capabilities. Live venue acceptance requires each venue's account,
 credentials, permissions, instrument contract and execution/recovery evidence.
+
+## Independent agent workspaces — subsequent implementation
+
+- `/agents.html` is a dedicated chart layout; Trader remains `/`. A permanent
+  chart ID belongs to exactly one agent. Layout visibility never controls runtime.
+- New simulation creation atomically provisions chart configuration, a dedicated
+  engine account, journal identity, first published version, and queued external
+  account event. Stable creation keys deduplicate retries. No copied performance.
+- Dedicated agent accounts are excluded from manual account selection and reject
+  manual engine commands, destructive account resets and deletion. Keep at least
+  one manual account. Legacy shared accounts require explicit clone/migration.
+- Signals come from published per-agent manual levels and a trusted installed
+  Liquidity source computed by bounded server Node jobs. The source hash and
+  settings are pinned. Browser heartbeat/replay/symbol changes cannot redirect it.
+- Draft saves are optimistic and leave published execution untouched. Publish
+  requires flat owned execution and no working entries, creates an immutable
+  version, and pauses. Account/journal identity and historical versions remain.
+- Journal fill payloads carry agent, published version, run and chart IDs for
+  immediate entries, delayed entries, protective/manual-owned exits. Local journal
+  health and external queued/retrying/synced delivery are separate.
+- Fleet limits gate armed count, total agent exposure and daily realized + open
+  loss. Per-agent limits and venue capabilities still apply.
+- Charts display server history and published signal/owned-execution overlays.
+  Panning/zooming is visual only. Cyan drawing or line entry creates a draft.
+  Published symbol/timeframe changes go through draft publication.

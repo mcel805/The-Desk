@@ -20,6 +20,7 @@ from funding_routes import FundingRoutes
 from robinhood_workspace import RobinhoodWorkspace
 from ibkr_data import IBKRData, FeedUnavailable
 from agents import Agents
+from agent_signals import AgentSignals
 
 ROOT=Path(__file__).resolve().parent
 
@@ -38,7 +39,8 @@ class Gateway:
         self.meta={};self.cache={};self.errors={};self.lock=threading.RLock()
     def metadata(self,instrument):
         with self.lock:
-            if instrument in self.meta:return self.meta[instrument]
+            cached=self.meta.get(instrument)
+            if cached and 0<=time.time()-cached.get('metadata_observed_at',0)<=300:return cached
         if instrument.startswith('coinbase:'):
             symbol=instrument.split(':')[1]
             product=http_json('https://api.exchange.coinbase.com/products/'+symbol)
@@ -48,6 +50,7 @@ class Gateway:
             coin=instrument.split(':')[1]
             item=next(x for x in allmeta['universe'] if x['name']==coin)
             meta={'qty_step':str(10**(-item['szDecimals'])),'sz_decimals':item['szDecimals'],'market_type':'perpetual','currency':'USD'}
+        meta={**meta,'metadata_verified':True,'metadata_observed_at':time.time()}
         with self.lock:self.meta[instrument]=meta
         return meta
     def quote(self,instrument):
@@ -149,7 +152,9 @@ def main():
     ibkr=IBKRData(args.ibkr_mode);ibkr.start()
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
-    agents=Agents(engine)
+    agents=Agents(engine);agents.journal_url=workers.journal_url
+    agent_signals=AgentSignals(agents,gateway);agents.signal_service=agent_signals
+    if not args.no_workers:agent_signals.start()
     if not args.no_workers:agents.start()
     if not args.no_workers:workers.start()
     class Handler(SimpleHTTPRequestHandler):
@@ -184,7 +189,7 @@ def main():
                     end=float(value('to')) if value('to') else None
                     return self.json(ibkr.bars(value('instrument'),value('timeframe','1m'),int(value('limit','600')),start,end))
                 if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'market_stream':workers.stream.status,'journal_available':workers.journal_health,'ibkr':ibkr.status()})
-                if parsed.path=='/api/state':return self.json({**engine.state(value('account_id')), 'market_stream':workers.stream.status,'feed_errors':gateway.errors,'journal_url':workers.journal_url,'journal_available':workers.journal_health})
+                if parsed.path=='/api/state':return self.json({**agents.decorate_state(engine.state(value('account_id'))), 'market_stream':workers.stream.status,'feed_errors':gateway.errors,'journal_url':workers.journal_url,'journal_available':workers.journal_health})
                 if parsed.path=='/api/bars':return self.json(gateway.bars(engine.instrument(value('instrument','hyperliquid:BTC')),value('timeframe','1h'),min(1000,max(50,int(value('limit','600'))))))
                 if parsed.path=='/api/settings':
                     with engine.db() as db:return self.json({r['key']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')})
@@ -230,6 +235,6 @@ def main():
     httpd=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('The Desk: http://127.0.0.1:'+str(args.port),flush=True)
     try:httpd.serve_forever()
-    finally:agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
+    finally:agent_signals.close();agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
 
 if __name__=='__main__':main()

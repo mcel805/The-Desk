@@ -14,7 +14,7 @@ from engine import Engine
 class AgentsTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.e=Engine(Path(self.temp.name)/'desk.db');self.now=time.time();self.s=Agents(self.e,lambda:self.now)
+        self.e=Engine(Path(self.temp.name)/'desk.db');self.now=time.time();self.s=Agents(self.e,lambda:self.now,workspace_runtime=False)
         self.a=self.s.listing()['agents'][0];self.i=self.a['instrument'];self.quote(101)
     def quote(self,mid,spread='.02',age=0):
         from decimal import Decimal
@@ -34,7 +34,7 @@ class AgentsTests(unittest.TestCase):
     def test_seed_is_paused_dedicated_and_not_reseeded(self):
         self.assertEqual(self.a['name'],'Test Agent');self.assertEqual(self.a['state'],'paused')
         self.assertEqual(self.a['metrics']['fills'],0);self.assertIsNone(self.a['metrics']['winRate'])
-        self.assertEqual(len(Agents(self.e).listing()['agents']),1)
+        self.assertEqual(len(Agents(self.e,workspace_runtime=False).listing()['agents']),1)
         self.assertEqual(self.e.state()['accounts'][0]['capital'],'10000')
 
     def test_observed_touch_creates_attributed_paper_fill_and_bracket(self):
@@ -98,7 +98,7 @@ class AgentsTests(unittest.TestCase):
         with self.assertRaises(ValueError):validate(self.config(mode='live'))
 
     def test_restart_pauses_armed_agents_and_retains_runs(self):
-        self.touch();restored=Agents(self.e);d=restored.detail(self.a['id'])
+        self.touch();restored=Agents(self.e,workspace_runtime=False);d=restored.detail(self.a['id'])
         self.assertEqual(d['agent']['state'],'paused');self.assertEqual(len(d['runs']),1)
 
     def test_pause_protects_existing_position_and_max_hold_remains_supervised(self):

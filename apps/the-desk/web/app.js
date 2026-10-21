@@ -9,7 +9,6 @@ import {buildChartMenuActions} from './chart-menu-actions.mjs';
 import {setupDOM} from './dom-view.mjs';
 import {runSmaBacktest} from './sma-backtest.mjs';
 import {upgradeLiquidityWorkspace} from './liquidity-catalog-upgrade.mjs';
-import {setupAgentsChart} from './agents-chart.mjs';
 import {setupChartAccount} from './chart-account.mjs';
 import {RobinhoodProvider,brokerMoney} from './account-context.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
@@ -330,6 +329,7 @@ async function refresh(){
   await refreshIBKR();
   const nextState=await api('/api/state?account_id='+encodeURIComponent(requestedAccount||''));
   if(requestedAccount!==activeAccount){refreshQueued=true;return;}
+  if(nextState.accounts.find(a=>a.id===nextState.active_account)?.agent_owner){const manual=nextState.accounts.find(a=>!a.agent_owner);if(!manual)throw Error('Create a manual trading account before using Trader.');activeAccount=manual.id;localStorage.setItem('the-desk.account',activeAccount);refreshQueued=true;return;}
   state=nextState;activeAccount=state.active_account;
   const a=state.accounts.find(a=>a.id===activeAccount),pnlIncrement=positionPnlIncrement(state.positions,state.quotes);for(const [id,key] of [['balance','balance'],['equity','equity'],['unrealized','unrealized'],['buyingPower','buying_power']]){$('#'+id).textContent=id==='unrealized'?formatMoney(a?.[key],pnlIncrement):usd(a?.[key]);$('#'+id).title=!brokerContext?.selected&&a?.[key]!=null?'USD '+a[key]:'';}$('#unrealized').className=Number(a?.unrealized)>=0?'positive':'negative';
   brokerContext?.render();
@@ -382,16 +382,14 @@ async function reviewBrokerTicket(){
   showDialog('Robinhood native preview',`<p>${esc(brokerContext.account()?.name)} ${esc(brokerContext.account()?.account)} · ${esc(result.intent.symbol)} · ${esc(p.side)} ${esc(p.qty)} @ ${esc(p.price)}</p><p>${esc(result.disclosure)}</p><pre class="broker-review-json">${esc(JSON.stringify(result.review,null,2))}</pre><p>Live submission remains unavailable until the Desk broker route is verified. No order was sent.</p>`,null,{cancelLabel:'Close preview'});
  }catch(e){$('#orderError').textContent=e.message;}finally{busy=false;updateTicket();}
 }
-brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;commandKey=null;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;commandKey=null;brokerScope=scope;if(brokerContext?.selected){$('#orderKind').value='limit';for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;commandKey=null;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
+brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.agent_owner)||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;commandKey=null;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;commandKey=null;brokerScope=scope;if(brokerContext?.selected){$('#orderKind').value='limit';for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;commandKey=null;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
 
-const agentsChart=setupAgentsChart({workspace:()=>ws,instrument,toast});
 
 async function boot(){
  try{settings=await api('/api/settings');await refreshIBKR();try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   if(brokerContext.selected)await brokerContext.refresh(true);
   ws=new VelaWorkspace('#workspace',{layout:'1',symbol:ibkrStatus?.configured_mode==='demo'?ibkrStatus.instrument:'hyperliquid:BTC',timeframe:ibkrStatus?.configured_mode==='demo'?'1':'60',bars:600,engines:{pine:createPineEngine},providers:{ibkr:()=>ibkrProvider,coinbase:()=>new CoinbaseProvider(),hyperliquid:()=>new DeskHyperliquidProvider(),robinhood:()=>new RobinhoodProvider(()=>brokerContext?.selected)},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{$('#saveStatus').textContent='Saving…';await saveSettings({workspace:JSON.parse(value)});$('#saveStatus').textContent='All changes saved';}catch(e){$('#saveStatus').textContent='Save failed · retry';}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
-  agentsChart.attach();
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
   await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});

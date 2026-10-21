@@ -1,98 +1,149 @@
 # Agents
 
-Open the robot **Agents** button in the Desk header. The workspace is global;
-Robinhood's Agents tab links here and retains earlier shadow profiles under
-Legacy Robinhood shadow configurations. Existing broker/wallet connections and
-the independent paper trader remain available.
+Open the robot **Agents** button in Trader to enter `/agents.html`. Trader keeps
+its independent chart/account setup at `/`. Profiles, configuration, execution,
+journal, performance and immutable versions remain available in the Agents dialog.
 
-## Build delivered
+## Agent charts and independent runtime
 
-- Profile fleet with state/venue/account/version, module summaries, actual
-  attributed simulation performance, owned positions/orders and latest run.
-- Versioned modular editor for identity, account, line signal, market/limit
-  entry, bracket/time exit and independent risk controls.
-- Detail tabs: overview, modules, chart levels, runs/evidence, execution,
-  performance, activity and revision history. Full JSON export is unbounded;
-  the interactive run/event view shows the latest 200 records.
-- Clone (no copied performance), archive, explicit arm/pause, global pause,
-  owned-order cancellation and separate owned-position flatten controls.
-- Local worker for verified simulation only. Run/order acceptance is atomic in
-  the engine SQLite transaction; engine fill-time ownership prevents unrelated
-  positions from being netted when a resting order fills.
-- Common adapter capabilities: accounts, preview, submit, cancel and reconcile.
-  All six venue identities share the profile contract. Simulation is executable;
-  the other adapters expose their current unavailable/signature/preview/data
-  boundaries and cannot arm. They are extension points, not implemented live
-  Coinbase/Binance/IBKR execution connections. Wallet identity or market data
-  never authorizes an autonomous order.
+Each agent has a stable, unique chart ID. The grid offers one/two/three columns,
+filters and focus; each tile shows exactly one agent, published version, exact
+source market/timeframe, runtime health and simulation results. Selecting a chart
+opens its monitor. Hiding, filtering, leaving the page or switching Trader symbols
+never changes the server's signal subscriptions or assigned account.
 
-This is a deterministic strategy runtime. Description/research text is stored,
-not interpreted by an LLM. There is no unattended external broker execution.
+Candle histories come from server provider snapshots, not browser-origin candles.
+Native Vela charts receive refreshed snapshots and all missed tail candles. Signal
+levels, owned entries, stops, targets and working orders appear as overlays. These
+are execution/analysis evidence; they are not broker-native market data.
 
-## Test Agent walkthrough
+The runner remains local: the computer and server must stay running, awake and
+connected. Server restart pauses armed agents and retains protections/history;
+review and arm explicitly. There is no always-on cloud deployment in this build.
 
-1. Open Agents → Test Agent → Configure. It starts paused with a separate
-   **Agents · Test simulation** $10,000 virtual account and no trade history.
-2. Keep its exact instrument active on the chart (default `hyperliquid:BTC`).
-   The chart feed and paper account choice do not change the agent's assigned
-   account. Profiles retain a separate execution product reference; simulation
-   requires the exact chart instrument. External observe profiles require an
-   explicit venue product and never convert perpetuals into spot orders. Default fixed quantity is 0.001; choose appropriate limits yourself.
-3. Draw a cyan/aqua horizontal line, or use Levels → Cyan horizontal line.
-   Newly created lines bind to their creation market. Existing drawings without
-   saved provenance need **Bind existing cyan lines to this market** in Levels.
-   A BTC line cannot silently become an ETH/SOL signal when changing symbols.
-   Synchronized copies are excluded until explicitly adopted; independent cells
-   have separate source identities.
-4. Alternatively install **Agentic - Liquidity** in **Clean** view. Active main
-   solid 2-pixel pools are accepted; retired lines and other studies are excluded.
-   Pool identity uses source instance, origin and price, not transient drawing ID.
-5. Save the profile; every new revision is paused. Arm simulation explicitly.
-   Price must first establish an away-from-line baseline, then be observed in
-   the configured tolerance band. Arming on a line, moving one onto price,
-   replay, stale quotes/chart heartbeat or a jump across a level does not enter.
-6. Each source line gets at most one attempted run per arm session, including
-   blocked signals. Pause/rearm begins a new session. Cooldown, spread, daily
-   trade count, per-order risk/notional, account exposure and concurrency apply.
-7. A successful decision submits to the existing paper engine. Market entries
-   use executable bid/ask; limits use existing quote/trade-touch matching. Stops
-   and targets remain engine protections. Maximum-hold exits remain supervised
-   while entries are paused, provided a fresh quote is available.
-8. Runs retain exact level/configuration/quote/preview/order evidence. Execution
-   shows real simulated fills. Performance includes attributed fees and actual
-   outcomes; no seeded win rate or fabricated fills. The daily counter uses UTC.
+## Create an agent
 
-The worker polls at one second and the browser publishes chart context every
-two seconds. The active chart heartbeat expires after ten seconds. The browser
-must remain open with the correct chart; this is not an exchange tick-complete
-detector and brief touches between observations can be missed. Switching charts
-publishes a fresh context; old out-of-order context cannot overwrite a newer one.
-Server restart pauses all armed agents. Existing protections remain in the
-engine. Pause does not cancel a working order; **Stop & cancel owned orders**
-does. **Flatten owned simulation** additionally closes owned positions using a
-fresh quote. These actions never mutate unrelated paper orders or positions.
+1. Click **Create agent**. Name/avatar/notes describe the strategy; notes do not
+   execute as an LLM prompt.
+2. Choose the exact supported chart/execution instrument (BTC/ETH/SOL on
+   Hyperliquid or Coinbase reference feeds), strategy modules and risk limits.
+   Simulation requires the exact chart instrument; no perp-to-spot conversion.
+3. Enter virtual capital, commission and leverage. A new dedicated simulation
+   account is created. Cloning provisions a new account/chart/journal, with no
+   copied fills or performance.
+4. Configure the owned chart timeframe/history and cyan signal levels. Optionally
+   enable independent **Agentic - Liquidity** evaluation and its bounded settings.
+5. Creation stores the chart, account, local journal identity and published v1 in
+   one SQLite transaction, paused. The existing durable journal bridge queues its
+   external account link separately. Once acknowledged, Journal offers a direct
+   account-scoped link to Lux Journal. Stable creation IDs deduplicate retries.
+6. Arm simulation explicitly. A line must establish an away-price baseline before
+   a new observed touch. Arming or moving a line onto price never invents entry.
 
-## Verification
+New dedicated accounts reject manual trading/reset/delete commands and are hidden
+from Trader's manual-account selector. Agent cancel/flatten controls act only on
+owned execution. The last manual account cannot be deleted. Existing shared
+profiles retain their history and show **setup-required**; clone into a new
+account rather than silently moving funds or reassigning positions.
+
+## Drafts, publication and versions
+
+Configure saves an unpublished draft. The running published version is unchanged,
+even if armed. Concurrent stale draft or published-version edits are rejected.
+**Versions → Validate & publish paused** requires no open owned positions or
+working entries, creates the next immutable version and pauses it. Account,
+chart and journal identities remain stable. Copying an old version creates a
+new draft for review; it never rewrites or reassigns historical outcomes.
+
+Pan, zoom and chart styling are visual. Changing published levels, instrument,
+signal timeframe or modules requires a draft. **Cyan level** on a tile, or drawing
+a horizontal line, opens a draft-level form; publication is separate. Generated
+Liquidity pools change as recorded runtime observations from pinned code/inputs,
+not as a new strategy version each tick.
+
+## Signal/data service
+
+Manual cyan levels are persisted in published configuration. They require fresh
+server bid/ask; no browser heartbeat is required. The one-second strategy worker
+uses observed quote midpoints and executable bid/ask, not historical replay.
+Gaps across a level are not counted as a touch. One attempt per source per arm
+session includes blocked decisions. Pause/rearm creates a new session.
+
+Independent Liquidity uses the installed `agentic-liquidity.pine` with its hash
+and default enabled source frames pinned, Clean view, and explicit pivot/history
+settings. A bounded Node subprocess uses the same compatibility/Pine engine as
+the chart, with supplied server histories only. It has no network/tool interface
+or user-script execution. Jobs share provider history caches, not indicator state.
+A fresh verified instrument tick is required; default tick sizes are never inferred.
+Provider contract metadata expires after five minutes and is re-fetched; fresh
+quotes cannot renew the age of cached contract details.
+Freshness uses the oldest input snapshot timestamp; missing/stale/failed inputs
+block entries. Source hash changes require reviewed publication.
+
+The scheduler runs up to three input jobs concurrently, refreshing due agents at
+least 15 seconds apart; large fleets and slow provider requests increase latency.
+Liquidity input snapshots expire after 45 seconds. This is sampled local
+simulation, not an exchange tick-complete detector; brief touches can be missed.
+Public provider depth/history/rate limits apply. Each chart shows coverage/errors
+rather than fabricating candles or treating unavailable data as zero.
+
+## Controls, journal and results
+
+Pause stops new entries; working orders and owned-position supervision remain.
+**Stop & cancel owned orders** additionally cancels entries. **Flatten owned
+simulation** also closes owned positions with fresh executable quotes. Fleet
+limits cap armed count, total agent exposure, and daily realized plus negative
+open P&L; per-agent limits also apply. Lowering limits never silently liquidates.
+
+Runs retain exact configuration/version, level, independent chart identity,
+source timestamps/hash, per-timeframe input cutoffs and calculation request
+coverage, verified tick metadata, quote, preview and order. Execution shows actual simulated
+fills. Journal payloads retain agent/version/run/chart/journal provenance for
+immediate and resting-limit entries and exits. Local decisions remain available
+when external Lux delivery is pending/retrying. The UI never labels queued
+external linking as connected. Real external journal acceptance is a separate
+integration check; it was not exercised by synthetic fixture tests.
+
+Performance is derived from owned fills and configured fees; no seed results.
+Versions support attributed performance inspection. Realized drawdown measures
+cumulative net realized fill outcomes, not intratrade/equity drawdown. Sequential
+version returns are not a controlled comparison: capital/time/exposure differ.
+Full JSON exports include all runs/events; interactive history shows latest 200.
+
+## Venue boundary
+
+All six venue identities retain the common profile/capability contract. Simulation
+is the only verified autonomous adapter. External Robinhood/Hyperliquid/Coinbase/
+Binance/IBKR execution is unavailable. Existing manual Robinhood previews and
+wallet/IBKR workspaces keep their own grants. This build does not create physical
+broker accounts, hold private keys or infer execution authority from wallet login.
+
+## Focused verification
 
 ```sh
-python3 -B -m unittest discover -s tests -p 'test_agents*.py'
-python3 -B -m unittest discover -s tests -p 'test_engine.py'
-node --test tests/test_agents_model.mjs tests/test_agents_chart.mjs tests/test_agents_liquidity_bridge.mjs \
+python3 -B -m unittest discover -s tests -p 'test_agent*.py'
+python3 -B -m unittest discover -s tests -p test_engine.py
+python3 -B -m unittest discover -s tests -p test_robinhood_workspace.py
+node --test tests/test_agent_workbench_model.mjs tests/test_agents_model.mjs \
+  tests/test_agents_chart.mjs tests/test_agents_liquidity_bridge.mjs \
   tests/test_agentic_host.mjs tests/test_pine_refresh.mjs \
-  tests/test_trading_model.mjs tests/test_chart_menu_actions.mjs
+  tests/test_trading_model.mjs tests/test_account_context.mjs \
+  tests/test_chart_menu_actions.mjs
 ```
 
-HTTP checks use temporary loopback ports and SQLite. The guarded browser script
-`tests/verify_agents_browser.js` refuses every origin except port 18891 and
-requires the synthetic fixture's health marker before any mutation:
+`test_agent_signals.py` executes the exact installed Pine source with bounded
+synthetic multi-frame candles and no network. Fixture browser acceptance refuses
+origins except port 18891 and requires the explicit synthetic health marker:
 
 ```sh
-python3 -B tests/launch_agents_fixture.py --port 18891 --data-dir /tmp/agents-fixture
-chrome-devtools-axi open http://127.0.0.1:18891/
+python3 -B tests/launch_agent_workbench_fixture.py --port 18891 \
+  --data-dir /tmp/agents-workbench-fixture
 ```
 
-Pass the script's contents as the structured argument to `chrome-devtools-axi
-eval`. It checks cyan chart capture, arm/touch, paper entry, protective exit,
-fill fees, pause, immutable run inspection, performance, clone and deduplication.
-Fixture quotes/fills are synthetic; Vela's native chart may still fetch public
-exchange candles. This does not prove price parity or any real broker action.
+Open `/agents.html`, pass `verify_agent_workbench_browser.js` to browser eval,
+then `verify_agent_workbench_background.js` after it switches to Trader. This
+checks actual creation forms, two native charts, isolated draft/publication,
+owned accounts, background entry/exit, provenance and measured performance.
+The prior browser-heartbeat fixture has been replaced by this workspace fixture.
+The legacy chart-context endpoint is retained for compatibility, but Trader no
+longer publishes execution inputs and it cannot redirect independent agents.

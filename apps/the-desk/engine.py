@@ -97,6 +97,8 @@ class Engine:
                 sequence+=1
 
     def queue(self,db,event_id,payload):
+        enrich=getattr(self,'agent_journal_enricher',None)
+        if enrich:payload=enrich(db,payload)
         db.execute('INSERT OR IGNORE INTO outbox(event_id,payload) VALUES(?,?)',(event_id,json.dumps(payload)))
 
     def account_payload(self,a):
@@ -145,6 +147,8 @@ class Engine:
                 return json.loads(old['result'])
             methods={'account':self.create_account,'account_update':self.update_account,'account_reset':self.reset_account,'account_delete':self.delete_account,'order':self.create_order,'amend':self.amend,'cancel':self.cancel,'close':self.close,'bracket':self.bracket,'alert':self.create_alert,'alert_delete':self.delete_alert,'cancel_orders':self.cancel_orders,'flatten':self.flatten,'reverse':self.reverse}
             if action not in methods: raise ValueError('Unknown command')
+            guard=getattr(self,'agent_command_guard',None)
+            if guard:guard(db,action,payload)
             result=methods[action](db,payload)
             db.execute('INSERT INTO commands VALUES(?,?,?)',(key,h,json.dumps(result)))
             return result

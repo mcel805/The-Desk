@@ -1,0 +1,3 @@
+const host=document.getElementById('agentFleetStatus');let pending=false;
+async function refresh(){if(!host||pending)return;pending=true;try{const r=await fetch('/api/agents/state',{cache:'no-store'});if(!r.ok)throw Error();const s=await r.json(),armed=s.agents.filter(a=>a.state==='armed'),stale=armed.filter(a=>!a.workspace?.dataFresh);host.textContent=`🤖 ${armed.length} armed · ${stale.length} need data`;host.title='Independent agent runtimes continue while you use Trader. Open Agents for account, position and journal health.';host.dataset.health=stale.length?'stale':'ready';}catch{host.textContent='🤖 Agent status unavailable';host.dataset.health='stale';}finally{pending=false;}}
+void refresh();setInterval(refresh,5000);

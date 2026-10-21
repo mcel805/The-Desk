@@ -39,10 +39,18 @@ class AgentsHTTPTests(unittest.TestCase):
             self.assertEqual(e.exception.code,403)
     def test_profile_save_revision_and_export(self):
         a=next(a for a in self.request('/api/agents/state')['agents'] if a['name']=='Test Agent')
-        c={k:a[k] for k in ('name','avatar','color','description','mode','account','instrument','modules')};c['name']='HTTP fixture'
+        c={k:a[k] for k in ('name','avatar','color','description','mode','account','instrument','modules')};c['name']='HTTP fixture';c['chart']=self.request('/api/agents/state')['chartDefaults'];c['setup']={'capital':'1000','fee_bps':'5','leverage':'1'};c['creationKey']='http-create-agent-12345'
         saved=self.request('/api/agents/save',c);d=self.request('/api/agents/export?id='+saved['id'])
         self.assertEqual(d['agent']['name'],'HTTP fixture');self.assertEqual(d['runs'],[])
         self.assertEqual(d['coverage'],'All durable records.')
+        self.assertNotEqual(d['agent']['account']['id'],a['account']['id'])
+        self.assertTrue(d['agent']['workspace']['exclusive'])
+        chart=self.request('/api/agents/chart-data?id='+saved['id']);self.assertEqual(chart['chartId'],d['agent']['workspace']['chart_id'])
+        c={k:d['agent'][k] for k in ('name','avatar','color','description','mode','account','instrument','executionInstrument','modules','chart')}
+        draft=self.request('/api/agents/save',{**c,'id':saved['id'],'expectedRevision':1,'draftRevision':None})
+        published=self.request('/api/agents/publish',{'id':saved['id'],'expectedRevision':1,'draftRevision':draft['draftRevision']})
+        self.assertEqual(published['revision'],2)
+        performance=self.request('/api/agents/performance?id='+saved['id']+'&revision=1');self.assertEqual(performance['metrics']['fills'],0)
     def test_no_live_execution_or_generic_tool_passthrough(self):
         for path in ('/api/agents/submit','/api/agents/tools/call'):
             with self.assertRaises(HTTPError) as e:self.request(path,{'tool':'place_crypto_order'})

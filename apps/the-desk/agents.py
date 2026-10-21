@@ -13,9 +13,10 @@ import time
 import uuid
 from engine import dec,stamp
 from agent_adapters import VENUES,ExecutionAdapter
+from agent_workspaces import AgentWorkspaces,chart_defaults,validate_chart,SOURCE_HASH
 
 PREFIX='/api/agents'
-MODULES=[{'id':'line-touch','slot':'signal','name':'Observed line touch','description':'Manual cyan hlines or explicit live Liquidity study levels; fresh chart heartbeat required.'},
+MODULES=[{'id':'line-touch','slot':'signal','name':'Observed line touch','description':'Manual cyan hlines or explicit live Liquidity study levels; published levels with independent server inputs.'},
  {'id':'market-touch','slot':'entry','name':'Market on touch','description':'Paper executable bid/ask after a fresh observed touch.'},
  {'id':'limit-level','slot':'entry','name':'Limit at level','description':'Paper working limit at the exact line price, with expiry.'},
  {'id':'bracket','slot':'exit','name':'Protective bracket + time exit','description':'Fixed-bps stop, reward/risk target and maximum holding time.'},
@@ -39,7 +40,7 @@ def defaults(account_id):
         'risk':{'type':'risk-v1','maxOrderUSD':'150','maxRiskUSD':'2','maxExposureUSD':'300','maxDailyLossUSD':'25','maxTradesPerDay':10,'maxConcurrent':1,'cooldownSeconds':60,'maxQuoteAgeSeconds':10,'maxSpreadBps':'20'}}}
 
 def validate(payload):
-    if not isinstance(payload,dict) or set(payload)-{'id','expectedRevision','name','avatar','color','description','mode','account','instrument','executionInstrument','modules'}:raise ValueError('Unsupported agent fields.')
+    if not isinstance(payload,dict) or set(payload)-{'id','expectedRevision','name','avatar','color','description','mode','account','instrument','executionInstrument','modules','chart'}:raise ValueError('Unsupported agent fields.')
     name=payload.get('name');description=payload.get('description','')
     if not isinstance(name,str) or not 1<=len(name.strip())<=80 or not isinstance(description,str) or len(description)>2000:raise ValueError('Provide an agent name and description up to 2,000 characters.')
     if payload.get('avatar') not in ('bot','radar','bolt','compass'):raise ValueError('Choose an agent avatar.')
@@ -71,12 +72,13 @@ def validate(payload):
     for key in ('maxOrderUSD','maxRiskUSD','maxExposureUSD','maxDailyLossUSD'):r[key]=number(r[key],key,Decimal('.01'),Decimal('100000000'))
     for key,lo,hi in [('maxTradesPerDay',1,1000),('maxConcurrent',1,20),('cooldownSeconds',1,86400),('maxQuoteAgeSeconds',1,15)]:r[key]=number(r[key],key,lo,hi,True)
     r['maxSpreadBps']=number(r['maxSpreadBps'],'spread',Decimal('.01'),Decimal('500'))
-    return {k:payload[k] for k in ('avatar','color','mode','account','instrument')}|{'name':name.strip(),'description':description,'modules':m,'executionInstrument':execution}
+    chart={'chart':validate_chart(payload['chart'])} if 'chart' in payload else {}
+    return chart|{k:payload[k] for k in ('avatar','color','mode','account','instrument')}|{'name':name.strip(),'description':description,'modules':m,'executionInstrument':execution}
 
 
-class Agents:
-    def __init__(self,engine,clock=time.time):
-        self.engine,self.clock=engine,clock
+class Agents(AgentWorkspaces):
+    def __init__(self,engine,clock=time.time,workspace_runtime=True):
+        self.engine,self.clock=engine,clock;self.workspace_runtime=workspace_runtime
         self.lock=engine.lock;self.stop=threading.Event();self.previous={};self.last_status={};self.chart=None
         with self.lock,self.engine.db() as db:
             db.executescript('''
@@ -92,12 +94,15 @@ class Agents:
             db.execute("UPDATE desk_agents SET state='paused' WHERE state='armed'")
             if not db.execute("SELECT 1 FROM desk_agent_meta WHERE key='seed-v1'").fetchone():
                 a=self.engine.create_account(db,{'name':'Agents · Test simulation','capital':'10000','fee_bps':'5','leverage':'1'})
-                config=defaults(a['id']);agent_id=uid();now=self.clock()
+                config=defaults(a['id']);
+                if self.workspace_runtime:config['chart']=chart_defaults()
+                agent_id=uid();now=self.clock()
                 db.execute('INSERT INTO desk_agents VALUES(?,?,?,?,?,?,?)',(agent_id,1,dumps(config),'paused','',now,now))
                 db.execute('INSERT INTO desk_agent_revisions VALUES(?,?,?,?)',(agent_id,1,dumps(config),now))
                 db.execute("INSERT INTO desk_agent_meta VALUES('seed-v1',?)",(agent_id,))
                 self.event(db,agent_id,'created','Test Agent created paused. Dedicated simulated capital; no seeded trades.')
         self.engine.agent_fill_guard=self.guard_fill
+        if self.workspace_runtime:self.init_workspaces()
     def guard_fill(self,db,order):
         incoming=db.execute('SELECT agent FROM desk_agent_runs WHERE order_id=?',(order['id'],)).fetchone()
         incoming=incoming['agent'] if incoming else None
@@ -123,15 +128,17 @@ class Agents:
         r=db.execute('SELECT * FROM desk_agents WHERE id=?',(agent_id,)).fetchone()
         if not r:raise ValueError('Agent not found.')
         return r
-    def owned(self,db,agent_id):
-        rows=db.execute('SELECT order_id FROM desk_agent_runs WHERE agent=? AND order_id IS NOT NULL',(agent_id,)).fetchall()
-        ids=[r['order_id'] for r in rows]
-        orders=[dict(r) for r in db.execute('SELECT * FROM orders WHERE id IN (SELECT order_id FROM desk_agent_runs WHERE agent=?)',(agent_id,))]
-        positions=[dict(r) for r in db.execute('SELECT * FROM positions WHERE id IN (SELECT position_id FROM orders WHERE id IN (SELECT order_id FROM desk_agent_runs WHERE agent=?))',(agent_id,))]
-        fills=[dict(r) for r in db.execute('SELECT * FROM fills WHERE order_id IN (SELECT order_id FROM desk_agent_runs WHERE agent=?) OR position_id IN (SELECT position_id FROM orders WHERE id IN (SELECT order_id FROM desk_agent_runs WHERE agent=?)) ORDER BY executed_at',(agent_id,agent_id))]
+    def owned(self,db,agent_id,revision=None):
+        where='agent=?'+(' AND revision=?' if revision is not None else '')
+        args=(agent_id,revision) if revision is not None else (agent_id,)
+        owned_orders='SELECT order_id FROM desk_agent_runs WHERE '+where
+        owned_positions='SELECT position_id FROM orders WHERE id IN ('+owned_orders+')'
+        orders=[dict(r) for r in db.execute('SELECT * FROM orders WHERE id IN ('+owned_orders+')',args)]
+        positions=[dict(r) for r in db.execute('SELECT * FROM positions WHERE id IN ('+owned_positions+')',args)]
+        fills=[dict(r) for r in db.execute('SELECT * FROM fills WHERE order_id IN ('+owned_orders+') OR position_id IN ('+owned_positions+') ORDER BY executed_at,id',args+args)]
         return orders,positions,fills
-    def metrics(self,db,agent_id):
-        orders,positions,fills=self.owned(db,agent_id)
+    def metrics(self,db,agent_id,revision=None):
+        orders,positions,fills=self.owned(db,agent_id,revision)
         fees=sum((dec(f['fee']) for f in fills),Decimal(0));gross=sum((dec(f['realized']) for f in fills),Decimal(0));unrealized=Decimal(0);fresh=True
         for p in positions:
             if p['status']!='open':continue
@@ -145,15 +152,18 @@ class Agents:
             results.append(sum((dec(f['realized'])-dec(f['fee']) for f in pf),Decimal(0)))
         wins=sum(v>0 for v in results);losses=sum(v<0 for v in results)
         daily=sum((dec(f['realized'])-dec(f['fee']) for f in fills if f['executed_at'][:10]==stamp(self.clock())[:10]),Decimal(0))
-        return {'realizedNet':str(gross-fees),'realizedGross':str(gross),'fees':str(fees),'unrealized':str(unrealized) if fresh else None,'dailyNet':str(daily),'closedTrades':len(results),'wins':wins,'losses':losses,'winRate':round(wins/len(results)*100,1) if results else None,'openPositions':sum(p['status']=='open' for p in positions),'workingOrders':sum(o['status'] in ('working','triggered') for o in orders),'fills':len(fills),'basis':'Attributed simulated engine fills; configured fees, observed spread; no funding/slippage model.'}
+        curve=Decimal(0);peak=Decimal(0);drawdown=Decimal(0)
+        for fill in fills:
+            curve+=dec(fill['realized'])-dec(fill['fee']);peak=max(peak,curve);drawdown=max(drawdown,peak-curve)
+        return {'realizedDrawdown':str(drawdown),'realizedNet':str(gross-fees),'realizedGross':str(gross),'fees':str(fees),'unrealized':str(unrealized) if fresh else None,'dailyNet':str(daily),'closedTrades':len(results),'wins':wins,'losses':losses,'winRate':round(wins/len(results)*100,1) if results else None,'openPositions':sum(p['status']=='open' for p in positions),'workingOrders':sum(o['status'] in ('working','triggered') for o in orders),'fills':len(fills),'basis':'Attributed simulated engine fills; configured fees, observed spread; no funding/slippage model.'}
     def listing(self):
         with self.lock,self.engine.db() as db:
             agents=[]
             for r in db.execute('SELECT * FROM desk_agents ORDER BY created'):
                 latest=db.execute('SELECT * FROM desk_agent_runs WHERE agent=? ORDER BY created DESC LIMIT 1',(r['id'],)).fetchone()
-                agents.append({**{k:r[k] for k in ('id','revision','state','created','updated')},**json.loads(r['config']),'metrics':self.metrics(db,r['id']),'runtime':self.last_status.get(r['id'],'Paused; arm explicitly to monitor fresh levels.'),'runCount':db.execute('SELECT COUNT(*) FROM desk_agent_runs WHERE agent=?',(r['id'],)).fetchone()[0],'lastRun':{'id':latest['id'],'decision':latest['decision'],'reason':latest['reason'],'created':latest['created']} if latest else None})
+                agents.append({**{k:r[k] for k in ('id','revision','state','created','updated')},**json.loads(r['config']),'metrics':self.metrics(db,r['id']),'runtime':self.last_status.get(r['id'],'Paused; arm explicitly to monitor fresh levels.'),'runCount':db.execute('SELECT COUNT(*) FROM desk_agent_runs WHERE agent=?',(r['id'],)).fetchone()[0],'workspace':self.workspace_info(db,r,json.loads(r['config'])) if self.workspace_runtime else None,'lastRun':{'id':latest['id'],'decision':latest['decision'],'reason':latest['reason'],'created':latest['created']} if latest else None})
             accounts=[{**a,'venue':'simulation','execution':'simulated'} for a in self.engine.state()['accounts']]
-            return {'agents':agents,'accounts':accounts,'adapters':[{'id':k,**v} for k,v in VENUES.items()],'modules':MODULES,'chart':self.chart,'serverTime':self.clock(),'runtime':'deterministic line-touch worker','liveEnabled':False}
+            return {'agents':agents,'accounts':accounts,'adapters':[{'id':k,**v} for k,v in VENUES.items()],'modules':MODULES,'chart':self.chart,'serverTime':self.clock(),'journalUrl':getattr(self,'journal_url',None),'fleetLimits':self.fleet_limits(db) if self.workspace_runtime else None,'workspaceRuntime':self.workspace_runtime,'sourceHash':SOURCE_HASH,'chartDefaults':chart_defaults(),'runtime':'independent server agent workers' if self.workspace_runtime else 'legacy browser line-touch worker','liveEnabled':False}
     def detail(self,agent_id,full=False):
         with self.lock,self.engine.db() as db:
             self.row(db,agent_id);orders,positions,fills=self.owned(db,agent_id)
@@ -161,8 +171,10 @@ class Agents:
             runs=[{**dict(r),'payload':json.loads(r['payload'])} for r in db.execute('SELECT * FROM desk_agent_runs WHERE agent=? ORDER BY created DESC'+limit,(agent_id,))]
             events=[dict(r) for r in db.execute('SELECT * FROM desk_agent_events WHERE agent=? OR agent IS NULL ORDER BY id DESC'+limit,(agent_id,))]
             revisions=[{**dict(r),'config':json.loads(r['config'])} for r in db.execute('SELECT * FROM desk_agent_revisions WHERE agent=? ORDER BY revision DESC',(agent_id,))]
-            return {'agent':next(a for a in self.listing()['agents'] if a['id']==agent_id),'runs':runs,'events':events,'orders':orders,'positions':positions,'fills':fills,'revisions':revisions,'coverage':'All durable records.' if full else 'Latest 200 runs and events. Fill/performance calculation covers all attributed engine records.'}
+            draft=db.execute('SELECT * FROM desk_agent_drafts WHERE agent=?',(agent_id,)).fetchone() if self.workspace_runtime else None
+            return {'draft':{**dict(draft),'config':json.loads(draft['config'])} if draft else None,'agent':next(a for a in self.listing()['agents'] if a['id']==agent_id),'runs':runs,'events':events,'orders':orders,'positions':positions,'fills':fills,'revisions':revisions,'coverage':'All durable records.' if full else 'Latest 200 runs and events. Fill/performance calculation covers all attributed engine records.'}
     def save(self,payload):
+        if self.workspace_runtime:return self.save_draft(payload) if payload.get('id') else self.provision(payload)
         config=validate(payload)
         with self.lock,self.engine.db() as db:
             db.execute('BEGIN IMMEDIATE');now=self.clock();agent_id=payload.get('id') or uid();revision=1
@@ -193,6 +205,10 @@ class Agents:
                 if row['state']=='archived':raise ValueError('Archived agent cannot arm. Clone it first.')
                 if c['mode']!='simulation' or c['account']['venue']!='simulation':raise ValueError('Only verified simulation adapters can arm. Observe/live profiles stay paused.')
                 if row['state']=='armed':return {'id':agent_id,'state':'armed'}
+                if self.workspace_runtime:
+                    self.validate_setup(db,row,c)
+                    armed=db.execute("SELECT COUNT(*) FROM desk_agents WHERE state='armed'").fetchone()[0]
+                    if armed>=self.fleet_limits(db)['maxArmed']:raise ValueError('Maximum armed agents reached for this fleet.')
                 self.engine.account(db,c['account']['id']);q=self.engine.quote(self.engine.instrument(c['instrument']))
                 db.execute("UPDATE desk_agents SET state='armed',session=?,updated=? WHERE id=?",(uid(),self.clock(),agent_id))
                 self.previous[agent_id]={'mid':(dec(q['bid'])+dec(q['ask']))/2,'levels':{}};self.last_status[agent_id]='Waiting for a new observed touch after level baseline.'
@@ -225,6 +241,9 @@ class Agents:
         return {'accepted':len(levels),'replay':p['replay']}
     def risk(self,db,row,c,quote,intent,entry):
         r=c['modules']['risk'];qty=dec(intent['qty']);notional=qty*entry;stoprisk=abs(entry-dec(intent['stop']))*qty
+        if self.workspace_runtime:
+            reason=self.fleet_gate(db,notional)
+            if reason:return reason
         a=self.engine.account(db,c['account']['id']);fee=notional*dec(a['fee_bps'])/10000
         if notional>dec(r['maxOrderUSD']):return 'Per-order notional limit exceeded.'
         if stoprisk+fee*2>dec(r['maxRiskUSD']):return 'Stop risk plus estimated round-trip fees exceeds risk limit.'
@@ -263,14 +282,14 @@ class Agents:
                         try:ExecutionAdapter('simulation',self.engine).close(db,p);self.event(db,agent_id,'time-exit','Maximum holding time reached; owned paper position closed.')
                         except ValueError:self.last_status[agent_id]='Time exit waiting for fresh executable quote.'
                 if row['state']!='armed':continue
-                chart=self.chart;q=self.engine.quotes.get(c['instrument']);r=c['modules']['risk'];s=c['modules']['signal']
+                chart=self.context_for(row,c);now=self.clock();q=self.engine.quotes.get(c['instrument']);r=c['modules']['risk'];s=c['modules']['signal']
                 if not chart or chart['instrument']!=c['instrument'] or chart['replay'] or not 0<=now-chart['receivedAt']<=10 or not 0<=now-chart['observedAt']<=15:
-                    self.previous.pop(agent_id,None);self.last_status[agent_id]='Waiting for fresh matching chart heartbeat; replay/closed tabs cannot trigger entries.';continue
+                    self.previous.pop(agent_id,None);self.last_status[agent_id]='Waiting for fresh independent signal inputs; chart views do not control execution.' if self.workspace_runtime else 'Waiting for fresh matching chart heartbeat; replay/closed tabs cannot trigger entries.';continue
                 if not q or not 0<=now-q['received_at']<=r['maxQuoteAgeSeconds']:
                     self.previous.pop(agent_id,None);self.last_status[agent_id]='Waiting for fresh server bid/ask.';continue
                 mid=(dec(q['bid'])+dec(q['ask']))/2;previous=self.previous.get(agent_id);prior=previous['levels'] if previous else {};current={}
                 candidates=[l for l in chart['levels'] if l['source'] in s['sources']]
-                self.last_status[agent_id]='Monitoring '+str(len(candidates))+' levels · fresh chart and quote.'
+                self.last_status[agent_id]='Monitoring '+str(len(candidates))+' levels · independent server inputs and quote.'
                 for level in candidates:
                     price=dec(level['price']);key=level['id']+':'+str(price);current[key]=mid
                     if key not in prior:continue
@@ -285,12 +304,14 @@ class Agents:
                     roundprice=lambda v:(v/tick).to_integral_value(rounding=ROUND_FLOOR if side=='buy' else ROUND_CEILING)*tick
                     stop=roundprice(entry-direction*distance);target=roundprice(entry+direction*distance*dec(c['modules']['exit']['rewardRisk']))
                     intent={'account_id':c['account']['id'],'instrument':c['instrument'],'side':side,'kind':'market' if c['modules']['entry']['type']=='market-touch' else 'limit','qty':c['modules']['entry']['quantity'],'price':str(price) if c['modules']['entry']['type']=='limit-level' else None,'stop':str(stop),'target':str(target),'ttl_seconds':c['modules']['entry']['expirySeconds']}
-                    reason=self.risk(db,row,c,q,intent,entry);order=None;preview=None
+                    runid=uid();reason=self.risk(db,row,c,q,intent,entry);order=None;preview=None
                     if not reason:
                         try:
+                            self.journal_context={'id':agent_id,'version':row['revision'],'runId':runid,'chartId':'chart-'+agent_id,'journalId':'journal-'+agent_id}
                             db.execute('SAVEPOINT agent_order');adapter=ExecutionAdapter('simulation',self.engine);preview=adapter.preview(db,intent);order=adapter.submit(db,intent);db.execute('RELEASE agent_order')
                         except ValueError as e:db.execute('ROLLBACK TO agent_order');db.execute('RELEASE agent_order');reason=str(e)
-                    runid=uid();payload={'config':c,'level':level,'chart':{k:chart[k] for k in ('instrument','timeframe','observedAt','replay')},'quote':{k:q.get(k) for k in ('bid','ask','received_at','transport','source_time')},'intent':intent,'preview':preview,'simulation':True}
+                        finally:self.journal_context=None
+                    payload={'config':c,'level':level,'chart':{k:chart[k] for k in ('instrument','timeframe','observedAt','replay','authority','inputObservedAt','chartId','version','sourceHash','sourceInputs') if k in chart},'quote':{k:q.get(k) for k in ('bid','ask','received_at','transport','source_time')},'intent':intent,'preview':preview,'simulation':True}
                     db.execute('INSERT INTO desk_agent_runs VALUES(?,?,?,?,?,?,?,?,?,?)',(runid,agent_id,row['revision'],row['session'],signal_key,'blocked' if reason else 'submitted',reason or 'Paper order accepted; execution ledger is authoritative.',dumps(payload),order['id'] if order else None,now))
                     self.event(db,agent_id,'blocked' if reason else 'order',reason or 'Observed line touch submitted to simulation account.')
                     self.last_status[agent_id]=reason or 'Paper order accepted; monitoring protections.'
@@ -298,12 +319,22 @@ class Agents:
     def get(self,handler,path,query):
         if not path.startswith(PREFIX):return False
         if path==PREFIX+'/state':handler.json(self.listing());return True
+        if path==PREFIX+'/performance':
+            agent=query.get('id',[''])[0];revision=int(query['revision'][0]) if query.get('revision') else None
+            with self.lock,self.engine.db() as db:
+                self.row(db,agent)
+                if revision is not None and not db.execute('SELECT 1 FROM desk_agent_revisions WHERE agent=? AND revision=?',(agent,revision)).fetchone():raise ValueError('Version not found.')
+                handler.json({'agentId':agent,'revision':revision,'metrics':self.metrics(db,agent,revision)})
+            return True
+        if path==PREFIX+'/chart-data':handler.json(self.chart_data(query.get('id',[''])[0]));return True
         if path in (PREFIX+'/detail',PREFIX+'/export'):handler.json(self.detail(query.get('id',[''])[0],path.endswith('/export')));return True
         handler.json({'error':'Unknown Agents read.'},404);return True
     def post(self,handler,path,payload):
         if not path.startswith(PREFIX):return False
         if handler.headers.get('Origin')!='http://'+handler.headers.get('Host',''):handler.json({'error':'Exact same-origin Agents request required.'},403);return True
         if not isinstance(payload,dict):raise ValueError('JSON object required.')
+        if path==PREFIX+'/fleet-limits':handler.json(self.save_fleet_limits(payload));return True
+        if path==PREFIX+'/publish':handler.json(self.publish_draft(payload));return True
         if path==PREFIX+'/save':handler.json(self.save(payload));return True
         if path==PREFIX+'/control':handler.json(self.control(payload));return True
         if path==PREFIX+'/chart':handler.json(self.publish(payload));return True
