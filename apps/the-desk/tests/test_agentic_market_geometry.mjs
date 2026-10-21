@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {marketGeometryDrawing} from '../web/abc-live-drawing.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -80,5 +81,5 @@ test('Desk adapter preserves drawings while excluding rails from candle autoscal
  let handlers;const worker={prepare:async(s,id)=>({token:{source:s,instanceId:id}}),terminate(){},execute:(_,h)=>{handlers=h;return {stop(){},update(){}};}};
  const engine=new DeskPineEngine({factory:()=>worker}),prepared=await engine.prepare(source,'geometry'),models=[];const session=engine.execute({prepared,bars:fixture(),market:market('1')},{onModel:m=>models.push(m)});
  const model=(await run()).model;handlers.onModel(model);session.update({geometryShowLabels:true});handlers.onModel(model);
- assert.equal(models.length,2);assert.ok(models.every(m=>m.drawingAutoscale===false));assert.deepEqual(models[0].lines,model.lines);session.stop();
+ assert.equal(models.length,2);assert.ok(models.every(m=>m.drawingAutoscale===false));assert.deepEqual(models[0].lines,marketGeometryDrawing(model,'1').lines);session.stop();
 });

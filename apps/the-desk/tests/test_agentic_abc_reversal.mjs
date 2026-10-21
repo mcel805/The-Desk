@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {abcLiveDrawing} from '../web/abc-live-drawing.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -17,7 +18,7 @@ export function fixture(short=false){const values=[...Array.from({length:30},(_,
 const market=tf=>({symbol:'fixture:MYM',timeframe:tf,chartStyle:'candles',symbolInfo:{ticker:'MYM',tickerid:'fixture:MYM',timezone:'America/Chicago',mintick:1,minmov:1,pricescale:1,type:'futures',currency:'USD'}});
 export function feedModel(bars,{level=100,event={},resistance=100}={}){const make=(title,value)=>({title,points:bars.map((b,i)=>({time:b.time,value:typeof value==='function'?value(i):value}))});return {series:[make('Rider HTF support',level),make('Rider HTF resistance',resistance),make('Reached support · this chart bar',i=>event[i]??NaN),make('Reached resistance · this chart bar',i=>event[i]??NaN),make('C support 2',NaN),make('C support 3',NaN),make('C resistance 2',NaN),make('C resistance 3',NaN)]};}
 function producer(bars,model=feedModel(bars),tf='1'){return {source:'indicator("Agentic - Liquidity", "Agentic - Liquidity")',bars,market:market(tf),model};}
-async function run({src=source,bars=fixture(),tf='1',inputs={},feed={connected:true,model:feedModel(bars)}}={}){const e=new PineEngine(),prepared=await e.prepare(src,'abc-test');let session,model;const warnings=[],used=abcTransportInputs({...baseInputs,...inputs},feed,inputs.reversalSide||'Long from support',Date.now(),tf);try{await new Promise((resolve,reject)=>session=e.execute({prepared,bars,market:market(tf),inputs:used,mode:'static',historyState:'complete',fetchSeries:async()=>Array.from({length:60},(_,i)=>({time:Date.UTC(2025,11,1)+i*86400000,open:120,close:120,high:121,low:119,volume:100}))},{onModel:m=>model=m,onDone:resolve,onError:reject,onWarning:w=>warnings.push(w)}));return {model,prepared,warnings};}finally{session?.stop();}}
+async function run({src=source,bars=fixture(),tf='1',inputs={},feed={connected:true,model:feedModel(bars)}}={}){const e=new PineEngine(),prepared=await e.prepare(src,'abc-test');let session,model;const warnings=[],used=abcTransportInputs({...baseInputs,...inputs},feed,inputs.reversalSide||'Long from support',Date.now(),tf);try{await new Promise((resolve,reject)=>session=e.execute({prepared,bars,market:market(tf),inputs:used,mode:'static',historyState:'complete',fetchSeries:async()=>Array.from({length:60},(_,i)=>({time:Date.UTC(2025,11,1)+i*86400000,open:120,close:120,high:121,low:119,volume:100}))},{onModel:m=>model=m,onDone:resolve,onError:reject,onWarning:w=>warnings.push(w)}));return {model:abcLiveDrawing(model,bars,{timeframe:tf}),prepared,warnings};}finally{session?.stop();}}
 const rows=(m,title)=>m.series.find(s=>s.title===title)?.points.map(p=>p.value),last=(m,title)=>rows(m,title)?.at(-1);
 test('archived attachment hash is stable',()=>{assert.equal(createHash('sha256').update(original).digest('hex'),'263c04e862ba346caa6d7973179f260ea26174b3bd686c9e514966e35f35ac1b');});
 for(const short of [false,true])test(`${short?'short':'long'} contact → A → B → C forecast → C → shift → later retest`,async()=>{
@@ -57,4 +58,32 @@ test('producer arrival, removal, settings, direction and disposal refresh the wr
   done=wait();session.update({reversalSide:'Short from resistance'});await done;assert.equal(model.tables.length,1);assert.ok(model.series.every(s=>s.title.startsWith('Short · ')));
   records.clear();done=wait();notify();await done;assert.equal(model.lines.length,0);assert.equal(model.boxes.length,0);assert.equal(model.abcBridge.connected,false);
  }finally{session?.stop();bridge.terminate();assert.equal(notify,null);}
+});
+
+test('streaming wick redraw does not re-execute Pine or change completed audit state',async()=>{
+ const now=Date.now(),completedBars=fixture().slice(0,42).map((b,i)=>({...b,time:now-(42-i)*60000}));
+ let bars=[...completedBars,{...completedBars.at(-1),time:now}],executions=0;
+ const records=new Map([['liq',producer(bars)]]),engine=new PineEngine();
+ const worker={prepare:(...args)=>engine.prepare(...args),execute:(...args)=>{executions++;return engine.execute(...args);},terminate(){}};
+ const bridge=new ABCReversalWorker({records,worker,subscribe:()=>()=>{}}),prepared=await bridge.prepare(source,'tick-wrapper');
+ let session,model,resolveDone,rejectDone;const wait=()=>new Promise((resolve,reject)=>{resolveDone=resolve;rejectDone=reject;});
+ try{
+  let done=wait();session=bridge.execute({prepared,bars,getBars:()=>bars,market:market('1'),inputs:{...baseInputs,reversalSide:'Long from support'}},{onModel:m=>model=m,onDone:()=>resolveDone(),onError:e=>rejectDone(e)});await done;
+  const before=structuredClone(model),runs=executions;assert.ok(before.lines.some(l=>l.id.endsWith('developing-C')));
+  bars=[...completedBars,{...bars.at(-1),low:80,close:82}];done=wait();session.notifyBars('tick');await done;
+  assert.equal(executions,runs);assert.equal(model.lines.find(l=>l.id.endsWith('developing-C')).y2,80);assert.deepEqual(model.series,before.series);
+  assert.equal(model.lines.length,before.lines.length);assert.equal(new Set(model.lines.map(l=>l.id)).size,model.lines.length);
+ }finally{session?.stop();bridge.terminate();}
+});
+
+test('upgraded visual defaults persist in the host input object and later edits remain possible',async()=>{
+ const inputs={showProjection:false,longColor:'#FFFFFFE0',shortColor:'#FFFFFFE0',pivotBars:3};let transported;
+ const worker={execute:(req,h)=>{transported=req.inputs;queueMicrotask(()=>{h.onModel({inputValues:req.inputs,series:[],lines:[],labels:[]});h.onDone();});return {stop(){}};},terminate(){}};
+ const bridge=new ABCReversalWorker({records:new Map(),worker,subscribe:()=>()=>{}});
+ const prepared={abcVisualUpgrade:true,token:{instanceId:'upgrade'},inputs:['showProjection','longColor','shortColor','pivotBars'].map(key=>({key,defval:null}))};
+ let session,resolveDone;const wait=()=>new Promise(resolve=>{resolveDone=resolve;});
+ try{let done=wait();session=bridge.execute({prepared,bars:[],market:market('1'),inputs},{onModel(){},onDone:()=>resolveDone()});await done;
+  assert.equal(inputs.showProjection,true);assert.equal(inputs.longColor,'#00B8A9FF');assert.equal(inputs.shortColor,'#F23645FF');assert.equal(transported.pivotBars,3);
+  done=wait();session.update({...inputs,showProjection:false,longColor:'#FFFFFFE0'});await done;assert.equal(transported.showProjection,false);assert.equal(transported.longColor,'#FFFFFFE0');
+ }finally{session?.stop();bridge.terminate();}
 });

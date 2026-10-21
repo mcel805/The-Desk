@@ -36,13 +36,14 @@
     "original_sha256": "2b10c2178a7d37d9b3c77dee40f8a6bdfefd316ff05c3ec2dc2e8e009d36d671",
     "source_sha256": "286346e934603da88c73d9a7873d20a083fa071590397565b9c8f26c60d3cf1e",
     "source": "web/pine-examples/agentic-market-geometry.pine",
-    "parity": "User-supplied Pine preserved with only indicator title and shorttitle renamed. Same-engine and independent-ledger parity tested; TradingView matching-data parity pending."
+    "parity": "User-supplied Pine preserved with only indicator title and shorttitle renamed. Same-engine and independent-ledger parity tested; TradingView matching-data parity pending.",
+    "display": "Desk host colors rising/falling rails red/teal, keeps historical rails faint and appends dashed future extensions. Pine detection and wick-break endpoints remain unchanged."
   },
   "agentic_abc_reversal": {
     "source": "web/pine-examples/agentic-abc-reversal.pine",
     "original_sha256": "263c04e862ba346caa6d7973179f260ea26174b3bd686c9e514966e35f35ac1b",
-    "source_sha256": "a89bf4f837aa7bad8855751075008c4164c1865d03a7afb47ba244e9108fc08f",
-    "scope": "Original lifecycle preserved; automatic same-chart Liquidity bridge, both-side mode, 1m/5m restriction and visual redesign. This is an adapted port, not a name-only port. TradingView parity unverified."
+    "source_sha256": "9bce7806a3df6e0c1ec2c92b36bd4601a546b55841c894cff8e5ae514e821fe7",
+    "scope": "Original completed-candle lifecycle preserved. Read-only anchor exports support live solid observed ABC legs, yellow dashed provisional forecasts and faint geometry rails. Exact shipped v1 saves upgrade automatically. TradingView parity unverified."
   },
   "agentic_three_drive_pattern": {
     "original": "web/pine-examples/agentic-three-drive-pattern-original.pine",

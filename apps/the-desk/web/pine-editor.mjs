@@ -15,6 +15,7 @@ dialog.addEventListener('cancel',e=>{if(testing)e.preventDefault();});
 function message(text,error=false){const el=dialog.querySelector('#pineFeedback');if(el){el.textContent=text;el.classList.toggle('error',error);}}
 function current(){return context?.chart;}
 function studyName(h){return getEngine().records.get(h.id)?.model.title||(h.source?.match(/^\s*indicator\s*\(\s*(?:title\s*=\s*)?["']([^"']+)/m)?.[1])||h.title;}
+function savedSource(h){const source=getEngine().records.get(h.id)?.source;return isABCSource(h.source)&&source?.includes('Desk visual anchors v2')?source:h.source;}
 function hideOtherDialogs(){current()?.renderer.closeDialogs();}
 export function createPineEngine(){const engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event)});engines.add(engine);return engine;}
 function getEngine(){return {records:{get:id=>[...engines].map(e=>e.records.get(id)).find(Boolean)},cancelTests:()=>{for(const e of engines)e.cancelTests();}};}
@@ -23,7 +24,7 @@ export function setupPineEditor(opts){
  services=opts;
  registerWidgetAction({id:'indicators',target:'topbar',label:'Indicators',icon:'indicator',align:'left',run:ctx=>open(ctx,'library')});
  registerLegendAction({id:'desk.pine-source',icon:'code',tooltip:'Edit Pine Script',when:i=>Boolean(i.source),run:(ctx,i)=>open(ctx,'create',i.source)});
- registerStatePersistence({key:'desk.pine.v1',scope:'cell',serialize:ctx=>pineState(ctx.chart,studyName),restore:restorePineState});
+ registerStatePersistence({key:'desk.pine.v1',scope:'cell',serialize:ctx=>pineState(ctx.chart,studyName,savedSource),restore:restorePineState});
 }
 export async function loadPineLibrary(settings){
  library=Array.isArray(settings.pineLibrary)?settings.pineLibrary.filter(s=>s&&typeof s.source==='string'&&typeof s.name==='string').slice(0,6):[];

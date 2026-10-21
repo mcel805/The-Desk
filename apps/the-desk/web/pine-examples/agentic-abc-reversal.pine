@@ -1,5 +1,5 @@
 //@version=6
-indicator("Agentic - ABC Reversal", shorttitle="Agentic - ABC Reversal", overlay=true, dynamic_requests=true, max_lines_count=350, max_labels_count=300, max_boxes_count=1, max_bars_back=240, calc_bars_count=3000)
+indicator("Agentic - ABC Reversal", shorttitle="Agentic - ABC Reversal", overlay=true, dynamic_requests=true, max_lines_count=350, max_labels_count=300, max_boxes_count=1, max_bars_back=3000, calc_bars_count=3000)
 
 // Paired lifecycle release; all previous versions preserved.
 // Before the FIRST confirmed ABC, a farther FIRST-contact event supersedes
@@ -66,13 +66,14 @@ float volumeThreshold = input.float(1.2, "Volume / prior mean threshold", minval
 bool probeVolume = input.bool(false, "Require above-baseline volume for PROBE", group=V)
 bool entryVolume = input.bool(false, "Require above-baseline volume for READY", group=V)
 
-// White reversal counts are visually distinct from cyan Elliott wave counts.
-color longColor = input.color(color.new(color.white, 12), "Long geometry", group=D)
-color shortColor = input.color(color.new(color.white, 12), "Short geometry", group=D)
+// Direction-colored observed paths; future geometry is faint/dashed.
+bool hostLivePath=input.bool(false,"Desk live drawing host",group=D)
+color longColor = input.color(color.rgb(0,184,169), "Long geometry", group=D)
+color shortColor = input.color(color.rgb(242,54,69), "Short geometry", group=D)
 color zoneColor = input.color(color.rgb(255, 217, 74), "HTF zone", group=D)
 color developingColor = input.color(color.new(color.white, 76), "Developing / hypothetical", group=D)
 bool showPath = input.bool(true, "Show A/B/C path", group=D)
-bool showProjection = input.bool(false, "Show developing path and A–C parallel rails", group=D)
+bool showProjection = input.bool(true, "Show live leg forecasts and A–C parallel rails", group=D)
 bool showGeometryLine = input.bool(true, "Show C-to-HL / C-to-LH trendline", group=D)
 bool keepHistory = input.bool(false, "Keep completed/invalidated geometry in history", group=D)
 int historyCounts = input.int(3, "Historical snapshots to retain (bounded)", minval=1, maxval=20, group=D)
@@ -185,30 +186,31 @@ f_cForecast(float startPrice,int startIndex,float av,int ax,float bv,int bx,int 
     int endAt=math.max(knownAt+1,bx+math.min(duration,projectionBars))
     [math.round(selected/tick)*tick,bv-direction*leg*1.0,bv-direction*leg*1.618,endAt,reason]
 
-f_draw(array<line> lines, array<label> labels, float s, int si, float a, int ai, float b, int bi, float c, int ci, float hl, int hi, int endAt, bool developing, color ink) =>
-    if showPath and not na(ai)
+f_draw(array<line> lines, array<label> labels, float s, int si, float a, int ai, float b, int bi, float c, int ci, float hl, int hi, int endAt, bool developing, color ink, bool hosted) =>
+    if showPath and not hosted and not na(ai)
         if not na(si) and si < ai
-            f_line(lines, si, s, ai, a, ink, line.style_solid, 1)
+            f_line(lines, si, s, ai, a, ink, line.style_solid, 2)
         f_label(labels, ai, a, "A", ink, direction == 1, "Corrective A. Pivot origin; recognized later after confirmation.")
         if not na(bi) and bi > ai
-            f_line(lines, ai, a, bi, b, color.new(color.white,65), line.style_solid, 1)
+            f_line(lines, ai, a, bi, b, ink, line.style_solid, 2)
             f_label(labels, bi, b, "B", ink, direction == -1, "Corrective B. This horizontal price is the later SHIFT threshold.")
         if not na(ci) and not na(bi) and ci > bi
-            f_line(lines, bi, b, ci, c, developing ? developingColor : ink, developing ? line.style_dashed : line.style_solid, 1)
+            f_line(lines, bi, b, ci, c, ink, line.style_solid, 2)
             f_label(labels, ci, c, developing ? "C?" : "C", developing ? developingColor : ink, direction == 1, developing ? "Developing extreme, not a confirmed pivot. May extend or be replaced." : "Corrective C pivot confirmed later. This is NOT the SHIFT or entry signal.")
-    if not developing and not na(ci)
+    if not hosted and not developing and not na(ci)
         label cDot=label.new(ci,c,"•",xloc=xloc.bar_index,style=label.style_none,textcolor=color.new(color.white,15),size=10,tooltip="Confirmed C swing origin. Recognized only after right-side pivot candles closed; not a confirmed reversal or entry.")
         array.push(labels,cDot)
     if not na(bi)
         f_line(lines, bi, b, endAt, b, color.new(ink, 35), line.style_dotted, 1)
-    if showProjection and not na(ai) and not na(ci) and ci > ai and not na(bi)
+    if showProjection and not hosted and not na(ai) and not na(ci) and ci > ai and not na(bi)
         float rail = f_y(ai, a, ci, c, endAt)
         float parallel = b + (c - a) * (endAt - bi) / (ci - ai)
         f_line(lines, ai, a, endAt, rail, color.new(developingColor, 25), line.style_dashed, 1)
         f_line(lines, bi, b, endAt, parallel, color.new(developingColor, 25), line.style_dashed, 1)
     if showGeometryLine and not developing and not na(hi) and not na(ci) and hi > ci
         float projected = f_y(ci, c, hi, hl, endAt)
-        f_line(lines, ci, c, endAt, projected, ink, line.style_solid, 1)
+        f_line(lines, ci, c, hi, hl, ink, line.style_solid, 2)
+        f_line(lines, hi, hl, endAt, projected, color.new(ink,65), line.style_dashed, 1)
         f_label(labels, hi, hl, direction == 1 ? "HL" : "LH", ink, direction == 1, "Confirmed post-C higher low / lower high after a first opposite swing. MICRO mode can precede larger B. Trendline did not exist before this pivot was confirmed.")
     true
 
@@ -386,7 +388,7 @@ if entryChart and barstate.isconfirmed
             // anchors, then promote old C to A and use a later confirmed bounce.
             if keepHistory
                 color oldInk = direction == 1 ? longColor : shortColor
-                f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, oldInk)
+                f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, oldInk, false)
                 f_label(historyLabels, bar_index, close, "C lost · restart", developingColor, direction == 1, "Prior reversal failed. Old geometry frozen; the zone campaign remains active until expiry.")
             a := c
             ai := ci
@@ -555,7 +557,7 @@ if entryChart and barstate.isconfirmed
         if hlLost
             if keepHistory
                 color lostInk = direction == 1 ? longColor : shortColor
-                f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, lostInk)
+                f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, lostInk, false)
                 f_label(historyLabels, bar_index, close, "HL/LH lost", developingColor, direction == 1, "Snapshot retains the old trendline before its anchor is cleared. This failed geometry remains reviewable in history.")
             firstHL := na
             firstHLindex := na
@@ -626,7 +628,7 @@ if entryChart and barstate.isconfirmed
 
     if archive and keepHistory and not na(ci)
         color ink = direction == 1 ? longColor : shortColor
-        f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, ink)
+        f_draw(historyLines, historyLabels, s, si, a, ai, b, bi, c, ci, firstHL, firstHLindex, bar_index, false, ink, false)
         f_label(historyLabels, bar_index, close, phase == 5 ? message : "c extended", developingColor, direction == 1, "Historical snapshot recorded when this event became available. Subsequent setups do not move these anchors.")
     if archive and phase == 2
         c := na
@@ -696,12 +698,12 @@ if barstate.islastconfirmedhistory or (barstate.islast and (not fastDraw or bars
         bool developing = phase == 2
         float pc = developing ? developingC : c
         int pi = developing ? developingIndex : ci
-        f_draw(liveLines, liveLabels, s, si, a, ai, b, bi, pc, pi, firstHL, firstHLindex, bar_index + projectionBars, developing, ink)
-        if phase==2 and showCforecast and not na(projectedC)
+        f_draw(liveLines, liveLabels, s, si, a, ai, b, bi, pc, pi, firstHL, firstHLindex, bar_index + projectionBars, developing, ink, hostLivePath)
+        if phase==2 and showCforecast and not hostLivePath and not na(projectedC)
             int horizon=math.max(bar_index+1,projectedIndex)
-            f_line(liveLines,bi,b,horizon,projectedC,color.new(color.white,76),line.style_dashed,1)
+            f_line(liveLines,bi,b,horizon,projectedC,color.rgb(255,217,74),line.style_dashed,1)
             f_line(liveLines,bi,projectedC,horizon,projectedC,color.new(color.white,68),line.style_dotted,1)
-            f_label(liveLabels,horizon,projectedC,"C? "+str.tostring(projectedC,format.mintick),color.new(color.white,40),direction==1,"Provisional C after confirmed A/B: "+projectionReason+". A-leg equality / 1.272 / 1.618 neighborhood. No probability or entry implied.")
+            f_label(liveLabels,horizon,projectedC,"C? "+str.tostring(projectedC,format.mintick),color.rgb(255,217,74),direction==1,"Provisional C after confirmed A/B: "+projectionReason+". A-leg equality / 1.272 / 1.618 neighborhood. No probability or entry implied.")
             f_line(liveLines,bi,forecastOne,horizon,forecastOne,color.new(color.white,88),line.style_dotted,1)
             f_line(liveLines,bi,forecastExtended,horizon,forecastExtended,color.new(color.white,88),line.style_dotted,1)
 
@@ -758,3 +760,14 @@ plot(readyH or readyG?1:0,"ABC audit · retest passed",display=display.data_wind
 plot(a,"ABC audit · A",display=display.data_window)
 plot(b,"ABC audit · B",display=display.data_window)
 plot(c,"ABC audit · C",display=display.data_window)
+
+// Desk visual anchors v2. Read-only exports; never used in lifecycle decisions.
+f_anchorTime(int index) =>
+    not na(index) and bar_index-index<3000 ? time[bar_index-index] : na
+plot(hostLivePath?1:0,"ABC drawing · hosted",display=display.data_window)
+plot(s,"ABC drawing · origin",display=display.data_window)
+plot(f_anchorTime(si),"ABC drawing · origin time",display=display.data_window)
+plot(f_anchorTime(armedAt),"ABC drawing · armed time",display=display.data_window)
+plot(f_anchorTime(ai),"ABC drawing · A time",display=display.data_window)
+plot(f_anchorTime(bi),"ABC drawing · B time",display=display.data_window)
+plot(f_anchorTime(ci),"ABC drawing · C time",display=display.data_window)

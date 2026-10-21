@@ -18,6 +18,7 @@ async function compareOriginal(){return evaluate(async()=>{
  const source=await(await fetch('/pine-examples/agentic-market-geometry-original.pine')).text(),{PineWorkerEngine}=await import('/vendor/pine-engine.js');
  const engine=new PineWorkerEngine({workerUrl:new URL('/vendor/pine-compatible-worker.js',location.href).href});let session,model;
  try{const prepared=await engine.prepare(source,'geometry-original-browser');await new Promise((resolve,reject)=>{session=engine.execute({prepared,bars,market:{...c.market,symbolInfo:{ticker:'BTC-USD',tickerid:'coinbase:BTC-USD',timezone:'UTC',mintick:.01,minmov:1,pricescale:100,type:'crypto',currency:'USD'}},inputs:h.inputValues(),historyState:'complete',mode:'static'},{onModel:m=>model=m,onDone:resolve,onError:reject});});
+  const {marketGeometryDrawing}=await import('/abc-live-drawing.mjs');model=marketGeometryDrawing(model,tf);
   const port=c.rendererControl.renderer.scene.indicators.get(h.id),clean=a=>JSON.stringify(a,(k,v)=>k==='id'||k==='paneId'?undefined:v);
   if(!model.lines.length||clean(model.lines)!==clean(port.lines)||clean(model.labels)!==clean(port.labels))throw Error('Original-versus-port drawing mismatch');
   return {matched:true,timeframe:tf,bars:bars.length,lines:port.lines.length,labels:port.labels.length,cutoff:bars.filter(b=>b.time+Number(tf)*60000<=Date.now()).at(-1).time};
