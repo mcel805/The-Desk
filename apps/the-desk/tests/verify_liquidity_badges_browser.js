@@ -16,18 +16,21 @@ async () => {
   const entry=chart.orchestrator.registry.get(handle.id);
   return !entry?.loading&&chart.rendererControl.renderer.scene.indicators.get(handle.id);
  });
- const badges=model.labels.filter(l=>/ · \d+\/100$/.test(l.text));
+ const badges=model.labels.filter(l=>/^\d+\/100$/.test(l.text));
  const main=model.lines.filter(l=>l.style==='solid'&&l.width===2);
  assert(badges.length>8,'Exercise more than eight source groups');
  for(const line of main)assert(badges.some(l=>l.color.slice(0,7)===line.color.slice(0,7)&&line.y1>=l.deskLiquiditySpan[0]-1e-8&&line.y1<=l.deskLiquiditySpan[1]+1e-8),'Every main line has a badge');
- const trace={markers:0,purpleStrokes:0},proto=CanvasRenderingContext2D.prototype,fill=proto.fillText,stroke=proto.stroke;
+ assert.ok(badges.every(l=>!l.deskLiquidityShared),'Shared levels have no purple tag treatment');
+ const trace={markers:0,purpleStrokes:0,whiteTagBorders:0},proto=CanvasRenderingContext2D.prototype,fill=proto.fillText,stroke=proto.stroke,strokeRect=proto.strokeRect;
  try{
   proto.fillText=function(text,...args){if(text==='1×')trace.markers++;return fill.call(this,text,...args);};
   proto.stroke=function(...args){if(String(this.strokeStyle).toLowerCase()==='#b388ff')trace.purpleStrokes++;return stroke.apply(this,args);};
+  proto.strokeRect=function(...args){if(String(this.strokeStyle).toLowerCase()==='#ffffff')trace.whiteTagBorders++;return strokeRect.apply(this,args);};
   chart.rendererControl.renderer.scheduler.invalidate(4);
   await new Promise(r=>setTimeout(r,600));
- }finally{proto.fillText=fill;proto.stroke=stroke;}
- assert(trace.markers>0,'Micro shared dots painted on actual canvas');
- assert(trace.purpleStrokes>0,'Purple shared outlines painted on actual canvas');
- return {passed:true,market:chart.market,badges:badges.length,mainLines:main.length,sharedLines:main.filter(l=>l.deskLiquidityShared).length,canvas:trace};
+ }finally{proto.fillText=fill;proto.stroke=stroke;proto.strokeRect=strokeRect;}
+ assert.equal(trace.markers,0,'No purple shared dots are painted');
+ assert.equal(trace.purpleStrokes,0,'No purple shared outlines are painted');
+ assert(trace.whiteTagBorders>0,'White rectangular tag borders painted on actual canvas');
+ return {passed:true,market:chart.market,badges:badges.length,mainLines:main.length,canvas:trace};
 }

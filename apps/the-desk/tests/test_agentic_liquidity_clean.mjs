@@ -25,7 +25,7 @@ for(const tf of ['1','5','15','30','60','240','1D'])test(`Clean view on ${tf}: s
  assert.ok(model.lines.length>0);assert.ok(model.lines.length<=48);assert.ok(model.boxes.length<=38);assert.ok(model.labels.length<=model.lines.length);assert.ok(!("cleanLabelLimit" in model.inputValues));
  for(const line of model.lines){assert.equal(line.width,2);assert.equal(line.style,'solid');assert.equal(line.y1,line.y2);assert.ok(active.some(r=>r[1]===line.y1&&r[0]===line.x1),'line stays on an actual retained source pivot');assert.equal(line.x2,end+12*minutes(tf)*60000);}
  assert.ok(model.boxes.every(b=>[b.left,b.right,b.top,b.bottom].every(Number.isFinite)&&b.top>=b.bottom));
- assert.ok(model.labels.every(l=>/^\S+ · \d+\/100$/.test(l.text)));
+ assert.ok(model.labels.every(l=>/^\d+\/100$/.test(l.text)));
  assert.ok(warnings.every(w=>!/unsupported|error|out.of.bounds/i.test(w.message)));
 });
 // Exercise the actual Pine grouping/assignment/scoring helpers independently of market coincidence.

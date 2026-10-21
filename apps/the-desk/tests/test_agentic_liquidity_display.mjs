@@ -95,32 +95,33 @@ test('the installed host attaches the reference pattern to Liquidity models with
  assert.equal((await execute('//@version=6\nindicator("Other")\nplot(close)')).lines[0].deskDashPattern,undefined);
 });
 
-test('all on-screen clean badges survive crowded panes and zoom; ordinary labels stay untouched',()=>{
+test('all on-screen score-only badges survive crowded panes and zoom; ordinary labels stay untouched',()=>{
  const label=(id,y,text)=>({id,paneId:'price',xloc:'bar_index',x:150,yloc:'price',y,text,style:'label_right',size:'tiny',color:'#AA2430A6',textColor:'#FFFFFF',tooltip:text});
- const models=liquidityDisplayModel({lines:[],labels:[label('a',100,'60+30+15 · 73/100'),label('b',105,'60+30 · 60/100'),label('c',150,'30+15 · 50/100'),label('ordinary',105,'Unrelated annotation')]});
+ const models=liquidityDisplayModel({lines:[],labels:[label('a',100,'73/100'),label('b',105,'60/100'),label('c',150,'50/100'),label('ordinary',105,'Unrelated annotation')]});
  assert.ok(models.labels.slice(0,3).every(l=>l.deskLiquidityBadge));assert.equal(models.labels[3].deskLiquidityBadge,undefined);
  const painted=[],ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:text=>painted.push(text)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
  const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
  renderer.setSet({lines:[],boxes:[],labels:models.labels,linefills:[],polylines:[]});renderer.render(ctx,300,200,v=>v,v=>v);
- assert.deepEqual(painted,['60+30+15 · 73/100','60+30 · 60/100','30+15 · 50/100','Unrelated annotation']);
+ assert.deepEqual(painted,['73/100','60/100','50/100','Unrelated annotation']);
  painted.length=0;renderer.render(ctx,300,200,v=>v,v=>v*5-450);
- assert.deepEqual(painted,['60+30+15 · 73/100','60+30 · 60/100','Unrelated annotation'],'zoom restores the second badge while offscreen badges reserve no room');
+ assert.deepEqual(painted,['73/100','60/100','Unrelated annotation'],'zoom restores the second badge while offscreen badges reserve no room');
 });
 
-test('clean main lines have no shading and stop fourteen pixels before the measured text column at every zoom',()=>{
- const adapted=liquidityDisplayModel({lines:[{id:'active',paneId:'price',xloc:'bar_index',x1:20,x2:900,y1:100,y2:100,extend:'none',width:2,style:'solid',color:'#AA2430'}],boxes:[{id:'band',paneId:'price',xloc:'bar_index',left:30,right:900,top:104,bottom:100,extend:'none',bgColor:'#AA243030'}],labels:[{id:'badge',paneId:'price',xloc:'bar_index',x:900,yloc:'price',y:100,text:'60+30+15 · 73/100',style:'label_right',size:10,color:'#AA2430',textColor:'#FFFFFF',tooltip:'Convergence'}]});
+test('clean main lines have no shading and stop eight pixels before the white rectangular tag at every zoom',()=>{
+ const adapted=liquidityDisplayModel({lines:[{id:'active',paneId:'price',xloc:'bar_index',x1:20,x2:900,y1:100,y2:100,extend:'none',width:2,style:'solid',color:'#AA2430'}],boxes:[{id:'band',paneId:'price',xloc:'bar_index',left:30,right:900,top:104,bottom:100,extend:'none',bgColor:'#AA243030'}],labels:[{id:'badge',paneId:'price',xloc:'bar_index',x:900,yloc:'price',y:100,text:'73/100',style:'label_right',size:10,color:'#AA2430',textColor:'#FFFFFF',tooltip:'Convergence'}]});
  assert.equal(adapted.lines[0].x2,900);assert.equal(adapted.boxes.length,0,'main-line shading is removed');
  for(const width of [320,1000])for(const zoom of [.1,4]){
-  const texts=[],strokes=[],fills=[];let end;
-  const ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:(text,x,y)=>{if(text!=='1×')texts.push({text,x,y});},moveTo(){},lineTo:(x,y)=>{end=[x,y]},stroke:()=>strokes.push(end),fillRect:(...rect)=>fills.push(rect)},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
+  const texts=[],strokes=[],fills=[],rectangles=[];let end;
+  const ctx=new Proxy({measureText:t=>({width:t.length*5}),fillText:(text,x,y)=>texts.push({text,x,y}),moveTo(){},lineTo:(x,y)=>{end=[x,y]},stroke:()=>strokes.push(end),fillRect:(...rect)=>fills.push({color:ctx.fillStyle,rect}),strokeRect:(...rect)=>rectangles.push({color:ctx.strokeStyle,rect})},{get:(obj,key)=>key in obj?obj[key]:()=>{}});
   const renderer=new DrawingSceneRenderer({timeToLogical:t=>t,barAt:()=>null,theme:{textColor:'#FFFFFF'}});
   renderer.setSet({...adapted,linefills:[],polylines:[]});renderer.render(ctx,width,200,v=>v*zoom,v=>v);
   assert.equal(texts.length,1,'badge remains visible even when its original future timestamp is offscreen');
-  assert.equal(texts[0].x,width-12-7-6-('60+30+15 · 73/100'.length*5)/2);
+  assert.equal(texts[0].x,width-12-7-(('73/100'.length*5)+12)/2);
   assert.equal(texts[0].y,100);
-  const badgeLeft=width-12-7-12-('60+30+15 · 73/100'.length*5);
-  assert.deepEqual(strokes[0],[badgeLeft-14,100],'line stops before the badge background and shared marker');
-  assert.equal(fills.length,0,'no main band reaches the canvas');
+  const badgeLeft=width-12-7-12-('73/100'.length*5);
+  assert.deepEqual(strokes[0],[badgeLeft-8,100],'line stops before the badge background');
+  assert.ok(rectangles.some(r=>r.color==='#FFFFFF'),'tag has a white rectangular outline');
+  assert.equal(fills.length,1,'only the tag background reaches the canvas');
  }
 });
 function gutterFixture(){

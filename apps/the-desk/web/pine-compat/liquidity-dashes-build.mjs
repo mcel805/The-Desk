@@ -49,11 +49,10 @@ function adaptBadges(contents){
  contents=contents.replace(lineX,'const x2 = ln.deskLiquidityRightEdge ? deskLiquidityLineEnd : xOf(this.logicalOf(ln.xloc, ln.x2));\n if(ln.deskLiquidityRightEdge && x1>x2) continue;');
  const afterLine='const p2Right = x2 >= x1;';
  if(!contents.includes(afterLine))throw Error('Pinned Vela line decoration changed.');
- contents=contents.replace(afterLine,'if(ln.deskLiquidityShared)drawLiquiditySharedMarker(ctx,x2,y2);\n '+afterLine);
  const bubble='const r = this.drawBubble(ctx, lb, px, py, fontPx, color);';
  if(!contents.includes(bubble))throw Error('Pinned Vela bubble renderer changed.');
- contents=contents.replace(bubble,bubble+'\n if(lb.deskLiquidityBadge)drawLiquiditySharedOutline(ctx,lb,r);');
- return 'import {layoutLiquidityBadges,drawLiquidityConnector,drawLiquiditySharedMarker,drawLiquiditySharedOutline,liquidityBadgeX,liquidityLineEnd} from '+badgeLayout+';\n'+contents;
+ contents=contents.replace(bubble,'const r = lb.deskLiquidityBadge ? drawLiquidityBadge(ctx,lb,px,py,this.labelFont(lb,fontPx),fontPx) : this.drawBubble(ctx, lb, px, py, fontPx, color);');
+ return 'import {layoutLiquidityBadges,drawLiquidityConnector,drawLiquidityBadge,liquidityBadgeX,liquidityLineEnd} from '+badgeLayout+';\n'+contents;
 }
 const needle='ctx.setLineDash(dashPattern(ln.style, ln.width));';
 const replacement='ctx.setLineDash(ln.deskDashPattern ?? dashPattern(ln.style, ln.width));';
