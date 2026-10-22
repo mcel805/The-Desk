@@ -50,3 +50,6 @@ node --test tests/test_abc_play_history.mjs tests/test_abc_live_drawing.mjs test
 ```
 
 Validation on 2026-10-21 (Pacific): 57 focused checks cover long/short glow, qualification continuity, next-level and ambiguous-candle endings, confirmed HL/LH/C exits, expiry, 5m marker timing, bounded/frozen history, summary anchors, exact v2 migration, panel/editor persistence, host serialization and original Pine lifecycle parity. A browser fixture exercised the actual Desk worker and native renderer with qualified active and next-level-completed plays side by side. The installed ETH chart was then reloaded: both saved ABC copies upgraded to v3, completed history enabled, custom color preserved, and the paper account/position/order/fill snapshots remained unchanged. Synthetic rendering proof is not measured trade performance or TradingView parity.
+
+
+Touched-level visibility: the host displays an explicit TOUCHED price tag and dashed observed lead-in at START. Matching higher-timeframe charts now display the same entry-chart price and START/END markers, labeled with the originating 1m/5m timeframe. Keep that source chart open in the workspace. This copies presentation only; ABC confirmation and alert decisions remain on their original entry timeframe. See `docs/ABC-LIVE-DRAWING.md` for source selection and cleanup rules.

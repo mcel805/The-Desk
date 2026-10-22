@@ -1,5 +1,6 @@
 import test from 'node:test';
 import {abcLiveDrawing} from '../web/abc-live-drawing.mjs';
+import {ABCSharedDisplay} from '../web/abc-shared-display.mjs';
 import {abcPlayDrawing} from '../web/abc-play-history.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -42,7 +43,8 @@ test('counter-day requires the additional confirmed structure; volume and obstac
  for(const inputs of [{requireHLcounter:true},{entryVolume:true,volumeThreshold:2},{useObstacle:true,obstaclePrice:108.6,minRoomR:2}]){const gated=await run({bars,inputs});assert.equal(last(gated.model,'ABC audit · retest passed'),0);}
 });
 test('losing confirmed C after SHIFT restarts the same liquidity campaign with old C as A',async()=>{const bars=fixture().slice(0,49);bars[48]={...bars[48],low:95,high:97,open:96,close:96};const r=await run({bars});assert.ok([1,2].includes(last(r.model,'ABC audit · phase')));assert.equal(last(r.model,'ABC audit · A'),96.5);assert.ok(!Number.isFinite(last(r.model,'ABC audit · C')));assert.equal(last(r.model,'ABC audit · retest passed'),0);});
-test('forming wick cannot advance or destroy the completed lifecycle',async()=>{const now=Math.floor(Date.now()/60000)*60000,bars=fixture().slice(0,48).map((b,i)=>({...b,time:now-(48-i)*60000})),before=await run({bars}),forming={time:now,open:106,close:50,high:1000,low:1,volume:100};const after=await run({bars:[...bars,forming],feed:{connected:true,model:feedModel([...bars,forming])}});assert.equal(rows(after.model,'ABC audit · phase').at(-2),last(before.model,'ABC audit · phase'));assert.equal(last(after.model,'ABC audit · phase'),last(before.model,'ABC audit · phase'));});
+// Place the synthetic forming candle safely ahead of wall-clock rollover.
+test('forming wick cannot advance or destroy the completed lifecycle',async()=>{const now=Math.floor(Date.now()/60000)*60000,bars=fixture().slice(0,48).map((b,i)=>({...b,time:now-(48-i)*60000})),before=await run({bars}),forming={time:now+10*60000,open:106,close:50,high:1000,low:1,volume:100};const after=await run({bars:[...bars,forming],feed:{connected:true,model:feedModel([...bars,forming])}});assert.equal(rows(after.model,'ABC audit · phase').at(-2),last(before.model,'ABC audit · phase'));assert.equal(last(after.model,'ABC audit · phase'),last(before.model,'ABC audit · phase'));});
 test('broker requires exactly one same-chart producer and matching completed OHLC',()=>{const bars=fixture(),req={market:market('1'),bars};assert.equal(selectABCFeed(new Map(),req).connected,false);const records=new Map([['liq',producer(bars)]]);assert.equal(selectABCFeed(records,req).connected,true);records.set('liq2',producer(bars));assert.equal(selectABCFeed(records,req).connected,false);records.delete('liq2');assert.equal(selectABCFeed(records,{...req,market:{...req.market,symbol:'other:MYM'}}).connected,false);assert.equal(selectABCFeed(records,{...req,bars:bars.map((b,i)=>i===5?{...b,high:b.high+1}:b)}).connected,false);assert.equal(selectABCFeed(new Map([['pine-test-liq',producer(bars)]]),req).connected,false);});
 test('timestamp feeds never shift samples or fill missing/future samples with close',()=>{const bars=fixture(),feed={connected:true,model:feedModel(bars)},inputs=abcTransportInputs({},feed,'Long from support',bars[10].time+60000,'1');assert.equal(inputs.externalLevel.values[bars[10].time],100);assert.equal(inputs.externalLevel.values[bars[11].time],undefined);assert.equal(inputs.reachedFeed.values[bars[2].time],null);});
 test('both-side wrapper merges distinct drawings and removes connection transport from saved inputs',async()=>{
@@ -114,4 +116,21 @@ test('history default migrates once and a later user toggle remains respected',a
  const worker={execute:(req,h)=>{queueMicrotask(()=>{h.onModel({inputValues:req.inputs,series:[],lines:[],labels:[]});h.onDone();});return {stop(){}};},terminate(){}};
  const bridge=new ABCReversalWorker({records:new Map(),worker,subscribe:()=>()=>{}}),wait=()=>new Promise(resolve=>resolveDone=resolve);let session;
  try{let done=wait();session=bridge.execute({prepared,bars:[],market:market('1'),inputs},{onModel(){},onDone:()=>resolveDone()});await done;assert.equal(inputs.keepHistory,true);assert.equal(inputs.longColor,'#123456');done=wait();session.update({keepHistory:false});await done;assert.equal(prepared.abcPlayUpgrade,false);}finally{session?.stop();bridge.terminate();}
+});
+
+
+test('30m receives 1m touched-line markers on source arrival and clears them on disposal without gaining ABC signals',async()=>{
+ const sharedDisplay=new ABCSharedDisplay(),bars=fixture().slice(0,42),thirty=[{...bars[0],time:bars[0].time},{...bars.at(-1),time:bars[0].time+30*60000}];
+ const make=records=>{const engine=new PineEngine();return new ABCReversalWorker({records,sharedDisplay,subscribe:()=>()=>{},worker:{prepare:(...a)=>engine.prepare(...a),execute:(...a)=>engine.execute(...a),terminate(){}}});};
+ const one=make(new Map([['liq',producer(bars)]])),htf=make(new Map());let sourceSession,targetSession,targetModel;const alerts=[];
+ const start=async(bridge,id,tf,data,onModel)=>{const prepared=await bridge.prepare(source,id);let session;await new Promise((resolve,reject)=>{session=bridge.execute({prepared,bars:data,market:market(tf),inputs:{...baseInputs,reversalSide:'Long from support'},historyState:'complete'},{onModel,onDone:resolve,onError:reject,onAlert:a=>alerts.push(a)});});return session;};
+ try{
+  targetSession=await start(htf,'shared-target','30',thirty,m=>targetModel=m);assert.equal(targetModel.lines.length,0);
+  let sourceModel;sourceSession=await start(one,'shared-source','1',bars,m=>sourceModel=m);
+  assert.equal(targetModel.abcShared.sourceTimeframe,'1');assert.deepEqual(targetModel.abcPlays,sourceModel.abcPlays);
+  const tag=targetModel.labels.find(l=>l.text==='START · 1m');assert.ok(tag);assert.equal(tag.x,sourceModel.abcPlays[0].start.time);
+  assert.equal(targetModel.lines.find(l=>l.id.endsWith(':in-play')).y1,sourceModel.abcPlays[0].level);
+  assert.ok(targetModel.series.find(s=>s.title==='Long · ABC audit · contact').points.every(p=>p.value===0));assert.equal(targetModel.abcBridge.connected,false);assert.equal(alerts.length,0);
+  sourceSession.stop();assert.equal(targetModel.lines.length,0);assert.equal(targetModel.labels.length,0);assert.equal(targetModel.abcShared,null);
+ }finally{sourceSession?.stop();targetSession?.stop();one.terminate();htf.terminate();assert.equal(sharedDisplay.sources.size,0);assert.equal(sharedDisplay.listeners.size,0);}
 });

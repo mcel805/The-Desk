@@ -1,3 +1,4 @@
+import {sharedABCDisplay,sharedABCModel} from './abc-shared-display.mjs';
 import {abcPlayDrawing} from './abc-play-history.mjs';
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 export const isABCSource=source=>typeof source==='string'&&source.includes('indicator("Agentic - ABC Reversal"')&&/f_cForecast\s*\(/.test(source)&&/var map<int,bool> deadLevels/.test(source);
@@ -39,7 +40,7 @@ export function mergeABCModels(models,prepared,inputs,feed){
 // One chart owns one DeskPineEngine. Its records are the only producer authority.
 // Pine owns completed-candle decisions. The display layer follows streaming wicks.
 export class ABCReversalWorker {
- constructor({records,subscribe,worker=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href})}){this.worker=worker;this.records=records;this.subscribe=subscribe;this.sessions=new Set();}
+ constructor({records,subscribe,sharedDisplay=sharedABCDisplay,worker=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href})}){this.sharedDisplay=sharedDisplay;this.worker=worker;this.records=records;this.subscribe=subscribe;this.sessions=new Set();}
  async prepare(source,id){
   // Upgrade exact shipped presentation releases only; custom Pine stays owned.
   let abcVisualUpgrade=false,abcPlayUpgrade=false;
@@ -58,6 +59,7 @@ export class ABCReversalWorker {
   return {...prepared,abcVisualUpgrade,abcPlayUpgrade,inputs:prepared.inputs.filter(s=>!hiddenInputs.has(s.key))};
  }
  execute(req,handlers){
+  const displayOwner=Symbol('ABC display'),entryChart=['1','5'].includes(String(req.market.timeframe)),displaySource=!req.prepared.token.instanceId.startsWith('pine-test-');
   let stopped=false,generation=0,children=[],timer,lastSignature='',inputs={...req.inputs},props={...req.props},range=req.visibleRange,models=[],feed;
   if(req.prepared.abcVisualUpgrade){
    if(inputs.showProjection===false)inputs.showProjection=true;
@@ -71,7 +73,17 @@ export class ABCReversalWorker {
    if(!models.length||models.some(m=>!m))return;
    const bars=req.getBars?.()||req.bars;
    const displayed=models.map((m,i)=>abcPlayDrawing(m,bars,{feed,timeframe:req.market.timeframe,id:req.prepared.token.instanceId+':'+i,tick:req.market.symbolInfo?.mintick||0}));
-   const model=mergeABCModels(displayed,req.prepared,inputs,feed);if(model)handlers.onModel?.(model);
+   let model=mergeABCModels(displayed,req.prepared,inputs,feed);
+   if(!model)return;
+   if(entryChart&&displaySource){
+    if(feed.connected)this.sharedDisplay.publish(displayOwner,{market:req.market,model,cutoff:feed.cutoff});
+    else this.sharedDisplay.remove(displayOwner);
+   }else if(!entryChart){
+    const shared=this.sharedDisplay.select(req.market,bars);
+    if(shared)model=sharedABCModel(model,shared,{market:req.market,bars,id:req.prepared.token.instanceId});
+    else model={...model,abcShared:null};
+   }
+   handlers.onModel?.(model);
   };
   const clear=()=>{clearTimeout(timer);for(const s of children)s.stop();children=[];};
   const run=()=>{
@@ -95,7 +107,8 @@ export class ABCReversalWorker {
     });
    }catch(error){clear();handlers.onError?.(error);}
   };
-  const unsubscribe=this.subscribe(run),session={stop:()=>{if(stopped)return;stopped=true;generation++;unsubscribe();clear();this.sessions.delete(session);},update:(next,nextProps)=>{inputs={...inputs,...next};props={...props,...nextProps};run();},setVisibleRange:next=>{range=next;run();},notifyBars:()=>run(),getContext:async select=>{const contexts=await Promise.all(children.map(s=>s.getContext(select)));return {...contexts[0],abcDirections:contexts};}};
+  const unshare=!entryChart?this.sharedDisplay.subscribe(()=>{if(!stopped)emit();}):()=>{};
+  const unsubscribe=this.subscribe(run),session={stop:()=>{if(stopped)return;stopped=true;generation++;unsubscribe();unshare();this.sharedDisplay.remove(displayOwner);clear();this.sessions.delete(session);},update:(next,nextProps)=>{inputs={...inputs,...next};props={...props,...nextProps};run();},setVisibleRange:next=>{range=next;run();},notifyBars:()=>run(),getContext:async select=>{const contexts=await Promise.all(children.map(s=>s.getContext(select)));return {...contexts[0],abcDirections:contexts};}};
   this.sessions.add(session);if(req.historyState!=='backfill')run();else handlers.onDone?.();return session;
  }
  terminate(){for(const s of [...this.sessions])s.stop();this.worker.terminate();}

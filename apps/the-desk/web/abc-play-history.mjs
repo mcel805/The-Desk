@@ -4,6 +4,7 @@ import {abcLiveDrawing} from './abc-live-drawing.mjs';
 const finite=Number.isFinite;
 const TEAL='#00B8A9',RED='#F23645',YELLOW='#FFD94A';
 const alpha=(ink,a)=>/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(ink)?ink.slice(0,7)+a:ink;
+const legible=ink=>/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(ink)?'#'+[1,3,5].map(at=>Math.round(parseInt(ink.slice(at,at+2),16)*.6+255*.4).toString(16).padStart(2,'0')).join(''):ink;
 const candidateTitles=['Rider HTF support','C support 2','C support 3','Rider HTF resistance','C resistance 2','C resistance 3','Reached support · this chart bar','Reached resistance · this chart bar'];
 const indexes=model=>new Map((model?.series||[]).map(s=>[s.title,new Map((s.points||[]).map(p=>[p.time,p.value]))]));
 const read=(index,title,time)=>index.get(title)?.get(time);
@@ -43,7 +44,11 @@ export function deriveABCPlays(model,bars,{feed,timeframe='1',now=Date.now(),tic
    else if(phase===0&&!contact)finish(bar,i,'Campaign reset');
   }
   if(!current&&contact&&finite(level)&&finite(armed)){
-   current={direction,level,armed,tick:priceTick,start:{time:bar.time,price:level,confirmedAt:bar.time+step},startIndex:i,qualifiedAt:null,qualifiedIndex:null,structure:null,c:null,snapshot:null,end:null};
+   // Preserve the price's observed lead-in, not an invented source-pivot origin.
+   const titles=direction===1?candidateTitles.slice(0,3):candidateTitles.slice(3,6);
+   let known=i;
+   while(known>0&&titles.some(t=>Math.abs(read(liquidity,t,closed[known-1].time)-level)<=epsilon))known--;
+   current={levelKnownAt:closed[known].time,direction,level,armed,tick:priceTick,start:{time:bar.time,price:level,confirmedAt:bar.time+step},startIndex:i,qualifiedAt:null,qualifiedIndex:null,structure:null,c:null,snapshot:null,end:null};
   }
   if(!current)continue;
   if(armed===current.armed&&phase>=1&&phase<=5){
@@ -89,6 +94,7 @@ export function abcPlayDrawing(model,bars,{feed,timeframe='1',id='abc',now=Date.
   const path=abcLiveDrawing(shape,scope,{timeframe,id:prefix,now:done?play.end.confirmedAt:now});
   for(const l of path.lines||[])lines.push(done?{...l,color:faded,style:'dashed',deskDashPattern:[5,6],width:2}:l);
   for(const l of path.labels||[])labels.push(done?{...l,textColor:faded,tooltip:(l.tooltip||'')+' Completed play; anchors frozen at its end candle.'}:l);
+  if(play.levelKnownAt<play.start.time)line(prefix+':level-before-contact',{time:play.levelKnownAt,price:play.level},play.start,done?alpha(ink,'66'):alpha(YELLOW,'88'),1,'dashed');
   const end=done?play.end:{time:last.time+step*Math.max(1,Math.min(100,inputs.projectionBars??20)),price:play.level};
   const anchor=title=>play.snapshot.series.find(s=>s.title===title)?.points[0]?.value;
   const cTime=anchor('ABC drawing · C time'),hlTime=anchor('ABC drawing · structure time'),hl=anchor('ABC drawing · structure');
@@ -107,7 +113,8 @@ export function abcPlayDrawing(model,bars,{feed,timeframe='1',id='abc',now=Date.
    line(prefix+':in-play',play.start,{time:end.time,price:play.level},YELLOW,2,'dashed');
   }else if(done&&inputs.showPlayBand!==false)line(prefix+':retired-level',play.start,{time:play.end.time,price:play.level},alpha(ink,'66'),1,'dashed');
   const range=scope.slice(-14).reduce((sum,b)=>sum+b.high-b.low,0)/Math.max(1,Math.min(14,scope.length)),pad=Math.max(range*.4,drawTick*2,Math.abs(play.level)*.00002);
-  const mark=(name,p,color,tooltip)=>{line(prefix+':'+name+'-tick',p,{time:p.time+step*2,price:p.price},color,2,done?'dashed':'solid');label(prefix+':'+name+'-tag',{time:p.time,price:p.price+play.direction*pad},name.toUpperCase(),done?alpha(ink,'CC'):color,tooltip);labels.at(-1).size='small';};
+  const mark=(name,p,color,tooltip)=>{line(prefix+':'+name+'-tick',p,{time:p.time+step*2,price:p.price},color,2,done?'dashed':'solid');label(prefix+':'+name+'-tag',{time:p.time,price:p.price+play.direction*pad},name.toUpperCase(),done?legible(ink):color,tooltip);labels.at(-1).size='small';};
+  label(prefix+':level-tag',{time:last.time,price:play.level+play.direction*pad*.35},`TOUCHED ${play.level.toLocaleString('en-US',{maximumFractionDigits:8})} · ${done?'OVER':'IN PLAY'}`,done?legible(ink):YELLOW,'Exact liquidity price contacted at START. The dashed lead-in shows when this price was observed in the Liquidity feed; it is not a source-pivot timestamp.');labels.at(-1).size='small';
   mark('start',play.start,done?faded:YELLOW,`Liquidity contact at ${play.level}. Recognized on this completed candle; no intrabar order or fill is implied.`);
   if(done){
    mark('end',play.end,faded,`Play ended: ${play.end.reason}. End reference ${play.end.price}; completed candle close ${new Date(play.end.confirmedAt).toISOString()}. Research play, not a broker exit.`);
@@ -123,5 +130,5 @@ export function abcPlayDrawing(model,bars,{feed,timeframe='1',id='abc',now=Date.
   const rows={1:['STAGE',active?'IN PLAY · tracking reversal':'PLAY OVER · '+ended.reason],2:['HTF CONTACT',price(focus.level)],3:['A / B',price(atEnd('ABC audit · A'))+' / '+price(atEnd('ABC audit · B'))],4:[ended?'C AT END':'C',price(atEnd('ABC audit · C'))],5:[ended?'END REASON':'LAST CHECK',ended?ended.reason:'Qualified retest · tracking move']};
   return {...t,cells:t.cells.map((row,i)=>rows[i]?row.map((cell,j)=>({...cell,text:rows[i][j]??cell.text})):row)};
  });
- return {...model,lines,labels,boxes,tables,abcPlays:displayed.map(p=>({direction:p.direction,level:p.level,start:p.start,end:p.end,qualifiedAt:p.qualifiedAt,status:p.end?'complete':'in-play'}))};
+ return {...model,lines,labels,boxes,tables,abcPlays:displayed.map(p=>({drawingPrefix:`${id}:play:${p.direction}:${p.armed}`,levelKnownAt:p.levelKnownAt,direction:p.direction,level:p.level,start:p.start,end:p.end,qualifiedAt:p.qualifiedAt,status:p.end?'complete':'in-play'}))};
 }

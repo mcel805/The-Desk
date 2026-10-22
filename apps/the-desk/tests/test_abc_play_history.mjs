@@ -98,3 +98,13 @@ test('completed summary uses frozen ABC anchors and end reason rather than later
  const drawn=abcPlayDrawing(f.model,f.bars,f.options),cells=drawn.tables[0].cells;
  assert.match(cells[1][1].text,/PLAY OVER/);assert.equal(cells[2][1].text,'100');assert.equal(cells[3][1].text,'99 / 106');assert.equal(cells[4][1].text,'98');assert.equal(cells[5][1].text,'Next liquidity level');assert.equal(f.model.tables[0].cells[3][1].text,'FUTURE 999');
 });
+
+
+test('touched price stays explicit after consumption, with only an observed pre-contact lead-in',()=>{
+ const f=fixture(),live=slice(f,9),m=abcPlayDrawing(live.model,live.bars,live.options);
+ const play=m.abcPlays[0],lead=m.lines.find(l=>l.id.endsWith(':level-before-contact'));
+ assert.equal(play.levelKnownAt,time);assert.equal(lead.x1,time);assert.equal(lead.x2,play.start.time);assert.equal(lead.y1,100);assert.equal(lead.style,'dashed');
+ assert.ok(m.labels.some(l=>l.text==='TOUCHED 100 · IN PLAY'));
+ const consumed=abcPlayDrawing(f.model,f.bars,f.options);assert.ok(consumed.labels.some(l=>l.text==='TOUCHED 100 · OVER'));
+ assert.equal(consumed.lines.find(l=>l.id.endsWith(':retired-level')).y1,100);
+});

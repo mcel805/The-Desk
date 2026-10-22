@@ -46,3 +46,12 @@ settings, visibility, reload, timeframe restrictions and removal. None place ord
 `web/abc-play-history.mjs` replays completed Pine audit rows against the same-chart Liquidity bridge. It owns the yellow active-level overlay and bounded START/END history. It retains a qualified play beyond Pine's terminal setup phase; next-level touches, confirmed adverse structure/C closes and expiry determine the visual endpoint. It never feeds those endpoints into Pine confirmations, retests, risk, alerts or account commands. Live wicks can still redraw forming ABC legs while completed play endpoints remain unchanged.
 
 Completed paths use frozen snapshots and exclude future bars and forecast rails. Active B and C-to-HL/LH references remain visible. Exact v2 source migration enables completed history once without resetting colors, indicator IDs or unrelated settings; later history toggles remain respected.
+
+
+### Shared touched-level markers
+
+The host retains the exact touched liquidity price with a TOUCHED price tag, a dashed lead-in from its first continuous observation in the same-chart Liquidity candidate feed, and the contact START. The lead-in is an observation timestamp, not a reconstructed source-pivot origin. Active lines glow yellow; finished play levels remain faded/dashed with their frozen endpoints.
+
+A workspace-only display registry copies these play-level lines and START/END markers to matching standard higher-timeframe ABC studies (15m, 30m, 1h, etc.). It preserves the entry-chart event timestamp and price; only the short horizontal marker length adapts to the viewing timeframe. Labels identify the source as 1m or 5m. The registry prefers one unambiguous 1m source, falls back to one 5m source, rejects mixed providers/symbols/styles and stale or future cutoffs, and clears markers when the source stops or loses its Liquidity feed. The source chart must remain open in the workspace. Duplicate same-timeframe sources are ambiguous and are not shared.
+
+Shared drawings never become Pine transport inputs, audit contacts, confirmations or alerts. The 1m/5m entry studies continue to calculate their own original decisions; higher-timeframe studies show shared context only. Completed history honors the target study's Keep history preference. No account/order code is involved.
