@@ -20,11 +20,11 @@ for(const short of [false,true])test(`${short?'short':'long'}: glow persists thr
  const f=fixture({short}),before=structuredClone(f.model),live=slice(f,9);
  const active=abcPlayDrawing(live.model,live.bars,live.options);
  assert.equal(active.abcPlays.at(-1).status,'in-play');assert.equal(active.abcPlays.at(-1).qualifiedAt,time+6*step);
- assert.equal(active.lines.filter(l=>l.id.includes(':glow-')).length,2);assert.ok(active.lines.some(l=>l.id.endsWith(':in-play')&&l.style==='dashed'&&l.color==='#FFD94A'));
- assert.ok(active.lines.some(l=>l.id.endsWith(':A')&&l.style==='solid'),'active A stays solid');assert.ok(active.labels.some(l=>l.text==='START'));assert.ok(!active.labels.some(l=>l.text==='END'));assert.equal(active.boxes.length,1);assert.ok(active.boxes[0].id.endsWith(':highlight'));
+ assert.equal(active.lines.filter(l=>l.id.includes(':glow-')).length,0);assert.ok(active.lines.some(l=>l.id.endsWith(':in-play')&&l.style==='dashed'&&l.width===2&&l.color===(short?'#AA2430':'#66BB6A')));assert.ok(Math.abs(active.boxes[0].top-(100+.2))<1e-9);assert.ok(Math.abs(active.boxes[0].bottom-(100-.2))<1e-9);
+ assert.ok(active.lines.some(l=>l.id.endsWith(':A')&&l.style==='solid'),'active A stays solid');assert.ok(!active.labels.some(l=>/START|END|TOUCHED|IN PLAY|OVER/.test(l.text)));assert.ok(!active.labels.some(l=>l.text==='END'));assert.equal(active.boxes.length,1);assert.ok(active.boxes[0].id.endsWith(':highlight'));
  const ended=abcPlayDrawing(f.model,f.bars,f.options),play=ended.abcPlays.at(-1);
  assert.equal(play.status,'complete');assert.equal(play.end.reason,'Next liquidity level');assert.equal(play.end.time,time+13*step);assert.equal(play.end.price,short?85:115);
- assert.ok(ended.labels.some(l=>l.text==='START'));assert.ok(ended.labels.some(l=>l.text==='END'&&l.tooltip.includes('Next liquidity level')));
+ assert.ok(!ended.labels.some(l=>/START|END|TOUCHED|IN PLAY|OVER/.test(l.text)));
  assert.ok(ended.lines.some(l=>l.id.endsWith(':start-tick')));assert.ok(ended.lines.some(l=>l.id.endsWith(':end-tick')));
  assert.ok(ended.lines.every(l=>l.style==='dashed'&&l.color!=='#FFD94A'));assert.ok(ended.lines.some(l=>l.id.endsWith(':A')&&l.color.endsWith('AA')));
  assert.deepEqual(f.model,before,'rendering must not alter Pine model or audit series');
@@ -77,7 +77,7 @@ test('5m play endpoints and marker lengths use the chart interval without shifti
  f.options.feed.model.series=f.options.feed.model.series.map(s=>({...s,points:s.points.map(p=>({...p,time:scale(p.time)}))}));
  f.options={...f.options,timeframe:'5',now:time+f.bars.length*step*5};
  const drawn=abcPlayDrawing(f.model,f.bars,f.options),play=drawn.abcPlays.at(-1),tick=drawn.lines.find(l=>l.id.endsWith(':end-tick'));
- assert.equal(play.start.time,time+5*step);assert.equal(play.end.time,time+65*step);assert.equal(tick.x2-tick.x1,10*step);
+ assert.equal(play.start.time,time+5*step);assert.equal(play.end.time,time+65*step);assert.equal(tick.x2-tick.x1,2.5*step);
 });
 test('only the configured number of finished plays survives; the current play is retained separately',()=>{
  const f=fixture({target:130,prices:Array(28).fill(105),inputs:{historyCounts:2}});
@@ -100,11 +100,24 @@ test('completed summary uses frozen ABC anchors and end reason rather than later
 });
 
 
-test('touched price stays explicit after consumption, with only an observed pre-contact lead-in',()=>{
+test('touched price survives consumption as an unlabelled colored 2px dashed line',()=>{
  const f=fixture(),live=slice(f,9),m=abcPlayDrawing(live.model,live.bars,live.options);
  const play=m.abcPlays[0],lead=m.lines.find(l=>l.id.endsWith(':level-before-contact'));
  assert.equal(play.levelKnownAt,time);assert.equal(lead.x1,time);assert.equal(lead.x2,play.start.time);assert.equal(lead.y1,100);assert.equal(lead.style,'dashed');
- assert.ok(m.labels.some(l=>l.text==='TOUCHED 100 · IN PLAY'));
- const consumed=abcPlayDrawing(f.model,f.bars,f.options);assert.ok(consumed.labels.some(l=>l.text==='TOUCHED 100 · OVER'));
+ assert.ok(!m.labels.some(l=>/START|END|TOUCHED|IN PLAY/.test(l.text)));
+ const consumed=abcPlayDrawing(f.model,f.bars,f.options);assert.ok(!consumed.labels.some(l=>/START|END|TOUCHED|OVER/.test(l.text)));
  assert.equal(consumed.lines.find(l=>l.id.endsWith(':retired-level')).y1,100);
+});
+
+
+test('two-tick symmetric shading ignores legacy percent/depth values and preserves the source pool color',()=>{
+ const f=slice(fixture({inputs:{playBandMode:'Percent',playBandPercent:2,playBandTicks:500,longColor:'#3364EB'}}),9);
+ f.options.feed.model.inputValues={lowColor:'#238F46CC',highColor:'#AA2430'};
+ const m=abcPlayDrawing(f.model,f.bars,f.options),line=m.lines.find(l=>l.id.endsWith(':in-play')),band=m.boxes[0];
+ assert.equal(line.color,'#238F46');assert.equal(line.width,2);assert.equal(line.style,'dashed');
+ assert.equal(band.top,100.2);assert.equal(band.bottom,99.8);assert.ok(m.lines.every(l=>!l.id.includes(':glow-')));
+ const hidden=abcPlayDrawing({...f.model,inputValues:{...f.model.inputValues,showPlayBand:false}},f.bars,f.options);
+ assert.equal(hidden.boxes.length,0);assert.ok(hidden.lines.some(l=>l.id.endsWith(':in-play')&&l.width===2));
+ const unknown=structuredClone(f.model);unknown.series.find(s=>s.title==='ABC drawing · tick').points.forEach(p=>p.value=NaN);
+ const noTick=abcPlayDrawing(unknown,f.bars,{...f.options,tick:0});assert.equal(noTick.boxes.length,0);assert.ok(noTick.lines.some(l=>l.id.endsWith(':in-play')));
 });

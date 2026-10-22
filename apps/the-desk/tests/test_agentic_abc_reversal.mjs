@@ -95,8 +95,8 @@ test('real Pine qualification keeps the liquidity play highlighted until another
  const bars=fixture(),lastBar=bars.at(-1);bars.push({...lastBar,time:lastBar.time+60000,open:109,close:111,high:112,low:108});
  const feed={connected:true,model:feedModel(bars,{resistance:110})},r=await run({bars,feed});
  const activeBars=bars.slice(0,-1),liveFeed={connected:true,model:feedModel(activeBars,{resistance:110})},live=await run({bars:activeBars,feed:liveFeed});
- const tracking=abcPlayDrawing(live.model,activeBars,{feed:liveFeed});assert.equal(tracking.abcPlays.at(-1).status,'in-play');assert.ok(tracking.abcPlays.at(-1).qualifiedAt);assert.ok(tracking.lines.some(l=>l.id.endsWith(':glow-outer')));
- const done=abcPlayDrawing(r.model,bars,{feed});assert.equal(done.abcPlays.at(-1).end.reason,'Next liquidity level');assert.equal(done.abcPlays.at(-1).end.price,110);assert.ok(done.labels.some(l=>l.text==='END'));assert.ok(done.lines.some(l=>l.id.endsWith(':A')&&l.style==='dashed'));assert.deepEqual(done.series,r.model.series);
+ const tracking=abcPlayDrawing(live.model,activeBars,{feed:liveFeed});assert.equal(tracking.abcPlays.at(-1).status,'in-play');assert.ok(tracking.abcPlays.at(-1).qualifiedAt);assert.ok(tracking.boxes.some(b=>b.id.endsWith(':highlight')));assert.ok(tracking.lines.some(l=>l.id.endsWith(':in-play')&&l.width===2));
+ const done=abcPlayDrawing(r.model,bars,{feed});assert.equal(done.abcPlays.at(-1).end.reason,'Next liquidity level');assert.equal(done.abcPlays.at(-1).end.price,110);assert.ok(done.lines.some(l=>l.id.endsWith(':end-tick')));assert.ok(done.lines.some(l=>l.id.endsWith(':A')&&l.style==='dashed'));assert.deepEqual(done.series,r.model.series);
 });
 test('real Pine outputs retain entry decisions while a later confirmed HL close records the play endpoint',async()=>{
  const bars=fixture();for(const price of [111,108,112,106])bars.push({time:bars.at(-1).time+60000,open:price,close:price,high:price+.5,low:price-.5,volume:100});
@@ -128,7 +128,7 @@ test('30m receives 1m touched-line markers on source arrival and clears them on 
   targetSession=await start(htf,'shared-target','30',thirty,m=>targetModel=m);assert.equal(targetModel.lines.length,0);
   let sourceModel;sourceSession=await start(one,'shared-source','1',bars,m=>sourceModel=m);
   assert.equal(targetModel.abcShared.sourceTimeframe,'1');assert.deepEqual(targetModel.abcPlays,sourceModel.abcPlays);
-  const tag=targetModel.labels.find(l=>l.text==='START · 1m');assert.ok(tag);assert.equal(tag.x,sourceModel.abcPlays[0].start.time);
+  assert.equal(targetModel.labels.length,0);const tick=targetModel.lines.find(l=>l.id.endsWith(':start-tick'));assert.ok(tick);assert.equal(tick.x1,sourceModel.abcPlays[0].start.time);
   assert.equal(targetModel.lines.find(l=>l.id.endsWith(':in-play')).y1,sourceModel.abcPlays[0].level);
   assert.ok(targetModel.series.find(s=>s.title==='Long · ABC audit · contact').points.every(p=>p.value===0));assert.equal(targetModel.abcBridge.connected,false);assert.equal(alerts.length,0);
   sourceSession.stop();assert.equal(targetModel.lines.length,0);assert.equal(targetModel.labels.length,0);assert.equal(targetModel.abcShared,null);

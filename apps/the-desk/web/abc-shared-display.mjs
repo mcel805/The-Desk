@@ -22,22 +22,16 @@ export function sharedABCModel(base,source,{market,bars,id}){
  const plays=(source.model.abcPlays||[]).filter(p=>base.inputValues?.keepHistory!==false||!p.end);
  const prefixes=new Set(plays.map(p=>p.drawingPrefix));
  const belongs=obj=>[...prefixes].some(p=>obj.id?.startsWith(p+':'));
- const marker=obj=>/:(?:level-before-contact|glow-outer|glow-inner|in-play|retired-level|start-tick|end-tick|level-tag|start-tag|end-tag)$/.test(obj.id||'');
+ const marker=obj=>/:(?:level-before-contact|in-play|retired-level|start-tick|end-tick)$/.test(obj.id||'');
  const rename=obj=>({...obj,id:`${id}:shared:${obj.id}`});
  const lines=(source.model.lines||[]).filter(l=>belongs(l)&&marker(l)).map(l=>{
   const result=rename(l);
   // Preserve event time; make the short marker leg visible at the viewing resolution.
-  if(/:(start|end)-tick$/.test(l.id))result.x2=l.x1+step*2;
-  if(/:(glow-outer|glow-inner|in-play)$/.test(l.id))result.x2=Math.max(l.x2,last+step*2);
+  if(/:(start|end)-tick$/.test(l.id))result.x2=l.x1+step*.5;
+  if(/:in-play$/.test(l.id))result.x2=Math.max(l.x2,last+step*2);
   return result;
  });
- // Label spacing follows the viewing candles; tick/line prices remain exact.
- const range=bars.slice(-14).reduce((sum,b)=>sum+(Number.isFinite(b.high)&&Number.isFinite(b.low)?b.high-b.low:0),0)/Math.max(1,Math.min(14,bars.length));
- const labels=(source.model.labels||[]).filter(l=>belongs(l)&&marker(l)).map(l=>{
-  const play=plays.find(p=>l.id.startsWith(p.drawingPrefix+':')),pad=Math.max(range*.6,Math.abs(play.level)*.001);
-  const point=l.id.endsWith(':end-tag')?play.end:play.start,isPrice=l.id.endsWith(':level-tag');
-  return {...rename(l),x:isPrice?last:l.x,y:(isPrice?play.level:point.price)+play.direction*pad*(isPrice?.35:1.5),text:l.text+` · ${tf}m`,tooltip:(l.tooltip||'')+` Shared from the ${tf}m chart; no ${market.timeframe}m ABC confirmation is implied.`};
- });
+ const labels=[]; // Shared play annotations use only the short start/end ticks.
  const boxes=(source.model.boxes||[]).filter(b=>belongs(b)&&b.id.endsWith(':highlight')).map(b=>({...rename(b),right:Math.max(b.right,last+step*2)}));
  const reason=`Shared ${tf}m play markers · ABC decisions stay on ${tf}m`;
  const tables=(base.tables||[]).map(t=>({...t,cells:t.cells.map((row,i)=>i===1?row.map((cell,j)=>j===1?{...cell,text:reason}:cell):row)}));

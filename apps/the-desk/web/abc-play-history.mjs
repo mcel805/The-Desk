@@ -4,7 +4,6 @@ import {abcLiveDrawing} from './abc-live-drawing.mjs';
 const finite=Number.isFinite;
 const TEAL='#00B8A9',RED='#F23645',YELLOW='#FFD94A';
 const alpha=(ink,a)=>/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(ink)?ink.slice(0,7)+a:ink;
-const legible=ink=>/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(ink)?'#'+[1,3,5].map(at=>Math.round(parseInt(ink.slice(at,at+2),16)*.6+255*.4).toString(16).padStart(2,'0')).join(''):ink;
 const candidateTitles=['Rider HTF support','C support 2','C support 3','Rider HTF resistance','C resistance 2','C resistance 3','Reached support · this chart bar','Reached resistance · this chart bar'];
 const indexes=model=>new Map((model?.series||[]).map(s=>[s.title,new Map((s.points||[]).map(p=>[p.time,p.value]))]));
 const read=(index,title,time)=>index.get(title)?.get(time);
@@ -87,6 +86,8 @@ export function abcPlayDrawing(model,bars,{feed,timeframe='1',id='abc',now=Date.
   if(!play.snapshot)continue;
   const done=Boolean(play.end),ink=play.direction===1?(inputs.longColor||TEAL):(inputs.shortColor||RED),faded=alpha(ink,'AA');
   const drawTick=play.tick||tick;
+  const poolColor=feed.model?.inputValues?.[play.direction===1?'lowColor':'highColor']||(play.direction===1?'#66BB6A':'#AA2430');
+  const poolInk=/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(poolColor)?poolColor.slice(0,7):poolColor,levelInk=done?alpha(poolInk,'AA'):poolInk;
   const prefix=`${id}:play:${play.direction}:${play.armed}`,last=done?viewBars[play.endIndex]:viewBars.at(-1);
   if(!last)continue;
   const scope=done?viewBars.slice(0,play.endIndex+1):viewBars;
@@ -94,7 +95,7 @@ export function abcPlayDrawing(model,bars,{feed,timeframe='1',id='abc',now=Date.
   const path=abcLiveDrawing(shape,scope,{timeframe,id:prefix,now:done?play.end.confirmedAt:now});
   for(const l of path.lines||[])lines.push(done?{...l,color:faded,style:'dashed',deskDashPattern:[5,6],width:2}:l);
   for(const l of path.labels||[])labels.push(done?{...l,textColor:faded,tooltip:(l.tooltip||'')+' Completed play; anchors frozen at its end candle.'}:l);
-  if(play.levelKnownAt<play.start.time)line(prefix+':level-before-contact',{time:play.levelKnownAt,price:play.level},play.start,done?alpha(ink,'66'):alpha(YELLOW,'88'),1,'dashed');
+  if(play.levelKnownAt<play.start.time)line(prefix+':level-before-contact',{time:play.levelKnownAt,price:play.level},play.start,levelInk,2,'dashed');
   const end=done?play.end:{time:last.time+step*Math.max(1,Math.min(100,inputs.projectionBars??20)),price:play.level};
   const anchor=title=>play.snapshot.series.find(s=>s.title===title)?.points[0]?.value;
   const cTime=anchor('ABC drawing · C time'),hlTime=anchor('ABC drawing · structure time'),hl=anchor('ABC drawing · structure');
@@ -104,20 +105,19 @@ export function abcPlayDrawing(model,bars,{feed,timeframe='1',id='abc',now=Date.
   }
   const bTime=anchor('ABC drawing · B time'),b=anchor('ABC audit · B');
   if(!done&&finite(bTime)&&finite(b))line(prefix+':B-threshold',{time:bTime,price:b},{time:end.time,price:b},alpha(ink,'88'),1,'dotted');
-  if(inputs.showPlayBand!==false&&!done){
-   const opacity=Math.max(.02,1-Math.min(98,Math.max(50,inputs.playBandAlpha??88))/100),hex=v=>Math.round(Math.min(1,v)*255).toString(16).padStart(2,'0');
-   const depth=Math.max(drawTick||0,inputs.playBandMode==='Ticks'?(inputs.playBandTicks??30)*(drawTick||0):Math.abs(play.level)*(inputs.playBandPercent??.07)/100);
-   boxes.push({id:prefix+':highlight',paneId:'unrouted',xloc:'bar_time',left:play.start.time,right:end.time,top:play.level+(play.direction===-1?depth:0),bottom:play.level-(play.direction===1?depth:0),extend:'none',bgColor:alpha(YELLOW,hex(opacity)),borderColor:alpha(YELLOW,'00'),borderWidth:0,overlay:true});
-   line(prefix+':glow-outer',play.start,{time:end.time,price:play.level},alpha(YELLOW,hex(opacity)),10,'dashed');
-   line(prefix+':glow-inner',play.start,{time:end.time,price:play.level},alpha(YELLOW,hex(opacity*3)),6,'dashed');
-   line(prefix+':in-play',play.start,{time:end.time,price:play.level},YELLOW,2,'dashed');
-  }else if(done&&inputs.showPlayBand!==false)line(prefix+':retired-level',play.start,{time:play.end.time,price:play.level},alpha(ink,'66'),1,'dashed');
-  const range=scope.slice(-14).reduce((sum,b)=>sum+b.high-b.low,0)/Math.max(1,Math.min(14,scope.length)),pad=Math.max(range*.4,drawTick*2,Math.abs(play.level)*.00002);
-  const mark=(name,p,color,tooltip)=>{line(prefix+':'+name+'-tick',p,{time:p.time+step*2,price:p.price},color,2,done?'dashed':'solid');label(prefix+':'+name+'-tag',{time:p.time,price:p.price+play.direction*pad},name.toUpperCase(),done?legible(ink):color,tooltip);labels.at(-1).size='small';};
-  label(prefix+':level-tag',{time:last.time,price:play.level+play.direction*pad*.35},`TOUCHED ${play.level.toLocaleString('en-US',{maximumFractionDigits:8})} · ${done?'OVER':'IN PLAY'}`,done?legible(ink):YELLOW,'Exact liquidity price contacted at START. The dashed lead-in shows when this price was observed in the Liquidity feed; it is not a source-pivot timestamp.');labels.at(-1).size='small';
-  mark('start',play.start,done?faded:YELLOW,`Liquidity contact at ${play.level}. Recognized on this completed candle; no intrabar order or fill is implied.`);
+  // The colored level stays a 2px broken line. Yellow is price-sized shading,
+  // exactly two verified instrument ticks on EACH side, with no pixel halo.
+  line(prefix+(done?':retired-level':':in-play'),play.start,{time:end.time,price:play.level},levelInk,2,'dashed');
+  if(inputs.showPlayBand!==false&&!done&&finite(drawTick)&&drawTick>0){
+   const opacity=Math.max(.02,1-Math.min(98,Math.max(50,inputs.playBandAlpha??88))/100);
+   const shade=Math.round(opacity*255).toString(16).padStart(2,'0');
+   boxes.push({id:prefix+':highlight',paneId:'unrouted',xloc:'bar_time',left:play.start.time,right:end.time,top:play.level+2*drawTick,bottom:play.level-2*drawTick,extend:'none',bgColor:alpha(YELLOW,shade),borderColor:alpha(YELLOW,'00'),borderWidth:0,overlay:true});
+  }
+  // Unlabelled start/end ticks preserve play history without text collisions.
+  const mark=(name,p,color)=>line(prefix+':'+name+'-tick',p,{time:p.time+step*.5,price:p.price},color,2,'dashed');
+  mark('start',play.start,levelInk);
   if(done){
-   mark('end',play.end,faded,`Play ended: ${play.end.reason}. End reference ${play.end.price}; completed candle close ${new Date(play.end.confirmedAt).toISOString()}. Research play, not a broker exit.`);
+   mark('end',play.end,faded);
    const cTime=play.snapshot.series.find(s=>s.title==='ABC drawing · C time')?.points[0]?.value;
    if(inputs.showPath!==false&&finite(cTime)&&finite(play.c)&&play.end.time>cTime)line(prefix+':outcome',{time:cTime,price:play.c},play.end,faded,1,'dashed');
   }

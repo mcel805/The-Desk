@@ -2,7 +2,7 @@ import {sharedABCDisplay,sharedABCModel} from './abc-shared-display.mjs';
 import {abcPlayDrawing} from './abc-play-history.mjs';
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 export const isABCSource=source=>typeof source==='string'&&source.includes('indicator("Agentic - ABC Reversal"')&&/f_cForecast\s*\(/.test(source)&&/var map<int,bool> deadLevels/.test(source);
-const hiddenInputs=new Set(['hostLivePath','manualLevel','externalLevel','externalConnected','reachedFeed','reachedConnected','cPool2','cPool3','cExtraConnected','parentBiasFeed','parentBiasConnected','parentPivotBars','requireParentAligned']);
+const hiddenInputs=new Set(['playBandMode','playBandPercent','playBandTicks','hostLivePath','manualLevel','externalLevel','externalConnected','reachedFeed','reachedConnected','cPool2','cPool3','cExtraConnected','parentBiasFeed','parentBiasConnected','parentPivotBars','requireParentAligned']);
 const priceFields=['open','high','low','close'];
 const completed=(bars,tf,now)=>bars.filter(b=>b.time+Number(tf)*60000<=now);
 const sameMarket=(a,b)=>a.symbol===b.symbol&&a.timeframe===b.timeframe&&(a.chartStyle||'standard')===(b.chartStyle||'standard');
