@@ -1,5 +1,6 @@
 // Upgrade only exact, known Desk catalog releases. Edited sources remain user-owned.
 const known=new Set([
+ '0420b929eb883c681a02c1b6d19eed8ca17e7a6c5aebd89085dac1117fb28ac4',
  '9406c000e7f2801c97040568207642fbb1f12b057193326fa9a1bf8413f4bc46',
  'a990bbdc6d05a1111b29e5532d51b36665d378acc4f1a2ddfaa6f107f8d80647',
  '90d0a0567bf2ed989fb97e54e09870407d04a8e3eeb36a224a615e78b893c7f8',

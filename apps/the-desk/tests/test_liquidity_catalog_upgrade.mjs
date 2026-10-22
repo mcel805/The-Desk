@@ -21,3 +21,11 @@ test('failed catalog load keeps the existing saved source intact',async()=>{
  const workspace=fixture(),before=structuredClone(workspace);
  await assert.rejects(upgradeLiquidityWorkspace(workspace,async()=>{throw Error('network unavailable')}),/network unavailable/);assert.deepEqual(workspace,before);
 });
+
+test('the immediately preceding chart-dependent release upgrades while preserving per-chart settings',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const prior=inflateSync(Buffer.from((await readFile(new URL('./fixtures/agentic-liquidity-chart-strength.deflate.txt',import.meta.url),'utf8')).trim(),'base64')).toString();
+ const workspace=fixture(prior),before=structuredClone(workspace),updated=await upgradeLiquidityWorkspace(workspace,async()=>current);
+ assert.notEqual(updated,workspace);before.charts[0].ext['desk.pine.v1'][0].script=current;
+ assert.deepEqual(updated,before);assert.equal(workspace.charts[0].ext['desk.pine.v1'][0].script,prior);
+});

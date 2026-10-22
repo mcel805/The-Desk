@@ -27,9 +27,9 @@
   },
   "agentic_liquidity": {
     "original_sha256": "40139ef8dd660366e8471413bcc7a584acc826d5d68caa4f9f493c61a2af91bf",
-    "source_sha256": "747697750d072da85e6190cafb7a9088fae486de8c11d6407c9faef5ebbea9ec",
+    "source_sha256": "bfc4947ed1f57a2367e6741d4f794bd67dff8d8a3d9eb233570cced63b42191f",
     "source": "web/pine-examples/agentic-liquidity.pine",
-    "parity": "Original attachment and name-only reference preserved. Clean view adds unified convergence/buildup presentation and enables 15M alongside 60M/30M by default. Source detection, consumption, ranking and alerts retain their original rules. Original view remains selectable. Clean score tags cover every displayed group without a tag-count cap; tags are white-bordered rectangles without timeframe prefixes or pointers. Broken close-through lines retain side color at 2px with dashed style and no tags or source dots.",
+    "parity": "Original attachment and name-only reference preserved. Clean view adds unified convergence/buildup presentation and enables 15M alongside 60M/30M by default. Source detection, consumption, ranking and alerts retain their original rules. Original view remains selectable. Clean score tags cover every displayed group without a tag-count cap; tags are white-bordered rectangles without timeframe prefixes or pointers. Broken close-through lines retain side color at 2px with dashed style and no tags or source dots. Clean badge buildup now uses a shared completed-1M ledger and cutoff on all viewing timeframes; chart-local strips and Original-view outputs retain their prior behavior.",
     "reference_sha256": "f66dc3f2158886070dc1c4d1d61a8d8a8e165ca222816fee826b5c95eef220fd"
   },
   "agentic_market_geometry": {

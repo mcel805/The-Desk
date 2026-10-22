@@ -27,16 +27,20 @@ function security(ctx){return async (...args)=>{
  if(!name)throw Error('Security expression has no compiled identity.');
  const reqParts=splitTickerModifier(sym),curParts=splitTickerModifier(current),sameSymbol=reqParts.symbol===curParts.symbol&&(reqParts.modifier||'standard')===(curParts.modifier||'standard');
  const reqSec=seconds(tf),ctxSec=seconds(ctx.timeframe),sameTF=reqSec===ctxSec&&String(tf).replace(/^1D$/,'D')===String(ctx.timeframe).replace(/^1D$/,'D');
- if(sameSymbol&&sameTF){const v=primitive(typeof expr==='function'?ctx.pine.request.param(primitive(await expr()),undefined,name)[0]:expr);return Array.isArray(v)?[v]:v;}
- const ahead=primitive(unwrap(s.lookahead)),g=primitive(unwrap(s.gaps)),lookahead=ahead===true||ahead==='lookahead_on',gaps=g===true||g==='gaps_on';
  const count=primitive(unwrap(s.calc_bars_count)),limit=Number.isFinite(count)&&count>0?count:undefined;
+ // Liquidity's canonical ledgers must receive the requested source depth even
+ // when a source interval equals the viewing chart. Vela's chart-series shortcut
+ // otherwise substitutes (for example) 600 chart bars for 800 source bars.
+ const liquidityHistory=Boolean(limit)&&/f_masterPools/.test(ctx.pineTSCode)&&(reqParts.modifier||'standard')==='standard';
+ if(sameSymbol&&sameTF&&!liquidityHistory){const v=primitive(typeof expr==='function'?ctx.pine.request.param(primitive(await expr()),undefined,name)[0]:expr);return Array.isArray(v)?[v]:v;}
+ const ahead=primitive(unwrap(s.lookahead)),g=primitive(unwrap(s.gaps)),lookahead=ahead===true||ahead==='lookahead_on',gaps=g===true||g==='gaps_on';
  const key=JSON.stringify([sym,tf,name,limit]),graph=ctx._deskRequestGraph||(ctx._deskRequestGraph=new Map());
  let cached=ctx.cache['desk.security:'+key];
  if(!cached){
   const lastClose=ctx.marketData?.at(-1)?.closeTime||(ctx.marketData?.at(-1)?.openTime!=null?ctx.marketData.at(-1).openTime+ctxSec*1000:ctx.eDate||Date.now()),start=limit?undefined:(ctx.sDate||ctx.marketData?.[0]?.openTime),from=start?start-Math.max(2592000000,2*reqSec*1000):undefined;
   const graphKey=JSON.stringify([sym,tf,suffix(name),limit,from,lastClose,ctx.inputs,ctx._propOverrides]);
   let task=graph.get(graphKey);
-  if(!task){task=(async()=>{const pine=new PineTS(ctx.source,sym,tf,limit,from,lastClose);if(ctx.viewportLeft!=null&&ctx.viewportRight!=null)pine.setVisibleRange(ctx.viewportLeft,ctx.viewportRight);const context=await pine.runPretranspiled(capture(ctx.pineTSCode,suffix(name),graph,ctx),ctx.inputs);return {pine,context,dataVersion:ctx.dataVersion};})();graph.set(graphKey,task);}
+  if(!task){task=(async()=>{const source=liquidityHistory?{...ctx.source,getMarketData:(ticker,...range)=>ctx.source.getMarketData(ticker.includes(';')?ticker:ticker+';standard',...range)}:ctx.source;const pine=new PineTS(source,sym,tf,limit,from,lastClose);if(ctx.viewportLeft!=null&&ctx.viewportRight!=null)pine.setVisibleRange(ctx.viewportLeft,ctx.viewportRight);const context=await pine.runPretranspiled(capture(ctx.pineTSCode,suffix(name),graph,ctx),ctx.inputs);return {pine,context,dataVersion:ctx.dataVersion};})();graph.set(graphKey,task);}
   cached=await task;ctx.cache['desk.security:'+key]=cached;
  }
  if(ctx.dataVersion>cached.dataVersion){await cached.pine.updateTail(cached.context);cached.dataVersion=ctx.dataVersion;}
