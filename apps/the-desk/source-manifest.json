@@ -42,8 +42,8 @@
   "agentic_abc_reversal": {
     "source": "web/pine-examples/agentic-abc-reversal.pine",
     "original_sha256": "263c04e862ba346caa6d7973179f260ea26174b3bd686c9e514966e35f35ac1b",
-    "source_sha256": "9bce7806a3df6e0c1ec2c92b36bd4601a546b55841c894cff8e5ae514e821fe7",
-    "scope": "Original completed-candle lifecycle preserved. Read-only anchor exports support live solid observed ABC legs, yellow dashed provisional forecasts and faint geometry rails. Exact shipped v1 saves upgrade automatically. TradingView parity unverified."
+    "source_sha256": "c0754404133ae33e8f5bfcb19049889046132fbf0f8afa7b128acfc8f2db4413",
+    "scope": "Original completed-candle lifecycle preserved. Read-only anchor exports support live solid observed ABC legs, yellow dashed provisional forecasts and faint geometry rails. Exact shipped v1 saves upgrade automatically. TradingView parity unverified. Hosted play-history v3 adds yellow in-play liquidity glow, bounded faded dashed play archives and START/END ticks. A read-only play tracker continues after retest qualification and records completed-candle liquidity/structure/invalidation/expiry endpoints without changing Pine entry or alert decisions."
   },
   "agentic_three_drive_pattern": {
     "original": "web/pine-examples/agentic-three-drive-pattern-original.pine",

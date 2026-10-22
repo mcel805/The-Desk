@@ -1,4 +1,4 @@
-import {abcLiveDrawing} from './abc-live-drawing.mjs';
+import {abcPlayDrawing} from './abc-play-history.mjs';
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 export const isABCSource=source=>typeof source==='string'&&source.includes('indicator("Agentic - ABC Reversal"')&&/f_cForecast\s*\(/.test(source)&&/var map<int,bool> deadLevels/.test(source);
 const hiddenInputs=new Set(['hostLivePath','manualLevel','externalLevel','externalConnected','reachedFeed','reachedConnected','cPool2','cPool3','cExtraConnected','parentBiasFeed','parentBiasConnected','parentPivotBars','requireParentAligned']);
@@ -25,11 +25,13 @@ export function abcTransportInputs(inputs,feed,direction,now=Date.now(),tf='1'){
 export function mergeABCModels(models,prepared,inputs,feed){
  const base=models[0];if(!base)return null;
  const merged={...base,title:'Agentic - ABC Reversal',inputs:prepared.inputs,inputValues:Object.fromEntries(prepared.inputs.map(spec=>[spec.key,inputs[spec.key]??spec.defval])),drawingAutoscale:false,abcBridge:{connected:feed.connected,reason:feed.reason,producerId:feed.id,cutoff:feed.cutoff}};
+ merged.abcPlays=models.flatMap(m=>m.abcPlays||[]);
  for(const key of ['series','lines','labels','boxes','polylines','linefills','tables'])merged[key]=models.flatMap(m=>(m[key]||[]).map(v=>({...v,...(key==='series'?{title:(m.inputValues.reversalSide==='Long from support'?'Long · ':'Short · ')+v.title}:{} )})));
  merged.labels=merged.labels.map(l=>({...l,...(l.text?.startsWith('C?')?{textColor:'#FFC35C'}:{})}));
  if(models.length===2){
-  const active=models.map(m=>(series(m,'ABC audit · phase')?.points.at(-1)?.value||0)>0);
-  merged.tables=models.flatMap((m,i)=>active[i]||!active.some(Boolean)&&i===0?m.tables||[]:[]);
+  const active=models.map(m=>m.abcPlays?m.abcPlays.some(p=>p.status==='in-play'):(series(m,'ABC audit · phase')?.points.at(-1)?.value||0)>0);
+  const lastEnds=models.map(m=>Math.max(-Infinity,...(m.abcPlays||[]).map(p=>p.end?.time??-Infinity))),latest=lastEnds.indexOf(Math.max(...lastEnds));
+  merged.tables=models.flatMap((m,i)=>active[i]||!active.some(Boolean)&&i===latest?m.tables||[]:[]);
  }
  if(!feed.connected)merged.tables=merged.tables.map(t=>({...t,cells:t.cells.map((row,i)=>i===1?row.map((cell,j)=>j===1?{...cell,text:feed.reason}:cell):row)}));
  return merged;
@@ -39,19 +41,21 @@ export function mergeABCModels(models,prepared,inputs,feed){
 export class ABCReversalWorker {
  constructor({records,subscribe,worker=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href})}){this.worker=worker;this.records=records;this.subscribe=subscribe;this.sessions=new Set();}
  async prepare(source,id){
-  // Upgrade only the exact shipped v1 source, preserving user-edited scripts.
-  let abcVisualUpgrade=false;
-  if(!source.includes('Desk visual anchors v2')&&globalThis.crypto?.subtle){
-   const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(source));
-   const hash=[...new Uint8Array(bytes)].map(b=>b.toString(16).padStart(2,'0')).join('');
-   if(hash==='a89bf4f837aa7bad8855751075008c4164c1865d03a7afb47ba244e9108fc08f'){
-    const response=await fetch(new URL('./pine-examples/agentic-abc-reversal.pine',import.meta.url));
-    if(!response.ok)throw Error('ABC visual source update unavailable. Reload the chart.');
-    source=await response.text();abcVisualUpgrade=true;
+  // Upgrade exact shipped presentation releases only; custom Pine stays owned.
+  let abcVisualUpgrade=false,abcPlayUpgrade=false;
+  if(!source.includes('Desk play history v3')&&globalThis.crypto?.subtle){
+   const digest=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+   const hash=await digest(source),normalized=await digest(source.replace(/\r\n/g,'\n'));
+   abcVisualUpgrade=hash==='a89bf4f837aa7bad8855751075008c4164c1865d03a7afb47ba244e9108fc08f';
+   abcPlayUpgrade=abcVisualUpgrade||['9bce7806a3df6e0c1ec2c92b36bd4601a546b55841c894cff8e5ae514e821fe7'].includes(hash)||['9bce7806a3df6e0c1ec2c92b36bd4601a546b55841c894cff8e5ae514e821fe7'].includes(normalized);
+   if(abcPlayUpgrade){
+    const response=await fetch(new URL('./pine-examples/agentic-abc-reversal.pine',import.meta.url),{cache:'no-store'});
+    if(!response.ok)throw Error('ABC play-history source update unavailable. Reload the chart.');
+    source=await response.text();
    }
   }
   const prepared=await this.worker.prepare(source,id);
-  return {...prepared,abcVisualUpgrade,inputs:prepared.inputs.filter(s=>!hiddenInputs.has(s.key))};
+  return {...prepared,abcVisualUpgrade,abcPlayUpgrade,inputs:prepared.inputs.filter(s=>!hiddenInputs.has(s.key))};
  }
  execute(req,handlers){
   let stopped=false,generation=0,children=[],timer,lastSignature='',inputs={...req.inputs},props={...req.props},range=req.visibleRange,models=[],feed;
@@ -62,10 +66,11 @@ export class ABCReversalWorker {
    if(req.inputs)Object.assign(req.inputs,inputs);
    req.prepared.abcVisualUpgrade=false;
   }
+  if(req.prepared.abcPlayUpgrade){inputs.keepHistory=true;if(req.inputs)req.inputs.keepHistory=true;req.prepared.abcPlayUpgrade=false;}
   const emit=()=>{
    if(!models.length||models.some(m=>!m))return;
    const bars=req.getBars?.()||req.bars;
-   const displayed=models.map((m,i)=>abcLiveDrawing(m,bars,{timeframe:req.market.timeframe,id:req.prepared.token.instanceId+':'+i}));
+   const displayed=models.map((m,i)=>abcPlayDrawing(m,bars,{feed,timeframe:req.market.timeframe,id:req.prepared.token.instanceId+':'+i,tick:req.market.symbolInfo?.mintick||0}));
    const model=mergeABCModels(displayed,req.prepared,inputs,feed);if(model)handlers.onModel?.(model);
   };
   const clear=()=>{clearTimeout(timer);for(const s of children)s.stop();children=[];};

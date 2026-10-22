@@ -40,3 +40,9 @@ browser test labels its feed as synthetic, renders all three forming stages, pus
 a wick update through Vela's feed, and checks that completed audit series stay
 unchanged. The real-data browser checks cover catalog/add, producer connection,
 settings, visibility, reload, timeframe restrictions and removal. None place orders.
+
+## Play lifecycle rendering
+
+`web/abc-play-history.mjs` replays completed Pine audit rows against the same-chart Liquidity bridge. It owns the yellow active-level overlay and bounded START/END history. It retains a qualified play beyond Pine's terminal setup phase; next-level touches, confirmed adverse structure/C closes and expiry determine the visual endpoint. It never feeds those endpoints into Pine confirmations, retests, risk, alerts or account commands. Live wicks can still redraw forming ABC legs while completed play endpoints remain unchanged.
+
+Completed paths use frozen snapshots and exclude future bars and forecast rails. Active B and C-to-HL/LH references remain visible. Exact v2 source migration enables completed history once without resetting colors, indicator IDs or unrelated settings; later history toggles remain respected.

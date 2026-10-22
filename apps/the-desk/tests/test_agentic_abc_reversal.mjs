@@ -1,5 +1,6 @@
 import test from 'node:test';
 import {abcLiveDrawing} from '../web/abc-live-drawing.mjs';
+import {abcPlayDrawing} from '../web/abc-play-history.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -86,4 +87,31 @@ test('upgraded visual defaults persist in the host input object and later edits 
   assert.equal(inputs.showProjection,true);assert.equal(inputs.longColor,'#00B8A9FF');assert.equal(inputs.shortColor,'#F23645FF');assert.equal(transported.pivotBars,3);
   done=wait();session.update({...inputs,showProjection:false,longColor:'#FFFFFFE0'});await done;assert.equal(transported.showProjection,false);assert.equal(transported.longColor,'#FFFFFFE0');
  }finally{session?.stop();bridge.terminate();}
+});
+
+test('real Pine qualification keeps the liquidity play highlighted until another line is actually touched',async()=>{
+ const bars=fixture(),lastBar=bars.at(-1);bars.push({...lastBar,time:lastBar.time+60000,open:109,close:111,high:112,low:108});
+ const feed={connected:true,model:feedModel(bars,{resistance:110})},r=await run({bars,feed});
+ const activeBars=bars.slice(0,-1),liveFeed={connected:true,model:feedModel(activeBars,{resistance:110})},live=await run({bars:activeBars,feed:liveFeed});
+ const tracking=abcPlayDrawing(live.model,activeBars,{feed:liveFeed});assert.equal(tracking.abcPlays.at(-1).status,'in-play');assert.ok(tracking.abcPlays.at(-1).qualifiedAt);assert.ok(tracking.lines.some(l=>l.id.endsWith(':glow-outer')));
+ const done=abcPlayDrawing(r.model,bars,{feed});assert.equal(done.abcPlays.at(-1).end.reason,'Next liquidity level');assert.equal(done.abcPlays.at(-1).end.price,110);assert.ok(done.labels.some(l=>l.text==='END'));assert.ok(done.lines.some(l=>l.id.endsWith(':A')&&l.style==='dashed'));assert.deepEqual(done.series,r.model.series);
+});
+test('real Pine outputs retain entry decisions while a later confirmed HL close records the play endpoint',async()=>{
+ const bars=fixture();for(const price of [111,108,112,106])bars.push({time:bars.at(-1).time+60000,open:price,close:price,high:price+.5,low:price-.5,volume:100});
+ const feed={connected:true,model:feedModel(bars,{resistance:150})},r=await run({bars,feed}),done=abcPlayDrawing(r.model,bars,{feed});
+ assert.equal(rows(done,'ABC audit · retest passed')[49],1);assert.equal(done.abcPlays.at(-1).end.reason,'Confirmed structure break');assert.equal(done.abcPlays.at(-1).end.time,bars.at(-1).time);assert.deepEqual(done.series,r.model.series);
+});
+test('exact v2 saved sources upgrade the play presentation; edited scripts stay intact',async t=>{
+ const {inflateSync}=await import('node:zlib');const old=inflateSync(Buffer.from((await fs.readFile(new URL('./fixtures/agentic-abc-v2.deflate.txt',import.meta.url),'utf8')).trim(),'base64')).toString();
+ t.mock.method(globalThis,'fetch',async()=>new Response(source));
+ const worker={prepare:async(text,id)=>({token:{source:text,instanceId:id},inputs:[]}),terminate(){}};
+ const bridge=new ABCReversalWorker({records:new Map(),worker,subscribe:()=>()=>{}});
+ const upgraded=await bridge.prepare(old,'v2');assert.equal(upgraded.token.source,source);assert.equal(upgraded.abcPlayUpgrade,true);assert.equal(upgraded.abcVisualUpgrade,false);
+ const custom=old+'\n// user customization',preserved=await bridge.prepare(custom,'custom');assert.equal(preserved.token.source,custom);assert.equal(preserved.abcPlayUpgrade,false);bridge.terminate();
+});
+test('history default migrates once and a later user toggle remains respected',async()=>{
+ const inputs={keepHistory:false,longColor:'#123456'},prepared={abcPlayUpgrade:true,token:{instanceId:'play-upgrade'},inputs:[{key:'keepHistory',defval:true},{key:'longColor',defval:'#00B8A9'}]};let resolveDone;
+ const worker={execute:(req,h)=>{queueMicrotask(()=>{h.onModel({inputValues:req.inputs,series:[],lines:[],labels:[]});h.onDone();});return {stop(){}};},terminate(){}};
+ const bridge=new ABCReversalWorker({records:new Map(),worker,subscribe:()=>()=>{}}),wait=()=>new Promise(resolve=>resolveDone=resolve);let session;
+ try{let done=wait();session=bridge.execute({prepared,bars:[],market:market('1'),inputs},{onModel(){},onDone:()=>resolveDone()});await done;assert.equal(inputs.keepHistory,true);assert.equal(inputs.longColor,'#123456');done=wait();session.update({keepHistory:false});await done;assert.equal(prepared.abcPlayUpgrade,false);}finally{session?.stop();bridge.terminate();}
 });

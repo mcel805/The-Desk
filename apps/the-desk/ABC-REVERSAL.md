@@ -32,3 +32,21 @@ The feature tests execute the original and adapted Pine on synthetic long/short 
 Real Coinbase BTC-USD browser acceptance covers Premium catalog, UI compile, missing-source wait, automatic same-chart connection on 1m/5m, settings/card toggle, hide/show, reload before producer readiness, 15m rejection and producer-removal cleanup. Evidence is kept in the user chart workspace under `Agentic ABC Reversal Evidence/`. The isolated server disables quote workers and has no Lux Journal companion. The main Desk remains paper.
 
 This is a locally validated adapted port. TradingView compilation, exact TradingView/MYM matching-data parity, prospective reversal success rates and trade performance are unverified. No probability is assigned to C. The underlying source's historical pivot markers remain retrospective at their origin after right-side confirmation; event markers are recorded on the confirming bar.
+
+## In-play line and completed play history
+
+The hosted 1m/5m view gives a contacted liquidity level a dashed yellow line, soft glow and thin yellow ribbon. A short `START` tick marks the original contact candle. The glow continues through C confirmation, the B break and a passed retest; qualification begins tracking the reversal instead of prematurely clearing the play. Each direction owns its own display.
+
+The read-only play tracker ends on a completed candle when another available liquidity line is actually touched, a later confirmed HL/LH is broken by a closing price, or price closes beyond confirmed C. A B break is setup confirmation, not an exit. HL/LH protection is established from a unique chart pivot at/after qualification and is usable only on later candles; the existing pivot strength, tick size and break buffer apply. Pending campaign/retest expiry, a new confirmed campaign, and a post-qualification `campaignBars` tracking limit are additional end conditions. A failed C before qualification can still develop into the larger ABC at the same level.
+
+Only timestamp-matched Liquidity bridge candidates/reached events may end a play at another line. A gap across a price without a wick-range touch is not treated as a touch. If multiple distinct levels are touched in the same candle, the endpoint says ordering is unknown and uses that candle's close as the reference; it does not invent a first fill. Unavailable or ambiguous producer authority clears the hosted play overlays.
+
+On completion the glow and ribbon disappear. Observed ABC legs become slightly faded dashed lines, frozen at the ending candle, with a short `END` tick and a hover reason. A thin dashed C-to-end reference helps review the move; it does not reconstruct every intervening tick. Provisional forecasts are never archived as realized paths. The existing history toggle and bounded `historyCounts` control completed plays; history is enabled by default for this release. Exact shipped v1/v2 saves migrate once, retaining IDs, other settings, custom colors and visibility. Edited Pine sources remain user-owned.
+
+Pine contact, pivot, confirmation, retest, risk and alert decisions are unchanged. The additional tick/structure exports are read-only. This is chart-play tracking: a qualified retest is not a broker entry, and an `END` tag is not an order or verified trade exit.
+
+```sh
+node --test tests/test_abc_play_history.mjs tests/test_abc_live_drawing.mjs tests/test_agentic_abc_reversal.mjs tests/test_abc_panel_runtime.mjs tests/test_pine_editor.mjs tests/test_pine_serial.mjs tests/test_agentic_host.mjs
+```
+
+Validation on 2026-10-21 (Pacific): 57 focused checks cover long/short glow, qualification continuity, next-level and ambiguous-candle endings, confirmed HL/LH/C exits, expiry, 5m marker timing, bounded/frozen history, summary anchors, exact v2 migration, panel/editor persistence, host serialization and original Pine lifecycle parity. A browser fixture exercised the actual Desk worker and native renderer with qualified active and next-level-completed plays side by side. The installed ETH chart was then reloaded: both saved ABC copies upgraded to v3, completed history enabled, custom color preserved, and the paper account/position/order/fill snapshots remained unchanged. Synthetic rendering proof is not measured trade performance or TradingView parity.
