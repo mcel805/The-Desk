@@ -120,5 +120,7 @@ export function setupChartAccount({paperAccounts,paperId,onPaper,onChange,onMark
  setInterval(()=>{render();if(selected){refresh();quoteRefresh();}},10000);
  return {get selected(){return selected;},get asset(){return asset;},get status(){return status;},account,valid,quote,render,refresh,openAssets,
   get metrics(){const s=snapshot?.sources?.portfolio;return valid()&&s?.status==='complete'&&Date.now()/1000-s.observedAt<60?portfolioMetrics(s):{};},get matches(){return assetMatchesChart(asset,instrument());},
-  review:async ticket=>{if(!valid()||!assetMatchesChart(asset,instrument()))throw Error('Select a Robinhood asset for this chart and verify the account.');return brokerAPI('/ticket/review',{accountId:selected,kind:asset.kind,symbol:asset.symbol,side:ticket.side,quantity:ticket.qty,limitPrice:ticket.price,chartInstrument:instrument()});}};
+  review:async ticket=>{if(!valid()||!assetMatchesChart(asset,instrument()))throw Error('Select a Robinhood asset for this chart and verify the account.');return brokerAPI('/ticket/review',{accountId:selected,kind:asset.kind,symbol:asset.symbol,side:ticket.side,quantity:ticket.quantity??null,dollarAmount:ticket.dollarAmount??null,orderType:ticket.orderType,limitPrice:ticket.price??null,chartInstrument:instrument()});},
+  submit:async previewId=>{if(!valid())throw Error('Robinhood account verification expired. Refresh before submitting.');return brokerAPI('/ticket/submit',{previewId});},
+  orders:async()=>{if(!valid()||!asset)throw Error('Select and verify a Robinhood asset first.');return brokerAPI('/orders?'+new URLSearchParams({accountId:selected,kind:asset.kind}));}};
 }

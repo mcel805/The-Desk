@@ -66,7 +66,7 @@ class FakeBroker:
 
     def preview(self,owner,payload):
         self.calls.append((owner,'NATIVE_PREVIEW',payload))
-        return {'id':'synthetic-preview','blocked':False,'review':{'symbol':payload['symbol'],'side':payload['side'],'quantity':payload['quantity'],'limit_price':payload['limit_price'],'order_checks':{},'market_data_disclosure':'SYNTHETIC TEST FIXTURE · not live data'}}
+        return {'id':'synthetic-preview','blocked':False,'intent':payload,'review':{'symbol':payload['symbol'],'side':payload['side'],'quantity':payload.get('quantity'),'dollar_amount':payload.get('dollar_amount'),'type':payload['type'],'limit_price':payload.get('limit_price'),'order_checks':{},'market_data_disclosure':'SYNTHETIC TEST FIXTURE · not live data'}}
 
     def disconnect(self, owner):
         self.sessions.pop(owner, None)

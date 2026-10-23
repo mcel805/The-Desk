@@ -51,6 +51,7 @@ class BrokerTests(unittest.TestCase):
             elif name=='get_portfolio':data={'total_value':'100','buying_power':{'buying_power':'50'},'currency':'USD'}
             elif name=='review_equity_order':data={**args,'order_checks':self.alerts,'customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
             elif name=='preview_crypto_order':data={**args,'rhc_account_number':'RHC98765432','customer_approval_required':True,'market_data_disclosure':'Exact quote disclosure'}
+            elif name=='place_crypto_order':data={'order_id':'synthetic-order-eth','state':'queued','ref_id':args.get('ref_id')}
             else:raise ValueError(name)
             return {'result':{'structuredContent':{'data':data}}}
         self.broker=Robinhood(18882,http=http)
@@ -96,6 +97,18 @@ class BrokerTests(unittest.TestCase):
         call=next(payload for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='preview_crypto_order')
         self.assertEqual(call['params']['arguments']['rhs_account_number'],'55667788')
         self.assertFalse(any((c[1] or {}).get('params',{}).get('name')=='place_crypto_order' for c in self.calls))
+
+    def test_dollar_crypto_preview_submits_once_with_same_idempotency_key(self):
+        s=self.connect();p={'accountId':s['accounts'][0]['id'],'asset':'crypto','symbol':'ETH-USD','side':'buy','type':'market','dollar_amount':'50.00'}
+        preview=self.broker.preview('wallet-session',p)
+        self.assertFalse(preview['blocked'])
+        placed=self.broker.submit_preview('wallet-session',preview['id'])
+        self.assertEqual(placed['result']['order_id'],'synthetic-order-eth')
+        with self.assertRaisesRegex(ValueError,'already submitted'):
+            self.broker.submit_preview('wallet-session',preview['id'])
+        calls=[payload['params'] for url,payload,headers in self.calls if (payload or {}).get('params',{}).get('name')=='place_crypto_order']
+        self.assertEqual(len(calls),1);self.assertEqual(calls[0]['arguments']['dollar_amount'],'50.00')
+        self.assertEqual(calls[0]['arguments']['ref_id'],preview['ref'])
 
     def test_crypto_requires_both_linked_rhc_and_numeric_rhs(self):
         s=self.connect()

@@ -161,12 +161,16 @@ class Robinhood:
             a=self.account(key,p.get('accountId'),True)
             asset=p.get('asset')
             if asset not in ('equity','crypto'): raise ValueError('Native tickets currently support stocks/ETFs and crypto. Options and futures use Robinhood.')
-            if p.get('side') not in ('buy','sell') or p.get('type')!='limit': raise ValueError('Select Buy or Sell and a limit order.')
+            if p.get('side') not in ('buy','sell') or p.get('type') not in (('market','limit') if asset=='crypto' else ('limit',)): raise ValueError('Select a supported Buy or Sell order.')
             symbol=p.get('symbol','').upper()
             if not symbol or len(symbol)>20 or any(c not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-' for c in symbol): raise ValueError('Invalid symbol.')
-            qty=decimal(p.get('quantity'));price=decimal(p.get('limit_price'))
-            if asset=='equity' and qty!=qty.to_integral_value(): raise ValueError('Equity limit orders require whole shares.')
-            args={'symbol':symbol,'side':p['side'],'type':'limit','quantity':str(qty),'limit_price':str(price),'time_in_force':'gtc'}
+            if (p.get('quantity') is None)==(p.get('dollar_amount') is None): raise ValueError('Provide exactly one quantity or dollar amount.')
+            sizing='dollar_amount' if p.get('dollar_amount') is not None else 'quantity'
+            size=decimal(p[sizing])
+            price=decimal(p.get('limit_price')) if p.get('type')=='limit' else None
+            if asset=='equity' and (sizing!='quantity' or size!=size.to_integral_value()): raise ValueError('Equity limit orders require whole shares.')
+            args={'symbol':symbol,'side':p['side'],'type':p['type'],sizing:str(size),'time_in_force':p.get('time_in_force','gtc')}
+            if price is not None: args['limit_price']=str(price)
             if asset=='equity':
                 if p.get('market_hours','regular_hours') not in ('regular_hours','extended_hours','all_day_hours'): raise ValueError('Invalid trading session.')
                 args.update(account_number=a['account_number'],market_hours=p.get('market_hours','regular_hours'))
@@ -175,15 +179,37 @@ class Robinhood:
                 args['rhs_account_number']=a['rhs_account_number']
             result=self.call(key,'review_equity_order' if asset=='equity' else 'preview_crypto_order',args)
             echo=result.get('order',result)
-            valid_echo=isinstance(echo,dict) and echo.get('symbol','').upper()==symbol and echo.get('side')==args['side'] and str(echo.get('quantity'))==args['quantity'] and str(echo.get('limit_price'))==args['limit_price']
+            valid_echo=isinstance(echo,dict) and echo.get('symbol','').upper()==symbol and echo.get('side')==args['side'] and echo.get('type')==args['type']
+            valid_echo=valid_echo and (str(echo.get(sizing))==args[sizing] or (sizing=='dollar_amount' and echo.get('requested_dollar_amount') is not None and str(echo.get('requested_dollar_amount'))==args[sizing]))
+            if p.get('type')=='limit': valid_echo=valid_echo and str(echo.get('limit_price'))==args['limit_price']
             valid_checks=asset!='equity' or isinstance(result.get('order_checks'),dict)
             blocked=not valid_echo or not valid_checks or bool(result.get('order_checks') or result.get('errors') or result.get('error') or result.get('validation_errors'))
             if not valid_echo or not valid_checks: result={**result,'validation_errors':'Provider preview schema is unverified; submit is blocked.'}
             preview_id=secrets.token_urlsafe(24);ref=str(uuid.uuid4())
             self.sessions[key]['previews']={k:v for k,v in self.sessions[key]['previews'].items() if v['expires']>time.time()}
-            self.sessions[key]['previews'][preview_id]={'args':args,'aid':p['accountId'],'asset':asset,'blocked':blocked,'expires':time.time()+30,'ref':ref}
+            self.sessions[key]['previews'][preview_id]={'args':args,'aid':p['accountId'],'asset':asset,'blocked':blocked,'expires':time.time()+30,'ref':ref,'used':False}
             # Preserve provider review and mandatory quote disclosure; redact any account identifiers.
             public=json.dumps(result)
             for field in ('account_number','rhs_account_number','rhc_account_number'):
                 if a.get(field): public=public.replace(str(a[field]),'••••'+str(a[field])[-4:])
-            return {'id':preview_id,'ref':ref,'review':json.loads(public),'blocked':blocked,'expiresAt':time.time()+30}
+            return {'id':preview_id,'ref':ref,'review':json.loads(public),'blocked':blocked,'expiresAt':time.time()+30,'intent':{k:v for k,v in args.items() if k not in ('account_number','rhs_account_number')}}
+
+    def submit_preview(self,key,preview_id):
+        with self.lock:
+            s=self.sessions.get(key)
+            if not s: raise ValueError('Sign in to Robinhood first.')
+            preview=s.get('previews',{}).get(preview_id)
+            if not preview or preview['expires']<=time.time(): raise ValueError('Robinhood preview expired. Review the ticket again.')
+            if preview['used']: raise ValueError('This preview was already submitted. Refresh order status before retrying.')
+            if preview['blocked']: raise ValueError('Robinhood preview contains a restriction or unverified response; order submission is blocked.')
+            a=self.account(key,preview['aid'],True)
+            tool='place_crypto_order' if preview['asset']=='crypto' else 'place_equity_order'
+            args={**preview['args'],'ref_id':preview['ref']}
+            preview['used']=True
+            try:
+                result=self.call(key,tool,args)
+            except Exception:
+                # Keep the same ref_id and one-use lock: after uncertain transport, status must be checked.
+                preview['uncertain']=True
+                raise ValueError('Robinhood response was uncertain. Refresh Robinhood orders before trying again.') from None
+            return {'result':result,'asset':preview['asset'],'accountId':preview['aid'],'intent':{k:v for k,v in preview['args'].items() if k not in ('account_number','rhs_account_number')},'observedAt':time.time()}

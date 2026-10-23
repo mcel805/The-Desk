@@ -10,7 +10,7 @@ from datetime import datetime,timezone
 class MarketTests(unittest.TestCase):
     setUp = workspace_tests.WorkspaceTests.setUp
     def ticket(self,**kw):
-        return {'accountId':self.aid,'kind':'crypto','symbol':'BTC-USD','side':'buy','quantity':'0.5','limitPrice':'100.00','chartInstrument':'hyperliquid:BTC',**kw}
+        return {'accountId':self.aid,'kind':'crypto','symbol':'BTC-USD','side':'buy','quantity':'0.5','dollarAmount':None,'orderType':'limit','limitPrice':'100.00','chartInstrument':'hyperliquid:BTC',**kw}
 
     def test_catalog_account_override_halts_and_pagination(self):
         original=self.broker.call
@@ -70,10 +70,35 @@ class MarketTests(unittest.TestCase):
 
     def test_reference_chart_limit_reviews_native_spot_without_placing(self):
         result=self.service.ticket_review(self.owner,self.ticket())
-        self.assertFalse(result['liveEnabled']);self.assertEqual(result['intent']['chartInstrument'],'hyperliquid:BTC')
+        self.assertTrue(result['liveEnabled']);self.assertEqual(result['intent']['chartInstrument'],'hyperliquid:BTC')
         preview=self.broker.calls[-1];self.assertEqual(preview[1],'NATIVE_PREVIEW')
         self.assertEqual(preview[2]['symbol'],'BTC-USD');self.assertEqual(preview[2]['asset'],'crypto')
         self.assertNotIn('place_',str(self.broker.calls));self.assertNotIn('TEST_MCP_55556666',str(result))
+
+    def test_crypto_usd_market_preview_keeps_notional_and_never_places(self):
+        p=self.ticket(quantity=None,dollarAmount='50.00',orderType='market',limitPrice=None)
+        result=self.service.ticket_review(self.owner,p)
+        self.assertEqual(result['preview']['intent']['dollar_amount'],'50.00')
+        self.assertEqual(result['preview']['intent']['type'],'market')
+        self.assertNotIn('place_',str(self.broker.calls))
+
+    def test_order_status_reads_selected_account_and_journals_only_completed_fills(self):
+        original=self.broker.call
+        def call(owner,name,args):
+            if name=='get_crypto_orders':
+                self.broker.calls.append((owner,name,args))
+                return {'results':[{'id':'order-eth-1','symbol':'ETH-USD','side':'buy','state':'filled','filled_quantity':'0.02','average_price':'2500','fee':'0.05','updated_at':'2026-10-22T12:00:00Z'}]}
+            return original(owner,name,args)
+        self.broker.call=call
+        delivered=[];self.service.journal_delivery=delivered.append
+        result=self.service.orders(self.owner,self.aid,'crypto')
+        self.assertEqual(result['orders'][0]['state'],'filled')
+        read=next(c for c in self.broker.calls if c[1]=='get_crypto_orders')
+        self.assertEqual(read[2]['rhs_account_number'],'55556666')
+        account,fill=delivered
+        self.assertEqual(account['eventType'],'account');self.assertRegex(account['account']['id'],r'^rh-[a-f0-9]{32}$')
+        self.assertEqual(fill['eventType'],'execution');self.assertEqual(fill['execution']['symbol'],'ETH-USD')
+        self.assertEqual(fill['execution']['quantity'],0.02);self.assertEqual(fill['execution']['price'],2500)
 
     def test_preview_rejects_wrong_reference_asset_and_readonly_account(self):
         for payload in [self.ticket(chartInstrument='hyperliquid:ETH'),self.ticket(accountId=next(a['id'] for a in self.accounts if not a['tradable']))]:

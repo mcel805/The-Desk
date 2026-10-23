@@ -151,6 +151,7 @@ def main():
     robinhood=RobinhoodWorkspace(funding.broker,data)
     ibkr=IBKRData(args.ibkr_mode);ibkr.start()
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
+    robinhood.journal_delivery=lambda event:http_json(workers.journal_url+'/api/integrations/robinhood',event,{'Authorization':'Bearer '+workers.token},timeout=5)
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
     agents=Agents(engine);agents.journal_url=workers.journal_url
     agent_signals=AgentSignals(agents,gateway);agents.signal_service=agent_signals

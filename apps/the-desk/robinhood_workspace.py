@@ -475,6 +475,7 @@ class RobinhoodWorkspace(RobinhoodMarkets):
             handler.json(self.broker_quote(owner,query.get('accountId',[''])[0],query.get('kind',[''])[0],query.get('symbol',[''])[0])); return True
         if path == PREFIX + '/markets/bars':
             handler.json(self.equity_bars(owner,query.get('accountId',[''])[0],query.get('symbol',[''])[0],query.get('timeframe',['60'])[0],query.get('to',[None])[0],query.get('from',[None])[0],query.get('limit',[600])[0])); return True
+        if path == PREFIX + '/orders': handler.json(self.orders(owner,query.get('accountId',[''])[0],query.get('kind',['crypto'])[0])); return True
         if path == PREFIX + '/snapshot': handler.json(self.snapshot(owner, query.get('accountId', [''])[0])); return True
         if path == PREFIX + '/agents': handler.json({'agents': self.agents(owner)}); return True
         if path == PREFIX + '/runs': handler.json({'runs': self.runs(owner)}); return True
@@ -496,7 +497,57 @@ class RobinhoodWorkspace(RobinhoodMarkets):
         if path == PREFIX + '/disconnect': handler.json(self.disconnect(owner)); return True
         if path == PREFIX + '/sync': handler.json(self.sync(owner, payload.get('accountId'), payload.get('sources'), payload.get('more', False))); return True
         if path == PREFIX + '/ticket/review': handler.json(self.ticket_review(owner,payload)); return True
+        if path == PREFIX + '/ticket/submit':
+            if set(payload) != {'previewId'} or not isinstance(payload['previewId'],str): raise ValueError('A fresh Robinhood preview is required.')
+            handler.json(self.broker.submit_preview(owner,payload['previewId'])); return True
         if path == PREFIX + '/agents/save': handler.json(self.save_agent(owner, payload)); return True
         if path == PREFIX + '/agents/pause': handler.json(self.pause(owner, payload.get('id'), payload.get('paused'))); return True
         if path == PREFIX + '/evaluate': handler.json(self.evaluate(owner, payload)); return True
         handler.json({'error': 'Unsupported action. Live order routing is unavailable.'}, 404); return True
+
+    def orders(self, owner, account_id, kind='crypto'):
+        if kind not in ('crypto','equity'): raise ValueError('Unsupported Robinhood order class.')
+        with self.lock, self.broker.lock:
+            account=self.account(owner,account_id)
+            source='crypto_orders' if kind=='crypto' else 'equity_orders'
+            tool,field,identifier=READS[source]
+            if not account.get(identifier): raise ValueError('The selected account has no linked order-routing account.')
+            data=self.read(owner,tool,{identifier:account[identifier]})
+            rows=data.get(field)
+            if not isinstance(rows,list): raise ValueError('Robinhood returned an invalid order list.')
+            approvals=[];approvals_status='unavailable'
+            if account.get('agentic_allowed') is True and account.get('account_number') and 'get_trade_approvals' in self.broker.sessions.get(owner,{}).get('tools',{}):
+                try:
+                    approval_data=self.read(owner,'get_trade_approvals',{'account_number':account['account_number'],'asset_class':'ASSET_CLASS_CRYPTO'})
+                    if isinstance(approval_data.get('approvals'),list): approvals=self.redact(owner,approval_data['approvals']);approvals_status='complete'
+                except Exception: approvals_status='error'
+            journal={'accepted':0,'pending':0,'error':None}
+            if kind=='crypto' and callable(getattr(self,'journal_delivery',None)):
+                closed={'filled','canceled','cancelled','rejected','failed','voided'}
+                stable=self.sign('account:'+str(account['account_number']))[:32]
+                try:
+                    linked=self.journal_delivery({'eventType':'account','eventId':'rh-account-'+stable,'account':{'id':'rh-'+stable,'name':'Robinhood '+('••••'+str(account['account_number'])[-4:]),'currency':'USD'}})
+                    if linked.get('accepted'): journal['accepted']+=1
+                    else: journal['pending']+=1
+                except Exception:
+                    journal['pending']+=1
+                    journal['error']='Journal unavailable; retry order refresh.'
+                for row in rows:
+                    if not isinstance(row,dict) or str(row.get('state','')).lower() not in closed: continue
+                    try:
+                        quantity=Decimal(str(row.get('filled_quantity') or '0')); price=Decimal(str(row.get('average_price') or '0'))
+                        fee=Decimal(str(row.get('fees') or row.get('fee') or '0'))
+                    except InvalidOperation: continue
+                    if not quantity.is_finite() or quantity<=0 or not price.is_finite() or price<=0 or not fee.is_finite() or fee<0: continue
+                    order_id=str(row.get('id') or '')
+                    symbol_value=str(row.get('symbol') or '').upper().replace('-USD','-USD')
+                    if not re.fullmatch(r'[A-Z0-9.]{1,20}(?:-USD)?',symbol_value) or not re.fullmatch(r'[A-Za-z0-9-]{1,180}',order_id): continue
+                    event={'eventType':'execution','eventId':'rh-order-'+order_id,'account':{'id':'rh-'+stable,'name':'Robinhood '+('••••'+str(account['account_number'])[-4:]),'currency':'USD'},'execution':{'id':order_id,'brokerOrderId':order_id,'symbol':symbol_value if symbol_value.endswith('-USD') else symbol_value+'-USD','side':str(row.get('side') or '').lower(),'quantity':float(quantity),'price':float(price),'fee':float(fee),'executedAt':row.get('updated_at') or row.get('created_at')}}
+                    try:
+                        outcome=self.journal_delivery(event)
+                        if outcome.get('accepted'): journal['accepted']+=1
+                        else: journal['pending']+=1
+                    except Exception:
+                        journal['pending']+=1
+                        journal['error']='Journal unavailable; retry order refresh.'
+            return {'accountId':account_id,'kind':kind,'orders':self.redact(owner,rows),'approvals':approvals,'approvalsStatus':approvals_status,'observedAt':self.clock(),'source':'Robinhood MCP','status':'complete','journal':journal}

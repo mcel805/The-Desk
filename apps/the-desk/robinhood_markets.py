@@ -33,13 +33,13 @@ def pair_asset(row, account):
 
 class RobinhoodMarkets:
     def ticket_review(self, owner, payload):
-        # This is a broker-native preview, separate from deterministic shadow
-        # evaluation. Execution remains unavailable until the live route is verified.
-        if not isinstance(payload,dict) or set(payload) != {'accountId','kind','symbol','side','quantity','limitPrice','chartInstrument'}:
-            raise ValueError('Provide the exact selected account, instrument and limit ticket.')
+        if not isinstance(payload,dict) or set(payload) != {'accountId','kind','symbol','side','quantity','dollarAmount','orderType','limitPrice','chartInstrument'}:
+            raise ValueError('Provide the exact selected account, instrument and ticket sizing.')
         kind, ticker = payload['kind'], payload['symbol']
         symbol(ticker, kind == 'crypto')
+        order_type=payload['orderType']
         if kind not in ('crypto','equity') or payload['side'] not in ('buy','sell'): raise ValueError('Select Buy or Sell for a stock or crypto pair.')
+        if order_type not in (('market','limit') if kind=='crypto' else ('limit',)): raise ValueError('Robinhood chart tickets support crypto market or limit orders and equity limit orders.')
         def amount(key):
             value=payload[key]
             if not isinstance(value,str) or len(value)>40: raise ValueError('Enter a positive decimal '+key)
@@ -47,7 +47,11 @@ class RobinhoodMarkets:
             except InvalidOperation: raise ValueError('Invalid '+key) from None
             if not n.is_finite() or not Decimal('1e-18')<=n<=Decimal('1e12'): raise ValueError('Invalid '+key)
             return n
-        qty, price=amount('quantity'),amount('limitPrice')
+        if (payload['quantity'] is None)==(payload['dollarAmount'] is None): raise ValueError('Choose exactly one size: units or USD notional.')
+        sizing='dollarAmount' if payload['dollarAmount'] is not None else 'quantity'
+        size=amount(sizing)
+        qty=size if sizing=='quantity' else None
+        price=amount('limitPrice') if order_type=='limit' else None
         chart=payload['chartInstrument']
         expected = {'robinhood:'+ticker} if kind=='equity' else {'coinbase:'+ticker,'hyperliquid:'+ticker.removesuffix('-USD'),'robinhood:'+ticker}
         if chart not in expected: raise ValueError('The chart does not match the selected Robinhood asset.')
@@ -59,16 +63,24 @@ class RobinhoodMarkets:
                 raise ValueError('This account is read only for this Desk connection.')
             if kind=='crypto':
                 asset=next((a for a in self.crypto_catalog(owner,payload['accountId'])['assets'] if a['symbol']==ticker),None)
-                if not asset or not asset['eligible'] or asset['marketOnly']: raise ValueError('Pair is restricted, halted, or unavailable for limit orders.')
+                if not asset or not asset['eligible'] or (order_type=='limit' and asset['marketOnly']): raise ValueError('Pair is restricted, halted, or unavailable for this order type.')
                 if asset['restriction'] in ('buy_only','sell_only') and payload['side']!=asset['restriction'].split('_')[0]: raise ValueError('This side is restricted by Robinhood.')
-                for key,value in [('quantityStep',qty),('priceStep',price)]:
-                    try:
-                        step=Decimal(asset[key]);aligned=step>0 and value%step==0
-                    except (InvalidOperation,TypeError): aligned=False
-                    if not aligned: raise ValueError('Ticket does not match Robinhood '+key+'.')
-                if qty<Decimal(asset['minQuantity']) or qty>Decimal(asset['maxQuantity']): raise ValueError('Quantity is outside Robinhood pair limits.')
-                if asset['minNotional'] is not None and qty*price<Decimal(asset['minNotional']): raise ValueError('Order is below Robinhood minimum notional.')
+                if qty is not None:
+                    if order_type=='limit':
+                        for key,value in [('quantityStep',qty),('priceStep',price)]:
+                            try:
+                                step=Decimal(asset[key]);aligned=step>0 and value%step==0
+                            except (InvalidOperation,TypeError): aligned=False
+                            if not aligned: raise ValueError('Ticket does not match Robinhood '+key+'.')
+                    else:
+                        try: aligned=qty%Decimal(asset['quantityStep'])==0
+                        except (InvalidOperation,TypeError): aligned=False
+                        if not aligned: raise ValueError('Quantity does not match Robinhood quantity step.')
+                    if qty<Decimal(asset['minQuantity']) or qty>Decimal(asset['maxQuantity']): raise ValueError('Quantity is outside Robinhood pair limits.')
+                    if order_type=='limit' and asset['minNotional'] is not None and qty*price<Decimal(asset['minNotional']): raise ValueError('Order is below Robinhood minimum notional.')
+                elif size<Decimal(asset['minNotional'] or '0'): raise ValueError('Order is below Robinhood minimum notional.')
             else:
+                if sizing!='quantity' or order_type!='limit': raise ValueError('Equity chart tickets currently support whole-share limit orders.')
                 if qty!=qty.to_integral_value(): raise ValueError('Equity limit orders require whole shares.')
                 asset=next((a for a in self.equity_search(owner,payload['accountId'],ticker)['assets'] if a['symbol']==ticker),None)
                 if not asset or not asset['eligible'] or asset['halted']: raise ValueError('Stock is unavailable or halted for this account.')
@@ -80,9 +92,12 @@ class RobinhoodMarkets:
             except (ValueError,TypeError,AttributeError): valid=False
             if not valid: raise ValueError('A Robinhood bid and ask no older than 15 seconds are required. The reference chart is not an execution quote.')
             if not hasattr(self.broker,'preview'): raise ValueError('Broker preview transport unavailable.')
-            result=self.broker.preview(owner,{'accountId':ephemeral,'asset':kind,'symbol':ticker,'side':payload['side'],'type':'limit','quantity':str(qty),'limit_price':str(price),'market_hours':'regular_hours'})
-            return {'accountId':payload['accountId'],'intent':payload,'brokerQuote':quote,'review':self.redact(owner,result),
-                    'liveEnabled':False,'disclosure':'Robinhood limit preview only. No order was placed. Equity session: regular hours; time in force: GTC. Attached protection is not included.'}
+            preview={'accountId':ephemeral,'asset':kind,'symbol':ticker,'side':payload['side'],'type':order_type,'time_in_force':'gtc'}
+            preview['dollar_amount' if sizing=='dollarAmount' else 'quantity']=str(size)
+            if price is not None: preview['limit_price']=str(price)
+            result=self.broker.preview(owner,preview)
+            return {'accountId':payload['accountId'],'intent':payload,'brokerQuote':quote,'preview':result,
+                    'liveEnabled':True,'disclosure':'Robinhood-native order preview. No order has been placed yet. Chart prices are reference only; Robinhood supplies execution checks and estimates. Confirm the exact account, asset, side and amount before placing.'}
 
     def crypto_catalog(self, owner, account_id):
         with self.lock, self.broker.lock:
