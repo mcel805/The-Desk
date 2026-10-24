@@ -15,10 +15,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 CHICAGO = ZoneInfo('America/Chicago')
-# First release deliberately supports intraday TRADES bars only.
-INTERVALS = {'1m': (60, '1 min'), '3m': (180, '3 mins'), '5m': (300, '5 mins'),
+# Read-only TRADES history; daily bars retain the provider trading-date identity.
+INTERVALS = {'1m': (60, '1 min'), '2m': (120, '2 mins'), '3m': (180, '3 mins'), '5m': (300, '5 mins'),
              '15m': (900, '15 mins'), '30m': (1800, '30 mins'),
-             '1h': (3600, '1 hour'), '4h': (14400, '4 hours')}
+             '1h': (3600, '1 hour'), '4h': (14400, '4 hours'), '1d': (86400, '1 day')}
 MODES = {1: 'REALTIME', 2: 'FROZEN', 3: 'DELAYED', 4: 'DELAYED_FROZEN'}
 HISTORY_LIMIT = 600
 
@@ -33,8 +33,16 @@ def identity(month):
     return 'ibkr:MYM-' + month
 
 
-def normalize_bar(bar):
-    stamp = float(bar.date)
+def normalize_bar(bar, timeframe=None):
+    daily = timeframe == '1d'
+    if daily:
+        trading_day = datetime.strptime(str(bar.date), '%Y%m%d').date()
+        previous = trading_day - timedelta(days=1)
+        stamp = datetime(previous.year, previous.month, previous.day, 17, tzinfo=CHICAGO).timestamp()
+        # Standard CME session boundary, not a verified holiday/early-close calendar.
+        close_stamp = datetime(trading_day.year, trading_day.month, trading_day.day, 16, tzinfo=CHICAGO).timestamp()
+    else:
+        stamp = float(bar.date)
     if not math.isfinite(stamp) or stamp < 1_000_000_000 or stamp > 100_000_000_000:
         raise ValueError('IBKR intraday timestamp must be epoch seconds.')
     values = [float(getattr(bar, key)) for key in ('open', 'high', 'low', 'close', 'volume')]
@@ -43,8 +51,10 @@ def normalize_bar(bar):
     o, h, low, c, volume = values
     if low > min(o, c) or h < max(o, c) or h < low:
         raise ValueError('Invalid OHLC range.')
-    return dict(zip(('time', 'open', 'high', 'low', 'close', 'volume'),
+    result = dict(zip(('time', 'open', 'high', 'low', 'close', 'volume'),
                     (int(stamp * 1000), o, h, low, c, volume)))
+    if daily:result.update({'end_time':int(close_stamp*1000),'trading_date':str(bar.date)})
+    return result
 
 
 def session_anchor(stamp):
@@ -208,7 +218,7 @@ class IBKRData:
             self.quote_seen[name] = self.clock()
 
     def receive_bar(self, timeframe, bar):
-        row = normalize_bar(bar)
+        row = normalize_bar(bar, timeframe)
         with self.lock:
             series = self.history.setdefault(timeframe, {})
             series[row['time']] = row
@@ -260,7 +270,7 @@ class IBKRData:
                     'quote': quote, 'history_stale': bool(self.history) and (not self.connected or
                         any(now - seen > 30 for seen in self.history_seen.values())),
                     'timeframes': list(INTERVALS), 'as_of': int(now * 1000),
-                    'coverage': 'Recent bounded intraday history, up to 600 bars per interval. No full archive or holiday calendar.'}
+                    'coverage': 'Recent bounded history, up to 600 bars per interval. Daily session boundaries are standard CME times; no verified holiday/early-close calendar.'}
 
     def bars(self, instrument, timeframe, limit=600, start=None, end=None, wait=8):
         if instrument != self.instrument or not self.instrument:
@@ -315,8 +325,9 @@ class IBKRData:
             status.update({'bars': rows, 'timeframe': timeframe,
                            'history_received_at': int(seen * 1000) if seen is not None else None,
                            'history_stale': not self.connected or seen is None or now - seen > 30,
+                           'alignment':'America/Chicago session; provider TRADES; daily 17:00 prior date to 16:00 trading date (holiday exceptions unverified)',
                            'last_completed': next((b['time'] for b in reversed(rows)
-                                                   if b['time'] + seconds * 1000 <= now * 1000), None)})
+                                                   if b.get('end_time',b['time'] + seconds * 1000) <= now * 1000), None)})
             return status
 
 

@@ -19,23 +19,24 @@ export function accountOptions(paper,selected,status,wallet){
 }
 // Exact, explicitly displayed reference mapping. A perpetual chart is never a
 // Robinhood perpetual or an instruction to route a derivative order.
-export function feedChoices(asset,hlCoins,coinbaseProducts){
+export function feedChoices(asset,hlCoins,coinbaseProducts,binanceProducts=new Set()){
  if(!asset)return [];
  if(asset.kind==='equity')return [{instrument:'robinhood:'+asset.symbol,label:'Robinhood · equity · regular session'}];
  const base=asset.symbol.replace(/-USD$/,'');const choices=[];
  if(hlCoins.has(base))choices.push({instrument:'hyperliquid:'+base,label:'Hyperliquid perpetual · reference only; Robinhood spot ticket'});
  if(coinbaseProducts.has(asset.symbol))choices.push({instrument:'coinbase:'+asset.symbol,label:'Coinbase spot · reference only; Robinhood spot ticket'});
+ if(binanceProducts.has(base+'USDT'))choices.push({instrument:'binance:'+base+'USDT',label:'Binance spot USDT · reference only; Robinhood spot USD ticket'});
  if(!choices.length)choices.push({instrument:'robinhood:'+asset.symbol,label:'Robinhood quotes · historical chart unavailable'});
  return choices;
 }
 export function assetMatchesChart(asset,instrument){
  if(!asset)return false;
  if(asset.kind==='equity')return instrument==='robinhood:'+asset.symbol;
- return instrument==='coinbase:'+asset.symbol||instrument==='hyperliquid:'+asset.symbol.replace(/-USD$/,'')||instrument==='robinhood:'+asset.symbol;
+ return instrument==='coinbase:'+asset.symbol||instrument==='hyperliquid:'+asset.symbol.replace(/-USD$/,'')||instrument==='robinhood:'+asset.symbol||(['BTC-USD','ETH-USD','SOL-USD'].includes(asset.symbol)&&instrument==='binance:'+asset.symbol.replace('-USD','USDT'));
 }
 export class RobinhoodProvider{
  constructor(account){this.account=account;}
- info(){return {name:'robinhood',displayName:'Robinhood',requiresApiKey:false,supportedTimeframes:['1','3','5','15','30','60','240','D'],capabilities:{enumerate:false,stream:true,symbolInfo:true}};}
+ info(){return {name:'robinhood',displayName:'Robinhood',requiresApiKey:false,supportedTimeframes:['1','2','3','5','15','30','60','240','D'],capabilities:{enumerate:false,stream:true,symbolInfo:true}};}
  async getSymbolInfo(ticker){return {ticker,tickerid:'ROBINHOOD:'+ticker,prefix:'ROBINHOOD',description:ticker+' · Robinhood',type:ticker.endsWith('-USD')?'crypto':'stock',currency:'USD',mintick:.01,pricescale:100,timezone:'America/New_York',session:ticker.endsWith('-USD')?'24x7':'0930-1600'};}
  async getBars(ticker,timeframe,range={}){
   if(ticker.endsWith('-USD'))return [];

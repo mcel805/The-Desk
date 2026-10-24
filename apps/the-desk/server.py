@@ -10,6 +10,8 @@ import re
 import sqlite3
 import threading
 import time
+from spider_service import Spider
+from spider_markets import binance_bars
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 from urllib.request import Request, urlopen
@@ -71,10 +73,23 @@ class Gateway:
         with self.lock:
             cached=self.cache.get(key)
             if cached and time.time()-cached[0]<10:return cached[1]
-        minutes={'1m':1,'3m':3,'5m':5,'15m':15,'30m':30,'1h':60,'2h':120,'4h':240,'1d':1440}
+        minutes={'1m':1,'2m':2,'3m':3,'5m':5,'15m':15,'30m':30,'1h':60,'2h':120,'4h':240,'1d':1440}
         if timeframe not in minutes:raise ValueError('Unsupported interval')
         seconds=minutes[timeframe]*60;now=int(time.time());symbol=instrument.split(':')[1]
-        if instrument.startswith('hyperliquid:'):
+        if instrument.startswith('binance:'):
+            result=binance_bars(http_json,instrument,timeframe,limit,now*1000)
+            with self.lock:self.cache[key]=(time.time(),result)
+            return result
+        if instrument.startswith('hyperliquid:') and timeframe=='2m':
+            raw=self.bars(instrument,'1m',min(2000,limit*2+4))['bars']
+            buckets={}
+            for b in raw:buckets.setdefault(b['time']//120000*120000,[]).append(b)
+            bars=[]
+            for stamp,rows in buckets.items():
+                rows=sorted(rows,key=lambda b:b['time'])
+                if [b['time'] for b in rows]==[stamp,stamp+60000] or (stamp+120000>now*1000 and rows[0]['time']==stamp):
+                    bars.append({'time':stamp,'open':rows[0]['open'],'high':max(b['high'] for b in rows),'low':min(b['low'] for b in rows),'close':rows[-1]['close'],'volume':sum(b['volume'] for b in rows)})
+        elif instrument.startswith('hyperliquid:'):
             data=http_json('https://api.hyperliquid.xyz/info',{'type':'candleSnapshot','req':{'coin':symbol,'interval':timeframe,'startTime':(now-limit*seconds)*1000,'endTime':now*1000}})
             bars=[{'time':int(x['t']),'open':float(x['o']),'high':float(x['h']),'low':float(x['l']),'close':float(x['c']),'volume':float(x['v'])} for x in data]
         else:
@@ -158,6 +173,7 @@ def main():
     if not args.no_workers:agent_signals.start()
     if not args.no_workers:agents.start()
     if not args.no_workers:workers.start()
+    spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'web'),**kw)
         def log_message(self,*a):pass
@@ -181,6 +197,7 @@ def main():
             if not self.trusted():return self.json({'error':'Loopback origin required'},403)
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
+                if spider.get(self,parsed.path,q):return
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
@@ -206,6 +223,7 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
+                if spider.post(self,path,p):return
                 if agents.post(self,path,p):return
                 if robinhood.post(self,path,p):return
                 if funding.post(self,path,p):return
@@ -236,6 +254,6 @@ def main():
     httpd=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('The Desk: http://127.0.0.1:'+str(args.port),flush=True)
     try:httpd.serve_forever()
-    finally:agent_signals.close();agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
+    finally:spider.close();agent_signals.close();agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
 
 if __name__=='__main__':main()

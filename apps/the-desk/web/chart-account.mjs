@@ -1,7 +1,7 @@
 import {brokerAPI,brokerMoney,portfolioMetrics,isVerified,accountOptions,feedChoices,assetMatchesChart,escapeHTML as esc} from './account-context.mjs';
 const $=s=>document.querySelector(s);
 export function setupChartAccount({paperAccounts,paperId,onPaper,onChange,onMarket,instrument,toast}){
- let status={connected:false,accounts:[]},wallet=null,selected=localStorage.getItem('the-desk.broker-account')||'',snapshot=null,asset=null,brokerQuote=null,assets=[],kind='crypto',sequence=0,searchSequence=0,busy=false,last=0,portfolioError='',feeds={hl:new Set(),cb:new Set()},feedsReady=false;
+ let status={connected:false,accounts:[]},wallet=null,selected=localStorage.getItem('the-desk.broker-account')||'',snapshot=null,asset=null,brokerQuote=null,assets=[],kind='crypto',sequence=0,searchSequence=0,busy=false,last=0,portfolioError='',feeds={hl:new Set(),cb:new Set(),bn:new Set()},feedsReady=false;
  const drawer=document.createElement('dialog');drawer.id='brokerAssets';drawer.setAttribute('aria-labelledby','brokerAssetsTitle');
  drawer.innerHTML=`<header class="rh-header"><div><h2 id="brokerAssetsTitle">Robinhood assets</h2><p id="assetAccount"></p></div><button id="closeBrokerAssets" aria-label="Close assets">×</button></header><div class="rh-controls"><label>Asset class<select id="brokerAssetKind"><option value="crypto">Crypto · full USD catalog</option><option value="equity">Stocks & ETFs · search</option></select></label><label>Search<input id="brokerAssetSearch" placeholder="Symbol or name" maxlength="80"></label><button id="brokerAssetSearchButton">Search / refresh</button></div><p id="brokerAssetCoverage" role="status"></p><div id="brokerAssetResults"></div><p class="muted small">Catalog eligibility is a snapshot. Robinhood rechecks the account, quote, session, limits and restrictions at review. Options and futures are not enabled in this chart ticket.</p>`;
  document.body.append(drawer);
@@ -65,6 +65,8 @@ export function setupChartAccount({paperAccounts,paperId,onPaper,onChange,onMark
   ]);
   if(results[0].status==='fulfilled')feeds.hl=new Set((results[0].value.universe||[]).filter(x=>!x.isDelisted).map(x=>x.name));
   if(results[1].status==='fulfilled'&&Array.isArray(results[1].value))feeds.cb=new Set(results[1].value.filter(x=>x.status==='online'&&!x.trading_disabled).map(x=>x.id));
+  const verified=await Promise.allSettled(['BTCUSDT','ETHUSDT','SOLUSDT'].map(async symbol=>{const r=await fetch('/api/spider/symbol?'+new URLSearchParams({instrument:'binance:'+symbol}));if(!r.ok)throw Error();return symbol;}));
+  feeds.bn=new Set(verified.filter(r=>r.status==='fulfilled').map(r=>r.value));
   feedsReady=results.every(x=>x.status==='fulfilled');
  }
  function renderAssets(){
@@ -89,7 +91,7 @@ export function setupChartAccount({paperAccounts,paperId,onPaper,onChange,onMark
  }
  async function chooseAsset(next){
   const mine=sequence,acct=selected;await loadFeeds();if(mine!==sequence||acct!==selected)return;
-  ++sequence;asset=next;brokerQuote=null;const choices=feedChoices(asset,feeds.hl,feeds.cb);
+  ++sequence;asset=next;brokerQuote=null;const choices=feedChoices(asset,feeds.hl,feeds.cb,feeds.bn);
   localStorage.setItem('the-desk.broker-asset:'+selected,JSON.stringify({kind:asset.kind,symbol:asset.symbol}));
   const chosen=choices.find(c=>c.instrument===instrument())||choices[0];
   $('#brokerChartFeed').innerHTML=choices.map(c=>`<option value="${esc(c.instrument)}">${esc(c.label)}</option>`).join('');
@@ -114,7 +116,7 @@ export function setupChartAccount({paperAccounts,paperId,onPaper,onChange,onMark
  $('#brokerAssetKind').onchange=async e=>{kind=e.target.value;assets=[];$('#brokerAssetSearch').value='';try{await search();}catch(e){$('#brokerAssetCoverage').textContent=e.message;}};
  $('#brokerAssetSearchButton').onclick=()=>search().catch(e=>$('#brokerAssetCoverage').textContent=e.message);
  $('#brokerAssetSearch').oninput=()=>{if(kind==='crypto')renderAssets();};$('#brokerAssetSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('#brokerAssetSearchButton').click();}};
- $('#brokerChartFeed').onchange=async e=>{if(!asset||!feedChoices(asset,feeds.hl,feeds.cb).some(c=>c.instrument===e.target.value))return;brokerQuote=null;changed();try{await onMarket(e.target.value);await quoteRefresh();}catch(error){toast(error.message,true);}};
+ $('#brokerChartFeed').onchange=async e=>{if(!asset||!feedChoices(asset,feeds.hl,feeds.cb,feeds.bn).some(c=>c.instrument===e.target.value))return;brokerQuote=null;changed();try{await onMarket(e.target.value);await quoteRefresh();}catch(error){toast(error.message,true);}};
  window.addEventListener('desk:robinhood-connection',()=>refresh(true));
  window.addEventListener('desk:wallet-context',e=>{wallet=e.detail;render();});
  setInterval(()=>{render();if(selected){refresh();quoteRefresh();}},10000);

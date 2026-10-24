@@ -53,7 +53,7 @@ class IBKRHttpTests(unittest.TestCase):
     def test_bars_and_input_validation(self):
         data=self.request('/api/ibkr/bars?instrument=ibkr:MYM-202612&timeframe=1m&limit=10')
         self.assertEqual(len(data['bars']),10);self.assertTrue(data['read_only']);self.assertFalse(data['orders_enabled'])
-        for suffix in ['instrument=ibkr:MYM-202603','instrument=ibkr:MYM-202612&timeframe=1d',
+        for suffix in ['instrument=ibkr:MYM-202603','instrument=ibkr:MYM-202612&timeframe=1w',
                        'instrument=ibkr:MYM-202612&from=nan','instrument=ibkr:MYM-202612&limit=-1']:
             with self.subTest(suffix=suffix),self.assertRaises(HTTPError) as err:self.request('/api/ibkr/bars?'+suffix)
             self.assertEqual(err.exception.code,400)

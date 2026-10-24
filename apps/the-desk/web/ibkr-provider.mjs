@@ -1,5 +1,5 @@
 // Local read-only data provider. Never talks to IBKR or an order endpoint directly.
-export const IBKR_INTERVALS={'1':'1m','1m':'1m','3':'3m','3m':'3m','5':'5m','5m':'5m','15':'15m','15m':'15m','30':'30m','30m':'30m','60':'1h','1h':'1h','240':'4h','4h':'4h'};
+export const IBKR_INTERVALS={'1':'1m','1m':'1m','2':'2m','2m':'2m','3':'3m','3m':'3m','5':'5m','5m':'5m','15':'15m','15m':'15m','30':'30m','30m':'30m','60':'1h','1h':'1h','240':'4h','4h':'4h','D':'1d','1D':'1d','1d':'1d'};
 export const isIBKR=s=>typeof s==='string'&&s.toLowerCase().startsWith('ibkr:');
 export function ibkrLabel(status){
   if(!status)return 'IBKR · unavailable · READ ONLY';
@@ -19,7 +19,7 @@ export function normalizeIBKRBars(rows){
 }
 export class IBKRProvider{
   constructor({fetcher=(...args)=>globalThis.fetch(...args),onStatus=()=>{},schedule=(fn,ms)=>setTimeout(fn,ms),cancel=id=>clearTimeout(id),pollMs=1000}={}){Object.assign(this,{fetcher,onStatus,schedule,cancel,pollMs});}
-  info(){return {name:'ibkr',displayName:'IBKR · read-only',supportedTimeframes:['1','3','5','15','30','60','240'],capabilities:{enumerate:true,stream:true,symbolInfo:true}};}
+  info(){return {name:'ibkr',displayName:'IBKR · read-only',supportedTimeframes:['1','2','3','5','15','30','60','240','D'],capabilities:{enumerate:true,stream:true,symbolInfo:true}};}
   async request(path,signal){
     const r=await this.fetcher('/api/ibkr/'+path,{signal});const data=await r.json();
     if(!r.ok)throw Error(data.error||'IBKR data unavailable');
@@ -36,7 +36,7 @@ export class IBKRProvider{
     return {ticker,tickerid:'IBKR:'+ticker,prefix:'IBKR',description:(c.synthetic?'DEMO DATA · ':'')+'MYM '+c.expiry+' · '+c.exchange,type:'futures',currency:c.currency,basecurrency:'USD',mintick:c.tick,pricescale:Math.round(1/c.tick),pointvalue:c.multiplier,timezone:'America/Chicago'};
   }
   async read(ticker,timeframe,range={},signal){
-    const tf=IBKR_INTERVALS[timeframe];if(!tf)throw Error('IBKR: select an intraday interval from 1m to 4h. Daily bars are not available in this release.');
+    const tf=IBKR_INTERVALS[timeframe];if(!tf)throw Error('IBKR: select a supported interval from 1m to Daily.');
     const query=new URLSearchParams({instrument:'ibkr:'+ticker,timeframe:tf,limit:String(Math.min(600,Math.max(1,range.limit??600)))});
     if(range.from!==undefined)query.set('from',range.from);if(range.to!==undefined)query.set('to',range.to);
     const data=await this.request('bars?'+query,signal);

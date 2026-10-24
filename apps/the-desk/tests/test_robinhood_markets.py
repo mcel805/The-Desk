@@ -25,6 +25,12 @@ class MarketTests(unittest.TestCase):
         self.assertTrue(result['complete']);self.assertEqual(len(result['assets']),2)
         self.assertEqual(result['assets'][0]['restriction'],'sell_only');self.assertFalse(result['assets'][1]['eligible'])
 
+    def test_binance_reference_uses_exact_base_and_native_robinhood_spot_preview(self):
+        result=self.service.ticket_review(self.owner,self.ticket(chartInstrument='binance:BTCUSDT'))
+        self.assertIn('USDT reference is not a USD conversion',result['disclosure'])
+        self.assertFalse(any(c[1]=='place_crypto_order' for c in self.broker.calls))
+        with self.assertRaises(ValueError):self.service.ticket_review(self.owner,self.ticket(chartInstrument='binance:ETHUSDT'))
+
     def test_repeated_cursor_denies_complete_catalog(self):
         self.broker.call=lambda *a:{'results':self.broker.pairs,'next':'repeat'}
         with self.assertRaisesRegex(ValueError,'advance'):self.service.crypto_catalog(self.owner,self.aid)
@@ -66,7 +72,7 @@ class MarketTests(unittest.TestCase):
         bars=self.service.equity_bars(self.owner,self.aid,'AAPL','60')
         self.assertEqual(bars['bars'][0]['close'],100.5);self.assertEqual(bars['symbol'],'AAPL')
         self.assertEqual(self.broker.calls[-1][2]['bounds'],'regular')
-        with self.assertRaises(ValueError):self.service.equity_bars(self.owner,self.aid,'AAPL','2')
+        with self.assertRaises(ValueError):self.service.equity_bars(self.owner,self.aid,'AAPL','7')
 
     def test_reference_chart_limit_reviews_native_spot_without_placing(self):
         result=self.service.ticket_review(self.owner,self.ticket())
@@ -120,18 +126,18 @@ class MarketTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'whole'):self.service.ticket_review(self.owner,{**p,'quantity':'0.5'})
 
     def test_three_and_fifteen_minute_charts_aggregate_complete_source_buckets(self):
-        for tf,step in [('3',60),('15',300)]:
-            bucket=int(self.now//(step*3))*(step*3)-step*3
+        for tf,step,count in [('2',60,2),('3',60,3),('15',300,3)]:
+            bucket=int(self.now//(step*count))*(step*count)-step*count
             original=self.broker.call
             def call(owner,name,args):
                 if name!='get_equity_historicals':return original(owner,name,args)
-                rows=[{'begins_at':datetime.fromtimestamp(bucket+i*step,timezone.utc).isoformat(),'open_price':str(100+i),'high_price':str(103+i),'low_price':str(99+i),'close_price':str(101+i),'volume':'10'} for i in range(3)]
+                rows=[{'begins_at':datetime.fromtimestamp(bucket+i*step,timezone.utc).isoformat(),'open_price':str(100+i),'high_price':str(103+i),'low_price':str(99+i),'close_price':str(101+i),'volume':'10'} for i in range(count)]
                 # An incomplete neighboring bucket is excluded rather than padded.
-                rows.append({**rows[0],'begins_at':datetime.fromtimestamp(bucket-step*3,timezone.utc).isoformat()})
+                rows.append({**rows[0],'begins_at':datetime.fromtimestamp(bucket-step*count,timezone.utc).isoformat()})
                 return {'results':[{'symbol':'AAPL','bars':rows}]}
             self.broker.call=call
             bars=self.service.equity_bars(self.owner,self.aid,'AAPL',tf)['bars']
-            self.assertEqual(bars,[{'time':bucket*1000,'open':100.,'high':105.,'low':99.,'close':103.,'volume':30.}])
+            self.assertEqual(bars,[{'time':bucket*1000,'open':100.,'high':float(102+count),'low':99.,'close':float(100+count),'volume':float(10*count)}])
             self.broker.call=original
 
     def test_initial_minute_lookback_spans_weekends_and_holidays(self):
