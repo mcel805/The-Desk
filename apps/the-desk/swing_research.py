@@ -16,6 +16,7 @@ import time
 import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
 from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
+from jev_costs import JevCostMeter, RATES
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
 CODE_HASH=hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('swing_tracker.py','swing_research.py','jev_swing.py'))).hexdigest()
@@ -37,6 +38,7 @@ class SwingResearch:
               CREATE INDEX IF NOT EXISTS predictions_run ON predictions(run,prediction_bar);
             ''')
             saved={r['symbol']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')}
+        self.cost_meter=JevCostMeter(self.path)
         for symbol in SYMBOLS:
             default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':15,'jev_enabled':False}
             self.configs[symbol]=saved.get(symbol,default)
@@ -188,6 +190,9 @@ class SwingResearch:
             state={'symbol':symbol,'provider':'Hyperliquid public REST','observed_at':now,'quote_at':source,'candles_as_of':as_of,'bid':float(bid),'ask':float(ask),'tick':tick,'closed_cutoff':snap['cutoff'],'forming':forming,'forming_is_confirmed':False,'prediction_bar':prediction_bar,'definition':'next full 1m close vs its open; >= one tick','evaluation_bar':now//60000*60000,'evaluation_slot':now%60000//(a['config']['cadence_seconds']*1000)+1,'cadence_seconds':a['config']['cadence_seconds'],'revision':REVISION,'code_hash':CODE_HASH,'parent_id':snap['parent_id'],'trend':snap['trend'],'pivots':snap['pivots'][-10:],'candidates':snap['candidates'][-4:],'closed_bars':closed[-24:]}
             pid=uuid.uuid4().hex
             with self.db() as db:db.execute('INSERT INTO predictions VALUES(?,?,?,?,?,?,?,?,?)',(pid,a['run'],symbol,now,prediction_bar,int(primary),encode(state),None,None))
+            pricing=deepcopy(RATES.get(MODEL))
+            self.cost_meter.record(pid,a['run'],symbol,now,snap['parent_id'],
+                                   'PENDING' if a['config']['jev_enabled'] else 'DISABLED',MODEL,pricing=pricing)
             current={'status':'OBSERVING','run':a['run'],'started':a['started'],'observed_at':now,'quote_at':source,'snapshot':snap,'forming':forming,'primary_sample':primary,'prediction_id':pid,'prediction_bar':prediction_bar,'jev':{'status':'DISABLED'},'detail':'Completed bars confirm setups. Intrabar snapshots only update research judgments.'}
             self.last[symbol]=current
         if a['config']['jev_enabled']:
@@ -201,7 +206,12 @@ class SwingResearch:
                 with self.lock:
                     if self.active.get(symbol) is not a:stale=True
                 jev={'status':'STALE' if stale else 'AVAILABLE','latency_ms':round(elapsed),'received_at':finished,'prompt':PROMPT_VERSION,**result}
-            except Exception as e:jev={'status':'UNAVAILABLE','error_class':type(e).__name__,'prompt':PROMPT_VERSION}
+            except Exception as e:
+                jev={'status':'UNAVAILABLE','error_class':type(e).__name__,'prompt':PROMPT_VERSION}
+                if getattr(e,'safe_usage',None):jev.update(usage=e.safe_usage,model=getattr(e,'response_model',MODEL))
+            jev['pricing_snapshot']=pricing
+            self.cost_meter.record(pid,a['run'],symbol,now,snap['parent_id'],jev['status'],
+                                   jev.get('model',MODEL),jev.get('usage'),pricing)
             with self.db() as db:db.execute('UPDATE predictions SET response=? WHERE id=? AND response IS NULL',(encode(jev),pid))
             with self.lock:
                 if self.active.get(symbol) is a and self.last[symbol].get('prediction_id')==pid:self.last[symbol]['jev']=jev
@@ -227,7 +237,12 @@ class SwingResearch:
                 s['dots']=self.dots(s.get('run'),s.get('snapshot',{}),s.get('forming'))
                 s['coverage']='Hyperliquid public REST snapshots · 1m OHLC · not a full tick feed'
                 result[symbol]=s
-            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'as_of':now}
+            contexts={k:{'run':v.get('run'),'parent_id':(v.get('snapshot') or {}).get('parent_id'),
+                'running':v['running'],'jev_enabled':v['config']['jev_enabled'],
+                'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
+            costs=self.cost_meter.summary(contexts,MODEL)
+            for k,v in result.items():v['costs']=costs['symbols'][k]
+            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []
@@ -270,4 +285,7 @@ class SwingResearch:
             runs=[dict(r) for r in db.execute('SELECT * FROM runs WHERE symbol=? ORDER BY started DESC LIMIT 100',(symbol,))]
             ledger=[dict(r) for r in db.execute('SELECT * FROM ledger WHERE symbol=? ORDER BY id DESC LIMIT 20000',(symbol,))]
             predictions=[dict(r) for r in db.execute('SELECT * FROM predictions WHERE symbol=? ORDER BY at DESC LIMIT 20000',(symbol,))]
-        return {'revision':REVISION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'limits':{'runs':100,'ledger':20000,'predictions':20000},'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}
+        with self.cost_meter.db() as db:
+            usage=[dict(r) for r in db.execute('SELECT * FROM jev_usage WHERE symbol=? ORDER BY at DESC LIMIT 20000',(symbol,))]
+            costs=self.cost_meter.aggregate(db,'WHERE symbol=?',(symbol,))
+        return {'revision':REVISION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'jev_usage':usage,'jev_costs':costs,'limits':{'runs':100,'ledger':20000,'predictions':20000,'jev_usage':20000},'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}

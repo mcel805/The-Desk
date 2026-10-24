@@ -164,6 +164,22 @@ class ServiceTests(unittest.TestCase):
         self.now+=45000;self.gateway.now=self.now;self.sample()
         self.now+=60000;self.gateway.now=self.now;self.sample()
         h=self.service.history('hyperliquid:BTC');self.assertEqual(h['metrics']['n'],1);self.assertEqual(h['predictions'][-1]['outcome']['label'],'up')
+
+    def test_cost_meter_counts_each_actual_request_and_updates_status_without_extra_calls(self):
+        calls=[]
+        def judge(state):
+            calls.append(state);r=response();r['usage']={'input_tokens':6000,'output_tokens':164};return r
+        self.service.judge.judge=judge
+        self.command('configure',config={'jev_enabled':True});self.command('start');self.sample()
+        first=self.service.status()['costs']['total'];self.assertEqual(first['requests'],1)
+        self.assertEqual(first['input_tokens'],6000);self.assertAlmostEqual(first['estimated_usd'],.000252)
+        self.now+=15000;self.gateway.now=self.now;self.sample()
+        second=self.service.status()['costs']['total'];self.assertEqual(second['requests'],2)
+        self.assertAlmostEqual(second['estimated_usd'],.000504)
+        for _ in range(3):self.service.status()
+        self.assertEqual(len(calls),2)
+        h=self.service.history('hyperliquid:BTC')
+        self.assertEqual(h['predictions'][0]['response']['pricing_snapshot']['input_usd_per_million'],'0.042')
     def test_revision_stops_without_rewriting_history(self):
         self.command('start');self.sample();original=self.gateway.bars
         def revised(*args):

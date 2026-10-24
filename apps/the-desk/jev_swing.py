@@ -4,6 +4,7 @@ import math
 import os
 import threading
 from urllib.request import Request, urlopen
+from jev_costs import safe_usage
 
 MODEL='jev-1.14.0'
 PROMPT_VERSION='swing-observer.2'
@@ -14,6 +15,13 @@ QUESTIONS={
     'long_fit':{'type':'noul','instructions':'Does the supplied current pattern support a developing LONG reversal thesis? Judge contextual coherence, not permission to trade or expected profit. A falling candle alone is not a long signal.','criteria':{'true':'Recognized downside location, failed selling and an upward reclaim make the long reversal thesis coherent.','false':'Evidence is absent, conflicting or suggests continued selling.'}},
     'short_fit':{'type':'noul','instructions':'Does the supplied current pattern support a developing SHORT reversal thesis? Judge contextual coherence, not permission to trade or expected profit. A rising candle alone is not a short signal.','criteria':{'true':'Recognized upside location, failed buying and a downward reclaim make the short reversal thesis coherent.','false':'Evidence is absent, conflicting or suggests continued buying.'}}
 }
+
+class JevResponseError(ValueError):
+    """Retain only safe billable counters when typed-answer validation fails."""
+    def __init__(self,value):
+        super().__init__('Invalid typed Jev response')
+        self.safe_usage=safe_usage(value.get('usage')) if isinstance(value,dict) else None
+        self.response_model=value.get('model') if isinstance(value,dict) and isinstance(value.get('model'),str) else None
 
 def probability(v):
     return type(v) in (int,float) and math.isfinite(v) and 0<=v<=1
@@ -59,4 +67,5 @@ class Jev:
         if not key:raise ValueError('Jev key unavailable')
         request=Request('https://api.typesafe.ai/v1/systemone',data=json.dumps({'model':MODEL,'state':state,'questions':QUESTIONS},allow_nan=False).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+key})
         with urlopen(request,timeout=2) as response:value=json.load(response)
-        return validate_response(value)
+        try:return validate_response(value)
+        except (ValueError,TypeError,AttributeError):raise JevResponseError(value) from None

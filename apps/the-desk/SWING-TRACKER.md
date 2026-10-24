@@ -122,6 +122,56 @@ The output must be a new file. Optional `--run ID` selects its frozen cohort;
 dependency. Preserve this v1 reference when proposing a changed outcome rule;
 give the challenger a new version and test on a later untouched block.
 
+## Jev usage and cost accounting
+
+The chart's Swing Tracker status panel shows estimates for the latest research
+session, current/latest parent group and all stored BTC/ETH runs. Swing Lab has
+a full **Jev usage & running costs** card, 1/2/4/6-check cadence comparisons,
+custom session-hours projections and recent run/parent tables. It refreshes with
+status every three seconds and does not make additional model requests.
+
+`jev_costs.py` keeps a separate durable `jev_usage` table keyed by prediction ID.
+Before a model call, its row is pending with a frozen published-price snapshot.
+Afterward, the returned `usage.input_tokens` and `usage.output_tokens` determine
+the estimate. Input tokens are already billable tokens for the whole request;
+never multiply by the five questions again. Cost arithmetic uses integer
+nanodollars. Completed usage and its rate snapshot are immutable and survive
+process restarts. A crashed pending request becomes unresolved, not free.
+
+Published `jev-1.14.0` and `jev-1.13.0` rates verified on **2026-10-24** are
+**$0.042 per million input tokens, $0 for output**:
+[model pricing](https://docs.typesafe.ai/models),
+[billable usage contract](https://docs.typesafe.ai/api/system-one).
+Thus a request reporting 6,000 input tokens costs an estimated $0.000252;
+four per minute projects $0.06048/hour or $0.48384/8 hours per such market.
+These are examples, not fixed future costs: snapshot sizes change.
+
+- Disabled tracker observations are not API requests. Stale or invalid answers
+  still count when they report usage. A timeout, missing usage or unknown model
+  price remains unknown; `≥` marks the known portion of an incomplete estimate.
+- Historic responses are backfilled once at the verified current rate with a
+  `legacy_repriced` marker. Original predictions are not rewritten. Lost records
+  cannot be billed from this ledger; restored-archive coverage is shown.
+- “Session” means one research run. “Parent swing” means `(run, parent_id)`,
+  which may still be developing; it is not a finalized independent audit swing.
+  The average parent cost denominator includes all observed priced/unpriced
+  groups, and the unknown-cost counters remain visible.
+- Projections use up to 20 recent usage-bearing requests for the same market
+  and model, multiplied by the configured cadence. No samples means unavailable,
+  rather than borrowing BTC's cost for ETH. Paused/disabled markets have zero
+  active projected burn; their conditional forecasts remain available.
+- Totals aggregate all retained ledger rows without the observation export cap.
+  The tables show only recent sessions/parents; the total does not use those
+  display limits. The model's billed tokens are not fed back into market state.
+- Estimates are not account invoices: credits, tax, custom pricing and usage
+  from other applications are not reconciled. This feature does not add a
+  spending cap, change sampling or restart observation runs automatically.
+
+`GET /api/swing/costs` exposes read-only aggregate estimates, pricing provenance,
+unknown/pending counters, run/parent groups and projections. The scoped research
+export also includes usage rows and uncapped market totals. Credentials are
+never part of these outputs.
+
 The adapter uses the documented System One HTTP endpoint, pins `jev-1.14.0`, and
 pins question revision `swing-observer.2`. It validates answer types, all choice
 keys, finite [0,1] probabilities, probability sums and model identity. A 2s request
@@ -254,3 +304,13 @@ Official references, checked 2026-10-23:
 [Choice](https://docs.typesafe.ai/primitives/choice),
 [Noul](https://docs.typesafe.ai/primitives/noul),
 [Confidence](https://docs.typesafe.ai/confidence).
+
+For an already active pre-upgrade collector, avoid restarting it: a session key
+lives only in RAM. Run `python3 scripts/watch-jev-costs.py --data-dir DATA_DIR
+--output web/data/jev-costs.json` from this app. This local companion polls only
+loopback status, backfills the usage table, and publishes atomic cost summaries
+without making inference requests or modifying source observations. The browser
+prefers native API costs; otherwise it reads this summary. Figures older than
+12 seconds are visibly stale. The companion exits automatically when native
+accounting appears after a natural server restart. Generated summaries stay
+Git-ignored. The native accounting requires no companion on later launches.

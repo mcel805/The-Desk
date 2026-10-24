@@ -5,3 +5,5 @@ body:not(.swing-lab) .desk-header{min-width:0;overflow-x:auto;max-width:100vw}
 
 #swingEvidence{scroll-margin-top:90px}
 .swing-lab .evidence-progress{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:18px 0;color:var(--muted);font-size:12px}.swing-lab .evidence-progress progress{display:block;width:100%;height:8px;margin-top:10px;accent-color:var(--blue)}.swing-lab .evidence-actions{display:flex;gap:18px;align-items:end;flex-wrap:wrap}.swing-lab .evidence-actions input{max-width:230px}.swing-lab .evidence-actions a{padding:8px 0}
+
+#jevCosts{scroll-margin-top:90px}.jev-cost-summary{border-top:1px solid var(--line);padding-top:6px;line-height:1.65}.swing-summary{max-width:430px}

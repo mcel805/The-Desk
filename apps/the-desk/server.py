@@ -187,6 +187,7 @@ def main():
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
                 if parsed.path=='/api/swing/status':return self.json(swing_research.status())
+                if parsed.path=='/api/swing/costs':return self.json(swing_research.status()['costs'])
                 if parsed.path=='/api/swing/history':return self.json(swing_research.history(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/export':return self.json(swing_research.export(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/ibkr/status':return self.json(ibkr.status())

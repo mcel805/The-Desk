@@ -1,11 +1,14 @@
 import {setupSwingEvidence} from './swing-evidence-panel.mjs';
+import {renderJevCosts,setupJevCostPanel,markJevCostsUnavailable} from './jev-cost-panel.mjs';
+import {withJevCosts} from './jev-cost-loader.mjs';
 const $=s=>document.querySelector(s),esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pct=v=>Number.isFinite(v)?(100*v).toFixed(1)+'%':'—',price=v=>Number.isFinite(v)?v.toLocaleString(undefined,{maximumFractionDigits:5}):'—',stamp=v=>v?new Date(v).toLocaleTimeString():'—';let loaded=null,busy=false,commandBusy=false;
 async function api(path,body){const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const v=await r.json();if(!r.ok)throw Error(v.error||'Research service unavailable');return v;}
 function table(headers,rows){return rows.length?`<div class="table-scroll"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">No observations yet. Start a run to collect evidence.</div>';}
 function symbol(){return $('#symbol').value;}
-async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [data,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot;
+async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [raw,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);const data=await withJevCosts(raw);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot;
 $('#connection').textContent='Connected · '+stamp(data.as_of)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;$('#status').textContent=s.status;$('#keyStatus').textContent=data.jev_configured?'Key available. Enabling Jev sends public market snapshots to TypeSafe.':'Add your API key in Jev connection above. Tracker works without it.';
+renderJevCosts(data,market);
 $('#jevKeyState').textContent=data.jev_configured?(data.jev_key_source==='server_memory'?'Key set in server memory for this session.':'Key supplied by the server environment.')+' A successful Jev response verifies access.':'No key configured. Paste your TypeSafe key above.';$('#clearJevKey').disabled=!data.jev_configured;
 document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=commandBusy||s.running;$('#pause').disabled=commandBusy||!s.running;
 $('#enableJev').hidden=!data.jev_configured||s.config.jev_enabled;$('#enableJev').disabled=commandBusy;
@@ -23,7 +26,7 @@ $('#candidates').innerHTML=table(['ID / parent','Profile','State','A → B → C
 $('#plans').innerHTML=table(['Plan','Observed / eligible open','Side','Reference / initial stop / target','Outcome','Gross R'],(snap?.plans||[]).filter(p=>p.reason!=='WARMUP_END'&&p.signal_at>=(s.started||Infinity)).slice(-12).reverse().map(p=>[p.id,stamp(p.observed_at||p.signal_at)+' / '+stamp(p.eligible_open),p.side===1?'LONG':'SHORT',[p.reference,p.initial_stop,p.target].map(price).join(' / '),p.status,p.gross_r?.toFixed(2)||'—']));
 $('#history').innerHTML=table(['Observed','Next candle','Sample','Jev forecast','Actual','Service'],history.predictions.slice(0,50).map(p=>[stamp(p.at),stamp(p.prediction_bar),p.primary_sample?'Primary':'Intrabar',p.response?.answers?.next_bar?.choice||'—',p.outcome?.label||'Pending',p.response?.status||'Disabled']));
 $('#inspect').textContent=JSON.stringify(history.predictions[0]||{message:'Start a run to capture timestamped evidence.'},null,2);
-}catch(e){$('#connection').textContent='Disconnected · '+e.message;$('#status').textContent='UNAVAILABLE';$('#jev').innerHTML='<div class="empty">Service unavailable. Previous judgments withheld.</div>';}finally{busy=false;}}
+}catch(e){$('#connection').textContent='Disconnected · '+e.message;$('#status').textContent='UNAVAILABLE';$('#jev').innerHTML='<div class="empty">Service unavailable. Previous judgments withheld.</div>';markJevCostsUnavailable();}finally{busy=false;}}
 async function command(action,config){if(commandBusy)return;commandBusy=true;$('#error').textContent='';$('#runError').textContent='';try{await api('/api/swing/control',{action,symbol:symbol(),...(config?{config}:{})});loaded=null;}catch(e){$('#error').textContent=e.message;$('#runError').textContent=e.message;}finally{commandBusy=false;await refresh();}}
 function formConfig(){const cfg={};for(const el of $('#config').elements){if(!el.name||el.disabled)continue;cfg[el.name]=el.type==='checkbox'?el.checked:el.name==='target_mode'?el.value:Number(el.value);}return cfg;}
 async function startObservations(enable=false){if(commandBusy||!$('#config').reportValidity())return;commandBusy=true;$('#runError').textContent='';$('#start').disabled=true;$('#enableJev').disabled=true;const market=symbol(),cfg=formConfig();if(enable)cfg.jev_enabled=true;try{await api('/api/swing/control',{action:'configure',symbol:market,config:cfg});await api('/api/swing/control',{action:'start',symbol:market});loaded=null;}catch(e){$('#runError').textContent=e.message;}finally{commandBusy=false;await refresh();}}
@@ -38,3 +41,4 @@ $('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clear
 document.querySelector('[name=jev_enabled]').onchange=e=>{$('#start').textContent=e.target.checked?'Start Jev observations':'Start tracker only';};
 $('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{loaded=null;refresh();};refresh();setInterval(refresh,3000);
 setupSwingEvidence();
+setupJevCostPanel();

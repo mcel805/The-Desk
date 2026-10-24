@@ -63,6 +63,14 @@ class SwingHTTPTests(unittest.TestCase):
         self.assertNotIn('Authorization: Bearer',html)
         self.assertEqual(self.request('/api/swing/history?symbol=hyperliquid:BTC')['metrics']['n'],0)
 
+    def test_costs_are_read_only_and_do_not_require_or_expose_a_provider_key(self):
+        costs=self.request('/api/swing/costs')
+        self.assertEqual(costs['currency'],'USD')
+        self.assertEqual(costs['pricing']['input_usd_per_million'],'0.042')
+        self.assertEqual(costs['total']['requests'],0)
+        self.assertNotIn('api_key',json.dumps(costs))
+        self.assertFalse(self.request('/api/swing/status')['jev_configured'])
+
     def test_key_route_requires_browser_origin_and_returns_presence_only(self):
         key='test-only-http-key-never-sent-to-provider'
         for headers in ({},{'Origin':'https://external.example'}):

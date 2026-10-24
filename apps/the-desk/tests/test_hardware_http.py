@@ -16,7 +16,7 @@ class HardwareHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory(prefix='desk-usb-http-');target=Path(cls.temp.name);root=Path(__file__).resolve().parents[1]
-        for name in ['swing_tracker.py','swing_research.py','jev_swing.py','agents.py','agent_adapters.py','agent_workspaces.py','agent_signals.py','server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
+        for name in ['swing_tracker.py','swing_research.py','jev_swing.py','jev_costs.py','agents.py','agent_adapters.py','agent_workspaces.py','agent_signals.py','server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
         # Explicitly test-only RPC fixture in a disposable copy. The installed
         # application has no synthetic/device test switch or synthetic key.
         with (target/'hardware_wallet.py').open('a') as f:f.write("\nHardwareWallet._rpc = lambda self, method, params: '0x2105' if method == 'eth_chainId' else '0x10'\n")
