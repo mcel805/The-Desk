@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {annotationsFor,drawingSpec,SPIDER_FRAMES,sourceURL} from '../web/spider-model.mjs';
+import {annotationsFor,drawingSpec,SPIDER_FRAMES,sourceURL,canonicalFrame} from '../web/spider-model.mjs';
 import {SpiderIntervalProvider} from '../web/spider-provider.mjs';
 test('nine frames include all requested intervals without conflating 2m and 3m',()=>{assert.deepEqual(SPIDER_FRAMES.map(f=>f[0]),['1d','4h','1h','30m','15m','5m','3m','2m','1m']);});
 test('drawings never leak onto another symbol, timeframe or unfinished report',()=>{
@@ -29,4 +29,12 @@ test('three crypto chart sources keep Robinhood spot execution identity explicit
  assert.equal(assetMatchesChart(asset,'binance:BTCUSDT'),true);assert.equal(assetMatchesChart(asset,'binance:ETHUSDT'),false);
  assert.equal(assetMatchesChart({kind:'crypto',symbol:'kPEPE-USD'},'binance:PEPEUSDT'),false);
  assert.match(feeds[2].label,/USDT.*USD/);assert.equal(asset.symbol,'BTC-USD');
+});
+
+test('daily security aliases and older indicator history retain the same provider',async()=>{
+ assert.equal(canonicalFrame('1D'),'1d');
+ const calls=[],delegate={getBars:async(...args)=>{calls.push(args);return [{time:100}];}};
+ const p=new SpiderIntervalProvider(delegate,'hyperliquid');p.serverHistory=true;
+ const old=globalThis.fetch;globalThis.fetch=async url=>{assert.match(url,/timeframe=1d/);return {ok:true,json:async()=>({bars:[{time:300}]})};};
+ try{assert.deepEqual(await p.getBars('BTC','1D',{to:200}),[{time:100}]);assert.deepEqual(calls,[['BTC','D',{to:200}]]);}finally{globalThis.fetch=old;}
 });

@@ -7,7 +7,15 @@ export class SpiderIntervalProvider {
  listSymbols(...args){return this.delegate.listSymbols(...args);}
  searchSymbols(...args){return this.delegate.searchSymbols?.(...args)||this.delegate.listSymbols(...args);}
  getSymbolInfo(...args){return this.delegate.getSymbolInfo(...args);}
- async getBars(symbol,tf,range={}){if(!this.serverHistory&&String(tf)!=='2'&&tf!=='2m')return this.delegate.getBars(symbol,tf,range);return this.read(symbol,range,canonicalFrame(tf));}
+ async getBars(symbol,tf,range={}){
+  if(!this.serverHistory&&String(tf)!=='2'&&tf!=='2m')return this.delegate.getBars(symbol,tf,range);
+  const bars=await this.read(symbol,range,canonicalFrame(tf));
+  // Existing Pine studies and panning can request history older than the server's
+  // bounded recent window. Preserve the original adapter for that SAME source.
+  if(canonicalFrame(tf)!=='2m'&&(!bars.length||(range.from!==undefined&&bars[0].time>range.from)))return this.delegate.getBars(symbol,tf==='1D'?'D':tf,range);
+  return bars;
+ }
+
  async read(symbol,range={},tf='2m'){const q=new URLSearchParams({instrument:this.prefix+':'+symbol,timeframe:tf,limit:String(Math.min(600,range.limit||600))});const r=await fetch('/api/spider/bars?'+q);const d=await r.json();if(!r.ok)throw Error(d.error||'Two-minute history unavailable');return d.bars.filter(b=>(range.from===undefined||b.time>=range.from)&&(range.to===undefined||b.time<=range.to));}
  subscribe(symbol,tf,listener){
   if(!this.serverHistory&&String(tf)!=='2'&&tf!=='2m')return this.delegate.subscribe(symbol,tf,listener);
