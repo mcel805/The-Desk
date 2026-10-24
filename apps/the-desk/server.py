@@ -21,6 +21,7 @@ from robinhood_workspace import RobinhoodWorkspace
 from ibkr_data import IBKRData, FeedUnavailable
 from agents import Agents
 from agent_signals import AgentSignals
+from swing_research import SwingResearch
 
 ROOT=Path(__file__).resolve().parent
 
@@ -150,6 +151,7 @@ def main():
     engine=Engine(data/'desk.sqlite3');gateway=Gateway();funding=FundingRoutes(args.port,data)
     robinhood=RobinhoodWorkspace(funding.broker,data)
     ibkr=IBKRData(args.ibkr_mode);ibkr.start()
+    swing_research=SwingResearch(gateway,data);swing_research.start()
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
     robinhood.journal_delivery=lambda event:http_json(workers.journal_url+'/api/integrations/robinhood',event,{'Authorization':'Bearer '+workers.token},timeout=5)
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
@@ -184,6 +186,9 @@ def main():
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
+                if parsed.path=='/api/swing/status':return self.json(swing_research.status())
+                if parsed.path=='/api/swing/history':return self.json(swing_research.history(value('symbol','hyperliquid:BTC')))
+                if parsed.path=='/api/swing/export':return self.json(swing_research.export(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/ibkr/status':return self.json(ibkr.status())
                 if parsed.path=='/api/ibkr/bars':
                     start=float(value('from')) if value('from') else None
@@ -209,6 +214,7 @@ def main():
                 if agents.post(self,path,p):return
                 if robinhood.post(self,path,p):return
                 if funding.post(self,path,p):return
+                if path=='/api/swing/control':return self.json(swing_research.command(p))
                 if path=='/api/ibkr/demo':
                     if not isinstance(p,dict) or set(p)!={'paused'}:raise ValueError('Expected a demo paused flag.')
                     return self.json(ibkr.pause_demo(p['paused']))
@@ -236,6 +242,6 @@ def main():
     httpd=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('The Desk: http://127.0.0.1:'+str(args.port),flush=True)
     try:httpd.serve_forever()
-    finally:agent_signals.close();agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
+    finally:swing_research.close();agent_signals.close();agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
 
 if __name__=='__main__':main()
