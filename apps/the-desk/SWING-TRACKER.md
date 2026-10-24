@@ -6,6 +6,12 @@ It receives public market data only; it has no order-engine or broker handle.
 
 ## Use
 
+For this development checkout, run `python3 server.py --port 18884 --no-workers`
+from the app directory. The default `data/` directory is persistent and excluded
+from Git. An explicit `--data-dir` should also point to a persistent location;
+the previous temporary review directory disappeared and only the saved export
+could be recovered. The session API key still clears on process restart.
+
 1. Start The Desk normally, then open **Swing Lab** from its header or the chart
    summary. Select **Hyperliquid BTC** or **Hyperliquid ETH**.
 2. Set swing timeframe (1, 2, 3, 5, 15 or 30 minutes), fractional research quantity,
@@ -54,6 +60,67 @@ key in Pine, a query string, Git, chat or a screenshot.
 No key is required to run the deterministic tracker and record snapshots.
 Enabling Jev sends only bounded public-market state to TypeSafe. It does not send
 accounts, balances, order tickets or credentials in the model state.
+
+## Completed-swing and setup-outcome audit
+
+The **Completed swings & setup outcomes** card implements `swing-outcomes.1`.
+It reads the existing durable SQLite records through the public research export
+and history endpoints. The browser derives versioned records; it does not write
+to the collector, alter prompts, place orders, or make additional Jev requests.
+The collector continues with the Lab closed. Reopening rebuilds the audit.
+
+- A→B is finalized only when a later opposite pivot C is confirmed and observed.
+  Same-side extensions before C can change the developing endpoint. After
+  finalization, a conflicting endpoint is flagged and excluded from progress.
+- The first live snapshot seeds historical context. Only legs whose A origin is
+  at/after that snapshot's completed-bar cutoff count as fully forward swings.
+  Historical warmup and legs crossing the observation boundary remain visible
+  but do not advance the 50/200 checkpoints. Four dots do not equal four swings.
+- Cohorts bind symbol, the complete frozen tracker configuration, collector code
+  hash, model and prompt revision. Matching runs are combined and duplicate
+  A/B legs are counted once. Other configurations and markets stay separate.
+  Missing provenance and export truncation are displayed; neither permits a
+  milestone to be declared reached. These are review checkpoints, not edge tests.
+- Every observed candidate remains an attempt, including blocked, invalid,
+  missed, untriggered and unresolved states. Reparented child attempts are
+  diagnostic records, not automatically independent opportunities.
+- Only a recorded tracker `READY` plan can enter the outcome study. Freeze the
+  original target, initial stop, gap/risk/room rules and `plan_bars` horizon.
+  Use its eligible full-minute open after actual observation. Do not inherit a
+  pre-observation open or infer an entry from a later profitable path.
+- This benchmark holds a **fixed bracket**, independently of the tracker's
+  break-even amendments. Both barriers touched within one candle is ambiguous
+  unless the open settles the ordering. Adverse stop gaps use the open; target
+  gaps receive only the target. The time exit uses the horizon candle close.
+  Missing/revised bars and run endings without an observed exit are unresolved.
+- Model attribution uses the freshest valid judgment from that run, observed
+  and received before entry, no more than 75 seconds old. It describes market
+  context; it does not mean Jev approved that specific plan. Future, stale and
+  unavailable answers cannot become pre-entry evidence.
+- Count only the first entered plan per A/B opportunity in pattern summaries.
+  Keep all alternatives visible. Groups show sample sizes, target/stop/time
+  counts, ambiguity, pending/unresolved counts and mean R. They are exploratory
+  and dependent; no calibrated setup win probability, significance, trained
+  model, optimized threshold or automatic deployment is claimed.
+- Costs are initially **unset**, so results are gross. An optional user-entered
+  round-trip bps assumption on entry notional produces a labeled cost scenario.
+  This is not verified exchange fees, spread, slippage or funding. The exported
+  artifact includes the assumption; changing it creates a different analysis
+  of the same untouched observations.
+
+The card refreshes incrementally every 30 seconds while open. **Refresh archive**
+reconstructs from the available export, and **Export swing audit** downloads the
+derived swings, attempts, frozen plans, outcomes, cohort and explicit definitions.
+Keep the raw export alongside it for full snapshot provenance. To rebuild locally:
+
+```sh
+node scripts/audit-swing-evidence.mjs --source /absolute/raw-export.json --out /absolute/new-audit.json
+```
+
+The output must be a new file. Optional `--run ID` selects its frozen cohort;
+`--cost-bps NUMBER` declares a scenario. This command has no network or inference
+dependency. Preserve this v1 reference when proposing a changed outcome rule;
+give the challenger a new version and test on a later untouched block.
 
 The adapter uses the documented System One HTTP endpoint, pins `jev-1.14.0`, and
 pins question revision `swing-observer.2`. It validates answer types, all choice

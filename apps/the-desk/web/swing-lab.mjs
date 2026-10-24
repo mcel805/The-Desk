@@ -1,3 +1,4 @@
+import {setupSwingEvidence} from './swing-evidence-panel.mjs';
 const $=s=>document.querySelector(s),esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pct=v=>Number.isFinite(v)?(100*v).toFixed(1)+'%':'—',price=v=>Number.isFinite(v)?v.toLocaleString(undefined,{maximumFractionDigits:5}):'—',stamp=v=>v?new Date(v).toLocaleTimeString():'—';let loaded=null,busy=false,commandBusy=false;
 async function api(path,body){const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const v=await r.json();if(!r.ok)throw Error(v.error||'Research service unavailable');return v;}
@@ -36,3 +37,4 @@ async function configureKey(remove=false){
 $('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clearJevKey').onclick=()=>configureKey(true);
 document.querySelector('[name=jev_enabled]').onchange=e=>{$('#start').textContent=e.target.checked?'Start Jev observations':'Start tracker only';};
 $('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{loaded=null;refresh();};refresh();setInterval(refresh,3000);
+setupSwingEvidence();
