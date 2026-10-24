@@ -114,7 +114,7 @@ class JevCostTests(unittest.TestCase):
             def __exit__(self,*args):pass
             def read(self):return json.dumps(value).encode()
         with patch.dict('os.environ',{'TYPESAFE_API_KEY':'test-not-a-real-key'}),patch('jev_swing.urlopen',return_value=Response()):
-            with self.assertRaises(JevResponseError) as caught:Jev().judge({'public':True})
+            with self.assertRaises(JevResponseError) as caught:Jev(store=False).judge({'public':True})
         self.assertEqual(caught.exception.safe_usage,{'input_tokens':6000,'output_tokens':164})
         self.assertNotIn('never-echo-this',str(caught.exception))
 

@@ -10,7 +10,7 @@ For this development checkout, run `python3 server.py --port 18884 --no-workers`
 from the app directory. The default `data/` directory is persistent and excluded
 from Git. An explicit `--data-dir` should also point to a persistent location;
 the previous temporary review directory disappeared and only the saved export
-could be recovered. The session API key still clears on process restart.
+could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
 
 1. Start The Desk normally, then open **Swing Lab** from its header or the chart
    summary. Select **Hyperliquid BTC** or **Hyperliquid ETH**.
@@ -42,21 +42,41 @@ non-1m frames; the swing overlay can still display on other frames.
 
 ## Enable Jev
 
-Open **Swing Lab → Jev connection**, paste your TypeSafe API key into the password
-field, and click **Use key for this session**. Then click the prominent
-**Enable Jev & start** button. Saving a key alone does not start provider calls.
-The live state explicitly distinguishes tracker-only mode, enabled and paused.
-The browser clears the input immediately.
-The server keeps this key only in memory: no database, disk, browser storage or
-history export contains it. Restart clears a key entered through this form.
-Changing or clearing the key pauses both markets; old in-flight responses cannot
-attach to a new run. Clearing disables Jev for the current server session.
-Key presence is not proof of valid provider access; the first successful Jev
-response verifies it. Requests with invalid keys produce unavailable observations.
+Open **Swing Lab → Jev connection**, paste your TypeSafe API key once into the
+password field, and click **Save to macOS Keychain**. The backend stores it as a
+non-synchronizing generic password in this macOS user's login Keychain under
+service `com.the-desk.typesafe.jev`, account `api-key`. It loads the saved key on
+startup, across research runs and Desk restarts on this Mac. The browser clears
+the input immediately; neither status nor exports return the key. No plaintext
+file, database, browser storage, command argument, or Git copy is made.
 
-For developer launches, `TYPESAFE_API_KEY` in the server process environment remains
-supported. Environment keys do not need to be copied into the page. Do not put a
-key in Pine, a query string, Git, chat or a screenshot.
+Click **Enable Jev & start** separately to begin paid observations. Saving a key
+never auto-starts research. Presence is not verification; the first successful
+Jev response verifies provider access. The initial upgrade of a memory-only
+server requires an approved restart ending the current research run, then one final entry because the old server has no secure key-export
+route. After that, no repeated key entry is needed.
+
+**Remember current key** securely persists a memory/environment key already
+loaded by the upgraded server, without ending collection. Replacing the key or
+choosing **Remove saved key** pauses both markets and invalidates ownership of
+in-flight responses. Remove deletes the Keychain item and disables Jev in this
+process. With an environment key, that environment key can return after restart;
+remove `TYPESAFE_API_KEY` from the launcher as well if you want it absent entirely.
+
+Startup reads never trigger a modal prompt. If Keychain is locked or denies
+access, the UI reports that state; unlock the login Keychain and choose **Load
+saved key** to retry with macOS's access prompt permitted. An interactive save or
+remove can also produce a macOS permission prompt. Failed storage operations
+preserve the current credential and running research; there is no plaintext
+fallback. The native adapter uses Security/CoreFoundation directly, avoiding
+secrets in subprocess arguments or stdout. Other platforms can use server-side
+`TYPESAFE_API_KEY`; persistent UI storage requires macOS. Stored keys take
+precedence over the environment; a legacy session override takes precedence over
+both. `DESK_JEV_KEYCHAIN=disabled` isolates tests from the user's real Keychain.
+
+Research still starts paused after a restart. A retained key does not authorize
+extra calls or orders. Do not put a key in Pine, a query string, Git, chat or a
+screenshot.
 No key is required to run the deterministic tracker and record snapshots.
 Enabling Jev sends only bounded public-market state to TypeSafe. It does not send
 accounts, balances, order tickets or credentials in the model state.
@@ -274,8 +294,10 @@ All routes inherit the Desk's loopback Host / same-origin JSON checks.
 
 - `GET /api/swing/status`: per-symbol state and recent dot history.
 - `POST /api/swing/control`: `start`, `pause`, or `configure`, exact symbol/config.
-- `POST /api/swing/key`: set/clear a server-memory key; explicit same-origin browser
-  request required; no key is returned or persisted. Both markets pause on change.
+- `POST /api/swing/key`: exact same-origin JSON commands `{"action":"save","api_key":"…"}`,
+  `{"action":"remember"}`, `{"action":"load"}`, or `{"action":"forget"}`. Secret values
+  never appear in responses. Legacy `{"api_key":"…"}` remains memory-only for older clients.
+  Status exposes only credential source, availability, saved presence and sanitized errors.
 - `GET /api/swing/history?symbol=hyperliquid:BTC`: run-scoped observations/metrics.
 - `GET /api/swing/export?symbol=hyperliquid:BTC`: bounded local research export.
 

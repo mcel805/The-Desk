@@ -68,17 +68,34 @@ class SwingResearch:
             for symbol in list(self.active):self.pause(symbol,'SERVICE_STOPPED')
 
     def configure_key(self,p):
-        if not isinstance(p,dict) or set(p)!={'api_key'} or not isinstance(p['api_key'],str):
+        if not isinstance(p,dict):raise ValueError('Expected a TypeSafe key command')
+        action=p.get('action','session')
+        fields={'api_key'} if action=='session' else {'action','api_key'} if action=='save' else {'action'}
+        if action not in ('session','save','forget','remember','load') or set(p)!=fields or (action in ('session','save') and not isinstance(p.get('api_key'),str)):
             raise ValueError('Expected a TypeSafe API key')
-        key=p['api_key'].strip()
+        key=p.get('api_key','').strip()
         if key and (len(key)>4096 or not key.isascii() or any(c.isspace() or ord(c)<33 or ord(c)>126 for c in key)):
             raise ValueError('Enter the API key as a single token')
+        if action=='save' and not key:raise ValueError('Enter an API key to save')
         with self.lock:
+            # Persist successfully before changing the active run or cached credential.
+            if action=='save':self.judge.save_key(key)
+            elif action=='remember':
+                current=self.judge._key()
+                if not current:raise ValueError('No active key to remember. Paste a key once to save it.')
+                self.judge.save_key(current)
+                return {'configured':True,'key_source':self.judge.key_source,'verified':False,
+                        'detail':'Active key saved in macOS Keychain. Collection continues unchanged.'}
+            elif action=='forget':self.judge.forget_key()
+            elif action=='load':self.judge.load_saved_key()
             # In-flight responses lose their run ownership when credentials change.
             for symbol in list(self.active):self.pause(symbol,'JEV_KEY_CHANGED')
-            self.judge.set_session_key(key)
+            if action=='session':self.judge.set_session_key(key)
             return {'configured':self.judge.configured,'key_source':self.judge.key_source,
-                    'verified':False,'detail':'Key set for this server session. First successful Jev response verifies access.' if key else 'Jev disabled for this server session.'}
+                    'verified':False,'detail':('Key saved in macOS Keychain; loaded automatically on future starts.' if action=='save' else
+                    'Saved key removed. Jev disabled for this server session.' if action=='forget' else
+                    'Saved key loaded from macOS Keychain.' if action=='load' else
+                    'Key set for this server session.' if key else 'Jev disabled for this server session.')+' First successful Jev response verifies access.'}
 
     def command(self,p):
         if not isinstance(p,dict) or set(p)-{'action','symbol','config'}:raise ValueError('Invalid research command')
@@ -242,7 +259,7 @@ class SwingResearch:
                 'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
             costs=self.cost_meter.summary(contexts,MODEL)
             for k,v in result.items():v['costs']=costs['symbols'][k]
-            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
+            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []

@@ -123,11 +123,11 @@ class TrackerTests(unittest.TestCase):
 class JevTests(unittest.TestCase):
     def test_session_key_overrides_environment_and_clears_without_mutating_it(self):
         with patch.dict('os.environ',{'TYPESAFE_API_KEY':'test-only-environment-token'}):
-            j=Jev();self.assertTrue(j.configured);self.assertEqual(j.key_source,'environment')
+            j=Jev(store=False);self.assertTrue(j.configured);self.assertEqual(j.key_source,'environment')
             j.set_session_key('test-only-session-token')
             self.assertEqual(j.key_source,'server_memory')
             j.set_session_key('');self.assertFalse(j.configured);self.assertIsNone(j.key_source)
-            self.assertTrue(Jev().configured)
+            self.assertTrue(Jev(store=False).configured)
 
     def test_strict_typed_contract(self):
         self.assertEqual(validate_response(response())['model'],MODEL)
@@ -156,7 +156,7 @@ class ServiceTests(unittest.TestCase):
     def test_restart_paused_config_boundary_and_no_order_engine(self):
         self.command('start');old=self.service.active['hyperliquid:BTC']['run'];self.command('configure',config={'cadence_seconds':10})
         self.assertNotIn('hyperliquid:BTC',self.service.active);self.command('start');self.assertNotEqual(old,self.service.active['hyperliquid:BTC']['run'])
-        second=SwingResearch(self.gateway,Path(self.tmp.name));self.assertEqual(second.active,{});self.assertFalse(hasattr(second,'engine'))
+        second=SwingResearch(self.gateway,Path(self.tmp.name),Jev(store=False));self.assertEqual(second.active,{});self.assertFalse(hasattr(second,'engine'))
     def test_closed_bar_forward_labels_and_intrabar_not_extra_primary(self):
         self.command('configure',config={'jev_enabled':True});self.command('start');self.sample();self.now+=15000;self.gateway.now=self.now;self.sample()
         h=self.service.history('hyperliquid:BTC');self.assertEqual(len(h['predictions']),2);self.assertEqual(sum(p['primary_sample'] for p in h['predictions']),1)
@@ -245,7 +245,7 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.command('configure',config={'jev_enabled':True})
 
     def test_key_entry_is_memory_only_pauses_both_markets_and_never_exports_secret(self):
-        self.service.judge=Jev()
+        self.service.judge=Jev(store=False)
         self.command('start')
         self.service.command({'action':'start','symbol':'hyperliquid:ETH'})
         key='test-only-never-a-real-provider-key'
@@ -258,7 +258,7 @@ class ServiceTests(unittest.TestCase):
         self.service.configure_key({'api_key':''})
         self.assertFalse(self.service.judge.configured)
         with patch.dict('os.environ',{},clear=True):
-            restarted=SwingResearch(self.gateway,Path(self.tmp.name))
+            restarted=SwingResearch(self.gateway,Path(self.tmp.name),Jev(store=False))
             self.assertFalse(restarted.judge.configured)
             restarted.close()
 

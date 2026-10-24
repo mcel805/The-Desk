@@ -18,7 +18,7 @@ class SwingHTTPTests(unittest.TestCase):
         cls.tmp=tempfile.TemporaryDirectory(prefix='desk-swing-http-')
         with socket.socket() as s:s.bind(('127.0.0.1',0));cls.port=s.getsockname()[1]
         cls.base='http://127.0.0.1:'+str(cls.port)
-        env={**os.environ};env.pop('TYPESAFE_API_KEY',None)
+        env={**os.environ};env.pop('TYPESAFE_API_KEY',None);env['DESK_JEV_KEYCHAIN']='disabled'
         # Explicitly disable the research worker only inside this test process.
         code='import swing_research; swing_research.SwingResearch.start=lambda self:None; import server; server.main()'
         cls.proc=subprocess.Popen([sys.executable,'-c',code,'--port',str(cls.port),'--data-dir',cls.tmp.name,'--no-workers'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
@@ -60,6 +60,7 @@ class SwingHTTPTests(unittest.TestCase):
         self.assertIn('4× / minute',html)
         self.assertIn('id="jevApiKey"',html)
         self.assertIn('type="password"',html)
+        self.assertIn('Save to macOS Keychain',html)
         self.assertNotIn('Authorization: Bearer',html)
         self.assertEqual(self.request('/api/swing/history?symbol=hyperliquid:BTC')['metrics']['n'],0)
 
@@ -86,5 +87,19 @@ class SwingHTTPTests(unittest.TestCase):
             self.assertNotIn(key,json.dumps(self.request('/api/swing/export?symbol=hyperliquid:BTC')))
         finally:self.request('/api/swing/key',{'api_key':''},{'Origin':self.base})
         self.assertFalse(self.request('/api/swing/status')['jev_configured'])
+
+    def test_persistent_key_actions_obey_origin_and_never_silently_fall_back_to_files(self):
+        for action in ('save','remember','load','forget'):
+            payload={'action':action,**({'api_key':'test-only-secret'} if action=='save' else {})}
+            for headers in ({},{'Origin':'https://external.example'}):
+                with self.assertRaises(HTTPError) as caught:self.request('/api/swing/key',payload,headers)
+                self.assertEqual(caught.exception.code,403)
+        with self.assertRaises(HTTPError) as caught:
+            self.request('/api/swing/key',{'action':'save','api_key':'test-only-secret'},{'Origin':self.base})
+        self.assertEqual(caught.exception.code,400)
+        self.assertNotIn('test-only-secret',caught.exception.read().decode())
+        status=self.request('/api/swing/status')
+        self.assertFalse(status['jev_key_storage']['available'])
+        self.assertFalse(status['jev_configured'])
 
 if __name__=='__main__':unittest.main()

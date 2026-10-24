@@ -9,7 +9,12 @@ function symbol(){return $('#symbol').value;}
 async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [raw,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);const data=await withJevCosts(raw);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot;
 $('#connection').textContent='Connected · '+stamp(data.as_of)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;$('#status').textContent=s.status;$('#keyStatus').textContent=data.jev_configured?'Key available. Enabling Jev sends public market snapshots to TypeSafe.':'Add your API key in Jev connection above. Tracker works without it.';
 renderJevCosts(data,market);
-$('#jevKeyState').textContent=data.jev_configured?(data.jev_key_source==='server_memory'?'Key set in server memory for this session.':'Key supplied by the server environment.')+' A successful Jev response verifies access.':'No key configured. Paste your TypeSafe key above.';$('#clearJevKey').disabled=!data.jev_configured;
+const storage=data.jev_key_storage;
+$('#jevKeyState').textContent=data.jev_configured?({'macos_keychain':'Saved in macOS Keychain · automatically loaded on startup.','server_memory':'Current key is temporary. Choose Remember current key to save it securely.','environment':'Key supplied by the server environment. Choose Remember current key to store it locally.'}[data.jev_key_source]||'Key configured.')+' A successful Jev response verifies access.':storage?.error||'No saved key loaded. Paste your TypeSafe key once and save it to Keychain.';
+if(!storage)$('#jevKeyState').textContent='Secure Keychain storage is ready to install. A Desk server restart is required; the current collection and temporary key are unchanged.';
+$('#jevApiKey').disabled=!storage?.available;
+$('#clearJevKey').disabled=commandBusy||!storage?.available;$('#loadJevKey').disabled=commandBusy||!storage?.available;
+$('#rememberJevKey').hidden=!data.jev_configured||data.jev_key_source==='macos_keychain';$('#rememberJevKey').disabled=commandBusy||!storage?.available;$('#saveJevKey').disabled=commandBusy||!storage?.available;
 document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=commandBusy||s.running;$('#pause').disabled=commandBusy||!s.running;
 $('#enableJev').hidden=!data.jev_configured||s.config.jev_enabled;$('#enableJev').disabled=commandBusy;
 $('#evaluationState').textContent=!data.jev_configured?'Step 1: save a TypeSafe key to enable Jev.':!s.config.jev_enabled?'Key saved · Jev is OFF. Enable Jev & start to collect directional dots.':s.running?'Jev enabled · collecting evaluations for '+market.split(':')[1]+'.':'Jev enabled · paused. Start observations to collect fresh dots.';
@@ -30,14 +35,16 @@ $('#inspect').textContent=JSON.stringify(history.predictions[0]||{message:'Start
 async function command(action,config){if(commandBusy)return;commandBusy=true;$('#error').textContent='';$('#runError').textContent='';try{await api('/api/swing/control',{action,symbol:symbol(),...(config?{config}:{})});loaded=null;}catch(e){$('#error').textContent=e.message;$('#runError').textContent=e.message;}finally{commandBusy=false;await refresh();}}
 function formConfig(){const cfg={};for(const el of $('#config').elements){if(!el.name||el.disabled)continue;cfg[el.name]=el.type==='checkbox'?el.checked:el.name==='target_mode'?el.value:Number(el.value);}return cfg;}
 async function startObservations(enable=false){if(commandBusy||!$('#config').reportValidity())return;commandBusy=true;$('#runError').textContent='';$('#start').disabled=true;$('#enableJev').disabled=true;const market=symbol(),cfg=formConfig();if(enable)cfg.jev_enabled=true;try{await api('/api/swing/control',{action:'configure',symbol:market,config:cfg});await api('/api/swing/control',{action:'start',symbol:market});loaded=null;}catch(e){$('#runError').textContent=e.message;}finally{commandBusy=false;await refresh();}}
-async function configureKey(remove=false){
+async function configureKey(action='save'){
+ if(commandBusy)return;commandBusy=true;
  $('#jevKeyError').textContent='';$('#saveJevKey').disabled=true;$('#clearJevKey').disabled=true;
- let key=remove?'':$('#jevApiKey').value;$('#jevApiKey').value='';
- try{const result=await api('/api/swing/key',{api_key:key});key='';$('#jevKeyState').textContent=result.detail;loaded=null;await refresh();}
+ let key=action==='save'?$('#jevApiKey').value:'';$('#jevApiKey').value='';
+ try{const result=await api('/api/swing/key',{action,...(action==='save'?{api_key:key}:{})});key='';$('#jevKeyState').textContent=result.detail;loaded=null;}
  catch(e){$('#jevKeyError').textContent=e.message;}
- finally{key='';$('#saveJevKey').disabled=false;}
+ finally{key='';commandBusy=false;await refresh();}
 }
-$('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clearJevKey').onclick=()=>configureKey(true);
+$('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clearJevKey').onclick=()=>configureKey('forget');
+$('#rememberJevKey').onclick=()=>configureKey('remember');$('#loadJevKey').onclick=()=>configureKey('load');
 document.querySelector('[name=jev_enabled]').onchange=e=>{$('#start').textContent=e.target.checked?'Start Jev observations':'Start tracker only';};
 $('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{loaded=null;refresh();};refresh();setInterval(refresh,3000);
 setupSwingEvidence();

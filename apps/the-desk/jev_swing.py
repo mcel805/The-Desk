@@ -5,6 +5,7 @@ import os
 import threading
 from urllib.request import Request, urlopen
 from jev_costs import safe_usage
+from jev_keychain import MacKeychain, KeychainError
 
 MODEL='jev-1.14.0'
 PROMPT_VERSION='swing-observer.2'
@@ -41,13 +42,20 @@ def validate_response(value):
     return {'model':value['model'],'answers':answers,'usage':value.get('usage',{})}
 
 class Jev:
-    def __init__(self):
+    def __init__(self,store=None):
         self._key_override=None
         self._key_lock=threading.RLock()
+        self._saved_key='';self._storage_error=None
+        try:
+            self._store=MacKeychain() if store is None else store
+            if self._store:self._saved_key=self._store.load()
+        except (KeychainError,OSError):
+            self._storage_error='Saved key unavailable. Unlock your login Keychain and choose Load saved key.'
+            if not hasattr(self,'_store'):self._store=None
 
     def _key(self):
         with self._key_lock:
-            return self._key_override if self._key_override is not None else os.environ.get('TYPESAFE_API_KEY','')
+            return self._key_override if self._key_override is not None else self._saved_key or os.environ.get('TYPESAFE_API_KEY','')
 
     @property
     def configured(self):return bool(self._key())
@@ -56,7 +64,30 @@ class Jev:
     def key_source(self):
         with self._key_lock:
             if self._key_override is not None:return 'server_memory' if self._key_override else None
+            if self._saved_key:return 'macos_keychain'
             return 'environment' if os.environ.get('TYPESAFE_API_KEY') else None
+
+    @property
+    def key_storage(self):
+        with self._key_lock:return {'backend':'macos_keychain','available':bool(self._store),
+            'saved':bool(self._saved_key),'error':self._storage_error}
+
+    def save_key(self,key):
+        with self._key_lock:
+            if not self._store:raise KeychainError('Secure Jev storage requires macOS Keychain. No plaintext fallback is available.')
+            self._store.save(key)
+            self._saved_key=key;self._key_override=None;self._storage_error=None
+
+    def forget_key(self):
+        with self._key_lock:
+            if self._store:self._store.delete()
+            self._saved_key='';self._key_override='';self._storage_error=None
+
+    def load_saved_key(self):
+        with self._key_lock:
+            if not self._store:raise KeychainError('macOS Keychain storage is unavailable.')
+            key=self._store.load(prompt=True)
+            self._saved_key=key;self._key_override=None;self._storage_error=None
 
     def set_session_key(self,key):
         # A blank override disables this session even if an environment key exists.
