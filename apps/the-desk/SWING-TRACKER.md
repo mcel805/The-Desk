@@ -10,9 +10,11 @@ It receives public market data only; it has no order-engine or broker handle.
    summary. Select **Hyperliquid BTC** or **Hyperliquid ETH**.
 2. Set swing timeframe (1, 2, 3, 5, 15 or 30 minutes), fractional research quantity,
    budgets and target source. Defaults use a 5m swing with closed 1m validation.
-3. Save, then **Start observing**. Saving settings ends a run and never rewrites
+3. Click **Enable Jev & start** for model evaluations, or **Start tracker only**
+   for deterministic observations. Starting applies the visible settings. Saving settings ends a run and never rewrites
    its recorded configuration. Restart is paused; a run ends after 24 hours.
-4. Show **Swing Tracker 1.2** on the native chart. On a 1m chart, each fresh Jev
+4. Click **Open BTC/ETH 1m chart** to open the selected market with the overlay
+   enabled. The Lab is a controls/results page; dots are on the workspace chart. On a 1m chart, each fresh Jev
    evaluation adds a timestamped dot. Green long leans stack below the candle;
    red short and gray neutral leans stack above it. The ordinal slot increases
    away from the candle: at the default 15s cadence there are four slots.
@@ -35,8 +37,10 @@ non-1m frames; the swing overlay can still display on other frames.
 ## Enable Jev
 
 Open **Swing Lab → Jev connection**, paste your TypeSafe API key into the password
-field, and click **Use key for this session**. Then enable Jev in observation
-settings, save, and start observing. The browser clears the input immediately.
+field, and click **Use key for this session**. Then click the prominent
+**Enable Jev & start** button. Saving a key alone does not start provider calls.
+The live state explicitly distinguishes tracker-only mode, enabled and paused.
+The browser clears the input immediately.
 The server keeps this key only in memory: no database, disk, browser storage or
 history export contains it. Restart clears a key entered through this form.
 Changing or clearing the key pauses both markets; old in-flight responses cannot
