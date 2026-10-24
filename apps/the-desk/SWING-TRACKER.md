@@ -12,8 +12,7 @@ from Git. An explicit `--data-dir` should also point to a persistent location;
 the previous temporary review directory disappeared and only the saved export
 could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
 
-1. Start The Desk normally, then open **Swing Lab** from its header or the chart
-   summary. Select **Hyperliquid BTC** or **Hyperliquid ETH**.
+1. Start The Desk normally, then open **Swing Lab** from its header or the small chart status badge. Select **Hyperliquid BTC** or **Hyperliquid ETH**.
 2. Set swing timeframe (1, 2, 3, 5, 15 or 30 minutes), fractional research quantity,
    budgets and target source. Defaults use a 5m swing with closed 1m validation.
 3. Click **Enable Jev & start** for model evaluations, or **Start tracker only**
@@ -38,7 +37,30 @@ may move as the host candle completes, to remain outside its high/low.
 and not a prediction that the next candle must be flat. Hollow dots mean no valid
 Jev evaluation (disabled, unavailable or stale). Colored dots are model context,
 not confirmed entry signals. Live dots are hidden during chart replay and on
-non-1m frames; the swing overlay can still display on other frames.
+non-1m frames; all tracker graphics are withheld on higher frames. Only one eligible 1m chart owns the dots and compact status badge; the large chart summary and structural drawings are removed.
+
+## One observer, one chart display
+
+The server permits **one active market observation run**, always fed by 1m
+Hyperliquid bars. Repeated Start requests for that market return the same run;
+starting another market is rejected until the current run is paused. One serial
+worker samples the active run. Multiple charts, browser tabs, status reads and
+Swing Lab pages do not invoke Jev. A request already sent before Pause may still
+finish and be metered; its response cannot become a fresh active judgment.
+
+The workspace header's **1m chart** selector defaults to **Auto · one chart**.
+Auto chooses one BTC/ETH 1m chart, keeps that choice stable as you activate other
+charts, and matches the running observation market. You can pin a specific
+eligible 1m chart. A missing or mismatched pinned chart shows no overlay; it does
+not silently switch to another chart or change the observed market. If there is
+no matching 1m chart, add one; research can continue with its chart closed.
+Changing a chart's market/timeframe removes its overlay when it is no longer
+eligible. Replay suppresses the overlay.
+
+The Swing Tracker button controls display visibility only. **Pause in Swing Lab**
+stops collection. Settings, costs, history and detailed results stay in Swing
+Lab. Dots are 30% smaller and have 17px edge clearance (previously 8.5px) from
+the candle high/low, with ordinal stacking beyond that first gap.
 
 ## Enable Jev
 

@@ -46,6 +46,27 @@ class SwingHTTPTests(unittest.TestCase):
         for key in ('orders','positions','fills','accounts'):self.assertEqual(before[key],after[key])
         e=self.request('/api/swing/export?symbol=hyperliquid:ETH')
         self.assertEqual(e['execution'],'none');self.assertTrue(e['runs']);self.assertFalse(self.request('/api/swing/status')['jev_configured'])
+    def test_multiple_tabs_share_one_run_and_other_market_requires_pause(self):
+        try:
+            for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
+                self.request('/api/swing/control',{'action':'pause','symbol':symbol})
+            runs=[]
+            for _ in range(4):
+                state=self.request('/api/swing/control',{'action':'start','symbol':'hyperliquid:BTC'})
+                runs.append(state['symbols']['hyperliquid:BTC']['run'])
+            self.assertEqual(len(set(runs)),1)
+            with self.assertRaises(HTTPError) as caught:
+                self.request('/api/swing/control',{'action':'start','symbol':'hyperliquid:ETH'})
+            self.assertEqual(caught.exception.code,400)
+            self.assertIn('Pause hyperliquid:BTC',caught.exception.read().decode())
+            state=self.request('/api/swing/status')
+            self.assertEqual(state['observation']['active_symbol'],'hyperliquid:BTC')
+            self.assertEqual(sum(s['running'] for s in state['symbols'].values()),1)
+            self.assertEqual(state['costs']['total']['requests'],0)
+        finally:
+            for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
+                self.request('/api/swing/control',{'action':'pause','symbol':symbol})
+
     def test_invalid_symbols_cadence_key_and_cross_origin_rejected(self):
         for p in [{'action':'start','symbol':'coinbase:BTC-USD'}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'cadence_seconds':1}}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'jev_enabled':True}}]:
             with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',p)
