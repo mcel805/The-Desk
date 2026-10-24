@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 from swing_tracker import Config, SwingTracker
 from swing_research import SwingResearch
-from jev_swing import validate_response, QUESTIONS, MODEL
+from jev_swing import Jev, validate_response, QUESTIONS, MODEL
 
 BASE=1770000000000//60000*60000
 
@@ -121,6 +121,14 @@ class TrackerTests(unittest.TestCase):
         with self.assertRaises(ValueError):t.feed(bar(1,h=99))
 
 class JevTests(unittest.TestCase):
+    def test_session_key_overrides_environment_and_clears_without_mutating_it(self):
+        with patch.dict('os.environ',{'TYPESAFE_API_KEY':'test-only-environment-token'}):
+            j=Jev();self.assertTrue(j.configured);self.assertEqual(j.key_source,'environment')
+            j.set_session_key('test-only-session-token')
+            self.assertEqual(j.key_source,'server_memory')
+            j.set_session_key('');self.assertFalse(j.configured);self.assertIsNone(j.key_source)
+            self.assertTrue(Jev().configured)
+
     def test_strict_typed_contract(self):
         self.assertEqual(validate_response(response())['model'],MODEL)
         for mutate in [lambda r:r.update(model='jev-latest'),lambda r:r['answers']['long_fit'].update(noul=float('nan')),lambda r:r['answers']['next_bar'].update(probabilities={'up':1}),lambda r:r['answers']['next_bar'].update(confidence=2)]:
@@ -219,6 +227,30 @@ class ServiceTests(unittest.TestCase):
     def test_no_key_cannot_enable_model(self):
         self.service.judge=type('Missing',(),{'configured':False})()
         with self.assertRaises(ValueError):self.command('configure',config={'jev_enabled':True})
+
+    def test_key_entry_is_memory_only_pauses_both_markets_and_never_exports_secret(self):
+        self.service.judge=Jev()
+        self.command('start')
+        self.service.command({'action':'start','symbol':'hyperliquid:ETH'})
+        key='test-only-never-a-real-provider-key'
+        result=self.service.configure_key({'api_key':key})
+        self.assertTrue(result['configured']);self.assertFalse(result['verified'])
+        self.assertEqual(self.service.active,{})
+        self.assertNotIn(key,json.dumps(self.service.status()))
+        self.assertNotIn(key,json.dumps(self.service.export('hyperliquid:BTC')))
+        self.assertNotIn(key.encode(),self.service.path.read_bytes())
+        self.service.configure_key({'api_key':''})
+        self.assertFalse(self.service.judge.configured)
+        with patch.dict('os.environ',{},clear=True):
+            restarted=SwingResearch(self.gateway,Path(self.tmp.name))
+            self.assertFalse(restarted.judge.configured)
+            restarted.close()
+
+    def test_invalid_key_shapes_do_not_echo_key_or_pause_running_state(self):
+        self.command('start')
+        for payload in ({'api_key':12},{'api_key':'secret with spaces'},{'api_key':'x'*4097},{'api_key':'x','extra':True}):
+            with self.assertRaises(ValueError):self.service.configure_key(payload)
+        self.assertIn('hyperliquid:BTC',self.service.active)
     def test_model_failure_cannot_create_signal(self):
         self.service.judge=type('Broken',(),{'configured':True,'judge':lambda *a:(_ for _ in ()).throw(TimeoutError())})()
         self.command('configure',config={'jev_enabled':True});self.command('start');self.sample()

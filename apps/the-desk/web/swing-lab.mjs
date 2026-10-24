@@ -4,7 +4,8 @@ async function api(path,body){const r=await fetch(path,body?{method:'POST',heade
 function table(headers,rows){return rows.length?`<div class="table-scroll"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">No observations yet. Start a run to collect evidence.</div>';}
 function symbol(){return $('#symbol').value;}
 async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [data,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot;
-$('#connection').textContent='Connected · '+stamp(data.as_of)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;$('#status').textContent=s.status;$('#keyStatus').textContent=data.jev_configured?'Server API key available. Enabling Jev sends public market snapshots to TypeSafe.':'Jev unavailable: set TYPESAFE_API_KEY in the server environment. Tracker works without it.';
+$('#connection').textContent='Connected · '+stamp(data.as_of)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;$('#status').textContent=s.status;$('#keyStatus').textContent=data.jev_configured?'Key available. Enabling Jev sends public market snapshots to TypeSafe.':'Add your API key in Jev connection above. Tracker works without it.';
+$('#jevKeyState').textContent=data.jev_configured?(data.jev_key_source==='server_memory'?'Key set in server memory for this session.':'Key supplied by the server environment.')+' A successful Jev response verifies access.':'No key configured. Paste your TypeSafe key above.';$('#clearJevKey').disabled=!data.jev_configured;
 $('#config [name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=s.running;$('#pause').disabled=!s.running;
 if(loaded!==market){for(const el of $('#config').elements){if(!el.name)continue;const v=s.config[el.name];if(el.type==='checkbox')el.checked=!!v;else el.value=v;}loaded=market;}
 $('#export').href='/api/swing/export?symbol='+encodeURIComponent(market);$('#export').download='swing-research-'+market.split(':')[1]+'.json';
@@ -19,4 +20,12 @@ $('#history').innerHTML=table(['Observed','Next candle','Sample','Jev forecast',
 $('#inspect').textContent=JSON.stringify(history.predictions[0]||{message:'Start a run to capture timestamped evidence.'},null,2);
 }catch(e){$('#connection').textContent='Disconnected · '+e.message;$('#status').textContent='UNAVAILABLE';$('#jev').innerHTML='<div class="empty">Service unavailable. Previous judgments withheld.</div>';}finally{busy=false;}}
 async function command(action,config){$('#error').textContent='';try{await api('/api/swing/control',{action,symbol:symbol(),...(config?{config}:{})});loaded=null;await refresh();}catch(e){$('#error').textContent=e.message;}}
+async function configureKey(remove=false){
+ $('#jevKeyError').textContent='';$('#saveJevKey').disabled=true;$('#clearJevKey').disabled=true;
+ let key=remove?'':$('#jevApiKey').value;$('#jevApiKey').value='';
+ try{const result=await api('/api/swing/key',{api_key:key});key='';$('#jevKeyState').textContent=result.detail;loaded=null;await refresh();}
+ catch(e){$('#jevKeyError').textContent=e.message;}
+ finally{key='';$('#saveJevKey').disabled=false;}
+}
+$('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clearJevKey').onclick=()=>configureKey(true);
 $('#config').onsubmit=e=>{e.preventDefault();const cfg={};for(const el of e.target.elements){if(!el.name||el.disabled)continue;cfg[el.name]=el.type==='checkbox'?el.checked:el.name==='target_mode'?el.value:Number(el.value);}command('configure',cfg);};$('#start').onclick=()=>command('start');$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{loaded=null;refresh();};refresh();setInterval(refresh,3000);

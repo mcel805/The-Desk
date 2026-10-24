@@ -58,7 +58,25 @@ class SwingHTTPTests(unittest.TestCase):
         with urlopen(self.base+'/swing-lab.html') as r:html=r.read().decode()
         self.assertIn('Swing Tracker / Decision Lab',html)
         self.assertIn('4× / minute',html)
+        self.assertIn('id="jevApiKey"',html)
+        self.assertIn('type="password"',html)
         self.assertNotIn('Authorization: Bearer',html)
         self.assertEqual(self.request('/api/swing/history?symbol=hyperliquid:BTC')['metrics']['n'],0)
+
+    def test_key_route_requires_browser_origin_and_returns_presence_only(self):
+        key='test-only-http-key-never-sent-to-provider'
+        for headers in ({},{'Origin':'https://external.example'}):
+            with self.assertRaises(HTTPError) as e:self.request('/api/swing/key',{'api_key':key},headers)
+            self.assertEqual(e.exception.code,403)
+        try:
+            result=self.request('/api/swing/key',{'api_key':key},{'Origin':self.base})
+            self.assertTrue(result['configured']);self.assertFalse(result['verified'])
+            self.assertNotIn(key,json.dumps(result))
+            status=self.request('/api/swing/status')
+            self.assertEqual(status['jev_key_source'],'server_memory')
+            self.assertNotIn(key,json.dumps(status))
+            self.assertNotIn(key,json.dumps(self.request('/api/swing/export?symbol=hyperliquid:BTC')))
+        finally:self.request('/api/swing/key',{'api_key':''},{'Origin':self.base})
+        self.assertFalse(self.request('/api/swing/status')['jev_configured'])
 
 if __name__=='__main__':unittest.main()

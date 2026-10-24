@@ -34,8 +34,19 @@ non-1m frames; the swing overlay can still display on other frames.
 
 ## Enable Jev
 
-Set `TYPESAFE_API_KEY` in the server process environment, restart, then enable Jev
-in Swing Lab. Do not put a key in Pine, a browser, a query string, Git or a screenshot.
+Open **Swing Lab → Jev connection**, paste your TypeSafe API key into the password
+field, and click **Use key for this session**. Then enable Jev in observation
+settings, save, and start observing. The browser clears the input immediately.
+The server keeps this key only in memory: no database, disk, browser storage or
+history export contains it. Restart clears a key entered through this form.
+Changing or clearing the key pauses both markets; old in-flight responses cannot
+attach to a new run. Clearing disables Jev for the current server session.
+Key presence is not proof of valid provider access; the first successful Jev
+response verifies it. Requests with invalid keys produce unavailable observations.
+
+For developer launches, `TYPESAFE_API_KEY` in the server process environment remains
+supported. Environment keys do not need to be copied into the page. Do not put a
+key in Pine, a query string, Git, chat or a screenshot.
 No key is required to run the deterministic tracker and record snapshots.
 Enabling Jev sends only bounded public-market state to TypeSafe. It does not send
 accounts, balances, order tickets or credentials in the model state.
@@ -142,6 +153,8 @@ All routes inherit the Desk's loopback Host / same-origin JSON checks.
 
 - `GET /api/swing/status`: per-symbol state and recent dot history.
 - `POST /api/swing/control`: `start`, `pause`, or `configure`, exact symbol/config.
+- `POST /api/swing/key`: set/clear a server-memory key; explicit same-origin browser
+  request required; no key is returned or persisted. Both markets pause on change.
 - `GET /api/swing/history?symbol=hyperliquid:BTC`: run-scoped observations/metrics.
 - `GET /api/swing/export?symbol=hyperliquid:BTC`: bounded local research export.
 

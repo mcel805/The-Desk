@@ -211,6 +211,9 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
+                if path=='/api/swing/key':
+                    if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
+                    return self.json(swing_research.configure_key(p))
                 if agents.post(self,path,p):return
                 if robinhood.post(self,path,p):return
                 if funding.post(self,path,p):return

@@ -65,6 +65,19 @@ class SwingResearch:
         with self.lock:
             for symbol in list(self.active):self.pause(symbol,'SERVICE_STOPPED')
 
+    def configure_key(self,p):
+        if not isinstance(p,dict) or set(p)!={'api_key'} or not isinstance(p['api_key'],str):
+            raise ValueError('Expected a TypeSafe API key')
+        key=p['api_key'].strip()
+        if key and (len(key)>4096 or not key.isascii() or any(c.isspace() or ord(c)<33 or ord(c)>126 for c in key)):
+            raise ValueError('Enter the API key as a single token')
+        with self.lock:
+            # In-flight responses lose their run ownership when credentials change.
+            for symbol in list(self.active):self.pause(symbol,'JEV_KEY_CHANGED')
+            self.judge.set_session_key(key)
+            return {'configured':self.judge.configured,'key_source':self.judge.key_source,
+                    'verified':False,'detail':'Key set for this server session. First successful Jev response verifies access.' if key else 'Jev disabled for this server session.'}
+
     def command(self,p):
         if not isinstance(p,dict) or set(p)-{'action','symbol','config'}:raise ValueError('Invalid research command')
         symbol=p.get('symbol');action=p.get('action')
@@ -77,12 +90,12 @@ class SwingResearch:
                 if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds'] not in (10,15,30,60):raise ValueError('Cadence must be 10, 15, 30 or 60 seconds')
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
                 Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled')})
-                if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Set TYPESAFE_API_KEY on the server before enabling Jev')
+                if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 self.pause(symbol,'CONFIG_CHANGED');self.configs[symbol]=cfg
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
             elif action=='start':
                 if symbol in self.active:return self.status()
-                if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Set TYPESAFE_API_KEY on the server before enabling Jev')
+                if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 run=uuid.uuid4().hex;now=int(time.time()*1000);cfg=deepcopy(self.configs[symbol])
                 with self.db() as db:db.execute('INSERT INTO runs VALUES(?,?,?,?)',(run,symbol,now,encode(cfg)))
                 self.active[symbol]={'run':run,'config':cfg,'tracker':None,'persisted_seq':0,'last_bucket':None,'sample_slot':None,'seen':{},'started':now}
@@ -214,7 +227,7 @@ class SwingResearch:
                 s['dots']=self.dots(s.get('run'),s.get('snapshot',{}),s.get('forming'))
                 s['coverage']='Hyperliquid public REST snapshots · 1m OHLC · not a full tick feed'
                 result[symbol]=s
-            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'as_of':now}
+            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []

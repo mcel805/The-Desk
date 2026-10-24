@@ -143,6 +143,7 @@ The header wallet drawer defaults to Ledger direct USB (no browser extension), p
 The new **Swing Tracker 1.2** and **Swing Lab** study Hyperliquid BTC/ETH independently
 of the older ABC indicator. Stacked 1m dots show each Jev long/short/neutral lean
 at the selected cadence (default four per minute). Tracker observations work
-without a model key; Jev activation requires server-side `TYPESAFE_API_KEY`.
+without a model key; add a session key in **Swing Lab → Jev connection**, or supply
+server-side `TYPESAFE_API_KEY` when launching.
 No orders are routed. See [SWING-TRACKER.md](SWING-TRACKER.md) for setup, provenance,
 known port differences and measurement boundaries.

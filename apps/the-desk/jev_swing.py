@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import threading
 from urllib.request import Request, urlopen
 
 MODEL='jev-1.14.0'
@@ -32,10 +33,30 @@ def validate_response(value):
     return {'model':value['model'],'answers':answers,'usage':value.get('usage',{})}
 
 class Jev:
+    def __init__(self):
+        self._key_override=None
+        self._key_lock=threading.RLock()
+
+    def _key(self):
+        with self._key_lock:
+            return self._key_override if self._key_override is not None else os.environ.get('TYPESAFE_API_KEY','')
+
     @property
-    def configured(self):return bool(os.environ.get('TYPESAFE_API_KEY'))
+    def configured(self):return bool(self._key())
+
+    @property
+    def key_source(self):
+        with self._key_lock:
+            if self._key_override is not None:return 'server_memory' if self._key_override else None
+            return 'environment' if os.environ.get('TYPESAFE_API_KEY') else None
+
+    def set_session_key(self,key):
+        # A blank override disables this session even if an environment key exists.
+        with self._key_lock:self._key_override=key
+
     def judge(self,state):
-        if not self.configured:raise ValueError('Jev key unavailable')
-        request=Request('https://api.typesafe.ai/v1/systemone',data=json.dumps({'model':MODEL,'state':state,'questions':QUESTIONS},allow_nan=False).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+os.environ['TYPESAFE_API_KEY']})
+        key=self._key()
+        if not key:raise ValueError('Jev key unavailable')
+        request=Request('https://api.typesafe.ai/v1/systemone',data=json.dumps({'model':MODEL,'state':state,'questions':QUESTIONS},allow_nan=False).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+key})
         with urlopen(request,timeout=2) as response:value=json.load(response)
         return validate_response(value)
