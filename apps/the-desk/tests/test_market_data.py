@@ -17,6 +17,13 @@ class MarketDataTests(unittest.TestCase):
         b=data['bars'][0]
         self.assertEqual((b['open'],b['high'],b['low'],b['close'],b['volume']),(12,16,11,15,12))
         self.assertEqual(data['last_completed'],17820000)
+    def test_hyperliquid_two_minute_requires_aligned_complete_minute_pairs(self):
+        candles=[{'t':t*1000,'o':str(o),'h':str(o+2),'l':str(o-1),'c':str(o+1),'v':'3'} for t,o in [(17640,100),(17760,102),(17820,103),(17880,104)]]
+        with patch('server.http_json',return_value=candles),patch('server.time.time',return_value=17910):
+            data=Gateway().bars('hyperliquid:BTC','2m',5)
+        self.assertEqual([b['time']for b in data['bars']],[17760000,17880000])
+        self.assertEqual(data['bars'][0],{'time':17760000,'open':102.,'high':105.,'low':101.,'close':104.,'volume':6.})
+        self.assertEqual(data['last_completed'],17760000)
     def test_completed_cutoff_remains_at_request_time(self):
         candles=[{'t':17880000,'o':'100','h':'102','l':'99','c':'101','v':'2'},
                  {'t':17940000,'o':'101','h':'103','l':'100','c':'102','v':'3'}]

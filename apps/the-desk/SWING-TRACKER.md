@@ -1,5 +1,9 @@
 # Swing Tracker / Jev Decision Lab
 
+The liquidity trading studies, tracker measurement update, Jev `swing-observer.3`
+and separate RIDER/Spider advisors are documented in [SWING-LIQUIDITY-STUDY.md](SWING-LIQUIDITY-STUDY.md).
+The v1 audit below remains a separate reference.
+
 New, independent ETH/BTC implementation in The Desk. This code does not import
 `abc-reversal-bridge.mjs`, the older ABC Pine script, or the existing ABC panels.
 It receives public market data only; it has no order-engine or broker handle.
@@ -154,7 +158,7 @@ status every three seconds and does not make additional model requests.
 Before a model call, its row is pending with a frozen published-price snapshot.
 Afterward, the returned `usage.input_tokens` and `usage.output_tokens` determine
 the estimate. Input tokens are already billable tokens for the whole request;
-never multiply by the five questions again. Cost arithmetic uses integer
+never multiply by the question count again. Cost arithmetic uses integer
 nanodollars. Completed usage and its rate snapshot are immutable and survive
 process restarts. A crashed pending request becomes unresolved, not free.
 
@@ -193,7 +197,7 @@ export also includes usage rows and uncapped market totals. Credentials are
 never part of these outputs.
 
 The adapter uses the documented System One HTTP endpoint, pins `jev-1.14.0`, and
-pins question revision `swing-observer.2`. It validates answer types, all choice
+pins question revision `swing-observer.3`. It validates answer types, all choice
 keys, finite [0,1] probabilities, probability sums and model identity. A 2s request
 timeout, a 3s elapsed budget, a crossed minute, or a changed run withholds the
 judgment from active display. Service errors never fabricate an answer or relax
@@ -245,9 +249,10 @@ Intentional differences / not ported in this first crypto release:
   next open; the service supplies actual observed-at times for forward inputs.
 - Selected-timeframe pivots are recognized when the complete aggregation closes;
   Pine's `request.security([1])` import may deliver on a later 1m evaluation.
-- This release is research-all enabled profiles. Timestamped manual thesis /
-  continuation declarations, linked Liquidity/Bias plots, blackout windows and
-  manual stop/target amendments are not supported. They are not silently inferred.
+- Legacy tracker-only mode retains research-all enabled profiles. The liquidity
+  study extension adds timestamped manual bias/side permission and HTF references
+  as described in SWING-LIQUIDITY-STUDY.md. Imported Liquidity/Bias indicator
+  parity, blackout windows and manual stop/target amendments remain unsupported.
 - Parent visual context uses retained closed history; it is display context, not
   an entry rule. Dot placement supports normal and inverted price scales.
 - Public REST snapshots are not a full trade/order-book tape. This release cannot

@@ -75,6 +75,25 @@ class TrackerTests(unittest.TestCase):
         t.plans[0]['stop']=100;t.candidates[0]['c']=80
         self.assertEqual(t.events[-1]['frozen_plan'],frozen)
 
+    def test_study_tracker_requires_known_campaign_and_freezes_its_htf_target(self):
+        t=self.prepared();b=bar(5,o=99,h=102,l=97,c=101);at=b['time']+60000
+        t.observed_at=at+10000;t.set_study_campaigns([])
+        t.evaluate(t.candidates[0],b,at)
+        self.assertEqual(t.candidates[0]['reason'],'WAIT_HTF_CAMPAIGN');self.assertEqual(t.plans,[])
+        campaign={'id':'known-htf-contact','state':'WATCH','side':1,'observed_at':at-60000,
+                  'expires':at+600000,'target':{'price':130,'known_at':at-120000,'available_at':at-60000}}
+        t.set_study_campaigns([campaign]);t.evaluate(t.candidates[0],b,at)
+        self.assertEqual(t.plans[0]['target'],130)
+        self.assertEqual(t.plans[0]['target_role'],'HTF_STUDY_OBJECTIVE')
+        self.assertEqual(t.plans[0]['study_campaign'],'known-htf-contact')
+        t.set_study_campaigns([{**campaign,'target':{'price':150,'known_at':at-120000}}])
+        self.assertEqual(t.plans[0]['target'],130)
+
+    def test_study_wait_does_not_suspend_candidate_expiry(self):
+        t=self.prepared(candidate_bars=3);t.index=10;t.set_study_campaigns([])
+        t.evaluate(t.candidates[0],bar(10,o=99,h=102,l=97,c=101),BASE+660000)
+        self.assertEqual(t.candidates[0]['reason'],'EXPIRED')
+
     def test_gap_ends_watch_and_drops_old_pools(self):
         t=self.prepared();t.last_time=BASE+240000;t.pools=[{'price':110,'side':1,'known':BASE}]
         t.feed(bar(8));self.assertEqual(t.candidates[0]['reason'],'DATA_GAP');self.assertEqual(t.pools,[])
@@ -217,7 +236,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(self.service.status()['symbols']['hyperliquid:BTC']['dots']),4)
 
     def test_minute_crossing_response_is_stored_but_not_colored(self):
-        self.command('configure',config={'jev_enabled':True});self.command('start')
+        self.command('configure',config={'jev_enabled':True,'study_enabled':False});self.command('start')
         with patch('swing_research.time.time',side_effect=[self.now/1000,(self.now+60000)/1000]):
             self.service.sample('hyperliquid:BTC',self.service.active['hyperliquid:BTC'])
         s=self.service.status()['symbols']['hyperliquid:BTC']

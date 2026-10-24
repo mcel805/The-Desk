@@ -72,6 +72,18 @@ class SwingHTTPTests(unittest.TestCase):
         self.assertNotIn('api_key',json.dumps(costs))
         self.assertFalse(self.request('/api/swing/status')['jev_configured'])
 
+    def test_study_and_advisor_routes_are_research_only_and_manual_origin_is_required(self):
+        self.assertEqual(self.request('/api/swing/study/archive?symbol=hyperliquid:BTC')['execution'],'none')
+        self.assertEqual(self.request('/api/swing/advisors?symbol=hyperliquid:BTC')['reviews'],[])
+        self.assertEqual(self.request('/api/swing/advisors/export?symbol=hyperliquid:BTC')['execution'],'none')
+        for headers in ({},{'Origin':'https://external.example'}):
+            with self.assertRaises(HTTPError) as caught:
+                self.request('/api/swing/advisors',{'symbol':'hyperliquid:BTC','role':'both'},headers)
+            self.assertEqual(caught.exception.code,403)
+        with self.assertRaises(HTTPError) as caught:
+            self.request('/api/swing/advisors',{'symbol':'hyperliquid:BTC','role':'both'},{'Origin':self.base})
+        self.assertEqual(caught.exception.code,400)  # No collected snapshot; no Codex job.
+
     def test_key_route_requires_browser_origin_and_returns_presence_only(self):
         key='test-only-http-key-never-sent-to-provider'
         for headers in ({},{'Origin':'https://external.example'}):

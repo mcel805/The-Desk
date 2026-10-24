@@ -12,7 +12,7 @@ test('Vela provider loads dated symbols, metadata, normalized ranged bars and la
  const bars=await p.getBars('MYM-202612','1',{from:t,to:t+60000,limit:20});assert.equal(bars.length,2);assert.equal(bars[0].close,40002);
  assert.ok(requests.at(-1).includes('from='+t));assert.ok(requests.at(-1).includes('timeframe=1m'));assert.match(ibkrLabel(status),/DEMO DATA.*READ ONLY/);
  assert.equal(isIBKR('ibkr:MYM-202612'),true);assert.equal(isIBKR('hyperliquid:BTC'),false);
- await assert.rejects(p.getBars('MYM-202612','D'),/intraday/);
+ await assert.rejects(p.getBars('MYM-202612','W'),/supported interval/);
 });
 test('rejects mixed contract identity, bad units and invalid data',async()=>{
  const p=new IBKRProvider({fetcher:async()=>response({...status,instrument:'ibkr:MYM-202603'})});

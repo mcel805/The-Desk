@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass, asdict
 import math
 
-REVISION = 'desk-swing-v1.2-research.1'
+REVISION = 'desk-swing-v1.2-research.2'
 
 @dataclass(frozen=True)
 class Config:
@@ -74,6 +74,15 @@ class SwingTracker:
         self.parents=[];self.parent_id=0;self.trend=0;self.candidates=[];self.plans=[];self.events=[]
         self.day=None;self.reserved_session=0;self.reserved_parent=0;self.parent_count=0;self.seq=0;self.atr=None
         self.highs=[];self.lows=[];self.last_time=None;self.index=-1;self.observed_at=None
+        self.study_mode=False;self.study_campaigns=[]
+
+    def set_study_campaigns(self,campaigns):
+        """Bind future confirmations to a previously observed HTF campaign.
+
+        The service supplies data only, never an order or permission callback.
+        Existing frozen READY plans are unaffected. Legacy replay stays separate.
+        """
+        self.study_mode=True;self.study_campaigns=deepcopy(campaigns)
 
     def event(self,kind,at,**data):
         self.seq+=1
@@ -134,6 +143,12 @@ class SwingTracker:
         elif c['profile'].endswith('CONTINUATION') and s*(c['c']-c['a']['price'])<=0:reason='CONTINUATION_INVALID'
         elif (b['high']>=c['b']['price']+self.tick if s==1 else b['low']<=c['b']['price']-self.tick):reason='MISSED_B_BREAK'
         if reason:c.update(state='TERMINAL',reason=reason);self.event(reason,at,candidate=c['id']);return
+        if self.study_mode:
+            campaign=next((x for x in reversed(self.study_campaigns) if x['side']==s and x['state']=='WATCH' and x.get('target') and x['observed_at']<=(self.observed_at or at) and x['target'].get('available_at',x['target']['known_at'])<=(self.observed_at or at) and x['expires']>at and (not c.get('study_campaign') or c['study_campaign']==x['id'])),None)
+            if not campaign:
+                c['reason']='WAIT_HTF_CAMPAIGN';return
+            if not c.get('study_campaign'):
+                c.update(study_campaign=campaign['id'],target=campaign['target']['price'],target_known=campaign['target'].get('available_at',campaign['target']['known_at']),target_role='HTF_STUDY_OBJECTIVE')
         prev=self.bars[-q.sweep_bars:]
         if len(prev)<q.sweep_bars:return
         ref=min(x['low'] for x in prev) if s==1 else max(x['high'] for x in prev)
@@ -264,4 +279,6 @@ class SwingTracker:
         return context
 
     def snapshot(self):
-        return deepcopy({'revision':REVISION,'config':asdict(self.config),'tick':self.tick,'cutoff':None if self.last_time is None else self.last_time+60000,'parent_id':self.parent_id,'trend':self.trend,'visual_context':self.visual_context(),'display_bars':self.bars[-120:],'parents':self.parents[-20:],'pivots':self.path[-40:],'candidates':self.candidates[-30:],'plans':self.plans[-30:],'events':self.events[-40:],'reserved_session':self.reserved_session,'reserved_parent':self.reserved_parent,'session':'UTC 24/7','probability_status':'Uncalibrated research'})
+        from swing_liquidity import swing_measurements
+        measurements=swing_measurements(self.bars,5,self.tick)
+        return deepcopy({'measurements':measurements,'revision':REVISION,'config':asdict(self.config),'tick':self.tick,'cutoff':None if self.last_time is None else self.last_time+60000,'parent_id':self.parent_id,'trend':self.trend,'visual_context':self.visual_context(),'display_bars':self.bars[-120:],'parents':self.parents[-20:],'pivots':self.path[-40:],'candidates':self.candidates[-30:],'plans':self.plans[-30:],'events':self.events[-40:],'reserved_session':self.reserved_session,'reserved_parent':self.reserved_parent,'session':'UTC 24/7','probability_status':'Uncalibrated research'})

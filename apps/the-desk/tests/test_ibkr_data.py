@@ -82,7 +82,7 @@ class DataTests(unittest.TestCase):
 
     def test_bad_contract_timeframe_range_and_config(self):
         feed=IBKRData('demo',clock=lambda:NOW)
-        for args in [('ibkr:MYM-202603','1m'),(feed.instrument,'1d'),(feed.instrument,'1m',601),
+        for args in [('ibkr:MYM-202603','1m'),(feed.instrument,'1w'),(feed.instrument,'1m',601),
                      (feed.instrument,'1m',1,float('nan')),(feed.instrument,'1m',1,10,9)]:
             with self.subTest(args=args),self.assertRaises(ValueError):feed.bars(*args)
         with self.assertRaises(ValueError):feed.pause_demo('true')

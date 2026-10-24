@@ -54,6 +54,7 @@ class RobinhoodMarkets:
         price=amount('limitPrice') if order_type=='limit' else None
         chart=payload['chartInstrument']
         expected = {'robinhood:'+ticker} if kind=='equity' else {'coinbase:'+ticker,'hyperliquid:'+ticker.removesuffix('-USD'),'robinhood:'+ticker}
+        if kind=='crypto' and ticker in ('BTC-USD','ETH-USD','SOL-USD'):expected.add('binance:'+ticker.replace('-USD','USDT'))
         if chart not in expected: raise ValueError('The chart does not match the selected Robinhood asset.')
         with self.lock,self.broker.lock:
             mapped,_=self.raw_accounts(owner)
@@ -97,7 +98,7 @@ class RobinhoodMarkets:
             if price is not None: preview['limit_price']=str(price)
             result=self.broker.preview(owner,preview)
             return {'accountId':payload['accountId'],'intent':payload,'brokerQuote':quote,'preview':result,
-                    'liveEnabled':True,'disclosure':'Robinhood-native order preview. No order has been placed yet. Chart prices are reference only; Robinhood supplies execution checks and estimates. Confirm the exact account, asset, side and amount before placing.'}
+                    'liveEnabled':True,'disclosure':('Binance USDT reference is not a USD conversion. Verify the USD limit against the Robinhood quote; do not copy an unadjusted stablecoin price. ' if chart.startswith('binance:') else '')+'Robinhood-native order preview. No order has been placed yet. Chart prices are reference only; Robinhood supplies execution checks and estimates. Confirm the exact account, asset, side and amount before placing.'}
 
     def crypto_catalog(self, owner, account_id):
         with self.lock, self.broker.lock:
@@ -173,7 +174,7 @@ class RobinhoodMarkets:
 
     def equity_bars(self, owner, account_id, ticker, timeframe, end=None, start=None, limit=600):
         symbol(ticker)
-        intervals = {'1':('minute',60,60), '3':('minute',180,60), '5':('5minute',300,300), '15':('5minute',900,300), '30':('30minute',1800,1800), '60':('hour',3600,3600), '240':('4hour',14400,14400), 'D':('day',86400,86400)}
+        intervals = {'1':('minute',60,60), '2':('minute',120,60), '3':('minute',180,60), '5':('5minute',300,300), '15':('5minute',900,300), '30':('30minute',1800,1800), '60':('hour',3600,3600), '240':('4hour',14400,14400), 'D':('day',86400,86400)}
         if timeframe not in intervals: raise ValueError('Unsupported Robinhood chart timeframe.')
         interval, seconds, native_seconds = intervals[timeframe]
         try:

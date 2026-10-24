@@ -8,7 +8,7 @@ from jev_costs import safe_usage
 from jev_keychain import MacKeychain, KeychainError
 
 MODEL='jev-1.14.0'
-PROMPT_VERSION='swing-observer.2'
+PROMPT_VERSION='swing-observer.3'
 QUESTIONS={
     'directional_lean':{'type':'choice','instructions':'Classify the currently supported directional thesis from this timestamped swing snapshot. This is a contextual LONG / SHORT / NEUTRAL lean, not a trade command and not the next candle direction. Use only recognized structure and observed price action; incomplete evidence, conflicting signals, or price between useful locations can justify neutral.','criteria':{'long':'The observed swing and local response coherently support an upward thesis over a downward one.','short':'The observed swing and local response coherently support a downward thesis over an upward one.','neutral':'Neither direction is sufficiently distinguished: evidence is incomplete, conflicting, or lacks a useful response at recognized structure.'}},
     'next_bar':{'type':'choice','instructions':'Using only the timestamped swing state and price evidence, estimate the direction of the NEXT full 1-minute candle, whose start is prediction_bar. Compare its closing price with its opening price. This is a forecast, not a statement about the forming candle. No outcome or future data is provided.','criteria':{'up':'Next full candle closes at least one tick above its open.','down':'Next full candle closes at least one tick below its open.','flat':'Next full candle closes less than one tick from its open.'}},
@@ -16,6 +16,31 @@ QUESTIONS={
     'long_fit':{'type':'noul','instructions':'Does the supplied current pattern support a developing LONG reversal thesis? Judge contextual coherence, not permission to trade or expected profit. A falling candle alone is not a long signal.','criteria':{'true':'Recognized downside location, failed selling and an upward reclaim make the long reversal thesis coherent.','false':'Evidence is absent, conflicting or suggests continued selling.'}},
     'short_fit':{'type':'noul','instructions':'Does the supplied current pattern support a developing SHORT reversal thesis? Judge contextual coherence, not permission to trade or expected profit. A rising candle alone is not a short signal.','criteria':{'true':'Recognized upside location, failed buying and a downward reclaim make the short reversal thesis coherent.','false':'Evidence is absent, conflicting or suggests continued buying.'}}
 }
+
+# The original next-candle diagnostic is retained. These questions describe
+# different dimensions and are never merged into an invented win probability.
+QUESTIONS.update({
+    'delivery_state': {'type':'choice', 'instructions':'Using liquidity_study.metrics and completed bars, classify the observed delivery. Compare equal-duration windows and retain signed direction. A slowdown does not prove reversal. If measured state is unavailable choose insufficient.', 'criteria':{
+        'accelerating':'Same-direction net progress per minute is increasing.',
+        'steady':'Directional progress is broadly steady.',
+        'slowing':'Same-direction progress is weakening or stalled without a confirmed opposite swing.',
+        'direction_changed':'Recent signed progress reversed relative to the preceding window.',
+        'insufficient':'Missing, mixed or insufficient completed-bar measurement evidence.'}},
+    'liquidity_response': {'type':'choice', 'instructions':'Classify the response at an actually contacted reference in liquidity_study.campaigns. Use the campaign reference, contact cutoff and subsequent completed bars. A forming candle is not a completed reclaim. Do not invent resting orders or a Spider liquidity block.', 'criteria':{
+        'rejection':'Completed penetration/reclaim and departure support rejection of the contacted reference.',
+        'acceptance':'Completed price action holds or extends beyond the contacted reference, favoring acceptance.',
+        'unresolved':'A known reference was contacted but rejection versus acceptance remains ambiguous.',
+        'no_location':'No eligible contacted reference is supplied.'}},
+    'parent_alignment': {'type':'choice', 'instructions':'Compare the local tracker trend with liquidity_study.context.parent_direction and the separately declared manual_bias. Preserve timeframe conflicts. This classification cannot grant side permission.', 'criteria':{
+        'aligned':'Available parent context and local directional structure agree without an opposing manual bias.',
+        'conflict':'Observed local direction opposes the parent or declared manual bias.',
+        'unresolved':'Parent history, directional structure or agreement is insufficient.'}},
+    'long_continuation_fit': {'type':'noul', 'instructions':'Does the supplied DRAW_CONTINUATION long campaign coherently support participation toward its frozen upper HTF objective? Require an available upward parent, permitted side, corrective local pullback and observed continuation evidence. Judge context, not expected profit or trade permission. Without such a supplied campaign answer false.', 'criteria':{'true':'The supplied long continuation campaign has coherent parent, local correction/response and an unconsumed objective.', 'false':'No applicable campaign, missing parent/location, conflict, consumed objective or failed structure.'}},
+    'short_continuation_fit': {'type':'noul', 'instructions':'Does the supplied DRAW_CONTINUATION short campaign coherently support participation toward its frozen lower HTF objective? Require an available downward parent, permitted side, corrective local pullback and observed continuation evidence. Judge context, not expected profit or trade permission. Without such a supplied campaign answer false.', 'criteria':{'true':'The supplied short continuation campaign has coherent parent, local correction/response and an unconsumed objective.', 'false':'No applicable campaign, missing parent/location, conflict, consumed objective or failed structure.'}},
+})
+for key, side in (('long_fit','LONG'), ('short_fit','SHORT')):
+    QUESTIONS[key]['instructions'] += (' When liquidity_study is supplied, evaluate only its active HTF_REVERSAL '+side+' campaigns, using their frozen location/objective, completed rejection evidence and separate manual permission. No applicable campaign means false. A local reversal label alone is insufficient. This contextual label does not approve a specific plan.')
+QUESTIONS['directional_lean']['instructions'] += ' Keep parent direction, manual bias, provisional draw and local swing state separate using liquidity_study when available. Neutral is appropriate for unresolved parent/local conflict.'
 
 class JevResponseError(ValueError):
     """Retain only safe billable counters when typed-answer validation fails."""
