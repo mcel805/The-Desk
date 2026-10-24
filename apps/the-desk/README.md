@@ -137,3 +137,13 @@ Run transient-touch/recovery checks with `python3 -m unittest discover -s tests 
 ## Wallet, funding and connected venues
 
 The header wallet drawer defaults to Ledger direct USB (no browser extension), provides optional Rabby/MetaMask connections, and shows ETH/native USDC on Base. See [direct USB setup and acceptance](docs/BASE-HARDWARE-WALLET.md). It opens read-only Hyperliquid and Robinhood account panels. Hyperliquid account snapshots expose collateral, positions, working orders and fills as research context; venue order submission and cancellation are disabled. Base transfers and Robinhood order submission remain disabled; Robinhood account access is read-only, and native options/futures tickets are unavailable. The chart/DOM engine remains paper. See [setup, scope and acceptance](docs/WALLET-FUNDING-AND-LIVE-TRADING.md). Test with `npm run test:wallet` and the focused wallet-enabled Python suites using the server Python with `requirements-wallet.txt` installed.
+
+## Swing Tracker / Jev research
+
+The new **Swing Tracker 1.2** and **Swing Lab** study Hyperliquid BTC/ETH independently
+of the older ABC indicator. Stacked 1m dots show each Jev long/short/neutral lean
+at the selected cadence (default four per minute). Tracker observations work
+without a model key; add a session key in **Swing Lab → Jev connection**, or supply
+server-side `TYPESAFE_API_KEY` when launching.
+No orders are routed. See [SWING-TRACKER.md](SWING-TRACKER.md) for setup, provenance,
+known port differences and measurement boundaries.

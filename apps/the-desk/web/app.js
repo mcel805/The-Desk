@@ -1,6 +1,7 @@
 import {stripSpiderDrawings} from './spider-model.mjs';
 import {setupSpider} from './spider-ui.mjs';
 import {SpiderIntervalProvider,BinanceProvider} from './spider-provider.mjs';
+import {setupSwingTracker} from './swing-tracker.mjs';
 import {DeskHyperliquidProvider} from './hyperliquid-provider.mjs';
 import {VelaWorkspace,CoinbaseProvider,HyperliquidProvider} from './vendor/vela.js';
 import {IBKRProvider,isIBKR,ibkrLabel} from './ibkr-provider.mjs';
@@ -374,8 +375,9 @@ function amendDraft(field,value){
 }
 function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';commandKey=null;updateTicket();}
 function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
+const swingTracker=setupSwingTracker({workspace:()=>ws});
 const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
-function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();window.dispatchEvent(new CustomEvent('desk:agents-sync-chart'));});}chartTrader.attach(cell);}
+function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();window.dispatchEvent(new CustomEvent('desk:agents-sync-chart'));});}chartTrader.attach(cell);swingTracker.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
 $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER placement (uses current ticket size and protection)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">Review mode is the default. Chart context-menu limits open a placement review. Drafts do not execute until submitted. One-click placement affects other paper-entry shortcuts; amendments, closing and reversal keep their review dialogs. Quote freshness and replay checks always apply.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
@@ -422,7 +424,14 @@ async function boot(){
   setupSpider({workspace:()=>ws,instrument,toast,sourceContext:()=>({accountId:brokerContext?.selected||null}),executionContext:()=>({connected:!!brokerContext?.valid(),account:brokerContext?.account()?.account||'',symbol:brokerContext?.asset?.symbol||'',matches:!!brokerContext?.matches,tradable:!!brokerContext?.account()?.tradable}),openExecution:()=>{if(!brokerContext?.selected)$('#robinhoodButton').click();else if(!brokerContext?.asset||!brokerContext?.matches)$('#brokerAssetsButton').click();else{if($('#tradeButton').getAttribute('aria-expanded')!=='true')$('#tradeButton').click();toast('Robinhood spot ticket ready. Review amount and native broker preview before placing an order.');}},setHistory:enabled=>{for(const p of Object.values(spiderHistories))p.serverHistory=enabled;}});
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;commandKey=null;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
   await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
-  Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(()=>{if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';});
+  Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(async()=>{
+   const swingMarket=new URLSearchParams(location.search).get('swing_market');
+   if(['hyperliquid:BTC','hyperliquid:ETH'].includes(swingMarket)){
+    const toggle=$('#swingTrackerButton');if(toggle?.getAttribute('aria-pressed')==='false')toggle.click();
+    await ws.chart.setMarket({symbol:swingMarket,timeframe:'1'});
+   }
+   if($('#saveStatus').textContent==='Loading workspace…')$('#saveStatus').textContent='Workspace restored';
+  }).catch(e=>toast(e.message,true));
   if(window.innerWidth<700){document.body.classList.add('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','false');}
  }catch(e){$('#saveStatus').textContent='Initialization failed';toast(e.message,true);}
 }

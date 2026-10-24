@@ -1,6 +1,7 @@
 """Real HTTP/server/worker boundary with an isolated synthetic device signer."""
 import http.cookiejar
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -16,7 +17,7 @@ class HardwareHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory(prefix='desk-usb-http-');target=Path(cls.temp.name);root=Path(__file__).resolve().parents[1]
-        for name in ['agents.py','agent_adapters.py','agent_workspaces.py','agent_signals.py','server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
+        for name in ['swing_tracker.py','swing_research.py','jev_swing.py','jev_keychain.py','jev_costs.py','agents.py','agent_adapters.py','agent_workspaces.py','agent_signals.py','server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
         # Explicitly test-only RPC fixture in a disposable copy. The installed
         # application has no synthetic/device test switch or synthetic key.
         with (target/'hardware_wallet.py').open('a') as f:f.write("\nHardwareWallet._rpc = lambda self, method, params: '0x2105' if method == 'eth_chainId' else '0x10'\n")
@@ -25,7 +26,7 @@ class HardwareHttpTests(unittest.TestCase):
         shutil.copyfile(root/'web/pine-examples/agentic-liquidity.pine',target/'web/pine-examples/agentic-liquidity.pine')
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));cls.port=sock.getsockname()[1]
         cls.base=f'http://127.0.0.1:{cls.port}'
-        cls.proc=subprocess.Popen([sys.executable,str(target/'server.py'),'--port',str(cls.port),'--data-dir',str(target/'data'),'--no-workers'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        cls.proc=subprocess.Popen([sys.executable,str(target/'server.py'),'--port',str(cls.port),'--data-dir',str(target/'data'),'--no-workers'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={**os.environ,"DESK_JEV_KEYCHAIN":"disabled"})
         for _ in range(100):
             try:
                 with urlopen(cls.base+'/api/health',timeout=.2):return

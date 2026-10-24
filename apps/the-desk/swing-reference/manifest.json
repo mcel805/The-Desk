@@ -1,0 +1,10 @@
+{
+  "schema": "desk.swing.reference.v1",
+  "source": "User-provided Agentic Swing Tracker 1.2",
+  "original_path": "/Users/markceleste/Documents/Oct 2026 Charts MYM/outputs/tradingview-agentic-swing-tracker-v1_2/Agentic_Swing_Tracker_v1_2.pine",
+  "file": "Agentic_Swing_Tracker_v1_2.pine",
+  "sha256": "4bfeba62abb63b5aef17f0fe69dfa654c3ac144789bf5d20d33d3c1fdb23a5dc",
+  "port_revision": "desk-swing-v1.2-research.1",
+  "native_tradingview_parity": "unverified",
+  "legacy_abc_reused": false
+}
