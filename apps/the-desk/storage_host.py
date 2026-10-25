@@ -101,25 +101,27 @@ def capacity_available(policy, additional=0):
     return (used + additional <= policy['limit_bytes'] and
             free > max(MIN_FREE_BYTES, additional + CAPTURE_RESERVE_BYTES)), used
 
-def supervisor_command(port, no_workers=False, ibkr_mode='off'):
+def supervisor_command(port, no_workers=False, ibkr_mode='off', journal_port=None):
     command = [sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(port)]
     if no_workers: command.append('--no-workers')
     if ibkr_mode != 'off': command.extend(['--ibkr-mode', ibkr_mode])
+    if journal_port is not None: command.extend(['--journal-port', str(journal_port)])
     return command
 
-def route_if_configured(data_dir, port, detach=False, stop=False, qa=False, no_workers=False, ibkr_mode='off'):
+def route_if_configured(data_dir, port, detach=False, stop=False, qa=False, no_workers=False, ibkr_mode='off', journal_port=None):
     """Route normal launches through the external-first supervisor."""
     if qa or os.environ.get('DESK_STORAGE_MANAGED') == '1' or not POLICY.is_file(): return False
-    command = supervisor_command(port, no_workers, ibkr_mode)
+    command = supervisor_command(port, no_workers, ibkr_mode, journal_port)
     if stop: command.append('--stop')
     if detach: command.append('--detach')
     subprocess.run(command, check=True)
     return True
 
 class Host:
-    def __init__(self, policy, port, no_workers=False, ibkr_mode='off'):
+    def __init__(self, policy, port, no_workers=False, ibkr_mode='off', journal_port=None):
         self.policy, self.port = policy, port
         self.no_workers, self.ibkr_mode = no_workers, ibkr_mode
+        self.journal_port = journal_port if journal_port is not None else policy.get('journal_port', 3000)
         self.control = Path(policy['control']); self.control.mkdir(parents=True, exist_ok=True)
         self.state_file = self.control / 'state.json'
         self.quit = threading.Event(); self.continue_local = threading.Event()
@@ -208,10 +210,10 @@ class Host:
             # New offline sessions must never reuse broker grants or resume paid collection.
             env['DESK_JEV_KEYCHAIN'] = 'disabled'
             env.pop('TYPESAFE_API_KEY', None)
-        env['LUX_JOURNAL_URL'] = 'http://127.0.0.1:' + str(self.policy['journal_port'])
+        env['LUX_JOURNAL_URL'] = 'http://127.0.0.1:' + str(self.journal_port)
         node = self.policy.get('node', 'node')
         self.child([node, str(journal / 'node_modules/next/dist/bin/next'), 'start', '-H', '127.0.0.1',
-                    '-p', str(self.policy['journal_port'])], str(journal), env, 'journal.log')
+                    '-p', str(self.journal_port)], str(journal), env, 'journal.log')
         python = self.policy.get('python', sys.executable)
         command = [python, '-B', str(ROOT / 'server.py'), '--port', str(self.port),
                    '--data-dir', str(self.active / 'desk')]
@@ -342,7 +344,7 @@ class Host:
 def main():
     p = argparse.ArgumentParser(); p.add_argument('--port', type=int, default=18880)
     p.add_argument('--detach', action='store_true'); p.add_argument('--stop', action='store_true')
-    p.add_argument('--no-workers', action='store_true'); p.add_argument('--ibkr-mode', choices=('off','demo','gateway'), default='off')
+    p.add_argument('--no-workers', action='store_true'); p.add_argument('--ibkr-mode', choices=('off','demo','gateway'), default='off'); p.add_argument('--journal-port', type=int)
     args = p.parse_args(); policy = json.loads(POLICY.read_text())
     control = Path(policy['control']); control.mkdir(parents=True, exist_ok=True)
     lock = open(control / 'host.lock', 'a+')
@@ -358,11 +360,11 @@ def main():
     if args.detach:
         fcntl.flock(lock, fcntl.LOCK_UN); lock.close()
         with open(control / 'host.log', 'ab') as log:
-            subprocess.Popen(supervisor_command(args.port, args.no_workers, args.ibkr_mode),
+            subprocess.Popen(supervisor_command(args.port, args.no_workers, args.ibkr_mode, args.journal_port),
                              stdout=log, stderr=log, start_new_session=True)
         print('The Desk: http://127.0.0.1:' + str(args.port)); return
     atomic(control / 'host.json', {'pid': os.getpid(), 'port': args.port})
-    host = Host(policy, args.port, args.no_workers, args.ibkr_mode)
+    host = Host(policy, args.port, args.no_workers, args.ibkr_mode, args.journal_port)
     for sig in (signal.SIGTERM, signal.SIGINT): signal.signal(sig, lambda *a: host.quit.set())
     host.run()
 

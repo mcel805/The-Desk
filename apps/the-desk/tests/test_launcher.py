@@ -10,7 +10,7 @@ launch=importlib.util.module_from_spec(spec);spec.loader.exec_module(launch)
 
 class LauncherTests(unittest.TestCase):
     def test_occupied_qa_journal_is_never_reused(self):
-        with tempfile.TemporaryDirectory() as tmp,patch.object(launch,'ROOT',Path(tmp)),patch.object(launch.sys,'argv',['launch.py','--qa','--journal-port','3102']),patch.object(launch,'reachable',side_effect=lambda url:not url.endswith('/api/health')):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(launch,'ROOT',Path(tmp)),patch.object(launch.sys,'argv',['launch.py','--qa','--journal-port','3102']),patch.object(launch,'reachable',side_effect=lambda url:not (url.endswith('/api/health') or url.endswith('/api/data/status'))):
             with self.assertRaisesRegex(RuntimeError,'occupied'):launch.main()
     def test_owned_next_title_change_stops_process_group(self):
         with tempfile.TemporaryDirectory() as tmp:
