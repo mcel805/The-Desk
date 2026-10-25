@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -55,6 +56,12 @@ class StorageHostTests(unittest.TestCase):
    with self.assertRaises(RuntimeError):h.archive_local()
   self.assertTrue((h.active/'offline').exists())
 
+ def test_capacity_reserves_startup_headroom_inside_budget(self):
+  from types import SimpleNamespace
+  with patch.object(host,'size',return_value=self.policy['limit_bytes']-host.CAPTURE_RESERVE_BYTES+1),patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=host.MIN_FREE_BYTES+host.CAPTURE_RESERVE_BYTES+1)):
+   available, _=host.capacity_available(self.policy)
+  self.assertFalse(available)
+
  def test_archive_stays_local_when_external_free_space_is_low(self):
   h=host.Host(self.policy,18880);h.active=self.root/'temporary';h.active.mkdir()
   (h.active/'offline').write_text('offline');h.mode='LOCAL_TEMPORARY'
@@ -97,7 +104,7 @@ class StorageHostTests(unittest.TestCase):
    run.assert_called_once_with([host.sys.executable,'-B',str(host.ROOT/'storage_host.py'),'--port','18891','--no-workers','--ibkr-mode','demo','--journal-port','3001'],check=True)
   child_policy={**self.policy,'journal_app':str(self.root/'journal'),'journal_port':3000}
   h=host.Host(child_policy,18880,no_workers=True,ibkr_mode='demo',journal_port=3001);h.active=self.root/'active';h.active.mkdir()
-  with patch.object(host,'attach_aliases'),patch.object(h,'child') as child:
+  with patch.object(host,'attach_aliases'),patch.object(host,'port_occupied',return_value=False),patch.object(h,'child') as child:
    h.start_apps()
   journal_command=child.call_args_list[0][0][0]
   self.assertEqual(journal_command[-2:],['-p','3001'])
@@ -121,5 +128,30 @@ class StorageHostTests(unittest.TestCase):
   with patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=64*1024*1024+2)):
    h.flush_captures()
   self.assertTrue(capture.exists())
+
+ def test_failed_capture_copy_never_publishes_partial_file(self):
+  h=host.Host(self.policy,18880);inbox=h.control/'Capture-Inbox';inbox.mkdir()
+  capture=inbox/'fixture.png';capture.write_bytes(b'fixture screenshot');os.utime(capture,(0,0))
+  from types import SimpleNamespace
+  def partial_copy(source,destination):
+   Path(destination).write_bytes(b'partial')
+   raise OSError('USB disconnected')
+  with patch.object(host,'drive_ready',return_value=True),patch.object(host.subprocess,'run',return_value=SimpleNamespace(returncode=1)),patch.object(host.shutil,'copy2',side_effect=partial_copy):
+   h.flush_captures()
+  destination=Path(self.policy['external_root'])/'live/captures/macOS'
+  self.assertTrue(capture.exists())
+  self.assertFalse((destination/'fixture.png').exists())
+  self.assertEqual(list(destination.glob('.copying-*')),[])
+
+ def test_occupied_service_port_blocks_child_startup(self):
+  for service in ('Desk','Journal'):
+   with self.subTest(service=service),socket.socket() as occupied:
+    occupied.bind(('127.0.0.1',0));occupied.listen(1)
+    port=occupied.getsockname()[1]
+    h=host.Host({**self.policy,'journal_app':str(self.root/'journal')},port if service=='Desk' else 0, journal_port=port if service=='Journal' else 0)
+    h.active=self.root/('active-'+service.lower());h.active.mkdir()
+    with self.assertRaisesRegex(RuntimeError,service+' port'):
+     h.start_apps()
+    self.assertEqual(h.children,[])
 
 if __name__=='__main__':unittest.main()
