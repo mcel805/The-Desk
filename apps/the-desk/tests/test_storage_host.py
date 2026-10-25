@@ -54,6 +54,25 @@ class StorageHostTests(unittest.TestCase):
   with patch.object(host,'drive_ready',return_value=True):
    with self.assertRaises(RuntimeError):h.archive_local()
   self.assertTrue((h.active/'offline').exists())
+
+ def test_archive_stays_local_when_external_free_space_is_low(self):
+  h=host.Host(self.policy,18880);h.active=self.root/'temporary';h.active.mkdir()
+  (h.active/'offline').write_text('offline');h.mode='LOCAL_TEMPORARY'
+  from types import SimpleNamespace
+  with patch.object(host,'drive_ready',return_value=True),patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=10*1024*1024)):
+   with self.assertRaises(RuntimeError):h.archive_local()
+  self.assertTrue((h.active/'offline').exists())
+  self.assertFalse((Path(self.policy['external_root'])/'offline-sessions').exists())
+
+ def test_return_state_requires_external_capacity_for_temporary_workspace(self):
+  h=host.Host(self.policy,18880);h.active=self.root/'temporary';h.active.mkdir()
+  (h.active/'offline').write_text('offline');h.mode='LOCAL_TEMPORARY'
+  from types import SimpleNamespace
+  with patch.object(host,'drive_ready',return_value=True),patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=10*1024*1024)):
+   self.assertFalse(h.state()['can_return'])
+   h.policy['limit_bytes']=1
+   with patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=1024*1024*1024)):
+    self.assertFalse(h.state()['can_return'])
  def test_capture_stays_local_while_disconnected_then_moves_verified(self):
   h=host.Host(self.policy,18880);inbox=h.control/'Capture-Inbox';inbox.mkdir()
   capture=inbox/'fixture.png';capture.write_bytes(b'fixture screenshot')

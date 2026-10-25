@@ -19,6 +19,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parent
 POLICY = ROOT / 'storage-policy.local.json'
+CAPTURE_RESERVE_BYTES = 64 * 1024 * 1024
+MIN_FREE_BYTES = 512 * 1024**2
 
 def atomic(path, value):
     path = Path(path)
@@ -90,6 +92,15 @@ def attach_aliases(policy, base):
         target.mkdir(parents=True, exist_ok=True)
         set_alias(item['path'], target)
 
+def capacity_available(policy, additional=0):
+    try:
+        used = size(policy['external_root'])
+        free = shutil.disk_usage(policy['volume']).free
+    except OSError:
+        return False, 0
+    return (used + additional <= policy['limit_bytes'] and
+            free > max(MIN_FREE_BYTES, additional + CAPTURE_RESERVE_BYTES)), used
+
 def route_if_configured(data_dir, port, detach=False, stop=False, qa=False):
     """Route normal launches through the external-first supervisor."""
     if qa or os.environ.get('DESK_STORAGE_MANAGED') == '1' or not POLICY.is_file(): return False
@@ -115,12 +126,15 @@ class Host:
 
     def state(self):
         ready = drive_ready(self.policy)
+        return_capacity = ready and self.mode == 'LOCAL_TEMPORARY' and self.active and self.active.exists()
+        if return_capacity:
+            return_capacity, self.used = capacity_available(self.policy, size(self.active))
         return {'mode': self.mode, 'external_connected': ready, 'external_root': self.policy['external_root'],
                 'active_root': str(self.active) if self.active else None,
                 'limit_bytes': self.policy['limit_bytes'], 'used_bytes': self.used,
                 'message': self.error or ('SAMSUNG USB is the active data drive.' if self.mode == 'EXTERNAL' else
                    'Temporary local storage. Plug in SAMSUNG USB; external history is available when reconnected.'),
-                'can_return': self.mode == 'LOCAL_TEMPORARY' and ready,
+                'can_return': bool(return_capacity),
                 'offline_archives': self.archives,
                 'history_policy': 'Offline sessions are separate datasets, copied and verified on reconnect. Histories are never overwritten or automatically merged.'}
 
@@ -138,10 +152,8 @@ class Host:
             opened=subprocess.run(['lsof','-t',str(source)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             if opened.returncode!=1:continue
             source_size=source.stat().st_size
-            self.used=size(self.policy['external_root'])
-            free=shutil.disk_usage(self.policy['volume']).free
-            reserve=64*1024*1024
-            if self.used+source_size>self.policy['limit_bytes']-reserve or free<=source_size+reserve:continue
+            available, self.used = capacity_available(self.policy, source_size)
+            if not available:continue
             target=destination/source.name
             if target.exists():target=destination/(source.stem+'-'+uuid.uuid4().hex[:8]+source.suffix)
             before=digest(source);shutil.copy2(source,target)
@@ -245,7 +257,8 @@ class Host:
         if not drive_ready(self.policy): raise RuntimeError('External drive disconnected before archive')
         root = Path(self.policy['external_root'])
         needed = size(self.active)
-        if size(root) + needed > self.policy['limit_bytes']: raise RuntimeError('200 GB storage budget reached; temporary work remains local')
+        available, self.used = capacity_available(self.policy, needed)
+        if not available: raise RuntimeError('External storage lacks capacity; temporary work remains local')
         destination = root / 'offline-sessions' / self.active.name
         destination.parent.mkdir(parents=True, exist_ok=True)
         verified_copy(self.active, destination)
@@ -272,15 +285,15 @@ class Host:
             while not self.quit.is_set():
                 ready = drive_ready(self.policy)
                 if ready:
-                    try:
-                        if time.monotonic() - self.last_scan > 30:
-                            self.used = size(self.policy['external_root']); self.last_scan = time.monotonic()
-                        ready = self.used < self.policy['limit_bytes'] and shutil.disk_usage(self.policy['volume']).free > 512 * 1024**2
-                    except OSError:ready=False
+                    ready, self.used = capacity_available(self.policy)
+                    self.last_scan = time.monotonic()
                 try:self.flush_captures()
                 except OSError:pass # Inbox files remain available for the next reconnect.
                 if self.mode == 'LOCAL_TEMPORARY':
-                    if ready and self.return_external.exists():
+                    return_ready = ready and self.active and self.active.exists()
+                    if return_ready:
+                        return_ready, self.used = capacity_available(self.policy, size(self.active))
+                    if return_ready and self.return_external.exists():
                         self.stop_children()
                         try:self.archive_local()
                         except Exception as e:
