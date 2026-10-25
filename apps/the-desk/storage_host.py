@@ -135,18 +135,34 @@ def bounded_log(stream, path):
                 log.seek(0); log.truncate(); log.write(tail); log.flush()
     stream.close()
 
-def preserve_local_secret(source, destination):
+def fsync_directory(path):
+    fd = os.open(str(path), os.O_RDONLY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+
+def migrate_journal_secret(source, destination):
     source, destination = Path(source), Path(destination)
-    if destination.exists() or not source.is_file(): return
-    temp = destination.with_name('.' + destination.name + '-' + uuid.uuid4().hex)
-    try:
-        with open(source, 'rb') as source_file, open(temp, 'wb') as target:
-            os.chmod(temp, 0o600)
-            shutil.copyfileobj(source_file, target)
-            target.flush(); os.fsync(target.fileno())
-        os.replace(temp, destination)
-    finally:
-        if temp.exists(): temp.unlink()
+    if source.is_symlink() or destination.is_symlink():
+        raise RuntimeError('Journal decryption key must be a regular local file')
+    if not source.exists(): return
+    if not source.is_file(): raise RuntimeError('Journal decryption key is not a regular file')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    key = source.read_bytes()
+    if destination.exists():
+        if not destination.is_file() or destination.read_bytes() != key:
+            raise RuntimeError('Journal decryption key mismatch; refusing to remove the external copy')
+    else:
+        temp = destination.with_name('.' + destination.name + '-' + uuid.uuid4().hex)
+        try:
+            with open(temp, 'wb') as target:
+                os.chmod(temp, 0o600); target.write(key); target.flush(); os.fsync(target.fileno())
+            if temp.read_bytes() != key: raise RuntimeError('Journal decryption key verification failed')
+            os.replace(temp, destination); fsync_directory(destination.parent)
+        finally:
+            if temp.exists(): temp.unlink()
+    if source.read_bytes() != destination.read_bytes():
+        raise RuntimeError('Journal decryption key mismatch; refusing to remove the external copy')
+    source.unlink(); fsync_directory(source.parent)
 
 class BoundedLog:
     def __init__(self, path):
@@ -270,7 +286,7 @@ class Host:
         if occupied: raise RuntimeError('Cannot start storage services; ' + ' and '.join(occupied) + ' port is already occupied')
         attach_aliases(self.policy, self.active)
         temporary=self.active/'.tmp';temporary.mkdir(exist_ok=True)
-        preserve_local_secret(self.active / 'journal' / '.secret', self.control / 'journal-secret')
+        migrate_journal_secret(self.active / 'journal' / '.secret', self.control / 'journal-secret')
         env = dict(os.environ, TMPDIR=str(temporary), SQLITE_TMPDIR=str(temporary),
                    DESK_CODEX_STATE_DIR=str(self.active/'desk/llm-runtime'), DESK_STORAGE_MANAGED='1', DESK_STORAGE_STATE=str(self.state_file),
                    DESK_STORAGE_RETURN=str(self.return_external),
