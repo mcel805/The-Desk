@@ -101,18 +101,25 @@ def capacity_available(policy, additional=0):
     return (used + additional <= policy['limit_bytes'] and
             free > max(MIN_FREE_BYTES, additional + CAPTURE_RESERVE_BYTES)), used
 
-def route_if_configured(data_dir, port, detach=False, stop=False, qa=False):
+def supervisor_command(port, no_workers=False, ibkr_mode='off'):
+    command = [sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(port)]
+    if no_workers: command.append('--no-workers')
+    if ibkr_mode != 'off': command.extend(['--ibkr-mode', ibkr_mode])
+    return command
+
+def route_if_configured(data_dir, port, detach=False, stop=False, qa=False, no_workers=False, ibkr_mode='off'):
     """Route normal launches through the external-first supervisor."""
     if qa or os.environ.get('DESK_STORAGE_MANAGED') == '1' or not POLICY.is_file(): return False
-    command = [sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(port)]
+    command = supervisor_command(port, no_workers, ibkr_mode)
     if stop: command.append('--stop')
     if detach: command.append('--detach')
     subprocess.run(command, check=True)
     return True
 
 class Host:
-    def __init__(self, policy, port):
+    def __init__(self, policy, port, no_workers=False, ibkr_mode='off'):
         self.policy, self.port = policy, port
+        self.no_workers, self.ibkr_mode = no_workers, ibkr_mode
         self.control = Path(policy['control']); self.control.mkdir(parents=True, exist_ok=True)
         self.state_file = self.control / 'state.json'
         self.quit = threading.Event(); self.continue_local = threading.Event()
@@ -206,8 +213,11 @@ class Host:
         self.child([node, str(journal / 'node_modules/next/dist/bin/next'), 'start', '-H', '127.0.0.1',
                     '-p', str(self.policy['journal_port'])], str(journal), env, 'journal.log')
         python = self.policy.get('python', sys.executable)
-        self.child([python, '-B', str(ROOT / 'server.py'), '--port', str(self.port),
-                    '--data-dir', str(self.active / 'desk')], str(ROOT), env, 'desk.log')
+        command = [python, '-B', str(ROOT / 'server.py'), '--port', str(self.port),
+                   '--data-dir', str(self.active / 'desk')]
+        if self.no_workers: command.append('--no-workers')
+        if self.ibkr_mode != 'off': command.extend(['--ibkr-mode', self.ibkr_mode])
+        self.child(command, str(ROOT), env, 'desk.log')
 
     def activate(self):
         try:self.start_apps()
@@ -332,6 +342,7 @@ class Host:
 def main():
     p = argparse.ArgumentParser(); p.add_argument('--port', type=int, default=18880)
     p.add_argument('--detach', action='store_true'); p.add_argument('--stop', action='store_true')
+    p.add_argument('--no-workers', action='store_true'); p.add_argument('--ibkr-mode', choices=('off','demo','gateway'), default='off')
     args = p.parse_args(); policy = json.loads(POLICY.read_text())
     control = Path(policy['control']); control.mkdir(parents=True, exist_ok=True)
     lock = open(control / 'host.lock', 'a+')
@@ -347,11 +358,11 @@ def main():
     if args.detach:
         fcntl.flock(lock, fcntl.LOCK_UN); lock.close()
         with open(control / 'host.log', 'ab') as log:
-            subprocess.Popen([sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(args.port)],
+            subprocess.Popen(supervisor_command(args.port, args.no_workers, args.ibkr_mode),
                              stdout=log, stderr=log, start_new_session=True)
         print('The Desk: http://127.0.0.1:' + str(args.port)); return
     atomic(control / 'host.json', {'pid': os.getpid(), 'port': args.port})
-    host = Host(policy, args.port)
+    host = Host(policy, args.port, args.no_workers, args.ibkr_mode)
     for sig in (signal.SIGTERM, signal.SIGINT): signal.signal(sig, lambda *a: host.quit.set())
     host.run()
 
