@@ -53,6 +53,8 @@ It monitors the storage budget and checks capacity before copying captures or
 archiving temporary work. Collection guards stop new research when storage is unavailable.
 Verified backup copies on the same USB share that drive's physical failure risk.
 
+Managed Journal launches keep the decryption key in the local storage-control directory while encrypted Journal data remains under `live/journal`. Journal database writes and attachments enforce the shared budget, and managed child and host logs retain only a bounded tail.
+
 Authentication and shared Codex runtime metadata remain in their existing local locations. No Codex authentication or
 configuration files were linked onto the USB. Desk analyst processes use separate
 log destinations and non-persisted internal threads; durable Spider chat

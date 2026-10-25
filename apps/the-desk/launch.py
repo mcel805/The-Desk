@@ -32,7 +32,7 @@ def env_values(path):
             if line.startswith('export '):line=line[7:]
             if '=' not in line or line.startswith('#'):continue
             key,value=line.split('=',1)
-            if key.strip() in ('COUNT_DESK_JOURNAL_BRIDGE_TOKEN','LUX_JOURNAL_URL'):
+            if key.strip() in ('COUNT_DESK_JOURNAL_BRIDGE_TOKEN','JOURNAL_SECRET','LUX_JOURNAL_URL'):
                 result[key.strip()]=value.strip().strip('"').strip("'")
     return result
 

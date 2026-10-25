@@ -1,4 +1,5 @@
 import json
+import io
 import os
 from pathlib import Path
 import socket
@@ -28,6 +29,16 @@ class StorageHostTests(unittest.TestCase):
   self.assertEqual(host.inventory(src),host.inventory(dst));self.assertEqual(len(receipt),1)
   with self.assertRaises(RuntimeError):host.verified_copy(src,dst)
   self.assertEqual((src/'record').read_text(),'old history')
+ def test_stale_owned_copy_stage_is_retryable(self):
+  src=self.root/'source';src.mkdir();(src/'record').write_text('history')
+  dst=self.root/'destination';stage=self.root/'.copying-destination';stage.mkdir();(stage/'partial').write_text('partial')
+  host.verified_copy(src,dst)
+  self.assertFalse(stage.exists());self.assertEqual((dst/'record').read_text(),'history')
+ def test_bounded_log_keeps_only_the_tail(self):
+  path=self.root/'runtime.log';payload=b'x'*(host.LOG_LIMIT_BYTES+1)
+  host.bounded_log(io.BytesIO(payload),path)
+  self.assertEqual(path.stat().st_size,host.LOG_LIMIT_BYTES)
+  self.assertEqual(path.read_bytes(),payload[-host.LOG_LIMIT_BYTES:])
  def test_mutating_source_prevents_publication(self):
   src=self.root/'source';src.mkdir();(src/'record').write_text('before')
   copy=host.shutil.copytree
