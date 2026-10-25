@@ -21,13 +21,15 @@ JSON_COLUMNS={'settings':('value',),'runs':('config',),'ledger':('payload',),
 
 class StorageFault(RuntimeError):pass
 
-def external_guard():
+def external_guard(additional=0):
     """Fail closed for a lost volume; never create a fake /Volumes directory."""
     policy_path=os.environ.get('DESK_STORAGE_POLICY')
     if not policy_path or os.environ.get('DESK_STORAGE_MODE')!='EXTERNAL':return
-    from storage_host import drive_ready
+    from storage_host import capacity_available, drive_ready
     policy=json.loads(Path(policy_path).read_text())
     if not drive_ready(policy):raise StorageFault('SAMSUNG USB disconnected. Connect it or choose temporary local storage in The Desk.')
+    available,_=capacity_available(policy,additional)
+    if not available:raise StorageFault('External storage budget or free-space reserve reached. Free space or choose temporary local storage.')
     state_path=os.environ.get('DESK_STORAGE_STATE')
     if state_path and Path(state_path).is_file():
         state=json.loads(Path(state_path).read_text())
@@ -142,8 +144,8 @@ class DataVault:
             except (sqlite3.Error,StorageFault,OSError) as e:self.last_check[name]={'integrity':'FAILED','error':str(e),'checked_at':int(time.time()*1000)}
         return not any(v['integrity']!='ok' for v in self.last_check.values())
 
-    def writable(self):
-        external_guard()
+    def writable(self,additional=0):
+        external_guard(additional)
         if any(v['integrity']!='ok' for v in self.last_check.values()):raise StorageFault('Data integrity failed. Open Data & Backups; collection is stopped.')
         if shutil.disk_usage(self.directory).free<64*1024*1024:raise StorageFault('Low disk space. Free space before starting collection.')
 
@@ -161,8 +163,11 @@ class DataVault:
         if not self.lock.acquire(blocking=False):raise StorageFault('A backup or verification is already running.')
         stage=None
         try:
-            self.busy=True;self.writable()
-            needed=sum(p.stat().st_size for p in self.sources.values() if p.exists())+64*1024*1024
+            self.busy=True
+            reports=self.directory/'spider'
+            report_sources=tuple(p for p in reports.rglob('*.json') if not p.is_symlink() and p.resolve().is_relative_to(reports.resolve())) if reports.exists() else ()
+            needed=sum(p.stat().st_size for p in self.sources.values() if p.exists())+sum(p.stat().st_size for p in report_sources)+64*1024*1024
+            self.writable(needed)
             if shutil.disk_usage(self.root).free<needed:raise StorageFault('Insufficient free space for a verified backup.')
             now=datetime.now(timezone.utc);sid=now.strftime('%Y%m%dT%H%M%S%fZ')+'-'+uuid.uuid4().hex[:8]
             stage=Path(tempfile.mkdtemp(prefix='.building-',dir=self.root));stage.chmod(0o700)
@@ -184,7 +189,6 @@ class DataVault:
                 # The backup API includes committed WAL frames; the output has no live sidecars.
                 with open(dest,'rb') as f:os.fsync(f.fileno())
                 manifest['files'][name]={'kind':'sqlite','bytes':dest.stat().st_size,'sha256':sha256(dest),**check}
-            reports=self.directory/'spider'
             if reports.exists():
                 for source in reports.rglob('*.json'):
                     if source.is_symlink() or not source.resolve().is_relative_to(reports.resolve()):continue
