@@ -168,7 +168,10 @@ class Workers:
 def main():
     def stopping(*args):raise KeyboardInterrupt
     signal.signal(signal.SIGTERM,stopping)
+    signal.signal(signal.SIGINT,stopping)
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR',str(ROOT/'data')));parser.add_argument('--no-workers',action='store_true');parser.add_argument('--ibkr-mode',choices=('off','demo','gateway'),default='off');args=parser.parse_args()
+    from storage_host import route_if_configured
+    if route_if_configured(args.data_dir,args.port):return
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
     ownership=DirectoryLock(data).acquire()
     vault=DataVault(data,journal=os.environ.get('DESK_JOURNAL_DB_PATH'))
@@ -256,6 +259,7 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
+                if path.startswith(('/api/spider/','/api/swing/')):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))

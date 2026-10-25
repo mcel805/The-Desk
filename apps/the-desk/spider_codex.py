@@ -38,6 +38,9 @@ class CodexSession:
               'features.plugins':False,'features.browser_use':False,'features.computer_use':False,
               'features.multi_agent':False,'features.multi_agent_v2':False,'features.memories':False,
               'features.hooks':False,'features.image_generation':False}
+            if os.environ.get('DESK_CODEX_STATE_DIR'):
+                state=Path(os.environ['DESK_CODEX_STATE_DIR']);state.mkdir(parents=True,exist_ok=True);(state/'logs').mkdir(exist_ok=True)
+                overrides.update(log_dir=str(state/'logs'))
             # Config is inspected only for server names, never authentication values.
             config=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex')))/'config.toml'
             if config.exists():
@@ -117,6 +120,7 @@ class CodexSession:
         self.start()
         if not self.thread_id:
             data=self.request('thread/start',{'cwd':self.cwd,'sandbox':'read-only','approvalPolicy':'never','environments':[],
+              'ephemeral':bool(os.environ.get('DESK_CODEX_STATE_DIR')),
               'config':{'web_search':self.web_search,'model_reasoning_effort':'medium'},'baseInstructions':instructions,'serviceName':self.service_name})
             self.thread_id=data['thread']['id']
         return self.thread_id

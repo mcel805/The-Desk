@@ -21,12 +21,27 @@ JSON_COLUMNS={'settings':('value',),'runs':('config',),'ledger':('payload',),
 
 class StorageFault(RuntimeError):pass
 
+def external_guard():
+    """Fail closed for a lost volume; never create a fake /Volumes directory."""
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if not policy_path or os.environ.get('DESK_STORAGE_MODE')!='EXTERNAL':return
+    from storage_host import drive_ready
+    policy=json.loads(Path(policy_path).read_text())
+    if not drive_ready(policy):raise StorageFault('SAMSUNG USB disconnected. Connect it or choose temporary local storage in The Desk.')
+    state_path=os.environ.get('DESK_STORAGE_STATE')
+    if state_path and Path(state_path).is_file():
+        state=json.loads(Path(state_path).read_text())
+        if state.get('used_bytes',0)>=policy['limit_bytes']-64*1024*1024:
+            raise StorageFault('External storage budget reached. Free space or choose temporary local storage.')
+
+
 def fsync_dir(path):
     fd=os.open(str(path),os.O_RDONLY)
     try:os.fsync(fd)
     finally:os.close(fd)
 
 def atomic_json(path,value):
+    external_guard()
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     fd,tmp=tempfile.mkstemp(prefix='.'+path.name+'-',dir=path.parent)
     try:
@@ -38,6 +53,7 @@ def atomic_json(path,value):
 
 def connect(path):
     """Every writer uses FULL sync, WAL, a bounded busy wait, and FK validation."""
+    external_guard()
     db=sqlite3.connect(str(path),timeout=15);db.row_factory=sqlite3.Row
     try:
         db.execute('PRAGMA busy_timeout=15000');db.execute('PRAGMA journal_mode=WAL')
@@ -127,6 +143,7 @@ class DataVault:
         return not any(v['integrity']!='ok' for v in self.last_check.values())
 
     def writable(self):
+        external_guard()
         if any(v['integrity']!='ok' for v in self.last_check.values()):raise StorageFault('Data integrity failed. Open Data & Backups; collection is stopped.')
         if shutil.disk_usage(self.directory).free<64*1024*1024:raise StorageFault('Low disk space. Free space before starting collection.')
 
@@ -228,7 +245,7 @@ class DataVault:
 
     def test_restore(self,sid):
         with self.lock:
-            with tempfile.TemporaryDirectory(prefix='desk-restore-test-') as tmp:self.restore_copy(sid,Path(tmp)/'restored')
+            with tempfile.TemporaryDirectory(prefix='desk-restore-test-',dir=self.directory) as tmp:self.restore_copy(sid,Path(tmp)/'restored')
             self.last_restore={'id':sid,'passed':True,'checked_at':int(time.time()*1000)}
             atomic_json(self.directory/'last-restore-test.json',self.last_restore)
             return self.last_restore
@@ -335,4 +352,4 @@ class DataVault:
                 'last_restore_test':restore,
                 'retention':'Latest 8, one per hour for 24 hours, one per day for 7 days, one per week for 4 weeks, and latest 10 manual snapshots, within a 512 MiB target. The newest two verified snapshots and the pre-rebuild baseline are always retained, even when they exceed that target.',
                 'scope':'Desk layouts/indicators and research, Robinhood workspace records, Spider JSON reports, and Journal when configured. Login keys and credentials are excluded; reconnect accounts after recovery.',
-                'protection':'Local verified copies protect against application/data corruption. Configure a separate-volume folder for disk-loss protection.'}
+                'protection':'Verified snapshots on the active data volume protect against application/data corruption. A copy on another physical drive is needed for disk-loss protection.'}

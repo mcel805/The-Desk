@@ -38,6 +38,8 @@ def env_values(path):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR'));p.add_argument('--port',type=int,default=18880);p.add_argument('--journal-port',type=int,default=3000);p.add_argument('--qa',action='store_true');p.add_argument('--stop',action='store_true');p.add_argument('--detach',action='store_true');args=p.parse_args()
+    from storage_host import route_if_configured
+    if route_if_configured(args.data_dir,args.port,args.detach,args.stop,args.qa):return
     data=Path(args.data_dir).expanduser().resolve() if args.data_dir else ROOT/('qa-data' if args.qa else 'data');data.mkdir(parents=True,exist_ok=True)
     pidfile=data/'processes.json'
     if args.stop:
