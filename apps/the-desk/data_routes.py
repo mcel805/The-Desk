@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import urlparse,parse_qs
-from storage import StorageFault
+from storage import StorageFault,external_guard
 
 class DataRoutes:
     def __init__(self,vault,research=None):self.vault=vault;self.research=research
@@ -25,6 +25,9 @@ class DataRoutes:
             h.json(state);return True
         if path=='/api/data/download':
             sid=q.get('id',[''])[0];self.vault.verify(sid);m=self.vault.manifest(sid)
+            manifest_path=self.vault.root/sid/'manifest.json'
+            allocation=manifest_path.stat().st_size+sum(info['bytes'] for info in m['files'].values())+64*1024*1024
+            external_guard(allocation)
             with tempfile.TemporaryFile(dir=self.vault.directory) as out:
                 with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
                     z.write(self.vault.root/sid/'manifest.json','manifest.json')
