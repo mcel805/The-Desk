@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import uuid
 from spider_codex import CodexSession,CodexError
 from spider_markets import validate_market,CRYPTO_SOURCES
+from storage import atomic_json
 from spider_schema import RESEARCH_SCHEMA,ANALYSIS_SCHEMA
 
 FRAMES={'1d':86400000,'4h':14400000,'1h':3600000,'30m':1800000,'15m':900000,'5m':300000,'3m':180000,'2m':120000,'1m':60000}
@@ -135,7 +136,7 @@ class Spider:
     def save(self):
         with self.lock:
             if not self.current:return
-            f=self.directory/(self.current['id']+'.json');tmp=f.with_suffix('.tmp');tmp.write_text(json.dumps(self.current,indent=2));tmp.chmod(0o600);tmp.replace(f)
+            f=self.directory/(self.current['id']+'.json');atomic_json(f,self.current)
 
     def read(self,id):
         if not re.fullmatch(r'[a-f0-9]{32}',id):raise ValueError('Invalid Spider report ID.')

@@ -153,6 +153,45 @@ class ServiceTests(unittest.TestCase):
         with patch('swing_research.time.time',return_value=self.now/1000):return self.service.command({'action':action,'symbol':'hyperliquid:BTC',**kw})
     def sample(self):
         with patch('swing_research.time.time',return_value=self.now/1000):self.service.sample('hyperliquid:BTC',self.service.active['hyperliquid:BTC'])
+
+    def test_observation_is_atomic_and_storage_failure_stops_before_a_model_call(self):
+        import sqlite3
+        calls=[];self.service.judge.judge=lambda s:(calls.append(s) or response())
+        self.command('configure',config={'jev_enabled':True});self.command('start')
+        record=self.service.cost_meter.record
+        def fail_after_usage(*args,**kw):
+            record(*args,**kw);raise sqlite3.OperationalError('injected disk full')
+        with patch.object(self.service.cost_meter,'record',side_effect=fail_after_usage):
+            with self.assertRaises(sqlite3.OperationalError):self.sample()
+        self.assertEqual(calls,[]);self.assertEqual(self.service.active,{})
+        self.assertEqual(self.service.last['hyperliquid:BTC']['status'],'STORAGE_ERROR')
+        with self.service.db() as db:
+            for table in ('predictions','jev_usage','run_bars','collection_checkpoints'):self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0],0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM ledger WHERE kind='WARMUP'").fetchone()[0],0)
+
+    def test_response_and_usage_commit_together_or_both_remain_unresolved(self):
+        import sqlite3
+        self.command('configure',config={'jev_enabled':True});self.command('start');record=self.service.cost_meter.record
+        def fail_final_usage(*args,**kw):
+            record(*args,**kw)
+            if args[5]=='AVAILABLE':raise sqlite3.OperationalError('injected final commit failure')
+        with patch.object(self.service.cost_meter,'record',side_effect=fail_final_usage):
+            with self.assertRaises(sqlite3.OperationalError):self.sample()
+        with self.service.db() as db:
+            self.assertIsNone(db.execute('SELECT response FROM predictions').fetchone()[0])
+            self.assertEqual(db.execute('SELECT status FROM jev_usage').fetchone()[0],'PENDING')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM collection_checkpoints').fetchone()[0],1)
+        self.assertFalse(self.service.active)
+
+    def test_complete_warmup_source_bars_and_checkpoint_survive_a_paused_restart(self):
+        self.command('start');self.sample()
+        with self.service.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM run_bars').fetchone()[0],70)
+            snap=json.loads(db.execute('SELECT snapshot FROM collection_checkpoints').fetchone()[0])
+        second=SwingResearch(self.gateway,Path(self.tmp.name),Jev(store=False))
+        state=second.status()['symbols']['hyperliquid:BTC'];self.assertFalse(state['running'])
+        self.assertTrue(state['archived']);self.assertEqual(state['snapshot'],snap)
+        self.assertEqual(state['collection']['saved_candles'],70);self.assertEqual(state['collection']['source_bar_gaps'],0)
     def test_restart_paused_config_boundary_and_no_order_engine(self):
         self.command('start');old=self.service.active['hyperliquid:BTC']['run'];self.command('configure',config={'cadence_seconds':10})
         self.assertNotIn('hyperliquid:BTC',self.service.active);self.command('start');self.assertNotEqual(old,self.service.active['hyperliquid:BTC']['run'])

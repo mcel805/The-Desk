@@ -6,6 +6,7 @@ remain in memory. Cached reads/configurations are private local SQLite records.
 The signed HttpOnly profile cookie is local app identity, not broker consent.
 """
 from __future__ import annotations
+from storage import connect
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
@@ -143,9 +144,10 @@ class RobinhoodWorkspace(RobinhoodMarkets):
 
     @contextmanager
     def db(self):
-        with sqlite3.connect(self.path, timeout=10) as db:
-            db.row_factory = sqlite3.Row
-            yield db
+        db=connect(self.path)
+        try:
+            with db:yield db
+        finally:db.close()
 
     def sign(self, value):
         return hmac.new(self.secret, value.encode(), hashlib.sha256).hexdigest()

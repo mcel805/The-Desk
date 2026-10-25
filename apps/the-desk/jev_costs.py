@@ -4,7 +4,8 @@ No credentials, network, model calls, trading handles or budget enforcement.
 Completed usage rows and their pricing snapshot are immutable. Legacy responses
 are estimated at today's verified list price and explicitly marked as such.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from storage import connect
 from copy import deepcopy
 from decimal import Decimal
 import json
@@ -57,7 +58,7 @@ class JevCostMeter:
 
     @contextmanager
     def db(self):
-        db=sqlite3.connect(self.path,timeout=10);db.row_factory=sqlite3.Row
+        db=connect(self.path);db.row_factory=sqlite3.Row
         try:
             with db:yield db
         finally:db.close()
@@ -79,14 +80,14 @@ class JevCostMeter:
                         response.get('pricing_snapshot') if response else None,
                         'request_snapshot' if response and response.get('pricing_snapshot') else 'legacy_repriced')
 
-    def record(self,prediction_id,run,symbol,at,parent_id,status,model=None,usage=None,pricing=None,provenance='request_snapshot'):
+    def record(self,prediction_id,run,symbol,at,parent_id,status,model=None,usage=None,pricing=None,provenance='request_snapshot',db=None):
         if type(parent_id) is not int:parent_id=None
         usage=safe_usage(usage)
         pricing=deepcopy(pricing or RATES.get(model))
         if pricing and pricing.get('model')!=model:pricing=deepcopy(RATES.get(model))
         if status=='DISABLED':usage=None
         cost=0 if status=='DISABLED' else estimated_nano(usage,pricing)
-        with self.lock,self.db() as db:
+        with self.lock,(nullcontext(db) if db is not None else self.db()) as db:
             db.execute('''INSERT INTO jev_usage VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(prediction_id) DO UPDATE SET status=excluded.status,model=excluded.model,
                 input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,
