@@ -171,7 +171,7 @@ def main():
     signal.signal(signal.SIGINT,stopping)
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR',str(ROOT/'data')));parser.add_argument('--no-workers',action='store_true');parser.add_argument('--ibkr-mode',choices=('off','demo','gateway'),default='off');args=parser.parse_args()
     from storage_host import route_if_configured
-    if route_if_configured(args.data_dir,args.port):return
+    if route_if_configured(args.data_dir,args.port,no_workers=args.no_workers,ibkr_mode=args.ibkr_mode):return
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
     ownership=DirectoryLock(data).acquire()
     vault=DataVault(data,journal=os.environ.get('DESK_JOURNAL_DB_PATH'))

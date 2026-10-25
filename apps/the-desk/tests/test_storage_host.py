@@ -90,6 +90,19 @@ class StorageHostTests(unittest.TestCase):
    self.assertTrue(host.route_if_configured(str(self.root/'fixture'),18891))
    run.assert_called_once_with([host.sys.executable,'-B',str(host.ROOT/'storage_host.py'),'--port','18891'],check=True)
 
+ def test_server_options_survive_supervisor_relaunch(self):
+  policy=self.root/'policy.json';policy.write_text(json.dumps({**self.policy,'desk_alias':str(self.root/'desk')}))
+  with patch.object(host,'POLICY',policy),patch.object(host.subprocess,'run') as run:
+   self.assertTrue(host.route_if_configured(str(self.root/'fixture'),18891,no_workers=True,ibkr_mode='demo'))
+   run.assert_called_once_with([host.sys.executable,'-B',str(host.ROOT/'storage_host.py'),'--port','18891','--no-workers','--ibkr-mode','demo'],check=True)
+  child_policy={**self.policy,'journal_app':str(self.root/'journal'),'journal_port':3000}
+  h=host.Host(child_policy,18880,no_workers=True,ibkr_mode='demo');h.active=self.root/'active';h.active.mkdir()
+  with patch.object(host,'attach_aliases'),patch.object(h,'child') as child:
+   h.start_apps()
+  desk_command=child.call_args_list[1][0][0]
+  self.assertIn('--no-workers',desk_command)
+  self.assertEqual(desk_command[-2:],['--ibkr-mode','demo'])
+
  def test_capture_rechecks_usage_and_free_space_before_copying(self):
   h=host.Host(self.policy,18880);inbox=h.control/'Capture-Inbox';inbox.mkdir()
   external=Path(self.policy['external_root']);external.mkdir()
