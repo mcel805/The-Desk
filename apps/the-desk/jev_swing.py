@@ -8,7 +8,7 @@ from jev_costs import safe_usage
 from jev_keychain import MacKeychain, KeychainError
 
 MODEL='jev-1.14.0'
-PROMPT_VERSION='swing-observer.3'
+PROMPT_VERSION='swing-observer.4-volume.1'
 QUESTIONS={
     'directional_lean':{'type':'choice','instructions':'Classify the currently supported directional thesis from this timestamped swing snapshot. This is a contextual LONG / SHORT / NEUTRAL lean, not a trade command and not the next candle direction. Use only recognized structure and observed price action; incomplete evidence, conflicting signals, or price between useful locations can justify neutral.','criteria':{'long':'The observed swing and local response coherently support an upward thesis over a downward one.','short':'The observed swing and local response coherently support a downward thesis over an upward one.','neutral':'Neither direction is sufficiently distinguished: evidence is incomplete, conflicting, or lacks a useful response at recognized structure.'}},
     'next_bar':{'type':'choice','instructions':'Using only the timestamped swing state and price evidence, estimate the direction of the NEXT full 1-minute candle, whose start is prediction_bar. Compare its closing price with its opening price. This is a forecast, not a statement about the forming candle. No outcome or future data is provided.','criteria':{'up':'Next full candle closes at least one tick above its open.','down':'Next full candle closes at least one tick below its open.','flat':'Next full candle closes less than one tick from its open.'}},
@@ -41,6 +41,18 @@ QUESTIONS.update({
 for key, side in (('long_fit','LONG'), ('short_fit','SHORT')):
     QUESTIONS[key]['instructions'] += (' When liquidity_study is supplied, evaluate only its active HTF_REVERSAL '+side+' campaigns, using their frozen location/objective, completed rejection evidence and separate manual permission. No applicable campaign means false. A local reversal label alone is insufficient. This contextual label does not approve a specific plan.')
 QUESTIONS['directional_lean']['instructions'] += ' Keep parent direction, manual bias, provisional draw and local swing state separate using liquidity_study when available. Neutral is appropriate for unresolved parent/local conflict.'
+
+# One additional independent judgment in the same request; no new sampling slots.
+QUESTIONS['volume_pattern']={'type':'choice',
+    'instructions':'Classify the strongest current participation pattern from `market_synth`, its completed-bar history and candidate legs, in the context of known swing structure. A/B use fixed Desk defaults, not chart-edited settings or proprietary Cipher formulas. A ribbon is lagging price context; B flow_proxy, fast wave, RSI and dots are price-derived, not traded volume. Use actual raw/relative volume, CMF/MFI proxies and price response together. High volume alone is not reversal, absorption, manipulation, buying delta or selling delta. Missing/zero baselines, warmup and conflicting observations justify no_match. Ignore partial forming-bar volume for confirmation. This is research classification, not a trade command.',
+    'criteria':{
+        'up_swing_exhaustion':'An upward swing has diminishing participation or high-volume upper rejection, with weakening B momentum and a response at recognized upside structure; reversal remains conditional.',
+        'down_swing_exhaustion':'A downward swing has diminishing participation or high-volume lower rejection, with improving B momentum and a response at recognized downside structure; reversal remains conditional.',
+        'up_participation':'Closed upward displacement or continuation is supported by actual relative volume and coherent price acceptance; no stronger exhaustion case is present.',
+        'down_participation':'Closed downward displacement or continuation is supported by actual relative volume and coherent price acceptance; no stronger exhaustion case is present.',
+        'no_match':'No distinct participation or exhaustion pattern: evidence is missing, warming, mixed, price-only, or lacks a useful structural response.'}}
+for _name in tuple(k for k in QUESTIONS if k!='volume_pattern'):
+    QUESTIONS[_name]['instructions']+=' Consider `market_synth` as supporting completed-bar evidence. Its A/B layers are price-derived; only the separate volume fields use traded volume. Treat exhaustion tags as hypotheses and retain neutral/no-match where the question permits when structure or participation conflicts. Do not double-count correlated RSI, WaveTrend and ribbon readings as independent confirmations.'
 
 class JevResponseError(ValueError):
     """Retain only safe billable counters when typed-answer validation fails."""

@@ -1,0 +1,23 @@
+const esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num=v=>Number.isFinite(v)?v.toLocaleString(undefined,{maximumFractionDigits:3}):'—';
+const utc=v=>v?new Date(v).toISOString().slice(11,19)+' UTC':'—';
+const words=s=>String(s).replaceAll('_',' ');
+export function volumePanelHTML(e,{status='PAUSED',judgment=null}={}){
+ if(!e?.latest)return '<p class="small muted">Volume evidence is not present in this saved run. New observations require the updated server and a new run.</p>';
+ const r=e.latest,v=r.volume,a=r.a,b=r.b,rows=e.recent||[],max=Math.max(...rows.map(x=>x.volume.raw),1);
+ const bars=rows.map((x,i)=>{const height=54*x.volume.raw/max;return `<rect x="${i*12+2}" y="${60-height}" width="8" height="${height}" fill="${x.volume.body_pressure>=0?'var(--green)':'var(--red)'}"><title>${esc(utc(x.time))} · volume ${esc(num(x.volume.raw))} · relative ${esc(num(x.volume.relative))}×</title></rect>`;}).join('');
+ const tags=rows.flatMap(x=>[...x.a.signals,...x.b.signals,...x.tags].map(t=>`${utc(x.known_at)} · ${words(t)}`));
+ const model=judgment?.status==='AVAILABLE'&&status==='OBSERVING'?judgment.answers?.volume_pattern:null;
+ return `<p class="state-copy">${esc(e.source.symbol)} · standard 1m · ${esc(e.status)} · ${esc(status)}<br>Completed cutoff ${esc(utc(e.source.completed_cutoff))} · ${e.source.processed_bars} source candles · ${e.source.gap_resets} gap resets</p>
+ <div class="kpis"><div class="kpi"><b>${num(v.raw)}</b><span>Last closed bar · venue volume</span></div><div class="kpi"><b>${num(v.relative)}×</b><span>Relative to prior 20 closed bars</span></div><div class="kpi"><b>${num(v.cmf)}</b><span>CMF20 · volume-weighted close location</span></div><div class="kpi"><b>${num(v.mfi)}</b><span>MFI14 · price × volume</span></div></div>
+ <svg class="volume-spark" viewBox="0 0 ${Math.max(rows.length*12,12)} 64" role="img" aria-label="Volume of the last ${rows.length} completed one-minute bars. Color follows candle body, not aggressor volume.">${bars}</svg>
+ <div class="two-col"><p>A · ${esc(a.ribbon||'warming')} ribbon · width ${num(a.width_atr)} ATR<br>${esc(a.signals.map(words).join(', ')||'No new A symbol')}</p><p>B · wave ${num(b.main)} / ${num(b.signal)} · fast ${num(b.fast)}<br>OHLC flow proxy ${num(b.flow_proxy)} · RSI ${num(b.rsi)}<br>Stoch K / D ${num(b.stoch_k)} / ${num(b.stoch_d)}</p></div>
+ <p class="state-copy"><strong>Jev participation pattern</strong> · ${esc(model?words(model.choice):'Unavailable for this snapshot')}${model?` · ${num(model.confidence*100)}% distribution concentration`:''}</p>
+ <p class="small muted">${esc(model?Object.entries(model.probabilities).map(([k,v])=>words(k)+': '+num(v*100)+'%').join(' · '):'Recorded features are available with Jev off. No model judgment is inferred.')}</p>
+ <details><summary>Recent confirmed symbols &amp; volume hypotheses (${tags.length})</summary><p class="small muted">Times are when the closed-bar evidence became knowable. Divergences wait two right-side bars.</p>${tags.length?'<ul>'+tags.slice(-40).map(t=>'<li>'+esc(t)+'</li>').join('')+'</ul>':'<p>No new pattern tags in this window.</p>'}</details>
+ <details><summary>Per-bar evidence · last ${rows.length} completed minutes</summary><div class="table-scroll"><table><thead><tr>${['Bar open UTC','Volume','Relative ×','CMF20','MFI14','A','B wave / fast','B OHLC flow','Signals / hypotheses'].map(h=>'<th>'+h+'</th>').join('')}</tr></thead><tbody>${[...rows].reverse().map(x=>'<tr>'+[utc(x.time),num(x.volume.raw),num(x.volume.relative),num(x.volume.cmf),num(x.volume.mfi),x.a.ribbon||'warming',num(x.b.main)+' / '+num(x.b.fast),num(x.b.flow_proxy),[...x.a.signals,...x.b.signals,...x.tags].map(words).join(', ')||'—'].map(s=>'<td>'+esc(s)+'</td>').join('')+'</tr>').join('')}</tbody></table></div></details>
+ <details><summary>Current candidate swing volume</summary><pre>${esc(JSON.stringify(e.candidate_legs,null,2))}</pre></details>
+ <p class="small muted">A/B use fixed study defaults, independent of chart edits. Neither A nor B reads volume. B flow is candle pressure; yellow fast is momentum difference. Actual volume is venue-local. Bar colors and CMF/MFI are proxies, not buy/sell aggressor delta. Partial forming-bar volume is excluded.</p>
+ <p class="small muted">High-volume rejection and low-volume extensions are research hypotheses. Confirmation still requires structure and price response. Zero baselines show —. No trading edge or predictive improvement has been established.</p>`;
+}
+export function renderSwingVolume(e,options){const el=document.querySelector('#swingVolumeBody');if(el)el.innerHTML=volumePanelHTML(e,options);}

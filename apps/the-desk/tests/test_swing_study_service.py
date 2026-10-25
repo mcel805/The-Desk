@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from swing_research import SwingResearch
+from jev_swing import PROMPT_VERSION
 from test_swing_tracker import FakeJudge
 from test_swing_liquidity import BASE, SYMBOL, bar, context
 
@@ -41,7 +42,8 @@ class StudyServiceTests(unittest.TestCase):
         export=self.service.export(SYMBOL)
         self.assertTrue(any(r['kind']=='STUDY_EVENT' for r in export['ledger']))
         self.assertEqual(export['study']['run'],report['run'])
-        self.assertEqual(export['study']['cohort']['prompt'],'swing-observer.3')
+        self.assertEqual(export['study']['cohort']['prompt'],PROMPT_VERSION)
+        self.assertIn('market_synth',json.loads(export['predictions'][0]['state']))
         self.assertIn('liquidity_study',json.loads(export['predictions'][0]['state']))
         self.command('pause')
         self.assertEqual(self.service.study_report(SYMBOL)['plans'][0]['status'],'UNRESOLVED')

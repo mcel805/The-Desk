@@ -30,9 +30,26 @@ function modelAtEntry(predictions,entryAt,born){
     probabilities:copy(r.response.answers.directional_lean.probabilities),pattern:r.response.answers.pattern?.choice||'no_match'}:null;
 }
 
+export function volumeAtEntry(predictions,entryAt,born){
+  const rows=predictions.filter(r=>r.at>=born&&r.at<entryAt&&entryAt-r.at<=75000&&
+    r.state?.market_synth?.status==='READY'&&finite(r.state.market_synth.source?.completed_cutoff)&&
+    r.state.market_synth.source.completed_cutoff<=r.at&&finite(r.state.market_synth.latest?.known_at)&&
+    r.state.market_synth.latest.known_at===r.state.market_synth.source.completed_cutoff&&
+    r.at-r.state.market_synth.latest.known_at<=75000);
+  rows.sort((a,b)=>b.at-a.at);
+  const r=rows[0],e=r?.state.market_synth,x=e?.latest;
+  if(!x)return null;
+  const rv=x.volume.relative;
+  const j=r.response?.status==='AVAILABLE'&&finite(r.response.received_at)&&r.response.received_at<entryAt?r.response.answers?.volume_pattern:null;
+  return {version:e.version,prediction_id:r.id,observed_at:r.at,known_at:x.known_at,
+    ribbon:x.a.ribbon,relative_volume:rv,volume_regime:finite(rv)?rv>=1.8?'HIGH':rv<.7?'LOW':'NORMAL':'UNAVAILABLE',
+    cmf:x.volume.cmf,mfi:x.volume.mfi,tags:copy(x.tags),a_signals:copy(x.a.signals),b_signals:copy(x.b.signals),
+    jev_pattern:j?.choice||'UNAVAILABLE'};
+}
+
 export function resolveFrozenPlan(plan,bars,config,{endedAt=null,costBps=null,predictions=[]}={}){
   const p=copy(plan),known=Math.max(p.signal_at||0,p.observed_at||0),eligible=p.eligible_open;
-  const result={status:'WAITING_ENTRY',entry:null,entry_at:null,exit:null,exit_at:null,gross_r:null,net_r:null,model_at_entry:null};
+  const result={status:'WAITING_ENTRY',entry:null,entry_at:null,exit:null,exit_at:null,gross_r:null,net_r:null,model_at_entry:null,volume_at_entry:null};
   if(![1,-1].includes(p.side)||!finite(known)||!Number.isInteger(eligible)||eligible%minute||eligible<Math.ceil(known/minute)*minute||
      ![p.reference,p.initial_stop,p.target,p.quantity,p.reserved_risk].every(finite)||p.quantity<=0||!finite(config.tick)||config.tick<=0){
     return {...result,status:'UNRESOLVED',reason:'INVALID_FROZEN_PLAN'};
@@ -47,7 +64,7 @@ export function resolveFrozenPlan(plan,bars,config,{endedAt=null,costBps=null,pr
   if(Math.abs(first.open-p.reference)>(config.gap_ticks??3)*config.tick+1e-9)return {...result,status:'MISSED',reason:'OPEN_GAP'};
   const risk=p.side*(first.open-p.initial_stop),room=p.side*(p.target-first.open);
   if(risk<=0||room/risk<(config.min_room_r??1)||risk*p.quantity>p.reserved_risk+1e-9)return {...result,status:'MISSED',reason:'OPEN_RISK_OR_ROOM'};
-  Object.assign(result,{status:'OPEN',entry:first.open,entry_at:eligible,initial_risk:risk,model_at_entry:modelAtEntry(predictions,eligible,p.born||known)});
+  Object.assign(result,{status:'OPEN',entry:first.open,entry_at:eligible,initial_risk:risk,model_at_entry:modelAtEntry(predictions,eligible,p.born||known),volume_at_entry:volumeAtEntry(predictions,eligible,p.born||known)});
   const end=(status,b,price,reason)=>({...result,status,reason,exit:price,exit_at:b.time+minute,resolved_at:b.observed_at,
     gross_r:price==null?null:p.side*(price-first.open)/risk,
     net_r:price==null||costBps==null?null:(p.side*(price-first.open)-first.open*costBps/10000)/risk});
@@ -186,6 +203,16 @@ export function buildSwingEvidence(archive,{activeRun,costBps=null}={}){
     if(o.status==='TARGET_FIRST')g.targets++;else if(o.status==='STOP_FIRST')g.stops++;else if(o.status==='TIME_EXIT')g.time_exits++;else if(o.status==='AMBIGUOUS')g.ambiguous++;else g.unresolved++;
   }
   const caps=archive.limits||{},truncated=['runs','ledger','predictions'].filter(k=>caps[k]&&(archive[k]?.length||0)>=caps[k]);
+  const volumeGroups=new Map();
+  for(const p of plans.filter(p=>p.primary)){
+    const v=p.outcome.volume_at_entry,pattern=v?.tags.join(' + ')||'NO_VOLUME_TAG';
+    const fields={profile:p.profile,version:v?.version||'UNAVAILABLE',ribbon:v?.ribbon||'UNAVAILABLE',volume_regime:v?.volume_regime||'UNAVAILABLE',pattern:v?pattern:'UNAVAILABLE',synth_signals:v?[...v.a_signals,...v.b_signals].join(' + ')||'NO_NEW_SYMBOL':'UNAVAILABLE',jev_pattern:v?.jev_pattern||'UNAVAILABLE'};
+    const id=canonical(fields);
+    if(!volumeGroups.has(id))volumeGroups.set(id,{...fields,entered:0,resolved:0,ambiguous:0,unresolved:0,gross_r_sum:0});
+    const g=volumeGroups.get(id),o=p.outcome;g.entered++;
+    if(terminal.has(o.status)){g.resolved++;g.gross_r_sum+=o.gross_r;}
+    else if(o.status==='AMBIGUOUS')g.ambiguous++;else g.unresolved++;
+  }
   if(truncated.length)issues.push('Archive export limit reached: '+truncated.join(', ')+'. Counts describe available coverage only.');
   return {version:EVIDENCE_VERSION,rules:OUTCOME_RULES,cohort,cohort_id:cohortId,active_run:selected?.id||null,
     run_ids:selectedRuns.map(r=>r.id),cost_assumption:{round_trip_bps:costBps,basis:'entry notional',verified:false,label:costBps==null?'GROSS_ONLY':'USER_COST_SCENARIO'},
@@ -200,6 +227,7 @@ export function buildSwingEvidence(archive,{activeRun,costBps=null}={}){
       entered_opportunities:plans.filter(p=>p.primary).length,resolved_opportunities:plans.filter(p=>p.primary&&terminal.has(p.outcome.status)).length},
     milestones:[50,200].map(n=>({swings:n,observed:forward.length,remaining:Math.max(0,n-forward.length),reached:forward.length>=n&&!issues.length,label:n===50?'Data-quality audit':'Exploratory pattern review'})),
     swings:completed,developing:unfinished,attempts,plans,patterns:[...groups.values()].map(g=>({...g,mean_gross_r:g.resolved?g.gross_r_sum/g.resolved:null,mean_net_r:g.resolved&&costBps!=null?g.net_r_sum/g.resolved:null})),
+    volume_patterns:[...volumeGroups.values()].map(g=>({...g,mean_gross_r:g.resolved?g.gross_r_sum/g.resolved:null})),
     note:'Retrospective deterministic audit of saved live evidence. Not model training, broker fills, independent samples or an established edge. No automatic rule changes.'};
 }
 

@@ -219,3 +219,21 @@ print(json.dumps(dict(runs=[dict(id='synthetic',symbol='hyperliquid:BTC',started
   const before=buildSwingEvidence(prefix).swings;
   assert.deepEqual(report.swings.slice(0,before.length),before);
 });
+
+test('volume pattern groups freeze pre-entry features and keep one opportunity sample',()=>{
+ const feature={version:'swing-volume.1',status:'READY',source:{completed_cutoff:T+2*M},latest:{known_at:T+2*M,
+  a:{ribbon:'bull',signals:['blue_triangle']},b:{signals:['bull_cross']},
+  volume:{relative:2,cmf:.4,mfi:70},tags:['high_volume_expansion_up']}};
+ const rows=[prediction('initial',1),prediction('features',2,[],{market_synth:feature}),
+  prediction('outcome',4,[],{closed_bars:[bar(3,100,111,99,110)]})];
+ const ready=event(2,'TRACKER_EVENT',T+2*M+100,{kind:'READY',candidate:1,frozen_plan:plan()});
+ const report=buildSwingEvidence(archive(rows,[start(),ready]));
+ assert.equal(report.volume_patterns.length,1);
+ const g=report.volume_patterns[0];assert.equal(g.entered,1);assert.equal(g.resolved,1);
+ assert.equal(g.volume_regime,'HIGH');assert.equal(g.synth_signals,'blue_triangle + bull_cross');
+ assert.equal(g.pattern,'high_volume_expansion_up');assert.equal(g.mean_gross_r,2);
+ const frozen=report.plans[0].outcome.volume_at_entry;assert.equal(frozen.prediction_id,'features');
+ rows[1].at=T+3*M+1;
+ const late=buildSwingEvidence(archive(rows,[start(),ready]));
+ assert.equal(late.volume_patterns[0].version,'UNAVAILABLE');
+});

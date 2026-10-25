@@ -16,13 +16,14 @@ import time
 import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
 from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
+from swing_volume import SwingVolume, VERSION as VOLUME_VERSION
 from jev_costs import JevCostMeter, RATES
 from swing_liquidity import DEFAULTS as STUDY_DEFAULTS, VERSION as STUDY_VERSION, LiquidityStudy, build_htf_context, validate_settings, FRAME_MS
 from swing_metrics import forecast_metrics
 from storage import connect, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
-CODE_HASH=hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('swing_tracker.py','swing_research.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py'))).hexdigest()
+CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
 
@@ -197,6 +198,7 @@ class SwingResearch:
         if a and a['tracker']:
             a['tracker'].terminate(reason,int(time.time()*1000))
             self.last[symbol]['snapshot']=a['tracker'].snapshot()
+            if a.get('volume_engine'):self.last[symbol]['snapshot']['market_synth']=a['volume_engine'].snapshot(a['tracker'].candidates)
         if a and a.get('study'):
             a['study'].end(reason,int(time.time()*1000));self.persist_study(symbol,a,int(time.time()*1000))
             self.last[symbol]['study']=self.study_brief(a['study'].snapshot())
@@ -263,7 +265,9 @@ class SwingResearch:
             if a['sample_slot']==slot:return
             pending_events=[];new_bars=[]
             warming=a['tracker'] is None
-            if warming:a['tracker']=SwingTracker(Config(**{k:v for k,v in a['config'].items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS}),tick)
+            if warming:
+                a['tracker']=SwingTracker(Config(**{k:v for k,v in a['config'].items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS}),tick)
+                a['volume_engine']=SwingVolume(symbol,tick)
             tracker=a['tracker']
             if not warming and a.get('study'):
                 if context:a['study'].set_context(context,closed)
@@ -271,6 +275,7 @@ class SwingResearch:
             for b in closed:
                 if tracker.last_time is None or b['time']>tracker.last_time:
                     tracker.feed(b,observed_at=None if warming else now);a['seen'][b['time']]=digest(b)
+                    a['volume_engine'].feed(b)
                     new_bars.append(b)
                     if not warming:
                         pending_events.append(('BAR_CLOSED',{'bar':b,'observed_at':now}))
@@ -295,10 +300,12 @@ class SwingResearch:
             for ev in tracker.events:
                 if not warming and ev['seq']>a['persisted_seq']:pending_events.append(('TRACKER_EVENT',ev))
             snap=tracker.snapshot();prediction_bar=(now//60000+1)*60000
+            snap['market_synth']=a['volume_engine'].snapshot(snap['candidates'])
             primary=a['last_bucket']!=now//60000
             # Independent evaluations are grouped by source minute. Secondary intrabar samples are diagnostic.
             state={'symbol':symbol,'provider':'Hyperliquid public REST','observed_at':now,'quote_at':source,'candles_as_of':as_of,'bid':float(bid),'ask':float(ask),'tick':tick,'closed_cutoff':snap['cutoff'],'forming':forming,'forming_is_confirmed':False,'prediction_bar':prediction_bar,'definition':'next full 1m close vs its open; >= one tick','evaluation_bar':now//60000*60000,'evaluation_slot':now%60000//(a['config']['cadence_seconds']*1000)+1,'cadence_seconds':a['config']['cadence_seconds'],'revision':REVISION,'code_hash':CODE_HASH,'parent_id':snap['parent_id'],'trend':snap['trend'],'pivots':snap['pivots'][-10:],'candidates':snap['candidates'][-4:],'closed_bars':closed[-max(24,a['config'].get('study_window',5)*2+1):]}
             if a.get('study'):state['liquidity_study']=self.study_brief(a['study'].snapshot(),include_evidence=True)
+            state['market_synth']={**snap['market_synth'],'recent':snap['market_synth']['recent'][-12:]}
             pid=uuid.uuid5(uuid.NAMESPACE_URL,a['run']+':'+str(slot)).hex
             pricing=deepcopy(RATES.get(MODEL))
             with self.db() as db:
@@ -464,7 +471,7 @@ class SwingResearch:
                 'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
             costs=self.cost_meter.summary(contexts,MODEL)
             for k,v in result.items():v['costs']=costs['symbols'][k]
-            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
+            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []
