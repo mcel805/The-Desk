@@ -38,6 +38,28 @@ test('warmup and boundary legs cannot inflate the 50-swing audit counter',()=>{
   assert.equal(report.milestones[0].remaining,50);
 });
 
+test('saved warmup path is counted in full rather than just the compact prediction tail',()=>{
+  const E=pivot(8,-1,92),F=pivot(9,1,118),G=pivot(11,-1,96),path=[A,B,C,D,E,F];
+  const warm=event(2,'WARMUP',T+10*M+100,{snapshot:{cutoff:T+10*M,tick:1,pivots:path,candidates:[]}});
+  const rows=[prediction('first',10,path.slice(-3)),prediction('later',12,[...path.slice(-3),G])];
+  const r=buildSwingEvidence(archive(rows,[start(),warm,event(3,'RUN_END',T+100*M,{reason:'SERVER_RESTART'})]));
+  assert.equal(r.counts.saved_completed_swings,5);
+  assert.equal(r.counts.warmup_swings,4);assert.equal(r.counts.boundary_swings,1);
+  assert.equal(r.counts.forward_swings,0);assert.equal(r.counts.developing_swings,1);
+  assert.equal(r.coverage.observed_minutes,2);assert.equal(r.coverage.last_observation,rows[1].at);
+  assert.equal(r.swings[0].source_event,2);assert.equal(r.swings[0].source_prediction,null);
+  assert.equal(r.milestones[0].remaining,50);
+});
+
+test('warmup provenance preserves the live boundary when the first prediction is missing',()=>{
+  const warm=event(2,'WARMUP',T+M+100,{snapshot:{cutoff:T+M,tick:1,pivots:[],candidates:[]}});
+  const r=buildSwingEvidence(archive([prediction('retained',6,[A,B,C])],[start(),warm]));
+  assert.equal(r.counts.forward_swings,1);assert.equal(r.coverage.first_observation,warm.at);
+  const onlyWarm=event(2,'WARMUP',T+7*M+100,{snapshot:{cutoff:T+7*M,tick:1,pivots:[A,B,C],candidates:[]}});
+  const saved=buildSwingEvidence(archive([],[start(),onlyWarm]));
+  assert.equal(saved.counts.saved_completed_swings,1);assert.equal(saved.counts.forward_swings,0);
+});
+
 test('an extending endpoint is not frozen until its opposite pivot confirms',()=>{
   const extended={...B,price:120};
   const report=buildSwingEvidence(archive([prediction('base',1),prediction('developing',4,[A,B]),prediction('confirmed',6,[A,extended,C])]));

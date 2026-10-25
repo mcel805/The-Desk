@@ -106,6 +106,8 @@ class JevCostMeter:
           COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
           COALESCE(SUM(cost_nano_usd),0) cost_nano_usd,
           COALESCE(SUM(status!='DISABLED' AND provenance='legacy_repriced'),0) legacy_repriced_requests,
+          COALESCE(SUM(status!='DISABLED' AND NOT EXISTS
+            (SELECT 1 FROM predictions p WHERE p.id=jev_usage.prediction_id)),0) orphaned_prediction_requests,
           MIN(at) first_at,MAX(at) last_at FROM jev_usage '''+where,args).fetchone()
         result=dict(row);result['estimated_usd']=result.pop('cost_nano_usd')/NANO
         result['complete']=result['unknown_cost_requests']==0 and result['pending_requests']==0

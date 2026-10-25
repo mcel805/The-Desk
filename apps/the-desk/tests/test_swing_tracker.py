@@ -165,6 +165,26 @@ class ServiceTests(unittest.TestCase):
         self.now+=60000;self.gateway.now=self.now;self.sample()
         h=self.service.history('hyperliquid:BTC');self.assertEqual(h['metrics']['n'],1);self.assertEqual(h['predictions'][-1]['outcome']['label'],'up')
 
+    def test_forecast_metrics_cover_the_entire_run_beyond_the_history_display_limit(self):
+        self.command('start');run=self.service.active['hyperliquid:BTC']['run']
+        with self.service.db() as db:
+            for i in range(305):
+                at=self.now+i*60000;target=(at//60000+1)*60000
+                state={'tick':1,'closed_bars':[{'open':100,'close':101}]}
+                result={'status':'AVAILABLE','received_at':at+10,'answers':{'next_bar':{'choice':'up','probabilities':{'up':.6,'down':.3,'flat':.1}}}}
+                db.execute('INSERT INTO predictions VALUES(?,?,?,?,?,?,?,?,?)',(str(i),run,'hyperliquid:BTC',at,target,1,json.dumps(state),json.dumps(result),json.dumps({'label':'up'})))
+        h=self.service.history('hyperliquid:BTC')
+        self.assertEqual(len(h['predictions']),300);self.assertEqual(h['metrics']['n'],305)
+        self.assertEqual(h['metrics']['observation_count'],305);self.assertEqual(h['metrics']['accuracy'],1)
+        self.assertEqual(h['metrics']['baseline_accuracy'],1);self.assertAlmostEqual(h['metrics']['brier'],.26)
+
+    def test_ended_run_forecasts_are_unresolved_without_rewriting_the_archive(self):
+        self.command('configure',config={'jev_enabled':True});self.command('start');self.sample()
+        self.assertEqual(self.service.history('hyperliquid:BTC')['metrics']['pending_primary'],1)
+        self.command('pause');h=self.service.history('hyperliquid:BTC')
+        self.assertTrue(h['run_ended']);self.assertEqual(h['metrics']['unresolved_primary'],1)
+        self.assertEqual(h['metrics']['pending_primary'],0);self.assertIsNone(h['predictions'][0]['outcome'])
+
     def test_cost_meter_counts_each_actual_request_and_updates_status_without_extra_calls(self):
         calls=[]
         def judge(state):

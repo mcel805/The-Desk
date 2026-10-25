@@ -38,6 +38,16 @@ class JevCostTests(unittest.TestCase):
         total=m.summary(self.contexts(),MODEL)['total']
         self.assertEqual(total['observations'],1);self.assertEqual(total['requests'],0)
         self.assertEqual(total['unknown_cost_requests'],0);self.assertEqual(total['estimated_usd'],0);self.assertTrue(total['complete'])
+
+    def test_missing_prediction_records_are_visible_without_removing_their_costs(self):
+        m=self.meter()
+        with sqlite3.connect(self.path) as db:
+            db.execute('INSERT INTO predictions VALUES(?,?,?,?,?,?)',('linked','r','hyperliquid:BTC',2000,'{}',None))
+        self.add(m,id='linked',usage={'input_tokens':1000,'output_tokens':1})
+        self.add(m,id='orphan',usage={'input_tokens':2000,'output_tokens':1})
+        total=m.summary(self.contexts(),MODEL)['total']
+        self.assertEqual(total['requests'],2);self.assertEqual(total['orphaned_prediction_requests'],1)
+        self.assertAlmostEqual(total['estimated_usd'],.000126)
     def test_pending_becomes_metered_once_and_completed_price_is_immutable(self):
         m=self.meter();self.add(m,status='PENDING',pricing=RATES[MODEL])
         self.assertEqual(m.summary(self.contexts(),MODEL)['total']['pending_requests'],1)

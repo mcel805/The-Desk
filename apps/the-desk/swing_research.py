@@ -17,6 +17,7 @@ import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
 from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
 from jev_costs import JevCostMeter, RATES
+from swing_metrics import forecast_metrics
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
 CODE_HASH=hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('swing_tracker.py','swing_research.py','jev_swing.py'))).hexdigest()
@@ -294,13 +295,17 @@ class SwingResearch:
         with self.db() as db:
             rows=db.execute('SELECT * FROM predictions WHERE symbol=? AND run=? ORDER BY at DESC LIMIT 300',(symbol,run)).fetchall()
             events=db.execute('SELECT * FROM ledger WHERE symbol=? ORDER BY id DESC LIMIT 100',(symbol,)).fetchall()
+            ended=bool(db.execute("SELECT 1 FROM ledger WHERE run=? AND kind='RUN_END' LIMIT 1",(run,)).fetchone())
+            total=db.execute('SELECT COUNT(*) FROM predictions WHERE symbol=? AND run=?',(symbol,run)).fetchone()[0]
+            primary=db.execute('''SELECT at,prediction_bar,
+              json_extract(response,'$.status') service,json_extract(response,'$.received_at') received_at,
+              json_extract(response,'$.answers.next_bar') forecast,json_extract(outcome,'$.label') label,
+              json_extract(state,'$.closed_bars[#-1]') last_bar,json_extract(state,'$.tick') tick
+              FROM predictions WHERE symbol=? AND run=? AND primary_sample=1 ORDER BY at''',(symbol,run)).fetchall()
         predictions=[{**dict(r),'state':json.loads(r['state']),'response':json.loads(r['response']) if r['response'] else None,'outcome':json.loads(r['outcome']) if r['outcome'] else None} for r in rows]
-        scored=[r for r in predictions if r['primary_sample'] and r['response'] and r['response'].get('status')=='AVAILABLE' and r['outcome'] and r['outcome']['label']!='unknown']
-        n=len(scored);correct=sum(r['response']['answers']['next_bar']['choice']==r['outcome']['label'] for r in scored)
-        brier=sum(sum((p-int(k==r['outcome']['label']))**2 for k,p in r['response']['answers']['next_bar']['probabilities'].items()) for r in scored)/n if n else None
-        # Compare on the same evaluated rows to a causal last-closed-candle baseline.
-        baseline=sum(('up' if r['state']['closed_bars'][-1]['close']-r['state']['closed_bars'][-1]['open']>=r['state']['tick']-1e-9 else 'down' if r['state']['closed_bars'][-1]['close']-r['state']['closed_bars'][-1]['open']<=-r['state']['tick']+1e-9 else 'flat')==r['outcome']['label'] for r in scored)
-        return {'predictions':predictions,'events':[{**dict(r),'payload':json.loads(r['payload'])} for r in events],'metrics':{'n':n,'accuracy':correct/n if n else None,'brier':brier,'baseline_accuracy':baseline/n if n else None,'scope':'Current run, latest 300 observations; first sample per minute only. Serial dependence remains; not independent trades, not a calibrated win rate.'}}
+        return {'run':run,'run_ended':ended,'predictions':predictions,
+                'events':[{**dict(r),'payload':json.loads(r['payload'])} for r in events],
+                'metrics':forecast_metrics(primary,total,ended)}
 
     def export(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')

@@ -1,5 +1,5 @@
 // Reproducible, local-only audit of the immutable research archive. No model calls.
-export const EVIDENCE_VERSION='swing-outcomes.1';
+export const EVIDENCE_VERSION='swing-outcomes.2';
 export const OUTCOME_RULES=Object.freeze({
   version:EVIDENCE_VERSION,
   swing:'A→B is fixed only after a later opposite pivot C is recognized. The latest leg is unfinished.',
@@ -80,13 +80,18 @@ export function buildSwingEvidence(archive,{activeRun,costBps=null}={}){
   const selectedRuns=runs.filter(r=>canonical(descriptor(r))===key).sort((a,b)=>a.started-b.started);
   if(activeRun&&!runs.some(r=>r.id===activeRun))issues.push('Requested run is absent from this export; displaying the latest available cohort.');
   if(selected&&!starts.has(selected.id))issues.push('Run-start provenance is missing; this run is isolated from other cohorts.');
-  const swings=new Map(),attempts=[],plans=[];
+  const swings=new Map(),developing=new Map(),attempts=[],plans=[],windows=[];
   for(const run of selectedRuns){
     const rows=predictions.filter(r=>r.run===run.id),ledger=events.filter(e=>e.run===run.id);
-    const end=ledger.find(e=>e.kind==='RUN_END')?.at||null;
-    const first=rows[0];if(!first)continue;
-    const coverage=first.state.closed_cutoff;
+    const ended=ledger.find(e=>e.kind==='RUN_END'),end=ended?.at||null;
+    const first=rows[0],warm=ledger.find(e=>e.kind==='WARMUP');
+    if(!first&&!warm)continue;
+    const initialAt=warm?.at??first.at;
+    const coverage=warm?.payload.snapshot?.cutoff??first?.state.closed_cutoff;
     if(!Number.isInteger(coverage)){issues.push('Missing initial cutoff: '+run.id);continue;}
+    const liveRows=rows.filter(r=>!end||r.at<=end);
+    const lastAt=Math.max(initialAt,...liveRows.map(r=>r.at),...ledger.filter(e=>['BAR_CLOSED','TRACKER_EVENT'].includes(e.kind)&&(!end||e.at<=end)).map(e=>e.at));
+    windows.push({run:run.id,first_observation:initialAt,last_observation:lastAt,initial_cutoff:coverage,ended_at:end,end_reason:ended?.payload.reason||null});
     const bars=new Map(),candidates=new Map(),frozen=new Map();
     function addBar(b,observedAt,cutoff){
       if(!priceBar(b)||b.time+minute>Math.min(observedAt,cutoff))return;
@@ -96,32 +101,43 @@ export function buildSwingEvidence(archive,{activeRun,costBps=null}={}){
     }
     function candidate(c,at,source,context=false){
       if(!c?.a||!c?.b||!c.id)return;
-      const old=candidates.get(c.id),scope=old?.scope||(context||at===first.at?'WARMUP':c.born<coverage?'BOUNDARY':'FORWARD');
+      const old=candidates.get(c.id),scope=old?.scope||(context||at===initialAt?'WARMUP':c.born<coverage?'BOUNDARY':'FORWARD');
       if(old&&at<old.last_seen){old.first_seen=Math.min(old.first_seen,at);return;}
       candidates.set(c.id,{...old,id:run.id+':'+c.id,run:run.id,candidate_id:c.id,opportunity:canonical([key,c.a.origin,c.b.origin]),
         profile:c.profile,parent:c.parent,scope,first_seen:old?Math.min(old.first_seen,at):at,born:c.born,
         a:copy(c.a),b:copy(c.b),c:c.c,state:c.state,reason:c.reason,last_seen:at,source});
     }
-    const warm=ledger.find(e=>e.kind==='WARMUP');
-    for(const c of warm?.payload.snapshot?.candidates||[])candidate(c,warm.at,'warmup',true);
-    for(const r of rows){
-      const state=r.state,cutoff=Math.min(r.at,state.closed_cutoff,state.candles_as_of??r.at);
-      if(end&&r.at>end)continue;
-      for(const b of state.closed_bars||[])addBar(b,r.at,cutoff);
-      for(const c of state.candidates||[])candidate(c,r.at,'prediction:'+r.id);
+    function recordSwings(state,at,source,context=false){
+      const cutoff=Math.min(at,state.closed_cutoff??state.cutoff,state.candles_as_of??at);
       const path=(state.pivots||[]).filter(p=>finite(p.price)&&Number.isInteger(p.origin)&&Number.isInteger(p.known)&&p.origin<p.known&&p.known<=cutoff);
       for(let i=0;i+2<path.length;i++){
         const [a,b,c]=path.slice(i,i+3);
         if(a.side===b.side||b.side===c.side||a.origin>=b.origin||b.origin>=c.origin||a.known>b.known||b.known>c.known)continue;
         const identity=canonical([key,a.origin,b.origin]),old=swings.get(identity);
         if(old){if(old.start.price!==a.price||old.end.price!==b.price){issues.push('Conflicting finalized swing: '+old.id);old.scope='CONFLICT';}continue;}
-        const scope=r.at===first.at?'WARMUP':a.origin<coverage?'BOUNDARY':'FORWARD';
+        const scope=context||at===initialAt?'WARMUP':a.origin<coverage?'BOUNDARY':'FORWARD';
         swings.set(identity,{id:checksum(identity),cohort_id:cohortId,symbol:run.symbol,run:run.id,timeframe:run.config.swing_minutes,
-          scope,start:copy(a),end:copy(b),confirmation:copy(c),finalized_at:r.at,end_known_at:b.known,
+          scope,start:copy(a),end:copy(b),confirmation:copy(c),finalized_at:at,end_known_at:b.known,
           direction:b.price>a.price?'LONG':'SHORT',points:Math.abs(b.price-a.price),ticks:Math.abs(b.price-a.price)/state.tick,
           duration_minutes:(b.origin-a.origin)/minute,parent_at_finalization:state.parent_id,trend_at_finalization:state.trend,
-          source_prediction:r.id,source_cutoff:state.closed_cutoff});
+          source_prediction:source.prediction||null,source_event:source.event||null,source_cutoff:state.closed_cutoff??state.cutoff});
       }
+      if(path.length>=2){
+        const [a,b]=path.slice(-2),identity=canonical([key,a.origin,b.origin]);
+        if(a.side!==b.side&&a.origin<b.origin)developing.set(run.id,{id:checksum(identity),run:run.id,scope:a.origin<coverage?'BOUNDARY':'FORWARD',start:copy(a),end:copy(b),last_seen:at});
+      }
+    }
+    // Warmup retains a longer pivot path than each compact prediction snapshot.
+    // Keep that saved history visible without counting it as forward evidence.
+    if(warm?.payload.snapshot){
+      recordSwings(warm.payload.snapshot,warm.at,{event:warm.id},true);
+      for(const c of warm.payload.snapshot.candidates||[])candidate(c,warm.at,'warmup',true);
+    }
+    for(const r of liveRows){
+      const state=r.state,cutoff=Math.min(r.at,state.closed_cutoff,state.candles_as_of??r.at);
+      for(const b of state.closed_bars||[])addBar(b,r.at,cutoff);
+      for(const c of state.candidates||[])candidate(c,r.at,'prediction:'+r.id);
+      recordSwings(state,r.at,{prediction:r.id});
     }
     for(const e of ledger){
       if(e.kind==='BAR_CLOSED')addBar(e.payload.bar,e.at,e.at);
@@ -143,16 +159,17 @@ export function buildSwingEvidence(archive,{activeRun,costBps=null}={}){
     for(const c of candidates.values())attempts.push(c);
     for(const {plan:p,candidateId,known,source} of frozen.values()){
       const c=candidates.get(candidateId);
-      const scope=p.signal_at<coverage||known===first.at?'WARMUP':'FORWARD';
+      const scope=p.signal_at<coverage||known===initialAt?'WARMUP':'FORWARD';
       const invalid=known>p.eligible_open;
       const result=invalid?{status:'UNRESOLVED',reason:'PLAN_RECORDED_AFTER_ELIGIBLE_OPEN',gross_r:null,net_r:null}:
-        resolveFrozenPlan(p,[...bars.values()],{...run.config,tick:first.state.tick},{endedAt:end,costBps,predictions:rows});
+        resolveFrozenPlan(p,[...bars.values()],{...run.config,tick:first?.state.tick??warm?.payload.snapshot?.tick},{endedAt:end,costBps,predictions:rows});
       plans.push({id:run.id+':'+p.id,run:run.id,source_event:source,cohort_id:cohortId,scope,profile:p.profile,
         opportunity:canonical([key,p.a.origin,p.b.origin]),candidate_id:c?.candidate_id??null,
         side:p.side,signal_at:p.signal_at,observed_at:known,frozen:copy(p),outcome:result});
     }
   }
   const completed=[...swings.values()].sort((a,b)=>a.finalized_at-b.finalized_at);
+  const unfinished=[...new Map([...developing.values()].filter(s=>!completed.some(c=>c.id===s.id)).map(s=>[s.id,s])).values()];
   const forward=completed.filter(s=>s.scope==='FORWARD');
   // One chronological entered plan per source opportunity; child attempts stay inspectable.
   const counted=new Set();
@@ -172,12 +189,17 @@ export function buildSwingEvidence(archive,{activeRun,costBps=null}={}){
   if(truncated.length)issues.push('Archive export limit reached: '+truncated.join(', ')+'. Counts describe available coverage only.');
   return {version:EVIDENCE_VERSION,rules:OUTCOME_RULES,cohort,cohort_id:cohortId,active_run:selected?.id||null,
     run_ids:selectedRuns.map(r=>r.id),cost_assumption:{round_trip_bps:costBps,basis:'entry notional',verified:false,label:costBps==null?'GROSS_ONLY':'USER_COST_SCENARIO'},
-    coverage:{first_observation:predictions.filter(p=>selectedRuns.some(r=>r.id===p.run))[0]?.at||null,truncated:!!truncated.length,issues:[...new Set(issues)]},
-    counts:{forward_swings:forward.length,warmup_swings:completed.filter(s=>s.scope==='WARMUP').length,boundary_swings:completed.filter(s=>s.scope==='BOUNDARY').length,
+    coverage:{first_observation:windows.length?Math.min(...windows.map(w=>w.first_observation)):null,
+      last_observation:windows.length?Math.max(...windows.map(w=>w.last_observation)):null,
+      observed_minutes:windows.reduce((n,w)=>n+(w.last_observation-w.first_observation)/minute,0),windows,
+      observations:predictions.filter(p=>selectedRuns.some(r=>r.id===p.run)).length,
+      truncated:!!truncated.length,issues:[...new Set(issues)]},
+    counts:{saved_completed_swings:completed.filter(s=>s.scope!=='CONFLICT').length,developing_swings:unfinished.length,
+      forward_swings:forward.length,warmup_swings:completed.filter(s=>s.scope==='WARMUP').length,boundary_swings:completed.filter(s=>s.scope==='BOUNDARY').length,
       forward_attempts:attempts.filter(c=>c.scope==='FORWARD').length,qualified_plans:plans.filter(p=>p.scope==='FORWARD').length,
       entered_opportunities:plans.filter(p=>p.primary).length,resolved_opportunities:plans.filter(p=>p.primary&&terminal.has(p.outcome.status)).length},
     milestones:[50,200].map(n=>({swings:n,observed:forward.length,remaining:Math.max(0,n-forward.length),reached:forward.length>=n&&!issues.length,label:n===50?'Data-quality audit':'Exploratory pattern review'})),
-    swings:completed,attempts,plans,patterns:[...groups.values()].map(g=>({...g,mean_gross_r:g.resolved?g.gross_r_sum/g.resolved:null,mean_net_r:g.resolved&&costBps!=null?g.net_r_sum/g.resolved:null})),
+    swings:completed,developing:unfinished,attempts,plans,patterns:[...groups.values()].map(g=>({...g,mean_gross_r:g.resolved?g.gross_r_sum/g.resolved:null,mean_net_r:g.resolved&&costBps!=null?g.net_r_sum/g.resolved:null})),
     note:'Retrospective deterministic audit of saved live evidence. Not model training, broker fills, independent samples or an established edge. No automatic rule changes.'};
 }
 
