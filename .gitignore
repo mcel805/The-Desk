@@ -25,3 +25,13 @@ count-dashboard/data/quant-game-mcp/
 count-dashboard/data/support-events.jsonl
 count-dashboard/data/batty-turn-*/
 count-dashboard/data/show-me-turn-*/
+
+# Machine-specific external storage routing.
+apps/the-desk/storage-policy.local.json
+apps/the-desk/.storage-control/
+
+# External-data links (a trailing slash matches directories only).
+/apps/the-desk/data
+/integrations/open-source/trade-journal/apps/web/data
+/output
+/tmp

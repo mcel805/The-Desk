@@ -112,7 +112,7 @@ class Spider:
         self.gateway=gateway;self.engine=engine;self.ibkr=ibkr;self.robinhood=robinhood;self.source_context=None;self.directory=Path(data_dir)/'spider'
         self.directory.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.lock=threading.RLock();self.busy_lock=threading.Lock();self.cancel=threading.Event()
-        self.current=None;self.events=[];self.seq=0;self.session=None;self.factory=session_factory;self.session_instrument=None
+        self.chat_session=uuid.uuid4().hex;self.current=None;self.events=[];self.seq=0;self.session=None;self.factory=session_factory;self.session_instrument=None
         self.skill=(ROOT/'spider/SKILL.md').read_text()+'\n'+(ROOT/'spider/references/playbook.md').read_text()+'\n'+(ROOT/'spider/references/qualifications.md').read_text();self.skill_hash=hashlib.sha256(self.skill.encode()).hexdigest()
         self.session_dir=self.directory/'session';self.session_dir.mkdir(exist_ok=True,mode=0o700)
         (self.session_dir/'AGENTS.md').write_text('Spider market research session. Read-only analysis and paper plans only. No file edits, shell execution, account access, orders or external messaging.\n')
@@ -120,6 +120,10 @@ class Spider:
     def event(self,kind,data):
         with self.lock:
             self.seq+=1;self.events.append({'seq':self.seq,'time':int(time.time()*1000),'kind':kind,'data':data});self.events=self.events[-1200:]
+            if kind in ('user','answer','chat-error'):
+                # Durable chat content belongs to the selected Desk volume.
+                atomic_json(self.directory/'chat-events'/(self.chat_session+'-'+str(self.seq)+'.json'),
+                    {**self.events[-1],'run_id':self.current.get('id') if self.current else None,'session':self.chat_session})
 
     def _session(self):
         with self.lock:
@@ -255,7 +259,9 @@ class Spider:
         if not isinstance(text,str) or not text.strip() or len(text)>6000:raise ValueError('Enter a question of 1–6000 characters.')
         if not self.current or self.session_instrument!=instrument or not self.session or not self.session.thread_id:raise ValueError('Run a Spider report for this chart first to create its trading session.')
         if not self.busy_lock.acquire(blocking=False):raise ValueError('Spider is busy. Wait or stop the current run.')
-        self.cancel.clear();self.event('user',{'text':text});threading.Thread(target=self._chat,args=(text,),daemon=True).start();return {'accepted':True}
+        try:self.cancel.clear();self.event('user',{'text':text})
+        except Exception:self.busy_lock.release();raise
+        threading.Thread(target=self._chat,args=(text,),daemon=True).start();return {'accepted':True}
 
     def _chat(self,text):
         try:
