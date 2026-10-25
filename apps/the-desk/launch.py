@@ -37,9 +37,9 @@ def env_values(path):
     return result
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR'));p.add_argument('--port',type=int,default=18880);p.add_argument('--journal-port',type=int,default=3000);p.add_argument('--qa',action='store_true');p.add_argument('--stop',action='store_true');p.add_argument('--detach',action='store_true');args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR'));p.add_argument('--port',type=int,default=18880);p.add_argument('--journal-port',type=int);p.add_argument('--qa',action='store_true');p.add_argument('--stop',action='store_true');p.add_argument('--detach',action='store_true');args=p.parse_args()
     from storage_host import route_if_configured
-    if route_if_configured(args.data_dir,args.port,args.detach,args.stop,args.qa):return
+    if route_if_configured(args.data_dir,args.port,args.detach,args.stop,args.qa,journal_port=args.journal_port):return
     data=Path(args.data_dir).expanduser().resolve() if args.data_dir else ROOT/('qa-data' if args.qa else 'data');data.mkdir(parents=True,exist_ok=True)
     pidfile=data/'processes.json'
     if args.stop:
@@ -73,7 +73,8 @@ def main():
         if not token_path.exists():token_path.write_text(secrets.token_urlsafe(40));token_path.chmod(0o600)
         env['COUNT_DESK_JOURNAL_BRIDGE_TOKEN']=token_path.read_text().strip()
     journal=Path(env.get('LUX_JOURNAL_DIR',str(TRADER/'integrations/open-source/trade-journal')))/'apps/web'
-    journal_url='http://127.0.0.1:'+str(args.journal_port)
+    journal_port=args.journal_port or 3000
+    journal_url='http://127.0.0.1:'+str(journal_port)
     env['LUX_JOURNAL_URL']=journal_url
     env['DESK_JOURNAL_DB_PATH']=str(data/'journal/journal.db' if args.qa else journal/'data/journal.db')
     owned=[];children=[]
@@ -87,7 +88,7 @@ def main():
         if not (journal/'.next/BUILD_ID').is_file():raise RuntimeError('Existing Lux journal build not found. Build the journal first; no alternate journal will be substituted.')
         if args.qa:env['JOURNAL_DATA_DIR']=str(data/'journal')
         node=os.environ.get('NODE_BIN','node')
-        cmd=[node,str(journal/'node_modules/next/dist/bin/next'),'start','-H','127.0.0.1','-p',str(args.journal_port)]
+        cmd=[node,str(journal/'node_modules/next/dist/bin/next'),'start','-H','127.0.0.1','-p',str(journal_port)]
         log=open(data/'journal.log','ab')
         proc=subprocess.Popen(cmd,cwd=str(journal),env=env,stdout=log,stderr=log,start_new_session=True);children.append(proc);owned.append(proc.pid)
         for _ in range(60):
