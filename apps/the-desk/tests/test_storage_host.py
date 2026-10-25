@@ -39,6 +39,17 @@ class StorageHostTests(unittest.TestCase):
   host.bounded_log(io.BytesIO(payload),path)
   self.assertEqual(path.stat().st_size,host.LOG_LIMIT_BYTES)
   self.assertEqual(path.read_bytes(),payload[-host.LOG_LIMIT_BYTES:])
+ def test_journal_secret_moves_only_after_local_verification(self):
+  source=self.root/'external/journal/.secret';source.parent.mkdir(parents=True);source.write_bytes(b'key-material')
+  destination=self.root/'control/journal-secret'
+  host.migrate_journal_secret(source,destination)
+  self.assertFalse(source.exists());self.assertEqual(destination.read_bytes(),b'key-material')
+ def test_journal_secret_mismatch_preserves_external_key(self):
+  source=self.root/'external/journal/.secret';source.parent.mkdir(parents=True);source.write_bytes(b'external')
+  destination=self.root/'control/journal-secret';destination.parent.mkdir(parents=True);destination.write_bytes(b'local')
+  with self.assertRaisesRegex(RuntimeError,'key mismatch'):
+   host.migrate_journal_secret(source,destination)
+  self.assertTrue(source.exists());self.assertEqual(source.read_bytes(),b'external')
  def test_mutating_source_prevents_publication(self):
   src=self.root/'source';src.mkdir();(src/'record').write_text('before')
   copy=host.shutil.copytree
