@@ -137,7 +137,6 @@ class Host:
         self.error = ''; self.archives = []
         if (self.control / 'archives.json').exists():
             self.archives = json.loads((self.control / 'archives.json').read_text())
-        self.last_scan = -float('inf')
 
     def state(self):
         ready = drive_ready(self.policy)
@@ -312,7 +311,6 @@ class Host:
                 ready = drive_ready(self.policy)
                 if ready:
                     ready, self.used = capacity_available(self.policy)
-                    self.last_scan = time.monotonic()
                 try:self.flush_captures()
                 except OSError:pass # Inbox files remain available for the next reconnect.
                 if self.mode == 'LOCAL_TEMPORARY':
