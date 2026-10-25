@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -98,8 +99,13 @@ def capacity_available(policy, additional=0):
         free = shutil.disk_usage(policy['volume']).free
     except OSError:
         return False, 0
-    return (used + additional <= policy['limit_bytes'] and
+    return (used + additional + CAPTURE_RESERVE_BYTES <= policy['limit_bytes'] and
             free > max(MIN_FREE_BYTES, additional + CAPTURE_RESERVE_BYTES)), used
+
+def port_occupied(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(.2)
+        return probe.connect_ex(('127.0.0.1', port)) == 0
 
 def supervisor_command(port, no_workers=False, ibkr_mode='off', journal_port=None):
     command = [sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(port)]
@@ -165,10 +171,16 @@ class Host:
             if not available:continue
             target=destination/source.name
             if target.exists():target=destination/(source.stem+'-'+uuid.uuid4().hex[:8]+source.suffix)
-            before=digest(source);shutil.copy2(source,target)
-            if before!=digest(target) or before!=digest(source):
-                target.unlink();continue
-            with open(target,'rb') as f:os.fsync(f.fileno())
+            stage=destination/('.copying-'+target.name+'-'+uuid.uuid4().hex)
+            try:
+                before=digest(source);shutil.copy2(source,stage)
+                if before!=digest(stage) or before!=digest(source):raise RuntimeError('Capture verification failed')
+                with open(stage,'rb') as f:os.fsync(f.fileno())
+                os.replace(stage,target)
+            except (OSError,RuntimeError):
+                try:stage.unlink(missing_ok=True)
+                except OSError:pass
+                continue
             self.used+=target.stat().st_size;source.unlink()
 
 
@@ -193,6 +205,8 @@ class Host:
         return proc
 
     def start_apps(self):
+        occupied = [name for name, port in (('Desk', self.port), ('Journal', self.journal_port)) if port_occupied(port)]
+        if occupied: raise RuntimeError('Cannot start storage services; ' + ' and '.join(occupied) + ' port is already occupied')
         attach_aliases(self.policy, self.active)
         temporary=self.active/'.tmp';temporary.mkdir(exist_ok=True)
         env = dict(os.environ, TMPDIR=str(temporary), SQLITE_TMPDIR=str(temporary),
@@ -227,7 +241,7 @@ class Host:
             self.stop_children()
             self.error='Storage services could not start: '+str(e)
             self.mode='ERROR' if drive_ready(self.policy) else 'WAITING'
-            if not self.gate:self.start_gate()
+            if not self.gate and not port_occupied(self.port):self.start_gate()
 
     def start_gate(self):
         host = self
