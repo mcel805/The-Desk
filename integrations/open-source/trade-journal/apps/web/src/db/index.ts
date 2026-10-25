@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import * as schema from "./schema";
 import { BOOTSTRAP_SQL } from "./bootstrap";
+import { JOURNAL_WAL_LIMIT_BYTES, journalBudgetAvailable } from "../server/storage-budget";
 
 export const dataDir = (): string => process.env.JOURNAL_DATA_DIR ?? join(process.cwd(), "data");
 
@@ -14,6 +15,8 @@ const createDb = () => {
   mkdirSync(dir, { recursive: true });
   const sqlite = new Database(join(dir, "journal.db"));
   sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("wal_autocheckpoint = 1000");
+  sqlite.pragma(`journal_size_limit = ${JOURNAL_WAL_LIMIT_BYTES}`);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(BOOTSTRAP_SQL);
   sqlite
@@ -51,6 +54,22 @@ const createDb = () => {
       first_time = json_extract(bars_json, '$[0].time'),
       last_time = json_extract(bars_json, '$[#-1].time') WHERE bar_count = 0`);
   })();
+  sqlite.function("journal_storage_budget_available", () => (journalBudgetAvailable() ? 1 : 0));
+  const tables = sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+    .all() as { name: string }[];
+  for (const { name } of tables) {
+    const table = name.replaceAll('"', '""');
+    const trigger = name.replace(/[^a-zA-Z0-9_]/g, "_");
+    sqlite.exec(`CREATE TRIGGER IF NOT EXISTS "journal_budget_${trigger}_insert"
+      BEFORE INSERT ON "${table}"
+      BEGIN SELECT CASE WHEN journal_storage_budget_available() = 0
+        THEN RAISE(ABORT, 'Journal storage budget reached') END; END`);
+    sqlite.exec(`CREATE TRIGGER IF NOT EXISTS "journal_budget_${trigger}_update"
+      BEFORE UPDATE ON "${table}"
+      BEGIN SELECT CASE WHEN journal_storage_budget_available() = 0
+        THEN RAISE(ABORT, 'Journal storage budget reached') END; END`);
+  }
   return drizzle(sqlite, { schema });
 };
 

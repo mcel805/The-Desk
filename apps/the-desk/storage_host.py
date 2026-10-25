@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent
 POLICY = ROOT / 'storage-policy.local.json'
 CAPTURE_RESERVE_BYTES = 64 * 1024 * 1024
 MIN_FREE_BYTES = 512 * 1024**2
+LOG_LIMIT_BYTES = 8 * 1024**2
 
 def atomic(path, value):
     path = Path(path)
@@ -57,14 +58,21 @@ def verified_copy(source, destination):
     before = inventory(source)
     if destination.exists(): raise RuntimeError('Destination already exists: ' + str(destination))
     stage = destination.with_name('.copying-' + destination.name)
-    if stage.exists(): raise RuntimeError('Incomplete copy needs inspection: ' + str(stage))
-    shutil.copytree(source, stage, copy_function=shutil.copy2, symlinks=True)
-    if before != inventory(stage) or before != inventory(source):
-        raise RuntimeError('Copy verification failed or source changed; original retained')
-    for p in stage.rglob('*'):
-        if p.is_file() and not p.is_symlink():
-            with open(p, 'rb') as f: os.fsync(f.fileno())
-    os.replace(stage, destination)
+    if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+        raise RuntimeError('Unowned copy stage needs inspection: ' + str(stage))
+    if stage.exists(): shutil.rmtree(stage)
+    try:
+        shutil.copytree(source, stage, copy_function=shutil.copy2, symlinks=True)
+        if before != inventory(stage) or before != inventory(source):
+            raise RuntimeError('Copy verification failed or source changed; original retained')
+        for p in stage.rglob('*'):
+            if p.is_file() and not p.is_symlink():
+                with open(p, 'rb') as f: os.fsync(f.fileno())
+        os.replace(stage, destination)
+    except BaseException:
+        if stage.is_dir() and not stage.is_symlink():
+            shutil.rmtree(stage, ignore_errors=True)
+        raise
     atomic(destination.parent / (destination.name + '.copy-receipt.json'),
            {'source': str(source), 'destination': str(destination), 'checked_at': int(time.time()),
             'files': before, 'verified': True})
@@ -106,6 +114,59 @@ def port_occupied(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(.2)
         return probe.connect_ex(('127.0.0.1', port)) == 0
+
+def bounded_log(stream, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing = path.read_bytes()[-LOG_LIMIT_BYTES:]
+    except OSError:
+        existing = b''
+    with open(path, 'w+b') as log:
+        log.write(existing)
+        while True:
+            block = stream.read(64 * 1024)
+            if not block: break
+            log.write(block)
+            log.flush()
+            if log.tell() > LOG_LIMIT_BYTES:
+                log.flush(); log.seek(-LOG_LIMIT_BYTES, os.SEEK_END)
+                tail = log.read(LOG_LIMIT_BYTES)
+                log.seek(0); log.truncate(); log.write(tail); log.flush()
+    stream.close()
+
+def preserve_local_secret(source, destination):
+    source, destination = Path(source), Path(destination)
+    if destination.exists() or not source.is_file(): return
+    temp = destination.with_name('.' + destination.name + '-' + uuid.uuid4().hex)
+    try:
+        with open(source, 'rb') as source_file, open(temp, 'wb') as target:
+            os.chmod(temp, 0o600)
+            shutil.copyfileobj(source_file, target)
+            target.flush(); os.fsync(target.fileno())
+        os.replace(temp, destination)
+    finally:
+        if temp.exists(): temp.unlink()
+
+class BoundedLog:
+    def __init__(self, path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.file = open(self.path, 'a+b')
+        self.file.seek(0, os.SEEK_END)
+        if self.file.tell() > LOG_LIMIT_BYTES:
+            self.file.flush(); self.file.seek(-LOG_LIMIT_BYTES, os.SEEK_END)
+            tail = self.file.read(LOG_LIMIT_BYTES)
+            self.file.seek(0); self.file.truncate(); self.file.write(tail); self.file.flush()
+    def write(self, value):
+        data = value.encode() if isinstance(value, str) else value
+        self.file.write(data); self.file.flush()
+        if self.file.tell() > LOG_LIMIT_BYTES:
+            self.file.seek(-LOG_LIMIT_BYTES, os.SEEK_END)
+            tail = self.file.read(LOG_LIMIT_BYTES)
+            self.file.seek(0); self.file.truncate(); self.file.write(tail); self.file.flush()
+    def flush(self): self.file.flush()
+    def close(self): self.file.close()
 
 def supervisor_command(port, no_workers=False, ibkr_mode='off', journal_port=None):
     command = [sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(port)]
@@ -185,22 +246,23 @@ class Host:
 
     def stop_children(self):
         # Every owned child is a new process session; never touch arbitrary PIDs.
-        for child, log in self.children:
+        for child, _ in self.children:
             if child.poll() is None:
                 try: os.killpg(child.pid, signal.SIGTERM)
                 except ProcessLookupError: pass
-        for child, log in self.children:
+        for child, log_thread in self.children:
             try: child.wait(timeout=25)
             except subprocess.TimeoutExpired:
                 os.killpg(child.pid, signal.SIGKILL); child.wait(timeout=5)
-            log.close()
+            log_thread.join(timeout=5)
         self.children = []
 
     def child(self, command, cwd, env, log_name):
         # Logs stay on the active data volume along with all app records.
-        log = open(self.active / log_name, 'ab')
-        proc = subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=log, start_new_session=True)
-        self.children.append((proc, log))
+        proc = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+        log_thread = threading.Thread(target=bounded_log, args=(proc.stdout, self.active / log_name), daemon=True)
+        log_thread.start()
+        self.children.append((proc, log_thread))
         return proc
 
     def start_apps(self):
@@ -208,11 +270,13 @@ class Host:
         if occupied: raise RuntimeError('Cannot start storage services; ' + ' and '.join(occupied) + ' port is already occupied')
         attach_aliases(self.policy, self.active)
         temporary=self.active/'.tmp';temporary.mkdir(exist_ok=True)
+        preserve_local_secret(self.active / 'journal' / '.secret', self.control / 'journal-secret')
         env = dict(os.environ, TMPDIR=str(temporary), SQLITE_TMPDIR=str(temporary),
                    DESK_CODEX_STATE_DIR=str(self.active/'desk/llm-runtime'), DESK_STORAGE_MANAGED='1', DESK_STORAGE_STATE=str(self.state_file),
                    DESK_STORAGE_RETURN=str(self.return_external),
                    DESK_STORAGE_POLICY=str(POLICY), DESK_STORAGE_MODE=self.mode,
                    JOURNAL_DATA_DIR=str(self.active / 'journal'),
+                   JOURNAL_SECRET_FILE=str(self.control / 'journal-secret'),
                    DESK_JOURNAL_DB_PATH=str(self.active / 'journal/journal.db'))
         # Reuse the established launcher's restricted credential loading.
         from launch import env_values, TRADER
@@ -223,6 +287,7 @@ class Host:
             # New offline sessions must never reuse broker grants or resume paid collection.
             env['DESK_JEV_KEYCHAIN'] = 'disabled'
             env.pop('TYPESAFE_API_KEY', None)
+        env.pop('DESK_HOST_LOG_PATH', None)
         env['LUX_JOURNAL_URL'] = 'http://127.0.0.1:' + str(self.journal_port)
         node = self.policy.get('node', 'node')
         self.child([node, str(journal / 'node_modules/next/dist/bin/next'), 'start', '-H', '127.0.0.1',
@@ -371,10 +436,13 @@ def main():
         print('The Desk storage host is already running: http://127.0.0.1:' + str(args.port)); return
     if args.detach:
         fcntl.flock(lock, fcntl.LOCK_UN); lock.close()
-        with open(control / 'host.log', 'ab') as log:
-            subprocess.Popen(supervisor_command(args.port, args.no_workers, args.ibkr_mode, args.journal_port),
-                             stdout=log, stderr=log, start_new_session=True)
+        env = os.environ.copy(); env['DESK_HOST_LOG_PATH'] = str(control / 'host.log')
+        subprocess.Popen(supervisor_command(args.port, args.no_workers, args.ibkr_mode, args.journal_port),
+                         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         print('The Desk: http://127.0.0.1:' + str(args.port)); return
+    if os.environ.get('DESK_HOST_LOG_PATH'):
+        sys.stdout = BoundedLog(os.environ['DESK_HOST_LOG_PATH'])
+        sys.stderr = sys.stdout
     atomic(control / 'host.json', {'pid': os.getpid(), 'port': args.port})
     host = Host(policy, args.port, args.no_workers, args.ibkr_mode, args.journal_port)
     for sig in (signal.SIGTERM, signal.SIGINT): signal.signal(sig, lambda *a: host.quit.set())
