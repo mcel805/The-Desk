@@ -28,7 +28,7 @@ class SwingResearch:
     def __init__(self,gateway,directory,judge=None):
         self.gateway=gateway;self.judge=judge or Jev();self.lock=threading.RLock();self.stop=threading.Event()
         self.path=Path(directory)/'swing-research.sqlite3';self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.active={};self.last={};self.next_due={};self.configs={};self.context_cache={}
+        self.active={};self.last={};self.next_due={};self.configs={};self.context_cache={};self.worker=None
         with self.db() as db:
             db.executescript('''
               CREATE TABLE IF NOT EXISTS study_state (run TEXT PRIMARY KEY, symbol TEXT NOT NULL, at INTEGER NOT NULL, state TEXT NOT NULL);
@@ -65,7 +65,10 @@ class SwingResearch:
         with self.db() as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
 
     def start(self):
-        for symbol in SYMBOLS:threading.Thread(target=self.loop,args=(symbol,),daemon=True,name='swing-research-'+symbol.split(':')[1]).start()
+        with self.lock:
+            if self.worker and self.worker.is_alive():return
+            self.worker=threading.Thread(target=self.loop,daemon=True,name='swing-research-single')
+            self.worker.start()
     def close(self):
         self.stop.set()
         with self.lock:
@@ -132,6 +135,9 @@ class SwingResearch:
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
             elif action=='start':
                 if symbol in self.active:return self.status()
+                if self.active:
+                    current=next(iter(self.active))
+                    raise ValueError('One observation run at a time. Pause '+current+' before starting '+symbol+'.')
                 if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 cfg=deepcopy(self.configs[symbol]);reference=self.validation_reference(symbol,cfg)
                 run=uuid.uuid4().hex;now=int(time.time()*1000)
@@ -155,9 +161,10 @@ class SwingResearch:
             self.last[symbol]['study']=self.study_brief(a['study'].snapshot())
         if a:self.append(a['run'],symbol,'RUN_END',int(time.time()*1000),{'reason':reason,'snapshot':self.last[symbol].get('snapshot'),'open_plans':'unresolved; no observation after run end'})
 
-    def loop(self,symbol):
+    def loop(self):
         while not self.stop.is_set():
             with self.lock:
+                symbol=next(iter(self.active),None)
                 a=self.active.get(symbol);due=self.next_due.get(symbol,0)
                 ready=bool(a and time.monotonic()>=due)
                 if ready:
@@ -390,7 +397,7 @@ class SwingResearch:
                 'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
             costs=self.cost_meter.summary(contexts,MODEL)
             for k,v in result.items():v['costs']=costs['symbols'][k]
-            return {'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
+            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []

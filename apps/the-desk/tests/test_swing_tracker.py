@@ -199,6 +199,38 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(calls),2)
         h=self.service.history('hyperliquid:BTC')
         self.assertEqual(h['predictions'][0]['response']['pricing_snapshot']['input_usd_per_million'],'0.042')
+    def test_duplicate_chart_starts_share_one_run_and_one_model_request_per_slot(self):
+        calls=[]
+        self.service.judge.judge=lambda state:(calls.append(state) or response())
+        self.command('configure',config={'jev_enabled':True})
+        run=None
+        for _ in range(4):
+            state=self.command('start')
+            current=self.service.active['hyperliquid:BTC']['run']
+            if run is None:run=current
+            self.assertEqual(current,run)
+            self.sample()
+        self.assertEqual(len(calls),1)
+        self.assertEqual(len(self.service.export('hyperliquid:BTC')['runs']),1)
+        self.assertEqual(self.service.status()['observation']['max_active'],1)
+
+    def test_concurrent_markets_cannot_start_two_collectors(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        gate=threading.Barrier(2)
+        def start(symbol):
+            gate.wait()
+            try:self.service.command({'action':'start','symbol':symbol});return True
+            except ValueError as e:
+                self.assertIn('One observation run',str(e));return False
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(start,['hyperliquid:BTC','hyperliquid:ETH']))
+        self.assertEqual(sorted(results),[False,True]);self.assertEqual(len(self.service.active),1)
+        first=next(iter(self.service.active));self.service.command({'action':'pause','symbol':first})
+        other='hyperliquid:ETH' if first.endswith('BTC') else 'hyperliquid:BTC'
+        self.service.command({'action':'start','symbol':other})
+        self.assertEqual(list(self.service.active),[other])
+
     def test_revision_stops_without_rewriting_history(self):
         self.command('start');self.sample();original=self.gateway.bars
         def revised(*args):
@@ -263,9 +295,10 @@ class ServiceTests(unittest.TestCase):
         self.service.judge=type('Missing',(),{'configured':False})()
         with self.assertRaises(ValueError):self.command('configure',config={'jev_enabled':True})
 
-    def test_key_entry_is_memory_only_pauses_both_markets_and_never_exports_secret(self):
+    def test_key_entry_is_memory_only_pauses_active_market_and_never_exports_secret(self):
         self.service.judge=Jev(store=False)
         self.command('start')
+        self.command('pause')
         self.service.command({'action':'start','symbol':'hyperliquid:ETH'})
         key='test-only-never-a-real-provider-key'
         result=self.service.configure_key({'api_key':key})

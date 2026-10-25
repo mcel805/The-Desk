@@ -7,7 +7,8 @@ const pct=v=>Number.isFinite(v)?(100*v).toFixed(1)+'%':'—',price=v=>Number.isF
 async function api(path,body){const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const v=await r.json();if(!r.ok)throw Error(v.error||'Research service unavailable');return v;}
 function table(headers,rows){return rows.length?`<div class="table-scroll"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">No observations yet. Start a run to collect evidence.</div>';}
 function symbol(){return $('#symbol').value;}
-async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [raw,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);const data=await withJevCosts(raw);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot;
+async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [raw,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);const data=await withJevCosts(raw);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot,otherRunning=Object.keys(data.symbols).find(k=>k!==market&&data.symbols[k].running);
+$('#singleObserver').textContent=otherRunning?'Observing '+otherRunning.split(':')[1]+' on 1m. Select that market and pause it before starting '+market.split(':')[1]+'.':'One shared 1m observer per Desk server. Extra charts and Lab tabs add no model requests. Hide/show only changes visibility; Pause stops collection.';
 $('#connection').textContent='Connected · '+stamp(data.as_of)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;$('#status').textContent=s.status;$('#keyStatus').textContent=data.jev_configured?'Key available. Enabling Jev sends public market snapshots to TypeSafe.':'Add your API key in Jev connection above. Tracker works without it.';
 renderJevCosts(data,market);
 const storage=data.jev_key_storage;
@@ -16,8 +17,8 @@ if(!storage)$('#jevKeyState').textContent='Secure Keychain storage is ready to i
 $('#jevApiKey').disabled=!storage?.available;
 $('#clearJevKey').disabled=commandBusy||!storage?.available;$('#loadJevKey').disabled=commandBusy||!storage?.available;
 $('#rememberJevKey').hidden=!data.jev_configured||data.jev_key_source==='macos_keychain';$('#rememberJevKey').disabled=commandBusy||!storage?.available;$('#saveJevKey').disabled=commandBusy||!storage?.available;
-document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=commandBusy||s.running;$('#pause').disabled=commandBusy||!s.running;
-$('#enableJev').hidden=!data.jev_configured||s.config.jev_enabled;$('#enableJev').disabled=commandBusy;
+document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=commandBusy||s.running||!!otherRunning;$('#pause').disabled=commandBusy||!s.running;
+$('#enableJev').hidden=!data.jev_configured||s.config.jev_enabled;$('#enableJev').disabled=commandBusy||s.running||!!otherRunning;
 $('#evaluationState').textContent=!data.jev_configured?'Step 1: save a TypeSafe key to enable Jev.':!s.config.jev_enabled?'Key saved · Jev is OFF. Enable Jev & start to collect directional dots.':s.running?'Jev enabled · collecting evaluations for '+market.split(':')[1]+'.':'Jev enabled · paused. Start observations to collect fresh dots.';
 $('#openChart').href='/?swing_market='+encodeURIComponent(market);$('#openChart').textContent='Open '+market.split(':')[1]+' 1m chart ↗';
 if(loaded!==market){for(const el of $('#config').elements){if(!el.name)continue;const v=s.config[el.name];if(el.type==='checkbox')el.checked=!!v;else el.value=v??'';}loaded=market;}
