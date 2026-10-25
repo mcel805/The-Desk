@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from contextlib import contextmanager
+from storage import connect
 
 def stamp(t=None):
     return datetime.fromtimestamp(t or time.time(), timezone.utc).isoformat().replace('+00:00','Z')
@@ -56,7 +57,7 @@ class Engine:
 
     @contextmanager
     def db(self):
-        db=sqlite3.connect(self.path, timeout=15)
+        db=connect(self.path)
         db.row_factory=sqlite3.Row
         db.execute('PRAGMA foreign_keys=ON')
         try:

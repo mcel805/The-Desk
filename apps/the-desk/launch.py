@@ -37,8 +37,8 @@ def env_values(path):
     return result
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=18880);p.add_argument('--journal-port',type=int,default=3000);p.add_argument('--qa',action='store_true');p.add_argument('--stop',action='store_true');p.add_argument('--detach',action='store_true');args=p.parse_args()
-    data=ROOT/('qa-data' if args.qa else 'data');data.mkdir(exist_ok=True)
+    p=argparse.ArgumentParser();p.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR'));p.add_argument('--port',type=int,default=18880);p.add_argument('--journal-port',type=int,default=3000);p.add_argument('--qa',action='store_true');p.add_argument('--stop',action='store_true');p.add_argument('--detach',action='store_true');args=p.parse_args()
+    data=Path(args.data_dir).expanduser().resolve() if args.data_dir else ROOT/('qa-data' if args.qa else 'data');data.mkdir(parents=True,exist_ok=True)
     pidfile=data/'processes.json'
     if args.stop:
         if pidfile.exists():
@@ -60,8 +60,8 @@ def main():
             pidfile.unlink()
         return
     desk_url='http://127.0.0.1:'+str(args.port)
-    if reachable(desk_url+'/api/health'):
-        print(desk_url);return
+    if reachable(desk_url+'/api/health') or reachable(desk_url+'/api/data/status'):
+        print(desk_url if reachable(desk_url+'/api/health') else desk_url+'/data-health.html');return
     env=os.environ.copy()
     if not args.qa:
         for path in (TRADER/'.env',TRADER/'count-dashboard/.env',TRADER/'integrations/open-source/trade-journal/apps/web/.env.local',TRADER/'integrations/open-source/trade-journal/apps/web/.env'):
@@ -73,6 +73,7 @@ def main():
     journal=Path(env.get('LUX_JOURNAL_DIR',str(TRADER/'integrations/open-source/trade-journal')))/'apps/web'
     journal_url='http://127.0.0.1:'+str(args.journal_port)
     env['LUX_JOURNAL_URL']=journal_url
+    env['DESK_JOURNAL_DB_PATH']=str(data/'journal/journal.db' if args.qa else journal/'data/journal.db')
     owned=[];children=[]
     if args.qa and reachable(journal_url):
         raise RuntimeError('QA journal port is occupied. Choose a free --journal-port; QA never reuses an unknown journal runtime.')
@@ -98,7 +99,7 @@ def main():
     proc=subprocess.Popen([server_python,str(ROOT/'server.py'),'--port',str(args.port),'--data-dir',str(data)],cwd=str(ROOT),env=env,stdout=log,stderr=log,start_new_session=True);children.append(proc);owned.append(proc.pid)
     pidfile.write_text(json.dumps({'owned':owned,'starts':{str(pid):process_start(pid) for pid in owned},'desk_url':desk_url,'journal_url':journal_url}))
     for _ in range(30):
-        if reachable(desk_url+'/api/health'):break
+        if reachable(desk_url+'/api/health') or reachable(desk_url+'/api/data/status'):break
         if proc.poll() is not None:raise RuntimeError('The Desk failed to start; inspect runtime desk.log')
         time.sleep(.25)
     else:raise RuntimeError('The Desk readiness timeout')

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import signal
 import threading
 import time
 from spider_service import Spider
@@ -25,6 +26,9 @@ from agents import Agents
 from agent_signals import AgentSignals
 from swing_research import SwingResearch
 from swing_advisors import SwingAdvisors
+from storage import DataVault,DirectoryLock,StorageFault
+from settings_store import SettingsStore,SettingsConflict
+from data_routes import DataRoutes,serve_recovery
 
 ROOT=Path(__file__).resolve().parent
 
@@ -162,13 +166,24 @@ class Workers:
             self.dispatch();self.stop.wait(2)
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=str(ROOT/'data'));parser.add_argument('--no-workers',action='store_true');parser.add_argument('--ibkr-mode',choices=('off','demo','gateway'),default='off');args=parser.parse_args()
+    def stopping(*args):raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM,stopping)
+    parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR',str(ROOT/'data')));parser.add_argument('--no-workers',action='store_true');parser.add_argument('--ibkr-mode',choices=('off','demo','gateway'),default='off');args=parser.parse_args()
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
-    engine=Engine(data/'desk.sqlite3');gateway=Gateway();funding=FundingRoutes(args.port,data)
+    ownership=DirectoryLock(data).acquire()
+    vault=DataVault(data,journal=os.environ.get('DESK_JOURNAL_DB_PATH'))
+    if not vault.preflight():
+        try:return serve_recovery(vault,args.port,ROOT/'web')
+        finally:ownership.close()
+    if any(p.exists() for p in vault.sources.values()):
+        try:vault.snapshot('before-start')
+        except Exception:pass # Existing verified snapshots remain available; status shows the error.
+    engine=Engine(data/'desk.sqlite3');settings_store=SettingsStore(engine);gateway=Gateway();funding=FundingRoutes(args.port,data)
     robinhood=RobinhoodWorkspace(funding.broker,data)
     ibkr=IBKRData(args.ibkr_mode);ibkr.start()
-    swing_research=SwingResearch(gateway,data);swing_research.start()
+    swing_research=SwingResearch(gateway,data);swing_research.storage_guard=vault.writable;swing_research.start()
     swing_advisors=SwingAdvisors(swing_research)
+    data_routes=DataRoutes(vault,swing_research)
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
     robinhood.journal_delivery=lambda event:http_json(workers.journal_url+'/api/integrations/robinhood',event,{'Authorization':'Bearer '+workers.token},timeout=5)
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
@@ -178,6 +193,10 @@ def main():
     if not args.no_workers:agents.start()
     if not args.no_workers:workers.start()
     spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
+    vault.preflight()
+    try:vault.snapshot('startup')
+    except Exception:pass
+    vault.start()
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'web'),**kw)
         def log_message(self,*a):pass
@@ -201,6 +220,7 @@ def main():
             if not self.trusted():return self.json({'error':'Loopback origin required'},403)
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
+                if data_routes.get(self,parsed.path,q):return
                 if spider.get(self,parsed.path,q):return
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
@@ -218,9 +238,10 @@ def main():
                     start=float(value('from')) if value('from') else None
                     end=float(value('to')) if value('to') else None
                     return self.json(ibkr.bars(value('instrument'),value('timeframe','1m'),int(value('limit','600')),start,end))
-                if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'market_stream':workers.stream.status,'journal_available':workers.journal_health,'ibkr':ibkr.status()})
+                if parsed.path=='/api/health':return self.json({'ok':True,'application':'The Desk','mode':'paper','market_worker_cycles':workers.market_cycles,'market_stream':workers.stream.status,'journal_available':workers.journal_health,'ibkr':ibkr.status(),'storage':vault.status()['state']})
                 if parsed.path=='/api/state':return self.json({**agents.decorate_state(engine.state(value('account_id'))), 'market_stream':workers.stream.status,'feed_errors':gateway.errors,'journal_url':workers.journal_url,'journal_available':workers.journal_health})
                 if parsed.path=='/api/bars':return self.json(gateway.bars(engine.instrument(value('instrument','hyperliquid:BTC')),value('timeframe','1h'),min(1000,max(50,int(value('limit','600'))))))
+                if parsed.path=='/api/settings/state':return self.json(settings_store.state())
                 if parsed.path=='/api/settings':
                     with engine.db() as db:return self.json({r['key']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')})
                 if parsed.path=='/api/export':return self.json(engine.export(value('account_id')))
@@ -238,6 +259,8 @@ def main():
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))
+                if data_routes.post(self,path,p):return
+                if spider.post(self,path,p):return
                 if path=='/api/swing/key':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_research.configure_key(p))
@@ -250,7 +273,12 @@ def main():
                     if not isinstance(p,dict) or set(p)!={'paused'}:raise ValueError('Expected a demo paused flag.')
                     return self.json(ibkr.pause_demo(p['paused']))
                 if path=='/api/command':return self.json(engine.execute(self.headers.get('Idempotency-Key'),p['action'],p['payload']))
-                if path=='/api/settings':
+                if path in ('/api/settings','/api/settings/commit'):
+                    expected=None;writer='legacy'
+                    if path.endswith('/commit'):
+                        if not isinstance(p,dict) or set(p)!={'values','expected','writer'}:raise ValueError('Invalid revision-checked settings save')
+                        p,expected,writer=p['values'],p['expected'],p['writer']
+                        if not isinstance(expected,dict):raise ValueError('Expected settings revisions are required')
                     if not isinstance(p,dict) or set(p)-{'workspace','appearance','watchlist','presets','pineLibrary','trading'}:raise ValueError('Unsupported settings')
                     if 'trading' in p:
                         t=p['trading'];keys={'positions','orders','brackets','executions','labels','executionHistory','pnl','reverse','quickButtons','instant','pnlUnit'}
@@ -261,18 +289,25 @@ def main():
                         for item in items:
                             if not isinstance(item,dict) or not isinstance(item.get('name'),str) or not isinstance(item.get('source'),str) or len(item['source'].encode())>250000:raise ValueError('Invalid Pine indicator source')
                             validate_pine_source(item['source'])
-                    with engine.db() as db:
-                        for k,v in p.items():db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(k,json.dumps(v)))
-                    return self.json({'saved':True})
+                    return self.json(settings_store.commit(p,expected,writer))
                 if path=='/api/journal/retry':
                     with engine.db() as db:db.execute("UPDATE outbox SET next_attempt=0 WHERE status='pending'")
                     return self.json({'queued':True})
                 return self.json({'error':'Not found'},404)
+            except SettingsConflict as e:return self.json({'error':str(e),'state':e.state},409)
+            except StorageFault as e:return self.json({'error':str(e)},503)
             except (ValueError,KeyError,TypeError) as e:return self.json({'error':str(e)},400)
             except Exception:return self.json({'error':'Command could not be accepted. Refresh and retry with the same command ID.'},500)
     httpd=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
     print('The Desk: http://127.0.0.1:'+str(args.port),flush=True)
     try:httpd.serve_forever()
-    finally:swing_advisors.close();swing_research.close();spider.close();agent_signals.close();agents.stop.set();ibkr.close();workers.stop.set();httpd.server_close()
+    finally:
+        httpd.server_close()
+        for close in (swing_advisors.close,swing_research.close,spider.close,agent_signals.close,agents.stop.set,ibkr.close,workers.stop.set,vault.close):
+            try:close()
+            except Exception:pass
+        try:vault.snapshot('shutdown')
+        except Exception:pass
+        ownership.close()
 
 if __name__=='__main__':main()

@@ -1,0 +1,3 @@
+const link=document.getElementById('dataHealthLink');
+async function refresh(){try{const r=await fetch('/api/data/status');if(!r.ok)throw Error();const s=await r.json();const healthy=s.state==='PROTECTED'&&!s.disk_warning&&!s.mirror_error&&!Object.values(s.collection||{}).some(v=>v.status==='STORAGE_ERROR');link.textContent=healthy?'Data protected ↗':'Data needs attention ↗';link.title=(s.error||s.mirror_error||s.state)+' · '+(s.latest?'Backup '+new Date(s.latest.created_at).toLocaleString():'No verified backup');link.style.color=healthy?'#8fcbb0':'#f0bc59';}catch{link.textContent='Data status unavailable ↗';}}
+if(link){void refresh();const timer=setInterval(refresh,15000);window.addEventListener('pagehide',()=>clearInterval(timer));}

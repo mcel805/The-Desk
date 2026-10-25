@@ -4,7 +4,7 @@ Intentionally receives ONLY a public market gateway. No broker/order-engine hand
 Restart, pause, config changes and gaps end the observation run. Start is explicit.
 """
 from copy import deepcopy
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 import hashlib
 import json
@@ -18,9 +18,11 @@ from swing_tracker import Config, SwingTracker, REVISION, valid_bar
 from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
 from jev_costs import JevCostMeter, RATES
 from swing_liquidity import DEFAULTS as STUDY_DEFAULTS, VERSION as STUDY_VERSION, LiquidityStudy, build_htf_context, validate_settings, FRAME_MS
+from swing_metrics import forecast_metrics
+from storage import connect, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
-CODE_HASH=hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('swing_tracker.py','swing_research.py','jev_swing.py','swing_liquidity.py'))).hexdigest()
+CODE_HASH=hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('swing_tracker.py','swing_research.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py'))).hexdigest()
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
 
@@ -28,7 +30,7 @@ class SwingResearch:
     def __init__(self,gateway,directory,judge=None):
         self.gateway=gateway;self.judge=judge or Jev();self.lock=threading.RLock();self.stop=threading.Event()
         self.path=Path(directory)/'swing-research.sqlite3';self.path.parent.mkdir(parents=True,exist_ok=True)
-        self.active={};self.last={};self.next_due={};self.configs={};self.context_cache={};self.worker=None
+        self.active={};self.last={};self.next_due={};self.configs={};self.context_cache={};self.worker=None;self.storage_guard=None
         with self.db() as db:
             db.executescript('''
               CREATE TABLE IF NOT EXISTS study_state (run TEXT PRIMARY KEY, symbol TEXT NOT NULL, at INTEGER NOT NULL, state TEXT NOT NULL);
@@ -38,8 +40,15 @@ class SwingResearch:
               CREATE INDEX IF NOT EXISTS ledger_run ON ledger(run,id);
               CREATE TABLE IF NOT EXISTS predictions (id TEXT PRIMARY KEY, run TEXT NOT NULL, symbol TEXT NOT NULL, at INTEGER NOT NULL, prediction_bar INTEGER NOT NULL, primary_sample INTEGER NOT NULL, state TEXT NOT NULL, response TEXT, outcome TEXT);
               CREATE INDEX IF NOT EXISTS predictions_run ON predictions(run,prediction_bar);
+              CREATE UNIQUE INDEX IF NOT EXISTS prediction_primary_minute ON predictions(run,prediction_bar) WHERE primary_sample=1;
+              CREATE UNIQUE INDEX IF NOT EXISTS prediction_sampling_slot ON predictions(run,json_extract(state,'$.evaluation_bar'),json_extract(state,'$.evaluation_slot'));
+              CREATE TABLE IF NOT EXISTS run_bars(run TEXT NOT NULL,symbol TEXT NOT NULL,time INTEGER NOT NULL,observed_at INTEGER NOT NULL,warmup INTEGER NOT NULL,payload TEXT NOT NULL CHECK(json_valid(payload)),digest TEXT NOT NULL,PRIMARY KEY(run,time));
+              CREATE TABLE IF NOT EXISTS collection_checkpoints(run TEXT PRIMARY KEY,observed_at INTEGER NOT NULL,closed_cutoff INTEGER NOT NULL,prediction_id TEXT NOT NULL,seq INTEGER NOT NULL,snapshot TEXT NOT NULL CHECK(json_valid(snapshot)));
+              CREATE TABLE IF NOT EXISTS collection_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+
             ''')
             saved={r['symbol']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')}
+        self.backfill_bars()
         self.cost_meter=JevCostMeter(self.path)
         for symbol in SYMBOLS:
             default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':15,'jev_enabled':False,**deepcopy(STUDY_DEFAULTS)}
@@ -50,19 +59,47 @@ class SwingResearch:
                 ended=previous and db.execute("SELECT 1 FROM ledger WHERE run=? AND kind='RUN_END' LIMIT 1",(previous['id'],)).fetchone()
             if previous:
                 self.last[symbol]['run']=previous['id']
+                with self.db() as db:checkpoint=db.execute('SELECT * FROM collection_checkpoints WHERE run=?',(previous['id'],)).fetchone()
+                if checkpoint:
+                    self.last[symbol].update(snapshot=json.loads(checkpoint['snapshot']),observed_at=checkpoint['observed_at'],archived=True)
                 if not ended:
                     self.append(previous['id'],symbol,'RUN_END',int(time.time()*1000),{'reason':'SERVER_RESTART','open_plans':'unresolved'})
                     self.end_saved_study(previous['id'], 'SERVER_RESTART')
 
     @contextmanager
     def db(self):
-        db=sqlite3.connect(self.path,timeout=10);db.row_factory=sqlite3.Row
+        db=connect(self.path);db.row_factory=sqlite3.Row
         try:
             with db:yield db
         finally:db.close()
 
-    def append(self,run,symbol,kind,at,payload):
-        with self.db() as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
+    def append(self,run,symbol,kind,at,payload,db=None):
+        with (nullcontext(db) if db is not None else self.db()) as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
+
+    def backfill_bars(self):
+        # Legacy records are copied as retained evidence, never fresh forward observations.
+        with self.db() as db:
+            if db.execute("SELECT 1 FROM collection_meta WHERE key='legacy_bars_v1'").fetchone():return
+            for row in db.execute("SELECT run,symbol,at,payload FROM ledger WHERE kind IN ('BAR_CLOSED','WARMUP')"):
+                value=json.loads(row['payload'])
+                bars=[value['bar']] if 'bar' in value else value.get('snapshot',{}).get('display_bars',[])
+                for b in bars:
+                    b={k:b[k] for k in ('time','open','high','low','close','volume')}
+                    db.execute('INSERT OR IGNORE INTO run_bars VALUES(?,?,?,?,?,?,?)',(row['run'],row['symbol'],b['time'],row['at'],int('bar' not in value),encode(b),digest(b)))
+            for row in db.execute('SELECT run,symbol,at,state FROM predictions'):
+                state=json.loads(row['state'])
+                for b in state.get('closed_bars',[]):
+                    db.execute('INSERT OR IGNORE INTO run_bars VALUES(?,?,?,?,?,?,?)',(row['run'],row['symbol'],b['time'],row['at'],1,encode(b),digest(b)))
+            db.execute("INSERT INTO collection_meta VALUES('legacy_bars_v1','Retained archive only; missing warmup history cannot be recreated')")
+
+    def storage_failure(self,symbol,a,error):
+        with self.lock:
+            if self.active.get(symbol) is a:self.active.pop(symbol,None)
+            self.last[symbol]={**self.last.get(symbol,{}),'status':'STORAGE_ERROR','run':a['run'],
+                'detail':'Durable write failed. Collection paused; no further model requests. Open Data & Backups.',
+                'storage_error':type(error).__name__}
+        try:atomic_json(self.path.with_name('collection-fault.json'),{'symbol':symbol,'run':a['run'],'at':int(time.time()*1000),'error_class':type(error).__name__})
+        except OSError:pass
 
     def start(self):
         with self.lock:
@@ -73,6 +110,7 @@ class SwingResearch:
         self.stop.set()
         with self.lock:
             for symbol in list(self.active):self.pause(symbol,'SERVICE_STOPPED')
+        if self.worker and self.worker is not threading.current_thread():self.worker.join(timeout=15)
 
     def configure_key(self,p):
         if not isinstance(p,dict):raise ValueError('Expected a TypeSafe key command')
@@ -131,8 +169,9 @@ class SwingResearch:
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
                 Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS})
                 if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
-                self.pause(symbol,'CONFIG_CHANGED');self.configs[symbol]=cfg;self.context_cache.pop(symbol,None)
+                self.pause(symbol,'CONFIG_CHANGED');self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
+                self.configs[symbol]=cfg
             elif action=='start':
                 if symbol in self.active:return self.status()
                 if self.active:
@@ -141,11 +180,13 @@ class SwingResearch:
                 if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 cfg=deepcopy(self.configs[symbol]);reference=self.validation_reference(symbol,cfg)
                 run=uuid.uuid4().hex;now=int(time.time()*1000)
-                with self.db() as db:db.execute('INSERT INTO runs VALUES(?,?,?,?)',(run,symbol,now,encode(cfg)))
+                if self.storage_guard:self.storage_guard()
+                with self.db() as db:
+                    db.execute('INSERT INTO runs VALUES(?,?,?,?)',(run,symbol,now,encode(cfg)))
+                    self.append(run,symbol,'RUN_START',now,{'config':cfg,'revision':REVISION,'code_hash':CODE_HASH,'model':MODEL,'prompt':PROMPT_VERSION,'study_version':STUDY_VERSION,'validation_reference':reference},db=db)
                 self.active[symbol]={'run':run,'config':cfg,'tracker':None,'persisted_seq':0,'last_bucket':None,'sample_slot':None,'seen':{},'started':now,'study':None,'validation_reference':reference}
                 self.context_cache.pop(symbol,None)
                 self.next_due[symbol]=0;self.last[symbol]={'status':'WARMING','run':run,'detail':'Loading completed 1m candles; historical events are warmup only.'}
-                self.append(run,symbol,'RUN_START',now,{'config':cfg,'revision':REVISION,'code_hash':CODE_HASH,'model':MODEL,'prompt':PROMPT_VERSION,'study_version':STUDY_VERSION,'validation_reference':reference})
             elif action=='pause':self.pause(symbol,'USER_PAUSED')
             else:raise ValueError('Unknown research action')
             return self.status()
@@ -180,10 +221,18 @@ class SwingResearch:
                         if self.active.get(symbol) is a:
                             # No exception text: credentials or provider body could be included.
                             self.last[symbol]={'status':'UNAVAILABLE','run':a['run'],'detail':type(e).__name__+': observation withheld; retry pending'}
-                            self.append(a['run'],symbol,'SAMPLE_UNAVAILABLE',int(time.time()*1000),{'class':type(e).__name__})
+                            try:self.append(a['run'],symbol,'SAMPLE_UNAVAILABLE',int(time.time()*1000),{'class':type(e).__name__})
+                            except sqlite3.Error as fault:self.storage_failure(symbol,a,fault)
             self.stop.wait(.5)
 
     def sample(self,symbol,a):
+        try:
+            if self.storage_guard:self.storage_guard()
+            return self._sample(symbol,a)
+        except (sqlite3.Error,StorageFault) as error:
+            self.storage_failure(symbol,a,error);raise
+
+    def _sample(self,symbol,a):
         context=self.context_for(symbol,a) if a['config'].get('study_enabled') else None
         feed=self.gateway.bars(symbol,'1m',1000);bid,ask,meta=self.gateway.quote(symbol);now=int(time.time()*1000)
         source=meta.get('source_time');tick=float(meta.get('tick',0));qty=float(meta.get('qty_step',0))
@@ -212,7 +261,7 @@ class SwingResearch:
                 self.pause(symbol,'OBSERVATION_INTERRUPTED_RESTART_REQUIRED');return
             slot=now//(a['config']['cadence_seconds']*1000)
             if a['sample_slot']==slot:return
-            a['sample_slot']=slot
+            pending_events=[];new_bars=[]
             warming=a['tracker'] is None
             if warming:a['tracker']=SwingTracker(Config(**{k:v for k,v in a['config'].items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS}),tick)
             tracker=a['tracker']
@@ -222,17 +271,19 @@ class SwingResearch:
             for b in closed:
                 if tracker.last_time is None or b['time']>tracker.last_time:
                     tracker.feed(b,observed_at=None if warming else now);a['seen'][b['time']]=digest(b)
+                    new_bars.append(b)
                     if not warming:
-                        self.append(a['run'],symbol,'BAR_CLOSED',now,{'bar':b,'observed_at':now})
-                        if a.get('study'):a['study'].observe(b,now,tracker.snapshot(),tracker.bars)
-                        if a.get('study'):tracker.set_study_campaigns(a['study'].campaigns)
+                        pending_events.append(('BAR_CLOSED',{'bar':b,'observed_at':now}))
+                        if a.get('study'):
+                            a['study'].observe(b,now,tracker.snapshot(),tracker.bars)
+                            tracker.set_study_campaigns(a['study'].campaigns)
             a['seen']={t:v for t,v in a['seen'].items() if t>=closed[-1]['time']-1000*60000}
             if warming:
                 # Warmup reconstructs structure, but cannot own a forward shadow slot or budget.
                 for plan in tracker.plans:
                     if plan['status'] in ('PENDING','OPEN'):plan.update(status='UNRESOLVED',reason='WARMUP_END')
                 tracker.reserved_session=0;tracker.reserved_parent=0;tracker.parent_count=0
-                self.append(a['run'],symbol,'WARMUP',now,{'first':closed[0]['time'],'last':closed[-1]['time'],'bars':len(closed),'snapshot':tracker.snapshot()})
+                pending_events.append(('WARMUP',{'first':closed[0]['time'],'last':closed[-1]['time'],'bars':len(closed),'snapshot':tracker.snapshot()}))
                 a['persisted_seq']=tracker.seq
                 if a['config'].get('study_enabled'):
                     a['study']=LiquidityStudy(a['run'],symbol,a['config'],tick,closed[-1]['time']+60000)
@@ -241,21 +292,28 @@ class SwingResearch:
                     from swing_liquidity import swing_measurements
                     a['study'].metrics=swing_measurements(tracker.bars,a['config']['study_window'],tick)
                     tracker.set_study_campaigns([])
-            if a.get('study'):self.persist_study(symbol,a,now)
             for ev in tracker.events:
-                if ev['seq']>a['persisted_seq']:self.append(a['run'],symbol,'TRACKER_EVENT',now,ev)
-            a['persisted_seq']=tracker.seq
-            self.resolve(a,closed,now,available_at)
+                if not warming and ev['seq']>a['persisted_seq']:pending_events.append(('TRACKER_EVENT',ev))
             snap=tracker.snapshot();prediction_bar=(now//60000+1)*60000
-            primary=a['last_bucket']!=now//60000;a['last_bucket']=now//60000
+            primary=a['last_bucket']!=now//60000
             # Independent evaluations are grouped by source minute. Secondary intrabar samples are diagnostic.
             state={'symbol':symbol,'provider':'Hyperliquid public REST','observed_at':now,'quote_at':source,'candles_as_of':as_of,'bid':float(bid),'ask':float(ask),'tick':tick,'closed_cutoff':snap['cutoff'],'forming':forming,'forming_is_confirmed':False,'prediction_bar':prediction_bar,'definition':'next full 1m close vs its open; >= one tick','evaluation_bar':now//60000*60000,'evaluation_slot':now%60000//(a['config']['cadence_seconds']*1000)+1,'cadence_seconds':a['config']['cadence_seconds'],'revision':REVISION,'code_hash':CODE_HASH,'parent_id':snap['parent_id'],'trend':snap['trend'],'pivots':snap['pivots'][-10:],'candidates':snap['candidates'][-4:],'closed_bars':closed[-max(24,a['config'].get('study_window',5)*2+1):]}
             if a.get('study'):state['liquidity_study']=self.study_brief(a['study'].snapshot(),include_evidence=True)
-            pid=uuid.uuid4().hex
-            with self.db() as db:db.execute('INSERT INTO predictions VALUES(?,?,?,?,?,?,?,?,?)',(pid,a['run'],symbol,now,prediction_bar,int(primary),encode(state),None,None))
+            pid=uuid.uuid5(uuid.NAMESPACE_URL,a['run']+':'+str(slot)).hex
             pricing=deepcopy(RATES.get(MODEL))
-            self.cost_meter.record(pid,a['run'],symbol,now,snap['parent_id'],
-                                   'PENDING' if a['config']['jev_enabled'] else 'DISABLED',MODEL,pricing=pricing)
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                for b in new_bars:
+                    db.execute('INSERT INTO run_bars VALUES(?,?,?,?,?,?,?)',(a['run'],symbol,b['time'],now,int(warming),encode(b),digest(b)))
+                for kind,payload in pending_events:self.append(a['run'],symbol,kind,now,payload,db=db)
+                self.resolve(a,closed,now,available_at,db=db)
+                db.execute('INSERT INTO predictions VALUES(?,?,?,?,?,?,?,?,?)',(pid,a['run'],symbol,now,prediction_bar,int(primary),encode(state),None,None))
+                self.cost_meter.record(pid,a['run'],symbol,now,snap['parent_id'],
+                                       'PENDING' if a['config']['jev_enabled'] else 'DISABLED',MODEL,pricing=pricing,db=db)
+                db.execute('INSERT INTO collection_checkpoints VALUES(?,?,?,?,?,?) ON CONFLICT(run) DO UPDATE SET observed_at=excluded.observed_at,closed_cutoff=excluded.closed_cutoff,prediction_id=excluded.prediction_id,seq=excluded.seq,snapshot=excluded.snapshot',
+                           (a['run'],now,snap['cutoff'],pid,tracker.seq,encode(snap)))
+            if a.get('study'):self.persist_study(symbol,a,now)
+            a['sample_slot']=slot;a['persisted_seq']=tracker.seq;a['last_bucket']=now//60000
             current={'status':'OBSERVING','run':a['run'],'started':a['started'],'observed_at':now,'quote_at':source,'snapshot':snap,'forming':forming,'primary_sample':primary,'prediction_id':pid,'prediction_bar':prediction_bar,'jev':{'status':'DISABLED'},'detail':'Completed bars confirm setups. Intrabar snapshots only update research judgments.'}
             if a.get('study'):current['study']=self.study_brief(a['study'].snapshot())
             self.last[symbol]=current
@@ -274,9 +332,11 @@ class SwingResearch:
                 jev={'status':'UNAVAILABLE','error_class':type(e).__name__,'prompt':PROMPT_VERSION}
                 if getattr(e,'safe_usage',None):jev.update(usage=e.safe_usage,model=getattr(e,'response_model',MODEL))
             jev['pricing_snapshot']=pricing
-            self.cost_meter.record(pid,a['run'],symbol,now,snap['parent_id'],jev['status'],
-                                   jev.get('model',MODEL),jev.get('usage'),pricing)
-            with self.db() as db:db.execute('UPDATE predictions SET response=? WHERE id=? AND response IS NULL',(encode(jev),pid))
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                self.cost_meter.record(pid,a['run'],symbol,now,snap['parent_id'],jev['status'],
+                                       jev.get('model',MODEL),jev.get('usage'),pricing,db=db)
+                db.execute('UPDATE predictions SET response=? WHERE id=? AND response IS NULL',(encode(jev),pid))
             with self.lock:
                 if self.active.get(symbol) is a and self.last[symbol].get('prediction_id')==pid:
                     self.last[symbol]['jev']=jev
@@ -368,9 +428,9 @@ class SwingResearch:
             db.execute('UPDATE study_state SET state=?,at=? WHERE run=?',(encode(report),now,run))
             db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,row['symbol'],'STUDY_ENDED',now,encode({'reason':reason})))
 
-    def resolve(self,a,bars,now,available_at=None):
+    def resolve(self,a,bars,now,available_at=None,db=None):
         bytime={b['time']:b for b in bars}
-        with self.db() as db:
+        with (nullcontext(db) if db is not None else self.db()) as db:
             rows=db.execute('SELECT * FROM predictions WHERE run=? AND outcome IS NULL AND prediction_bar+60000<=?',(a['run'],min(now,available_at if available_at is not None else now))).fetchall()
             for r in rows:
                 b=bytime.get(r['prediction_bar']);state=json.loads(r['state'])
@@ -385,6 +445,13 @@ class SwingResearch:
             now=int(time.time()*1000);result={}
             for symbol in SYMBOLS:
                 s=deepcopy(self.last[symbol]);s['running']=symbol in self.active;s['config']=deepcopy(self.configs[symbol])
+                with self.db() as db:
+                    saved=db.execute('SELECT COUNT(*) n,MIN(time) first,MAX(time) last,COALESCE(SUM(warmup=0),0) live FROM run_bars WHERE run=?',(s.get('run'),)).fetchone()
+                    checkpoint=db.execute('SELECT observed_at,closed_cutoff,prediction_id FROM collection_checkpoints WHERE run=?',(s.get('run'),)).fetchone()
+                    gaps=db.execute('SELECT COUNT(*) FROM (SELECT time,LAG(time) OVER(ORDER BY time) prev FROM run_bars WHERE run=?) WHERE prev IS NOT NULL AND time-prev!=60000',(s.get('run'),)).fetchone()[0]
+                s['collection']={'saved_candles':saved['n'],'live_candles':saved['live'],'first_candle':saved['first'],'last_candle':saved['last'],
+                                 'source_bar_gaps':gaps,'checkpoint':dict(checkpoint) if checkpoint else None,
+                                 'legacy_coverage':bool(s.get('run') and not checkpoint),'durability':'WAL / FULL sync; candle, event, prediction, usage reservation and checkpoint commit together'}
                 if s['running'] and s.get('observed_at') and now-s['observed_at']>max(75000,s['config']['cadence_seconds']*2000):s['status']='STALE'
                 s['dots']=self.dots(s.get('run'),s.get('snapshot',{}),s.get('forming'))
                 if not s.get('study') and s.get('run'):
@@ -401,7 +468,7 @@ class SwingResearch:
 
     def dots(self,run,snapshot,forming):
         if not run:return []
-        with self.db() as db:rows=db.execute('SELECT id,at,state,response FROM predictions WHERE run=? ORDER BY at DESC LIMIT 360',(run,)).fetchall()
+        with self.db() as db:rows=db.execute('SELECT p.id,p.at,p.state,p.response,u.status usage_status FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE p.run=? ORDER BY p.at DESC LIMIT 360',(run,)).fetchall()
         bars=snapshot.get('display_bars',[])
         lookup={b['time']:b for b in bars}
         if forming:lookup[forming['time']]=forming
@@ -414,7 +481,7 @@ class SwingResearch:
             t=state['evaluation_bar'];partial=state.get('forming')
             b=lookup.get(t) or (partial if partial and partial['time']==t else None) or {'high':state['ask'],'low':state['bid']}
             dots.append({'id':row['id'],'bar':t,'slot':state['evaluation_slot'],'cadence_seconds':state['cadence_seconds'],
-                         'observed_at':row['at'],'vote':vote,'service':response['status'] if response else 'DISABLED',
+                         'observed_at':row['at'],'vote':vote,'service':response['status'] if response else row['usage_status'] or 'UNRESOLVED',
                          'high':b['high'],'low':b['low'],'prediction_bar':state['prediction_bar'],
                          'probabilities':response['answers']['directional_lean']['probabilities'] if available else None})
         return dots
@@ -423,15 +490,19 @@ class SwingResearch:
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')
         with self.lock:run=self.last[symbol].get('run')
         with self.db() as db:
-            rows=db.execute('SELECT * FROM predictions WHERE symbol=? AND run=? ORDER BY at DESC LIMIT 300',(symbol,run)).fetchall()
+            rows=db.execute('SELECT p.*,u.status usage_status FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE p.symbol=? AND p.run=? ORDER BY p.at DESC LIMIT 300',(symbol,run)).fetchall()
             events=db.execute('SELECT * FROM ledger WHERE symbol=? ORDER BY id DESC LIMIT 100',(symbol,)).fetchall()
+            ended=bool(db.execute("SELECT 1 FROM ledger WHERE run=? AND kind='RUN_END' LIMIT 1",(run,)).fetchone())
+            total=db.execute('SELECT COUNT(*) FROM predictions WHERE symbol=? AND run=?',(symbol,run)).fetchone()[0]
+            primary=db.execute('''SELECT at,prediction_bar,
+              json_extract(response,'$.status') service,json_extract(response,'$.received_at') received_at,
+              json_extract(response,'$.answers.next_bar') forecast,json_extract(outcome,'$.label') label,
+              json_extract(state,'$.closed_bars[#-1]') last_bar,json_extract(state,'$.tick') tick
+              FROM predictions WHERE symbol=? AND run=? AND primary_sample=1 ORDER BY at''',(symbol,run)).fetchall()
         predictions=[{**dict(r),'state':json.loads(r['state']),'response':json.loads(r['response']) if r['response'] else None,'outcome':json.loads(r['outcome']) if r['outcome'] else None} for r in rows]
-        scored=[r for r in predictions if r['primary_sample'] and r['response'] and r['response'].get('status')=='AVAILABLE' and r['outcome'] and r['outcome']['label']!='unknown']
-        n=len(scored);correct=sum(r['response']['answers']['next_bar']['choice']==r['outcome']['label'] for r in scored)
-        brier=sum(sum((p-int(k==r['outcome']['label']))**2 for k,p in r['response']['answers']['next_bar']['probabilities'].items()) for r in scored)/n if n else None
-        # Compare on the same evaluated rows to a causal last-closed-candle baseline.
-        baseline=sum(('up' if r['state']['closed_bars'][-1]['close']-r['state']['closed_bars'][-1]['open']>=r['state']['tick']-1e-9 else 'down' if r['state']['closed_bars'][-1]['close']-r['state']['closed_bars'][-1]['open']<=-r['state']['tick']+1e-9 else 'flat')==r['outcome']['label'] for r in scored)
-        return {'predictions':predictions,'events':[{**dict(r),'payload':json.loads(r['payload'])} for r in events],'metrics':{'n':n,'accuracy':correct/n if n else None,'brier':brier,'baseline_accuracy':baseline/n if n else None,'scope':'Current run, latest 300 observations; first sample per minute only. Serial dependence remains; not independent trades, not a calibrated win rate.'}}
+        return {'run':run,'run_ended':ended,'predictions':predictions,
+                'events':[{**dict(r),'payload':json.loads(r['payload'])} for r in events],
+                'metrics':forecast_metrics(primary,total,ended)}
 
     def export(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')
@@ -443,4 +514,7 @@ class SwingResearch:
         with self.cost_meter.db() as db:
             usage=[dict(r) for r in db.execute('SELECT * FROM jev_usage WHERE symbol=? ORDER BY at DESC LIMIT 20000',(symbol,))]
             costs=self.cost_meter.aggregate(db,'WHERE symbol=?',(symbol,))
-        return {'revision':REVISION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'jev_usage':usage,'jev_costs':costs,'limits':{'runs':100,'ledger':20000,'predictions':20000,'jev_usage':20000},'study':self.study_report(symbol),'study_version':STUDY_VERSION,'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}
+        with self.db() as db:
+            bars=[dict(r) for r in db.execute('SELECT * FROM run_bars WHERE symbol=? ORDER BY time DESC LIMIT 100000',(symbol,))]
+            checkpoints=[dict(r) for r in db.execute('SELECT c.* FROM collection_checkpoints c JOIN runs r ON r.id=c.run WHERE r.symbol=?',(symbol,))]
+        return {'run_bars':bars,'checkpoints':checkpoints,'revision':REVISION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'jev_usage':usage,'jev_costs':costs,'limits':{'runs':100,'ledger':20000,'predictions':20000,'jev_usage':20000,'run_bars':100000},'study':self.study_report(symbol),'study_version':STUDY_VERSION,'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}
