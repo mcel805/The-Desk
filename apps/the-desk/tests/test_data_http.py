@@ -26,7 +26,7 @@ class DataHTTPTests(unittest.TestCase):
             self.proc.terminate();self.proc.wait(timeout=25);self.proc.stderr.close()
         self.tmp.cleanup()
     def start(self):
-        env={**os.environ,'DESK_JEV_KEYCHAIN':'disabled'}
+        env={**os.environ,'DESK_JEV_KEYCHAIN':'disabled','DESK_STORAGE_MANAGED':'1'}
         for k in ('TYPESAFE_API_KEY','DESK_JOURNAL_DB_PATH'):env.pop(k,None)
         self.proc=subprocess.Popen([sys.executable,'-B','server.py','--port',str(self.port),'--data-dir',str(self.data),'--no-workers'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
         for _ in range(120):

@@ -63,3 +63,13 @@ These runtime settings are documented in the
 The Mac may still use local storage for application code, credentials, operating
 system caches, browser downloads, and the explicitly selected temporary workspace.
 Browser downloads retain the browser's own destination setting.
+
+## UI regression check
+
+The healthy-drive status sits inside the existing header; disconnected/temporary
+notices float outside the page grid. `tests/verify_storage_notice_browser.js`
+executes all three storage states on the local trading page and verifies chart
+height, header/account alignment, and viewport-contained footer without writing
+settings or switching the real storage mode. HTTP fixtures explicitly mark their
+isolated server children as managed so they cannot route through the production
+storage supervisor.

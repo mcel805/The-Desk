@@ -1,15 +1,26 @@
 // One storage notice across Desk pages; no credentials or broker data.
-let notice;
-async function refreshStorageNotice(){
+let notice,inlineNotice=false;
+export async function refreshStorageNotice(){
  try {
   const response=await fetch('/api/storage/status');if(!response.ok)return;
   const state=await response.json();if(state.mode==='UNMANAGED')return;
   if(!notice){notice=document.createElement('aside');notice.setAttribute('role','status');
-   notice.style.cssText='position:relative;z-index:100;padding:10px 24px;background:#22304a;color:#eef3ff;font:13px system-ui;border-bottom:1px solid #54709a';
-   document.body.prepend(notice);}
+   notice.id='storageNotice';
+   notice.style.cssText='display:flex;align-items:center;gap:8px;flex:none;max-width:100%;font:11px/1.4 system-ui;color:var(--muted,#a8b1c4)';
+   const header=document.querySelector('.desk-header');
+   if(header){header.append(notice);inlineNotice=true;}
+   else{notice.style.cssText+=';position:fixed;bottom:30px;right:10px;z-index:100;background:var(--surface,#22304a);padding:8px 12px;border:1px solid var(--line,#54709a);border-radius:5px;max-width:min(520px,calc(100vw - 20px))';document.body.append(notice);}}
+  notice.style.position=state.mode==='EXTERNAL'&&inlineNotice?'':'fixed';
+  notice.style.bottom=state.mode==='EXTERNAL'&&inlineNotice?'':'30px';
+  notice.style.right=state.mode==='EXTERNAL'&&inlineNotice?'':'10px';
+  notice.style.zIndex=state.mode==='EXTERNAL'&&inlineNotice?'':'100';
+  notice.style.background=state.mode==='EXTERNAL'&&inlineNotice?'':'var(--surface,#22304a)';
+  notice.style.padding=state.mode==='EXTERNAL'&&inlineNotice?'':'10px 14px';
+  notice.style.flexWrap=state.mode==='EXTERNAL'?'nowrap':'wrap';
   notice.replaceChildren();
   const label=document.createElement('span');
-  label.textContent=state.mode==='EXTERNAL'?`SAMSUNG USB · External storage active · ${(state.used_bytes/1e9).toFixed(2)} / ${(state.limit_bytes/1e9).toFixed(0)} GB. `:state.message+' ';
+  label.textContent=state.mode==='EXTERNAL'?`USB · ${(state.used_bytes/1e9).toFixed(2)} / ${(state.limit_bytes/1e9).toFixed(0)} GB`:state.message+' ';
+  notice.title=state.mode==='EXTERNAL'?'SAMSUNG USB · External storage active':state.message;
   notice.append(label);
   if(state.offline_archives?.length){const saved=document.createElement('span');saved.textContent=`${state.offline_archives.length} temporary workspace(s) preserved separately on the USB. `;saved.title=state.offline_archives.join('\n');notice.append(saved);}
   if(state.mode==='WAITING'){
