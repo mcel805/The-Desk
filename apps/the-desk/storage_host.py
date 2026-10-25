@@ -91,12 +91,8 @@ def attach_aliases(policy, base):
         set_alias(item['path'], target)
 
 def route_if_configured(data_dir, port, detach=False, stop=False, qa=False):
-    """Explicit alternate test/data directories retain their existing behavior."""
+    """Route normal launches through the external-first supervisor."""
     if qa or os.environ.get('DESK_STORAGE_MANAGED') == '1' or not POLICY.is_file(): return False
-    policy = json.loads(POLICY.read_text())
-    original = Path(policy['desk_alias']).absolute()
-    if data_dir and Path(data_dir).expanduser().absolute() not in (original, Path(policy['external_root']) / 'live/desk'):
-        return False
     command = [sys.executable, '-B', str(ROOT / 'storage_host.py'), '--port', str(port)]
     if stop: command.append('--stop')
     if detach: command.append('--detach')
@@ -138,10 +134,14 @@ class Host:
         destination.mkdir(parents=True,exist_ok=True)
         for source in inbox.iterdir():
             if not source.is_file() or source.is_symlink() or time.time()-source.stat().st_mtime<5:continue
-            if self.used+source.stat().st_size>self.policy['limit_bytes']-64*1024*1024:continue
             # A recording or screenshot still held open stays local until complete.
             opened=subprocess.run(['lsof','-t',str(source)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             if opened.returncode!=1:continue
+            source_size=source.stat().st_size
+            self.used=size(self.policy['external_root'])
+            free=shutil.disk_usage(self.policy['volume']).free
+            reserve=64*1024*1024
+            if self.used+source_size>self.policy['limit_bytes']-reserve or free<=source_size+reserve:continue
             target=destination/source.name
             if target.exists():target=destination/(source.stem+'-'+uuid.uuid4().hex[:8]+source.suffix)
             before=digest(source);shutil.copy2(source,target)

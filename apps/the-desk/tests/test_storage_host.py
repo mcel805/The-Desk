@@ -65,8 +65,26 @@ class StorageHostTests(unittest.TestCase):
    h.flush_captures()
   self.assertFalse(capture.exists())
   self.assertEqual((Path(self.policy['external_root'])/'live/captures/macOS/fixture.png').read_bytes(),b'fixture screenshot')
- def test_explicit_alternate_data_dir_bypasses_policy(self):
+ def test_explicit_alternate_data_dir_still_uses_storage_supervisor(self):
   policy=self.root/'policy.json';policy.write_text(json.dumps({**self.policy,'desk_alias':str(self.root/'desk')}))
-  with patch.object(host,'POLICY',policy):self.assertFalse(host.route_if_configured(str(self.root/'fixture'),18891))
+  with patch.object(host,'POLICY',policy),patch.object(host.subprocess,'run') as run:
+   self.assertTrue(host.route_if_configured(str(self.root/'fixture'),18891))
+   run.assert_called_once_with([host.sys.executable,'-B',str(host.ROOT/'storage_host.py'),'--port','18891'],check=True)
+
+ def test_capture_rechecks_usage_and_free_space_before_copying(self):
+  h=host.Host(self.policy,18880);inbox=h.control/'Capture-Inbox';inbox.mkdir()
+  external=Path(self.policy['external_root']);external.mkdir()
+  (external/'existing').write_bytes(b'123456789')
+  capture=inbox/'fixture.png';capture.write_bytes(b'12');os.utime(capture,(0,0))
+  h.policy['limit_bytes']=10
+  from types import SimpleNamespace
+  with patch.object(host,'drive_ready',return_value=True),patch.object(host.subprocess,'run',return_value=SimpleNamespace(returncode=1)),patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=128*1024*1024)):
+   h.flush_captures()
+  self.assertTrue(capture.exists())
+  self.assertEqual(h.used,9)
+  h.policy['limit_bytes']=200_000_000_000
+  with patch.object(host.shutil,'disk_usage',return_value=SimpleNamespace(free=64*1024*1024+2)):
+   h.flush_captures()
+  self.assertTrue(capture.exists())
 
 if __name__=='__main__':unittest.main()
