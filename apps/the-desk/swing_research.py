@@ -20,7 +20,7 @@ from swing_volume import SwingVolume, VERSION as VOLUME_VERSION
 from jev_costs import JevCostMeter, RATES
 from swing_liquidity import DEFAULTS as STUDY_DEFAULTS, VERSION as STUDY_VERSION, LiquidityStudy, build_htf_context, validate_settings, FRAME_MS
 from swing_metrics import forecast_metrics
-from storage import connect, StorageFault, atomic_json
+from storage import connect, connect_readonly, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
 CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
@@ -92,12 +92,30 @@ class SwingResearch:
                     self.append(previous['id'],symbol,'RUN_END',int(time.time()*1000),{'reason':'SERVER_RESTART','open_plans':'unresolved'})
                     self.end_saved_study(previous['id'], 'SERVER_RESTART')
 
+        from swing_lab import LearningLab
+        self.lab=LearningLab(self.path)
+        self.recover_after=0
+
     @contextmanager
     def db(self):
         db=connect(self.path);db.row_factory=sqlite3.Row
         try:
             with db:yield db
         finally:db.close()
+
+    @contextmanager
+    def read_db(self):
+        db=connect_readonly(self.path)
+        try:yield db
+        finally:db.close()
+
+    def settings_state(self):
+        # No history, cost query or capacity scan can delay form hydration.
+        with self.lock:
+            return {'symbols':{symbol:{'config':deepcopy(self.configs[symbol]),
+                    'revision':digest(self.configs[symbol]),'running':symbol in self.active,
+                    'run':self.last[symbol].get('run')} for symbol in SYMBOLS},
+                    'jev_configured':self.judge.configured,'as_of':int(time.time()*1000)}
 
     def append(self,run,symbol,kind,at,payload,db=None):
         with (nullcontext(db) if db is not None else self.db()) as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
@@ -131,9 +149,9 @@ class SwingResearch:
         with self.lock:
             if self.worker and self.worker.is_alive():return
             self.worker=threading.Thread(target=self.loop,daemon=True,name='swing-research-single')
-            self.worker.start()
+            self.worker.start();self.lab.start()
     def close(self):
-        self.stop.set()
+        self.stop.set();self.lab.close()
         with self.lock:
             for symbol in list(self.active):self.pause(symbol,'SERVICE_STOPPED')
         if self.worker and self.worker is not threading.current_thread():self.worker.join(timeout=15)
@@ -169,10 +187,31 @@ class SwingResearch:
                     'Key set for this server session.' if key else 'Jev disabled for this server session.')+' First successful Jev response verifies access.'}
 
     def command(self,p):
-        if not isinstance(p,dict) or set(p)-{'action','symbol','config','level','level_id'}:raise ValueError('Invalid research command')
+        if not isinstance(p,dict) or set(p)-{'action','symbol','config','level','level_id','expected_revision','compact'}:raise ValueError('Invalid research command')
         symbol=p.get('symbol');action=p.get('action')
         if symbol not in SYMBOLS:raise ValueError('Swing research supports Hyperliquid BTC and ETH only')
         with self.lock:
+            if action=='start_auto':
+                if symbol in self.active:return self.settings_state()
+                if self.active:raise ValueError('Pause the current market before starting another')
+                if p.get('expected_revision') and p['expected_revision']!=digest(self.configs[symbol]):
+                    raise ValueError('Settings changed in another tab. Reload settings and start again.')
+                patch=p.get('config',{})
+                if not isinstance(patch,dict):raise ValueError('Invalid research configuration')
+                if 'study_levels' in patch and patch['study_levels']!=self.configs[symbol]['study_levels']:
+                    raise ValueError('Use timestamped level commands for manual references')
+                previous=self.last[symbol].get('run')
+                if previous and self.last[symbol].get('status')=='STORAGE_ERROR':
+                    with self.read_db() as db:ended=db.execute("SELECT 1 FROM ledger WHERE run=? AND kind='RUN_END'",(previous,)).fetchone()
+                    if not ended:
+                        self.append(previous,symbol,'RUN_END',int(time.time()*1000),{'reason':'STORAGE_INTERRUPTED','open_plans':'unresolved'})
+                        self.end_saved_study(previous,'STORAGE_INTERRUPTED')
+                cfg={**deepcopy(self.configs[symbol]),**patch}
+                cfg=self.lab.selected_config(symbol,cfg)
+                # Configure and start share this lock; no blank form or other tab can intervene.
+                self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
+                result=self.command({'action':'start','symbol':symbol,'compact':True})
+                self.lab.intent(symbol,True);return result
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])
                 if action=='level_add':
@@ -183,6 +222,7 @@ class SwingResearch:
                     if not isinstance(p.get('level_id'),str) or not any(x['id']==p['level_id'] for x in cfg['study_levels']):raise ValueError('Unknown manual reference')
                     cfg['study_levels']=[x for x in cfg['study_levels'] if x['id']!=p['level_id']]
                 validate_settings(cfg)
+                self.lab.intent(symbol,False)
                 self.pause(symbol,'HTF_MAP_CHANGED');self.configs[symbol]=cfg;self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
             elif action=='configure':
@@ -195,11 +235,12 @@ class SwingResearch:
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
                 Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS})
                 if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
+                if not p.get('compact'):self.lab.intent(symbol,False)
                 self.pause(symbol,'CONFIG_CHANGED');self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
                 self.configs[symbol]=cfg
             elif action=='start':
-                if symbol in self.active:return self.status()
+                if symbol in self.active:return self.settings_state() if p.get('compact') else self.status()
                 if self.active:
                     current=next(iter(self.active))
                     raise ValueError('One observation run at a time. Pause '+current+' before starting '+symbol+'.')
@@ -211,11 +252,17 @@ class SwingResearch:
                     db.execute('INSERT INTO runs VALUES(?,?,?,?)',(run,symbol,now,encode(cfg)))
                     self.append(run,symbol,'RUN_START',now,{'config':cfg,'revision':REVISION,'code_hash':CODE_HASH,'model':MODEL,'prompt':PROMPT_VERSION,'study_version':STUDY_VERSION,'validation_reference':reference},db=db)
                 self.active[symbol]={'run':run,'config':cfg,'tracker':None,'persisted_seq':0,'last_bucket':None,'sample_slot':None,'seen':{},'started':now,'study':None,'validation_reference':reference}
+                if hasattr(self,'lab'):
+                    contract=self.lab.assign(run,symbol,cfg,now)
+                    self.append(run,symbol,'LAB_ASSIGNMENT',now,contract)
                 self.context_cache.pop(symbol,None)
                 self.next_due[symbol]=0;self.last[symbol]={'status':'WARMING','run':run,'detail':'Loading completed 1m candles; historical events are warmup only.'}
-            elif action=='pause':self.pause(symbol,'USER_PAUSED')
+            elif action=='pause':
+                self.pause(symbol,'USER_PAUSED')
+                intent=self.lab.intent()
+                if intent and intent['symbol']==symbol:self.lab.intent(symbol,False)
             else:raise ValueError('Unknown research action')
-            return self.status()
+            return self.settings_state() if p.get('compact') else self.status()
 
     def pause(self,symbol,reason):
         a=self.active.pop(symbol,None)
@@ -231,6 +278,12 @@ class SwingResearch:
 
     def loop(self):
         while not self.stop.is_set():
+            if not self.active and time.monotonic()>=self.recover_after:
+                self.recover_after=time.monotonic()+30
+                try:
+                    intent=self.lab.intent()
+                    if intent and intent['enabled']:self.command({'action':'start_auto','symbol':intent['symbol']})
+                except Exception:pass  # Key/storage/settings errors remain paused; retry with backoff.
             with self.lock:
                 symbol=next(iter(self.active),None)
                 a=self.active.get(symbol);due=self.next_due.get(symbol,0)
@@ -385,7 +438,7 @@ class SwingResearch:
     def validation_reference(self,symbol,config):
         if not config.get('study_enabled') or config.get('study_phase')!='forward_validation':return None
         wanted=self.recipe_id(symbol,config)
-        with self.db() as db:rows=db.execute('SELECT run,state FROM study_state WHERE symbol=? ORDER BY at DESC',(symbol,)).fetchall()
+        with self.read_db() as db:rows=db.execute('SELECT run,state FROM study_state WHERE symbol=? ORDER BY at DESC',(symbol,)).fetchall()
         for row in rows:
             report=json.loads(row['state'])
             if report.get('ended') and report.get('settings',{}).get('study_phase')=='development' and report.get('recipe_id')==wanted:
@@ -394,7 +447,7 @@ class SwingResearch:
 
     def study_archive(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported study symbol')
-        with self.db() as db:
+        with self.read_db() as db:
             rows=db.execute('SELECT state FROM study_state WHERE symbol=? ORDER BY at DESC LIMIT 200',(symbol,)).fetchall()
             total=db.execute('SELECT COUNT(*) FROM study_state WHERE symbol=?',(symbol,)).fetchone()[0]
         reports=[json.loads(r['state']) for r in rows]
@@ -440,7 +493,7 @@ class SwingResearch:
         if symbol not in SYMBOLS:raise ValueError('Unsupported study symbol')
         if run is None:
             with self.lock:run=self.last[symbol].get('run')
-        with self.db() as db:row=db.execute('SELECT state FROM study_state WHERE run=? AND symbol=?',(run,symbol)).fetchone()
+        with self.read_db() as db:row=db.execute('SELECT state FROM study_state WHERE run=? AND symbol=?',(run,symbol)).fetchone()
         return json.loads(row['state']) if row else None
 
     def end_saved_study(self,run,reason):
@@ -478,7 +531,7 @@ class SwingResearch:
             now=int(time.time()*1000);result={}
             for symbol in SYMBOLS:
                 s=deepcopy(self.last[symbol]);s['running']=symbol in self.active;s['config']=deepcopy(self.configs[symbol])
-                with self.db() as db:
+                with self.read_db() as db:
                     saved=db.execute('SELECT COUNT(*) n,MIN(time) first,MAX(time) last,COALESCE(SUM(warmup=0),0) live FROM run_bars WHERE run=?',(s.get('run'),)).fetchone()
                     checkpoint=db.execute('SELECT observed_at,closed_cutoff,prediction_id FROM collection_checkpoints WHERE run=?',(s.get('run'),)).fetchone()
                     gaps=db.execute('SELECT COUNT(*) FROM (SELECT time,LAG(time) OVER(ORDER BY time) prev FROM run_bars WHERE run=?) WHERE prev IS NOT NULL AND time-prev!=60000',(s.get('run'),)).fetchone()[0]
@@ -501,7 +554,7 @@ class SwingResearch:
 
     def dots(self,run,snapshot,forming):
         if not run:return []
-        with self.db() as db:rows=db.execute('SELECT p.id,p.at,p.state,p.response,u.status usage_status FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE p.run=? ORDER BY p.at DESC LIMIT 360',(run,)).fetchall()
+        with self.read_db() as db:rows=db.execute('SELECT p.id,p.at,p.state,p.response,u.status usage_status FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE p.run=? ORDER BY p.at DESC LIMIT 360',(run,)).fetchall()
         bars=snapshot.get('display_bars',[])
         lookup={b['time']:b for b in bars}
         if forming:lookup[forming['time']]=forming
@@ -522,7 +575,7 @@ class SwingResearch:
     def history(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')
         with self.lock:run=self.last[symbol].get('run')
-        with self.db() as db:
+        with self.read_db() as db:
             rows=db.execute('SELECT p.*,u.status usage_status FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE p.symbol=? AND p.run=? ORDER BY p.at DESC LIMIT 300',(symbol,run)).fetchall()
             events=db.execute('SELECT * FROM ledger WHERE symbol=? ORDER BY id DESC LIMIT 100',(symbol,)).fetchall()
             ended=bool(db.execute("SELECT 1 FROM ledger WHERE run=? AND kind='RUN_END' LIMIT 1",(run,)).fetchone())
@@ -548,7 +601,7 @@ class SwingResearch:
 
     def export(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')
-        with self.db() as db:
+        with self.read_db() as db:
             # Bound each export; no trading account or credentials are stored here.
             runs=[dict(r) for r in db.execute('SELECT * FROM runs WHERE symbol=? ORDER BY started DESC LIMIT 100',(symbol,))]
             ledger=[dict(r) for r in db.execute('SELECT * FROM ledger WHERE symbol=? ORDER BY id DESC LIMIT 20000',(symbol,))]
@@ -556,7 +609,7 @@ class SwingResearch:
         with self.cost_meter.db() as db:
             usage=[dict(r) for r in db.execute('SELECT * FROM jev_usage WHERE symbol=? ORDER BY at DESC LIMIT 20000',(symbol,))]
             costs=self.cost_meter.aggregate(db,'WHERE symbol=?',(symbol,))
-        with self.db() as db:
+        with self.read_db() as db:
             bars=[dict(r) for r in db.execute('SELECT * FROM run_bars WHERE symbol=? ORDER BY time DESC LIMIT 100000',(symbol,))]
             checkpoints=[dict(r) for r in db.execute('SELECT c.* FROM collection_checkpoints c JOIN runs r ON r.id=c.run WHERE r.symbol=?',(symbol,))]
         return {'run_bars':bars,'checkpoints':checkpoints,'revision':REVISION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'jev_usage':usage,'jev_costs':costs,'limits':{'runs':100,'ledger':20000,'predictions':20000,'jev_usage':20000,'run_bars':100000},'study':self.study_report(symbol),'study_version':STUDY_VERSION,'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}

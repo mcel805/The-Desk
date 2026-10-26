@@ -7,7 +7,7 @@ the v1 completed-swing audit and its frozen outcome rules remain available.
 ## Start a study
 
 Launch the local checkout with `python3 server.py --port 18884 --no-workers`,
-then open `/swing-lab.html`. Research always starts paused. Review the selected
+then open `/swing-lab.html`. Manual/API research starts paused; Swing Lab Start explicitly enables automatic continuation. Review the selected
 BTC/ETH market, manual bias, permitted sides, measurement window, entry/risk
 settings, optional cost scenario and research phase. Select **Start tracker
 only** or explicitly enable Jev. The existing Keychain credential integration
@@ -113,8 +113,7 @@ validation** requires a closed development run with an exact matching recipe,
 apart from the phase field. Its reference ID is saved before collecting the new
 run. Only new forward contacts qualify; warmup remains context. Changes to
 settings/code/model/questions require a new development reference. The study
-archive keeps recipe IDs and phases separate. No automatic training, parameter
-winner promotion, calibrated reversal probability or significance claim exists.
+archive keeps recipe IDs and phases separate. The ongoing lab below can promote a deterministic tracker setting only after its separate prospective validation gate. No model training, calibrated reversal probability or significance claim exists.
 The inherited 50/200 swing milestones are audit/exploration checkpoints.
 
 ## Jev's role
@@ -173,3 +172,53 @@ derived run snapshot; immutable events retain campaign/plan/entry/outcome
 receipts. `swing_advisories` retains requested review packets and responses.
 No key/account/balance/order ticket enters these payloads. Public Hyperliquid
 BTC/ETH behavior cannot establish MYM transfer or TradingView numerical parity.
+
+## Automatic settings and the ongoing statistical lab
+
+`GET /api/swing/settings` returns the complete saved configuration and its revision
+without reading forecasts, costs or the archive. The form synchronizes independently;
+last-known browser values are a display cache only. Start waits for a successful
+server sync, preserves manual edits and submits one atomic `start_auto` command.
+A stale tab cannot overwrite a newer settings revision. Reload saved settings discards
+unsaved form edits. Optional unknown costs remain explicitly unset.
+
+Starting from Swing Lab opts the selected market into continuing local observation.
+The server retains this intent across restart and starts a **new run** after a gap,
+revised candle, or 24-hour boundary; it never fills the missing interval as forward
+observations. Retries back off for 30 seconds. Pause, manual settings saves and manual
+HTF map changes disable recovery. Missing keys, failed storage checks or unavailable
+fresh data remain errors, not permission to invent evidence. The Mac and USB must
+remain available; this is a local background service, not cloud collection.
+
+`swing_lab.py` reviews every retained run once per minute in a separate worker.
+Input hashes cache unchanged replays. Current-engine retrospective results remain
+labeled separately from experiments assigned before their run began. It freezes
+one changed factor (micro pivot sides, swing timeframe, then parent pivot sides),
+with unchanged permissions, stops, budgets, costs and manual levels. Baseline and
+challenger replay the **same saved one-minute bars and actual receipt timestamps**,
+with each historical HTF context applied only after it was actually observed.
+Warmup does not count as forward evidence. No extra model calls are made.
+
+The primary tuning comparison is deterministic tracker entry at shared HTF reversal
+contacts. Continuations, next-candle forecasts and Jev-filtered entries are separate
+measurements and are not claimed to improve when a tracker setting changes. Pairing
+uses the same contacted reference/bar; duplicate contacts are deduplicated. Missing
+contacts, ambiguous exits, missing costs and unfinished attempts are not zero wins.
+No-entry terminal contacts remain in the opportunity denominator.
+
+Exploration requires at least 20 resolved paired contacts on three UTC days. A
+positive lower 95% daily-cluster bootstrap bound and no worse daily drawdown open
+a **new** validation contract for future runs. Validation requires 60 resolved
+contacts over ten UTC days, a specified cost scenario, at most 10% incomplete pairs,
+and the same improvement gates. Failed tests advance to the next one-factor trial.
+Passing validation updates the reference only at the next observation start;
+no running configuration or historical result is rewritten. These are predeclared
+research gates, not proof of an edge; correlated regimes and repeated experiments
+still limit inference. All contracts, transitions and review receipts stay in the
+private research SQLite database and are included in its normal backups.
+
+`GET /api/swing/lab` exposes the current review and experiment status. The UI shows
+counts, settings differences, evidence phase and automatic-collection intent.
+The first archive review (nine retained BTC runs, 1,025 snapshots, 271 forward
+candles) found one recorded contact and zero resolved liquidity-study outcomes;
+it did **not** establish or promote an efficient setting.

@@ -228,6 +228,8 @@ def main():
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
+                if parsed.path=='/api/swing/settings':return self.json(swing_research.settings_state())
+                if parsed.path=='/api/swing/lab':return self.json(swing_research.lab.status())
                 if parsed.path=='/api/swing/status':return self.json(swing_research.status())
                 if parsed.path=='/api/swing/study/archive':return self.json(swing_research.study_archive(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/study':return self.json(swing_research.study_report(value('symbol','hyperliquid:BTC')))
@@ -272,7 +274,7 @@ def main():
                 if agents.post(self,path,p):return
                 if robinhood.post(self,path,p):return
                 if funding.post(self,path,p):return
-                if path=='/api/swing/control':return self.json(swing_research.command(p))
+                if path=='/api/swing/control':return self.json(swing_research.command({**p,'compact':True}) if p.get('action')=='start_auto' else swing_research.command(p))
                 if path=='/api/ibkr/demo':
                     if not isinstance(p,dict) or set(p)!={'paused'}:raise ValueError('Expected a demo paused flag.')
                     return self.json(ibkr.pause_demo(p['paused']))

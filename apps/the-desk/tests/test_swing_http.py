@@ -67,6 +67,19 @@ class SwingHTTPTests(unittest.TestCase):
             for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
                 self.request('/api/swing/control',{'action':'pause','symbol':symbol})
 
+    def test_fast_settings_and_atomic_auto_start_pause_are_available(self):
+        for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
+            self.request('/api/swing/control',{'action':'pause','symbol':symbol})
+        settings=self.request('/api/swing/settings')
+        cfg=settings['symbols']['hyperliquid:BTC']
+        self.assertGreater(cfg['config']['quantity'],0)
+        try:
+            state=self.request('/api/swing/control',{'action':'start_auto','symbol':'hyperliquid:BTC','expected_revision':cfg['revision']})
+            self.assertTrue(state['symbols']['hyperliquid:BTC']['running'])
+            self.assertIn('revision',state['symbols']['hyperliquid:BTC'])
+            self.assertEqual(self.request('/api/swing/lab')['version'],'swing-learning.1')
+        finally:self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+
     def test_invalid_symbols_cadence_key_and_cross_origin_rejected(self):
         for p in [{'action':'start','symbol':'coinbase:BTC-USD'}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'cadence_seconds':1}}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'jev_enabled':True}}]:
             with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',p)
