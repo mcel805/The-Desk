@@ -245,9 +245,8 @@ class Engine:
         self.event(db,'order',{'account_id':a['id'],'order_id':o['id'],'message':side.upper()+' '+kind+' accepted · PAPER'})
         if kind=='market':self.fill_order(db,o,dec(q['ask'] if side=='buy' else q['bid']))
         result=dict(db.execute('SELECT * FROM orders WHERE id=?',(o['id'],)).fetchone())
-        if result.get('position_id'):
-            position=db.execute("SELECT * FROM positions WHERE id=? AND account_id=? AND status='open'",(result['position_id'],a['id'])).fetchone()
-            if position:result['position']=dict(position)
+        if kind=='market' and result['status']=='filled':
+            result['positions']=[dict(row) for row in db.execute("SELECT * FROM positions WHERE account_id=? AND instrument=? AND status='open' ORDER BY opened_at DESC",(a['id'],instrument))]
         return result
 
     def owned_order(self,db,p):

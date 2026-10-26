@@ -29,15 +29,22 @@ test('only acknowledged orders are removed from working state',()=>{
 });
 
 test('acknowledged placement, amendment, protection and partial close update visible state before polling',()=>{
- const state={active_account:'a',orders:[],positions:[{id:'p',qty:'.002',stop:'90',target:'110',revision:1}]};
+ const state={active_account:'a',orders:[],positions:[{id:'p',instrument:'hyperliquid:BTC',qty:'.002',stop:'90',target:'110',revision:1}]};
  const order={id:'o',account_id:'a',price:'95',status:'working',revision:1};
  acknowledgeTradingResult(state,'order',{account_id:'a'},order);assert.deepEqual(state.orders,[order]);
  const position={id:'opened',account_id:'a',instrument:'hyperliquid:BTC',side:'buy',qty:'.001',entry:'101',status:'open',revision:1};
- acknowledgeTradingResult(state,'order',{account_id:'a'},{id:'filled',account_id:'a',status:'filled',position_id:'opened',position});assert.deepEqual(state.positions,[position,state.positions[1]]);
+ const original=state.positions[0];
+ acknowledgeTradingResult(state,'order',{account_id:'a',instrument:'hyperliquid:BTC'},{id:'filled',account_id:'a',instrument:'hyperliquid:BTC',status:'filled',position_id:'opened',positions:[position,original]});assert.deepEqual(state.positions,[position,original]);
  acknowledgeTradingResult(state,'amend',{account_id:'a'},{...order,price:'96',revision:2});assert.equal(state.orders.find(o=>o.id==='o').price,'96');assert.equal(state.orders.length,2);
  acknowledgeTradingResult(state,'bracket',{account_id:'a',stop:'',target:'110'},{updated:'p'});const tracked=()=>state.positions.find(p=>p.id==='p');assert.equal(tracked().stop,null);assert.equal(tracked().target,'110');assert.equal(tracked().revision,2);
  acknowledgeTradingResult(state,'close',{account_id:'a'},{position_id:'p',closed_quantity:'.001'});assert.equal(tracked().qty,'0.001');assert.equal(tracked().revision,3);
  acknowledgeTradingResult(state,'close',{account_id:'a'},{position_id:'p',closed_quantity:'.001'});assert.deepEqual(state.positions,[position]);
+});
+
+test('netting acknowledgement removes closed exposure for the affected instrument',()=>{
+ const state={active_account:'a',orders:[],positions:[{id:'old',instrument:'hyperliquid:BTC'},{id:'eth',instrument:'hyperliquid:ETH'}]};
+ acknowledgeTradingResult(state,'order',{account_id:'a',instrument:'hyperliquid:BTC'},{id:'filled',instrument:'hyperliquid:BTC',status:'filled',positions:[]});
+ assert.deepEqual(state.positions,[{id:'eth',instrument:'hyperliquid:ETH'}]);
 });
 test('an acknowledgement for the previous account does not affect the newly selected ledger',()=>{
  const state={active_account:'b',orders:[{id:'o',status:'working',revision:1}],positions:[]};

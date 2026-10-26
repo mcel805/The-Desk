@@ -21,7 +21,7 @@ class PaperTests(unittest.TestCase):
     def state(self):return self.e.state(self.a)
     def test_market_fee_and_partial_exit_reconcile(self):
         order=self.order(qty='2');p=self.state()['positions'][0]
-        self.assertEqual(order['position_id'],p['id']);self.assertEqual(order['position'],p)
+        self.assertEqual(order['position_id'],p['id']);self.assertEqual(order['positions'],[p])
         self.assertEqual(p['entry'],'101');self.assertEqual(Decimal(self.state()['accounts'][0]['balance']),Decimal('9999.899'))
         self.quote(110,111)
         self.e.execute('close','close',{'account_id':self.a,'id':p['id'],'revision':p['revision'],'qty':'.5'})
@@ -70,7 +70,8 @@ class PaperTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.e.execute('wrong-close','close',{'account_id':b,'id':p['id'],'revision':1})
         self.assertFalse(self.e.state(b)['positions']);self.assertEqual(len(self.state()['positions']),1)
     def test_reversal_nets_and_retains_journal_legs(self):
-        self.order();self.order('reverse',side='sell',qty='2');s=self.state()
+        self.order();reversal=self.order('reverse',side='sell',qty='2');s=self.state()
+        self.assertEqual(reversal['positions'],s['positions'])
         self.assertEqual(len(s['positions']),1);self.assertEqual(s['positions'][0]['side'],'sell');self.assertEqual(s['positions'][0]['qty'],'1');self.assertEqual(len(s['fills']),3)
     def test_spot_inventory_and_pending_sells(self):
         i='coinbase:BTC-USD';self.quote(100,101,i)
