@@ -27,6 +27,31 @@ CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for 
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
 
+def request_reliability(rows):
+    """All retained evaluations in this run; disabled and pending are not successes."""
+    def summarize(items):
+        available=failed=pending=disabled=recovered=0;errors={}
+        for r in items:
+            n=r['n'];status=r['status']
+            if status=='DISABLED':disabled+=n
+            elif status=='PENDING':pending+=n
+            elif status=='AVAILABLE':
+                available+=n
+                if r['attempts']>1:recovered+=n
+            else:
+                failed+=n
+                code=r['error_code'] or status
+                label=(str(r['http_status'])+' / ' if r['http_status'] else '')+code
+                errors[label]=errors.get(label,0)+n
+        completed=available+failed;rate=failed/completed if completed else None
+        return {'completed':completed,'available':available,'failed':failed,'pending':pending,'disabled':disabled,
+                'recovered':recovered,'failure_rate':rate,'target_failure_rate':.01,
+                'below_target':rate<.01 if rate is not None else None,'errors':errors,
+                'zero_failure_upper_95':1-.05**(1/completed) if completed and not failed else None}
+    rows=[dict(r) for r in rows]
+    return {**summarize(rows),'by_prompt':{p:summarize([r for r in rows if r['prompt']==p]) for p in sorted({r['prompt'] for r in rows})},
+            'current_prompt':PROMPT_VERSION,'scope':'Current run, all retained evaluations; stale, unavailable and unresolved count as failures. Neutral is a valid answer. Small samples do not establish a long-run failure rate.'}
+
 class SwingResearch:
     def __init__(self,gateway,directory,judge=None):
         self.gateway=gateway;self.judge=judge or Jev();self.lock=threading.RLock();self.stop=threading.Event()
@@ -337,6 +362,7 @@ class SwingResearch:
                 jev={'status':'STALE' if stale else 'AVAILABLE','latency_ms':round(elapsed),'received_at':finished,'prompt':PROMPT_VERSION,**result}
             except Exception as e:
                 jev={'status':'UNAVAILABLE','error_class':type(e).__name__,'prompt':PROMPT_VERSION}
+                jev.update(getattr(e,'diagnostics',{}))
                 if getattr(e,'safe_usage',None):jev.update(usage=e.safe_usage,model=getattr(e,'response_model',MODEL))
             jev['pricing_snapshot']=pricing
             with self.db() as db:
@@ -506,10 +532,19 @@ class SwingResearch:
               json_extract(response,'$.answers.next_bar') forecast,json_extract(outcome,'$.label') label,
               json_extract(state,'$.closed_bars[#-1]') last_bar,json_extract(state,'$.tick') tick
               FROM predictions WHERE symbol=? AND run=? AND primary_sample=1 ORDER BY at''',(symbol,run)).fetchall()
+            reliability_rows=db.execute('''SELECT
+              COALESCE(json_extract(p.response,'$.status'),u.status,'UNRESOLVED') status,
+              COALESCE(json_extract(p.response,'$.prompt'),'legacy/unknown') prompt,
+              json_extract(p.response,'$.http_status') http_status,
+              json_extract(p.response,'$.error_code') error_code,
+              COALESCE(json_extract(p.response,'$.transport.attempt_count'),1) attempts,COUNT(*) n
+              FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id
+              WHERE p.symbol=? AND p.run=? GROUP BY 1,2,3,4,5''',(symbol,run)).fetchall()
         predictions=[{**dict(r),'state':json.loads(r['state']),'response':json.loads(r['response']) if r['response'] else None,'outcome':json.loads(r['outcome']) if r['outcome'] else None} for r in rows]
         return {'run':run,'run_ended':ended,'predictions':predictions,
                 'events':[{**dict(r),'payload':json.loads(r['payload'])} for r in events],
-                'metrics':forecast_metrics(primary,total,ended)}
+                'metrics':forecast_metrics(primary,total,ended),
+                'reliability':request_reliability(reliability_rows)}
 
     def export(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')
