@@ -109,6 +109,16 @@ const cleanLedger = (db: Database.Database): void => {
   for (const row of rows) if (!processAlive(row.owner_pid)) remove.run(row.token);
 };
 
+const physicalSpaceAvailable = (configured: StoragePolicy, required: number): boolean => {
+  try {
+    const stats = statfsSync(configured.volume);
+    const free = Number(stats.bavail) * Number(stats.bsize);
+    return free > Math.max(MIN_FREE_BYTES, required);
+  } catch {
+    return false;
+  }
+};
+
 const ledgerSnapshot = (configured: StoragePolicy): { used: number; reserved: number } | null => {
   const path = reservationPath();
   if (!path) return null;
@@ -153,6 +163,7 @@ const reserveLedger = (configured: StoragePolicy, bytes: number): string => {
         committed_bytes: number;
       };
       const reserved = db.prepare("SELECT COALESCE(SUM(bytes), 0) AS bytes FROM budget_reservations").get() as { bytes: number };
+      if (!physicalSpaceAvailable(configured, bytes)) throw new JournalStorageBudgetError();
       if (meta.base_used + meta.committed_bytes + reserved.bytes + bytes > configured.limit_bytes)
         throw new JournalStorageBudgetError();
       db.prepare("INSERT INTO budget_reservations VALUES(?, ?, ?, ?)").run(token, process.pid, bytes, Date.now());
@@ -249,19 +260,10 @@ export class JournalBudget {
     if (process.env.DESK_STORAGE_MODE !== "EXTERNAL") return true;
     if (!this.refresh() || !this.configured) return false;
     if (this.activeToken) return true;
-    try {
-      const stats = statfsSync(this.configured.volume);
-      const free = Number(stats.bavail) * Number(stats.bsize);
-      const tracked = this.tracked();
-      if (!tracked) return false;
-      const required = this.reservationBytes(additional);
-      return (
-        tracked.used + tracked.reserved + required <= this.configured.limit_bytes &&
-        free > Math.max(MIN_FREE_BYTES, required)
-      );
-    } catch {
-      return false;
-    }
+    const tracked = this.tracked();
+    if (!tracked) return false;
+    const required = this.reservationBytes(additional);
+    return tracked.used + tracked.reserved + required <= this.configured.limit_bytes && physicalSpaceAvailable(this.configured, required);
   }
 
   assert(additional = 0): void {
