@@ -32,13 +32,13 @@ async function api(path,payload,headers={}){
 }
 function toast(text,error=false){$('#toast').textContent=text;$('#toast').classList.add('visible');$('#toast').style.borderColor=error?'#f23645':'#525d73';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),5000);}
 let tradingGeneration=0;
-const tradingActions=createTradingActions({onPending:()=>renderManager(),accountId:()=>activeAccount,replay:()=>!!ws?.replay.state.active,send:async(action,payload,key)=>{
- if(brokerContext?.selected)throw Error('Robinhood selected. Paper ledger actions are unavailable; use the broker workspace.');
+const tradingActions=createTradingActions({onPending:()=>renderManager(),onReconciled:()=>{tradingGeneration++;void refresh();},reconcile:attempt=>api('/api/command-status',{key:attempt.id,action:attempt.action,payload:attempt.payload}),accountId:()=>activeAccount,replay:()=>!!ws?.replay.state.active,send:async(action,payload,key,attempt)=>{
+ if(brokerContext?.selected)throw Object.assign(Error('Robinhood selected. Paper ledger actions are unavailable; use the broker workspace.'),{definitive:true});
  const result=await api('/api/command',{action,payload},{'Idempotency-Key':key});
- tradingGeneration++;acknowledgeTradingResult(state,action,payload,result);renderManager();
+ if(!attempt.uncertain){tradingGeneration++;acknowledgeTradingResult(state,action,payload,result);renderManager();}
  // Ledger acknowledgement completes the action; unrelated health/poll requests
  // cannot hold a chart click or a dialog open after the command succeeded.
- void refresh();return result;
+ if(!attempt.uncertain)void refresh();return result;
 }});
 function command(action,payload){return tradingActions.run(action,payload);}
 async function instantAction(action,payload,message){

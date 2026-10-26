@@ -272,6 +272,9 @@ def main():
                 if path=='/api/ibkr/demo':
                     if not isinstance(p,dict) or set(p)!={'paused'}:raise ValueError('Expected a demo paused flag.')
                     return self.json(ibkr.pause_demo(p['paused']))
+                if path=='/api/command-status':
+                    if not isinstance(p,dict) or set(p)!={'key','action','payload'}:raise ValueError('Invalid command status request')
+                    return self.json(engine.command_status(p['key'],p['action'],p['payload']))
                 if path=='/api/command':return self.json(engine.execute(self.headers.get('Idempotency-Key'),p['action'],p['payload']))
                 if path in ('/api/settings','/api/settings/commit'):
                     expected=None;writer='legacy'

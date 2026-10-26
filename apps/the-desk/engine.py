@@ -154,6 +154,15 @@ class Engine:
             db.execute('INSERT INTO commands VALUES(?,?,?)',(key,h,json.dumps(result)))
             return result
 
+    def command_status(self,key,action,payload):
+        if not key or len(key)>200: raise ValueError('An idempotency key is required.')
+        h=hashlib.sha256(json.dumps([action,payload],sort_keys=True).encode()).hexdigest()
+        with self.lock, self.db() as db:
+            row=db.execute('SELECT hash,result FROM commands WHERE id=?',(key,)).fetchone()
+            if not row:return {'state':'unknown'}
+            if row['hash']!=h:raise ValueError('Idempotency key was reused for a different command.')
+            return {'state':'committed','result':json.loads(row['result'])}
+
     def create_account(self,db,p):
         name=str(p.get('name','')).strip()
         if not name or len(name)>80: raise ValueError('Account name must contain 1–80 characters.')

@@ -16,6 +16,15 @@ test('uncertain responses retain idempotency identity; validation failures permi
  await assert.rejects(actions.run('cancel',payload),/Lost/);mode='ok';await actions.run('cancel',payload);assert.deepEqual(keys,['1','1']);
  mode='invalid';await assert.rejects(actions.run('cancel',payload),/Invalid/);mode='ok';await actions.run('cancel',payload);assert.deepEqual(keys,['1','1','2','3']);
 });
+test('uncertain responses reconcile without replaying a committed result',async()=>{
+ let next=0,mode='unknown',scheduled,checked=0,reconciled=0;const keys=[];
+ const actions=createTradingActions({accountId:()=> 'a',replay:()=>false,key:()=>String(++next),schedule:fn=>{scheduled=fn;return 1;},cancelSchedule:()=>{},reconcile:async attempt=>{checked++;return mode==='unknown'?{state:'unknown'}:{state:'committed',result:{id:'old',status:'filled'}};},onReconciled:()=>reconciled++,send:async(a,p,k)=>{keys.push(k);throw Error('Offline');}});
+ const tick=()=>new Promise(resolve=>setImmediate(resolve));await assert.rejects(actions.run('order',{account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'}),/Offline/);await tick();assert.equal(checked,1);assert.equal(reconciled,0);mode='committed';await scheduled();await tick();assert.equal(reconciled,1);assert.deepEqual(keys,['1']);
+});
+test('a late response after uncertainty resolves through reconciliation',async()=>{
+ let first=true,reconciled=0,attempts=[];const actions=createTradingActions({accountId:()=> 'a',replay:()=>false,key:()=> 'same',reconcile:async()=>({state:'unknown'}),schedule:fn=>{attempts.push(fn);return attempts.length;},cancelSchedule:()=>{},onReconciled:()=>reconciled++,send:async(a,p,k,attempt)=>{if(first){first=false;throw Error('Lost acknowledgement');}assert.equal(attempt.uncertain,true);return {id:'cached',status:'filled'};}});
+ await assert.rejects(actions.run('order',{account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'}),/Lost/);await new Promise(resolve=>setImmediate(resolve));await actions.run('order',{account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'});assert.equal(reconciled,1);
+});
 test('replay and account switches block commands before transport',async()=>{
  let sends=0,account='b',replay=false;const actions=createTradingActions({accountId:()=>account,replay:()=>replay,send:()=>sends++});
  for(const action of ['order','amend','cancel','bracket','close','flatten','cancel_orders','reverse'])await assert.rejects(actions.run(action,payload),/Account changed/);

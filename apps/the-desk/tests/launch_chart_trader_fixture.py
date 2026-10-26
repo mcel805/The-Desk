@@ -55,10 +55,15 @@ def main():
     try:
      if path=='/qa/faults':faults.clear();faults.update(p);return self.reply({'ok':True})
      if path=='/qa/quote':engine.ingest(p.get('instrument','hyperliquid:BTC'),p['bid'],p['ask'],{'tick':'1','qty_step':'.001'});return self.reply({'ok':True})
+     if path=='/api/command-status':
+      if set(p)!={'key','action','payload'}:return self.reply({'error':'Invalid command status request'},400)
+      return self.reply(engine.command_status(p['key'],p['action'],p['payload']))
      if path=='/api/command':
       if faults.get('command_delay'):time.sleep(faults['command_delay'])
       if faults.get('reject'):return self.reply({'error':'Synthetic command rejection'},400)
-      quotes();key=self.headers.get('Idempotency-Key');result=engine.execute(key,p['action'],p['payload']);commands.append({**p,'key':key,'at':time.time()});return self.reply(result)
+      quotes();key=self.headers.get('Idempotency-Key');result=engine.execute(key,p['action'],p['payload']);commands.append({**p,'key':key,'at':time.time()})
+      if faults.get('drop_command_response'):self.close_connection=True;return
+      return self.reply(result)
      if path=='/api/settings/commit':return self.reply(settings.commit(p['values'],p['expected'],p['writer']))
      return self.reply({'error':'No external writes in chart QA'},403)
     except SettingsConflict as e:return self.reply({'error':str(e),'state':e.state},409)

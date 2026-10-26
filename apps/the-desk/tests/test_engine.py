@@ -49,6 +49,9 @@ class PaperTests(unittest.TestCase):
     def test_idempotency_and_changed_payload(self):
         one=self.order();two=self.order();self.assertEqual(one['id'],two['id']);self.assertEqual(len(self.state()['fills']),1)
         with self.assertRaisesRegex(ValueError,'different command'):self.order(qty='2')
+        status=self.e.command_status('order','order',{'account_id':self.a,'instrument':self.i,'side':'buy','kind':'market','qty':'1'})
+        self.assertEqual(status['state'],'committed');self.assertEqual(status['result'],one)
+        self.assertEqual(self.e.command_status('missing','order',{}),{'state':'unknown'})
     def test_limit_waits_and_price_improves(self):
         o=self.order(kind='limit',price='99');self.assertEqual(o['status'],'working');self.assertFalse(self.state()['fills'])
         self.quote(99,100);self.assertFalse(self.state()['fills'])

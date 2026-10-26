@@ -1,8 +1,18 @@
 // One command per affected entity while a request is pending. Retrying an
 // uncertain response reuses its key so a lost acknowledgement cannot trade twice.
-export function createTradingActions({send,accountId,replay,key=()=>crypto.randomUUID(),onPending=()=>{}}){
+export function createTradingActions({send,reconcile,accountId,replay,key=()=>crypto.randomUUID(),onPending=()=>{},onReconciled=()=>{},schedule=(fn,delay)=>setTimeout(fn,delay),cancelSchedule=id=>clearTimeout(id),retryDelay=1000}){
   const pending=new Map(),attempts=new Map();
   const trading=new Set(['order','amend','cancel','close','bracket','cancel_orders','flatten','reverse']);
+  function retire(attempt){if(attempt.timer!=null)cancelSchedule(attempt.timer);if(attempts.get(attempt.signature)===attempt)attempts.delete(attempt.signature);}
+  function retry(attempt){if(!reconcile||attempt.timer!=null||attempts.get(attempt.signature)!==attempt)return;attempt.timer=schedule(()=>{attempt.timer=null;inspect(attempt);},retryDelay);}
+  function inspect(attempt){
+    if(!reconcile||attempt.checking||attempts.get(attempt.signature)!==attempt)return;
+    attempt.checking=true;
+    Promise.resolve().then(()=>reconcile(attempt)).then(status=>{
+      if(status?.state==='committed'||status?.state==='failed'){retire(attempt);onReconciled(status,attempt);}
+      else retry(attempt);
+    }).catch(()=>retry(attempt)).finally(()=>{attempt.checking=false;});
+  }
   function run(action,payload){
     if(trading.has(action)){
       if(replay())return Promise.reject(Error('Exit chart replay to manage paper trading.'));
@@ -13,10 +23,11 @@ export function createTradingActions({send,accountId,replay,key=()=>crypto.rando
     const signature=JSON.stringify([action,payload]);
     const current=pending.get(lock);
     if(current)return current.signature===signature?current.promise:Promise.reject(Error('An action is already pending for this order or instrument.'));
-    const id=attempts.get(signature)||key();attempts.set(signature,id);
-    const promise=Promise.resolve().then(()=>send(action,payload,id)).then(result=>{attempts.delete(signature);return result;}).catch(error=>{
+    let attempt=attempts.get(signature);
+    if(!attempt){attempt={signature,id:key(),action,payload};attempts.set(signature,attempt);}
+    const promise=Promise.resolve().then(()=>send(action,payload,attempt.id,attempt)).then(result=>{const uncertain=attempt.uncertain;retire(attempt);if(uncertain)onReconciled({state:'committed',result},attempt);return result;}).catch(error=>{
       // Validation failures are definitive; transport failures may have committed.
-      if(error.status>=400&&error.status<500)attempts.delete(signature);
+      if(error.definitive||error.status>=400&&error.status<500)retire(attempt);else{attempt.uncertain=true;inspect(attempt);}
       throw error;
     }).finally(()=>{pending.delete(lock);onPending();});
     pending.set(lock,{signature,promise});onPending();return promise;
