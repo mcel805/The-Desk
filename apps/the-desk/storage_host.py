@@ -419,12 +419,14 @@ class Host:
                     if ready:
                         self.close_gate(); self.error = ''
                         self.active = Path(self.policy['external_root']) / 'live'; self.mode = 'EXTERNAL'
+                        self.publish()
                         self.activate()
                     elif self.continue_local.is_set():
                         self.close_gate(); self.continue_local.clear(); self.error = ''
                         self.active = self.control / 'temporary' / time.strftime('%Y%m%dT%H%M%S')
                         self.active.mkdir(parents=True, exist_ok=False); self.mode = 'LOCAL_TEMPORARY'
                         atomic(self.control / 'offline-active.json', {'path': str(self.active)})
+                        self.publish()
                         self.activate()
                     elif not self.gate: self.start_gate()
                 if self.children and any(p.poll() is not None for p, _ in self.children):

@@ -5,9 +5,9 @@ export const JOURNAL_WRITE_RESERVE_BYTES = 64 * 1024 * 1024;
 export const JOURNAL_WAL_LIMIT_BYTES = 64 * 1024 * 1024;
 const JOURNAL_TOTAL_RESERVE_BYTES = JOURNAL_WRITE_RESERVE_BYTES + JOURNAL_WAL_LIMIT_BYTES;
 const MIN_FREE_BYTES = 512 * 1024 * 1024;
-const REFRESH_INTERVAL_MS = 1000;
 
 type StoragePolicy = { volume: string; external_root: string; limit_bytes: number };
+type StorageState = { external_root: string; limit_bytes: number; used_bytes: number };
 
 const bytesIn = (root: string): number => {
   let total = 0;
@@ -56,26 +56,44 @@ export class JournalStorageBudgetError extends Error {
 export class JournalBudget {
   private readonly configured: StoragePolicy | null;
   private readonly dbPath: string;
+  private readonly statePath: string | null;
   private nonDatabaseBytes = 0;
-  private refreshedAt = 0;
+  private initialized = false;
 
   constructor(dbPath: string) {
     this.configured = policy();
     this.dbPath = dbPath;
-    this.refresh(true);
+    this.statePath = process.env.DESK_STORAGE_STATE || null;
+    this.refresh();
   }
 
-  private refresh(force = false): boolean {
+  private refresh(): boolean {
     if (process.env.DESK_STORAGE_MODE !== "EXTERNAL") return true;
     if (!this.configured) return false;
-    const now = Date.now();
-    if (!force && now - this.refreshedAt < REFRESH_INTERVAL_MS) return true;
+    if (this.statePath) {
+      try {
+        const state = JSON.parse(readFileSync(this.statePath, "utf8")) as StorageState;
+        if (
+          state.external_root !== this.configured.external_root ||
+          state.limit_bytes !== this.configured.limit_bytes ||
+          !Number.isSafeInteger(state.used_bytes) ||
+          state.used_bytes < 0
+        )
+          return false;
+        this.nonDatabaseBytes = Math.max(0, state.used_bytes - sidecarBytes(this.dbPath));
+        this.initialized = true;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    if (this.initialized) return true;
     try {
       this.nonDatabaseBytes = Math.max(
         0,
         bytesIn(this.configured.external_root) - sidecarBytes(this.dbPath),
       );
-      this.refreshedAt = now;
+      this.initialized = true;
       return true;
     } catch {
       return false;
