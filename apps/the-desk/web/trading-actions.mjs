@@ -34,7 +34,7 @@ export function acknowledgeCancellation(state,result){
 export function acknowledgeTradingResult(state,action,payload,result){
   if(!state||state.active_account!==payload.account_id)return;
   acknowledgeCancellation(state,result);
-  if(['order','amend'].includes(action)&&result.id){
+  if(['order','amend','reverse'].includes(action)&&result.id){
     const i=state.orders.findIndex(o=>o.id===result.id);
     if(i<0)state.orders.unshift(result);else state.orders[i]=result;
   }
@@ -44,4 +44,11 @@ export function acknowledgeTradingResult(state,action,payload,result){
     const remaining=Number(p.qty)-Number(result.closed_quantity);
     return remaining>1e-12?[{...p,qty:String(Number(remaining.toPrecision(12))),revision:p.revision+1}]:[];
   });
+  if(action==='flatten'){
+    const closed=new Set(result.closed||[]);
+    state.positions=state.positions.filter(p=>!closed.has(p.id));
+  }
+  if(action==='reverse'&&Array.isArray(result.positions)){
+    state.positions=[...state.positions.filter(p=>p.instrument!==payload.instrument),...result.positions];
+  }
 }

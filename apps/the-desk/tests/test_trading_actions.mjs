@@ -41,3 +41,11 @@ test('an acknowledgement for the previous account does not affect the newly sele
  const state={active_account:'b',orders:[{id:'o',status:'working',revision:1}],positions:[]};
  acknowledgeTradingResult(state,'cancel',{account_id:'a'},{cancelled:'o'});assert.equal(state.orders[0].status,'working');
 });
+
+test('flatten and reversal acknowledgements replace old exposure without a state poll',()=>{
+ const state={active_account:'a',orders:[{id:'o',status:'working',revision:1}],positions:[{id:'old',instrument:'hyperliquid:BTC',side:'buy',qty:'2'},{id:'eth',instrument:'hyperliquid:ETH',side:'buy',qty:'1'}]};
+ const reversed={id:'new',instrument:'hyperliquid:BTC',side:'sell',qty:'2',entry:'100',revision:1};
+ acknowledgeTradingResult(state,'reverse',{account_id:'a',instrument:'hyperliquid:BTC'},{id:'r',status:'filled',cancelled:['o'],positions:[reversed]});
+ assert.deepEqual(state.positions,[{id:'eth',instrument:'hyperliquid:ETH',side:'buy',qty:'1'},reversed]);assert.equal(state.orders[0].status,'filled');assert.equal(state.orders[1].status,'cancelled');
+ acknowledgeTradingResult(state,'flatten',{account_id:'a'},{closed:['new'],cancelled:[]});assert.deepEqual(state.positions,[{id:'eth',instrument:'hyperliquid:ETH',side:'buy',qty:'1'}]);
+});

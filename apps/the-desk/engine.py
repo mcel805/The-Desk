@@ -316,7 +316,12 @@ class Engine:
         if not net:raise ValueError('No net position to reverse.')
         self.quote(p['instrument'])
         for o in orders:self.cancel(db,{'account_id':p['account_id'],'id':o['id'],'revision':o['revision']})
-        return self.create_order(db,{'account_id':p['account_id'],'instrument':p['instrument'],'side':'sell' if net>0 else 'buy','kind':'market','qty':str(abs(net)*2)})
+        result=self.create_order(db,{'account_id':p['account_id'],'instrument':p['instrument'],'side':'sell' if net>0 else 'buy','kind':'market','qty':str(abs(net)*2)})
+        # Return committed execution facts with the acknowledgement so the UI
+        # does not display the old direction while a state poll is delayed.
+        result['cancelled']=[o['id'] for o in orders]
+        result['positions']=[dict(row) for row in db.execute("SELECT * FROM positions WHERE account_id=? AND instrument=? AND status='open' ORDER BY opened_at DESC",(p['account_id'],p['instrument']))]
+        return result
 
     def cash(self,db,aid,amount,kind):
         db.execute('INSERT INTO cash VALUES(?,?,?,?,?)',(uid('cash'),aid,str(amount),kind,stamp()))

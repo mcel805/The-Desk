@@ -22,7 +22,7 @@ class DOMCommands(unittest.TestCase):
         self.e.execute('flatten','flatten',self.scope());self.assertFalse(self.state()['positions']);self.assertFalse(self.scope()['orders']);self.assertEqual(len(self.state()['fills']),2)
     def test_reverse_net_with_orders_and_repeat(self):
         self.order(qty='2');self.order('wait',kind='limit',price='90');p=self.scope();self.e.execute('rev','reverse',p);self.e.execute('rev','reverse',p)
-        s=self.state();self.assertEqual(s['positions'][0]['side'],'sell');self.assertEqual(s['positions'][0]['qty'],'2');self.assertFalse(self.scope()['orders']);self.assertEqual(len(s['fills']),3)
+        s=self.state();result=self.e.execute('rev','reverse',p);self.assertEqual(result['positions'],s['positions']);self.assertEqual(result['cancelled'],[r['id'] for r in p['orders']]);self.assertEqual(s['positions'][0]['side'],'sell');self.assertEqual(s['positions'][0]['qty'],'2');self.assertFalse(self.scope()['orders']);self.assertEqual(len(s['fills']),3)
     def test_stale_flatten_rolls_back_cancels_but_cancel_is_available(self):
         self.order();self.order('wait',kind='limit',price='90');p=self.scope();self.quote(100,101,received_at=1)
         with self.assertRaisesRegex(ValueError,'Fresh'):self.e.execute('stale','flatten',p)
