@@ -354,7 +354,9 @@ class SwingResearch:
             for ev in tracker.events:
                 if not warming and ev['seq']>a['persisted_seq']:pending_events.append(('TRACKER_EVENT',ev))
             warnings=a['warnings']
-            if warming:a['warning_warmup_seq']=warnings.sequence
+            if warming:
+                a['warning_warmup_seq']=warnings.sequence
+                a['warning_persisted_seq']=warnings.sequence
             # First receipt is a separate availability barrier. New references
             # cannot claim contact in a candle that began before discovery.
             known_levels=[]
