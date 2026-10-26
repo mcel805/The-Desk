@@ -21,7 +21,7 @@ could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
    budgets and target source. Defaults use a 5m swing with closed 1m validation.
 3. Click **Enable Jev & start** for model evaluations, or **Start tracker only**
    for deterministic observations. Starting applies the visible settings. Saving settings ends a run and never rewrites
-   its recorded configuration. Restart is paused; a run ends after 24 hours.
+   its recorded configuration. Manual runs start paused; Swing Lab Start opts into automatic new runs after interruptions, restart and 24-hour boundaries. Pause disables that intent.
 4. Click **Open BTC/ETH 1m chart** to open the selected market with the overlay
    enabled. The Lab is a controls/results page; dots are on the workspace chart. On a 1m chart, each fresh Jev
    evaluation adds a timestamped dot. Green long leans stack below the candle;
@@ -100,8 +100,7 @@ secrets in subprocess arguments or stdout. Other platforms can use server-side
 precedence over the environment; a legacy session override takes precedence over
 both. `DESK_JEV_KEYCHAIN=disabled` isolates tests from the user's real Keychain.
 
-Research still starts paused after a restart. A retained key does not authorize
-extra calls or orders. Do not put a key in Pine, a query string, Git, chat or a
+Manual research starts paused after restart. Explicit Swing Lab Start persists automatic observation intent until Pause; a retained key alone does not authorize extra calls or orders. Do not put a key in Pine, a query string, Git, chat or a
 screenshot.
 No key is required to run the deterministic tracker and record snapshots.
 Enabling Jev sends only bounded public-market state to TypeSafe. It does not send

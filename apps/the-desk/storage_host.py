@@ -50,7 +50,15 @@ def inventory(root):
     return result
 
 def size(root):
-    return sum(p.stat().st_size for p in Path(root).rglob('*') if p.is_file() and not p.is_symlink())
+    # DirEntry caches type/stat metadata. Avoid three USB stat calls per path.
+    total=0;pending=[str(root)]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                if entry.is_symlink():continue
+                if entry.is_dir(follow_symlinks=False):pending.append(entry.path)
+                elif entry.is_file(follow_symlinks=False):total+=entry.stat(follow_symlinks=False).st_size
+    return total
 
 def verified_copy(source, destination):
     """Call only after writers stop. Sources remain intact on every failure."""

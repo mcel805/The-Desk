@@ -63,6 +63,19 @@ def connect(path):
         return db
     except BaseException:db.close();raise
 
+def connect_readonly(path):
+    """Read existing evidence without write guards or recursive capacity scans."""
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+        from storage_host import drive_ready
+        if not drive_ready(json.loads(Path(policy_path).read_text())):
+            raise StorageFault('External storage disconnected')
+    db=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=3)
+    db.row_factory=sqlite3.Row
+    db.execute('PRAGMA query_only=ON')
+    return db
+
+
 @contextmanager
 def transaction(path):
     db=connect(path)

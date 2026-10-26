@@ -1,3 +1,5 @@
+import {settingsController} from './swing-settings.mjs';
+import {setupLearningPanel} from './swing-learning-panel.mjs';
 import {reliabilityText,jevErrorText} from './jev-reliability.mjs';
 import {setupLiquidityStudy} from './swing-study-panel.mjs';
 import {setupSwingEvidence} from './swing-evidence-panel.mjs';
@@ -6,13 +8,18 @@ import {renderJevCosts,setupJevCostPanel,markJevCostsUnavailable} from './jev-co
 import {withJevCosts} from './jev-cost-loader.mjs';
 const $=s=>document.querySelector(s),esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pct=v=>Number.isFinite(v)?(100*v).toFixed(1)+'%':'—',price=v=>Number.isFinite(v)?v.toLocaleString(undefined,{maximumFractionDigits:5}):'—',stamp=v=>v?new Date(v).toLocaleTimeString():'—';let loaded=null,busy=false,commandBusy=false;
-async function api(path,body){const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const v=await r.json();if(!r.ok)throw Error(v.error||'Research service unavailable');return v;}
+async function api(path,body){const r=await fetch(path,{signal:AbortSignal.timeout(12000),...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const v=await r.json();if(!r.ok)throw Error(v.error||'Research service unavailable');return v;}
 function table(headers,rows,empty='No observations yet. Start a run to collect evidence.'){return rows.length?`<div class="table-scroll"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">'+esc(empty)+'</div>';}
 function symbol(){return $('#symbol').value;}
+const settings=settingsController({form:$('#config'),market:symbol,request:api,
+ onMessage:text=>{$('#settingsSync').textContent=text;$('#saveConfig').disabled=$('#config [name=quantity]').disabled;},
+ onState:data=>{const s=data.symbols[symbol()];$('#start').disabled=commandBusy||s.running;$('#pause').disabled=commandBusy||!s.running;
+ document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;}});
+
 async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [raw,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);const data=await withJevCosts(raw);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot,otherRunning=Object.keys(data.symbols).find(k=>k!==market&&data.symbols[k].running);
 $('#singleObserver').textContent=otherRunning?'Observing '+otherRunning.split(':')[1]+' on 1m. Select that market and pause it before starting '+market.split(':')[1]+'.':'One shared 1m observer per Desk server. Extra charts and Lab tabs add no model requests. Hide/show only changes visibility; Pause stops collection.';
 $('#connection').textContent='Connected · '+stamp(data.as_of)+' · '+Intl.DateTimeFormat().resolvedOptions().timeZone;$('#status').textContent=s.status;$('#keyStatus').textContent=data.jev_configured?'Key available. Enabling Jev sends public market snapshots to TypeSafe.':'Add your API key in Jev connection above. Tracker works without it.';
-renderJevCosts(data,market);
+try{renderJevCosts(data,market);}catch{}
 const storage=data.jev_key_storage;
 $('#jevKeyState').textContent=data.jev_configured?({'macos_keychain':'Saved in macOS Keychain · automatically loaded on startup.','server_memory':'Current key is temporary. Choose Remember current key to save it securely.','environment':'Key supplied by the server environment. Choose Remember current key to store it locally.'}[data.jev_key_source]||'Key configured.')+' A successful Jev response verifies access.':storage?.error||'No saved key loaded. Paste your TypeSafe key once and save it to Keychain.';
 if(!storage)$('#jevKeyState').textContent='Secure Keychain storage is ready to install. A Desk server restart is required; the current collection and temporary key are unchanged.';
@@ -24,7 +31,7 @@ $('#enableJev').hidden=!data.jev_configured||s.config.jev_enabled;$('#enableJev'
 $('#evaluationState').textContent=!data.jev_configured?'Step 1: save a TypeSafe key to enable Jev.':!s.config.jev_enabled?'Key saved · Jev is OFF. Enable Jev & start to collect directional dots.':s.running?'Jev enabled · collecting evaluations for '+market.split(':')[1]+'.':'Jev enabled · paused. Start observations to collect fresh dots.';
 $('#jevReliability').textContent=reliabilityText(history.reliability);
 $('#openChart').href='/?swing_market='+encodeURIComponent(market);$('#openChart').textContent='Open '+market.split(':')[1]+' 1m chart ↗';
-if(loaded!==market){for(const el of $('#config').elements){if(!el.name)continue;const v=s.config[el.name];if(el.type==='checkbox')el.checked=!!v;else el.value=v??'';}loaded=market;}
+// Settings hydrate independently; a delayed history refresh never overwrites edits.
 $('#start').textContent=document.querySelector('[name=jev_enabled]').checked?'Start Jev observations':'Start tracker only';
 $('#export').href='/api/swing/export?symbol='+encodeURIComponent(market);$('#export').download='swing-research-'+market.split(':')[1]+'.json';
 $('#state').innerHTML=`<strong>${esc(market)}</strong> · ${esc(s.detail)}<br>${snap?`Parent #${snap.parent_id} · ${snap.trend===1?'Higher highs / lows':snap.trend===-1?'Lower highs / lows':'Rotation / developing'} · confirmed cutoff ${stamp(snap.cutoff)}<br>Gross reserved risk: $${snap.reserved_session.toFixed(2)} this UTC day · tick ${price(snap.tick)}<br>`:''}Run ${esc(s.run?.slice(0,10)||'not started')} · ${s.config.cadence_seconds}s requested cadence`;
@@ -39,9 +46,13 @@ $('#plans').innerHTML=table(['Plan','Observed / eligible open','Side','Reference
 $('#history').innerHTML=table(['Observed','Next candle','Sample','Jev forecast','Actual','Service'],history.predictions.slice(0,50).map(p=>[stamp(p.at),stamp(p.prediction_bar),p.primary_sample?'Primary':'Intrabar',p.response?.answers?.next_bar?.choice||'—',p.outcome?.label||(history.run_ended?'Unresolved · run ended':'Pending'),p.response?.status||p.usage_status||'Unresolved']));
 $('#inspect').textContent=JSON.stringify(history.predictions[0]||{message:'Start a run to capture timestamped evidence.'},null,2);
 }catch(e){$('#connection').textContent='Disconnected · '+e.message;$('#status').textContent='UNAVAILABLE';$('#jev').innerHTML='<div class="empty">Service unavailable. Previous judgments withheld.</div>';renderSwingVolume(null);markJevCostsUnavailable();}finally{busy=false;}}
-async function command(action,config){if(commandBusy)return;commandBusy=true;$('#error').textContent='';$('#runError').textContent='';try{await api('/api/swing/control',{action,symbol:symbol(),...(config?{config}:{})});loaded=null;}catch(e){$('#error').textContent=e.message;$('#runError').textContent=e.message;}finally{commandBusy=false;await refresh();}}
-function formConfig(){const cfg={};for(const el of $('#config').elements){if(!el.name||el.disabled)continue;cfg[el.name]=el.type==='checkbox'?el.checked:['target_mode','manual_bias','study_playbook','study_phase'].includes(el.name)?el.value:el.name==='study_cost_bps'&&el.value.trim()===''?null:Number(el.value);}return cfg;}
-async function startObservations(enable=false){if(commandBusy||!$('#config').reportValidity())return;commandBusy=true;$('#runError').textContent='';$('#start').disabled=true;$('#enableJev').disabled=true;const market=symbol(),cfg=formConfig();if(enable)cfg.jev_enabled=true;try{await api('/api/swing/control',{action:'configure',symbol:market,config:cfg});await api('/api/swing/control',{action:'start',symbol:market});loaded=null;}catch(e){$('#runError').textContent=e.message;}finally{commandBusy=false;await refresh();}}
+async function command(action,config){if(commandBusy)return;commandBusy=true;$('#error').textContent='';$('#runError').textContent='';try{await api('/api/swing/control',{action,symbol:symbol(),...(config?{config}:{})});loaded=null;settings.preview();}catch(e){$('#error').textContent=e.message;$('#runError').textContent=e.message;}finally{commandBusy=false;void settings.load().catch(()=>{});void refresh();}}
+function formConfig(){return settings.values();}
+async function startObservations(enable=false){if(commandBusy)return;commandBusy=true;$('#runError').textContent='';$('#start').disabled=true;$('#enableJev').disabled=true;
+ try{await settings.start(enable);await settings.load();}
+ catch(e){$('#runError').textContent=e.message;}
+ finally{commandBusy=false;$('#start').disabled=false;void settings.load().catch(()=>{});void refresh();}}
+
 async function configureKey(action='save'){
  if(commandBusy)return;commandBusy=true;
  $('#jevKeyError').textContent='';$('#saveJevKey').disabled=true;$('#clearJevKey').disabled=true;
@@ -52,9 +63,12 @@ async function configureKey(action='save'){
 }
 $('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clearJevKey').onclick=()=>configureKey('forget');
 $('#rememberJevKey').onclick=()=>configureKey('remember');$('#loadJevKey').onclick=()=>configureKey('load');
-document.querySelector('[name=jev_enabled]').onchange=e=>{$('#start').textContent=e.target.checked?'Start Jev observations':'Start tracker only';};
-$('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{loaded=null;refresh();};refresh();setInterval(refresh,3000);
+document.querySelector('[name=jev_enabled]').onchange=e=>{settings.markDirty();$('#start').textContent=e.target.checked?'Start Jev observations':'Start tracker only';};
+$('#reloadConfig').onclick=()=>{settings.preview();void settings.load().catch(()=>{});};
+$('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{settings.preview();void settings.load().catch(()=>{});refresh();};void settings.load().catch(()=>{});refresh();setInterval(refresh,5000);setInterval(()=>{if(!settings.dirty)void settings.load().catch(()=>{});},15000);
 setupSwingEvidence();
 setupJevCostPanel();
 
 setupLiquidityStudy();
+
+setupLearningPanel({request:api,escape:esc});
