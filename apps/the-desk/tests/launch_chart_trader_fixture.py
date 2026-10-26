@@ -57,6 +57,7 @@ def main():
      if path=='/qa/quote':engine.ingest(p.get('instrument','hyperliquid:BTC'),p['bid'],p['ask'],{'tick':'1','qty_step':'.001'});return self.reply({'ok':True})
      if path=='/api/command-status':
       if set(p)!={'key','action','payload'}:return self.reply({'error':'Invalid command status request'},400)
+      if faults.get('command_status_offline'):return self.reply({'error':'Synthetic status outage'},503)
       return self.reply(engine.command_status(p['key'],p['action'],p['payload']))
      if path=='/api/command':
       if faults.get('command_delay'):time.sleep(faults['command_delay'])

@@ -23,7 +23,7 @@ const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const usd=v=>Number.isFinite(Number(v))?'$'+number(v):'—', fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:8});
 let brokerContext=null,brokerScope='';
-let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,contextKey='',menuPrice=null;
+let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,contextKey='',menuPrice=null,ticketRevision=0,ticketSubmission=null;
 const instruments=['hyperliquid:BTC','hyperliquid:ETH','hyperliquid:SOL','coinbase:BTC-USD','coinbase:ETH-USD','coinbase:SOL-USD'];
 
 async function api(path,payload,headers={}){
@@ -32,7 +32,7 @@ async function api(path,payload,headers={}){
 }
 function toast(text,error=false){$('#toast').textContent=text;$('#toast').classList.add('visible');$('#toast').style.borderColor=error?'#f23645':'#525d73';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),5000);}
 let tradingGeneration=0;
-const tradingActions=createTradingActions({onPending:()=>renderManager(),onReconciled:()=>{tradingGeneration++;void refresh();},reconcile:attempt=>api('/api/command-status',{key:attempt.id,action:attempt.action,payload:attempt.payload}),accountId:()=>activeAccount,replay:()=>!!ws?.replay.state.active,send:async(action,payload,key,attempt)=>{
+const tradingActions=createTradingActions({onPending:()=>renderManager(),onReconciled:(status,attempt)=>{tradingGeneration++;if(attempt.action==='order'&&ticketSubmission?.signature===attempt.signature){if(ticketSubmission.account===activeAccount){if(status.state==='committed'){const unchanged=ticketSubmission.revision===ticketRevision;$('#orderError').textContent='';if(unchanged){draft=false;toast('Paper order recovered and accepted.');updateTicket();setPanel(status.result?.status==='filled'?'positions':'orders');}else toast('Earlier paper order recovered. Your current draft remains.');}else if(ticketSubmission.revision===ticketRevision)$('#orderError').textContent='The Desk confirmed this paper order was not submitted. You can retry it.';}ticketSubmission=null;}void refresh();},reconcile:attempt=>api('/api/command-status',{key:attempt.id,action:attempt.action,payload:attempt.payload}),accountId:()=>activeAccount,replay:()=>!!ws?.replay.state.active,send:async(action,payload,key,attempt)=>{
  if(brokerContext?.selected)throw Object.assign(Error('Robinhood selected. Paper ledger actions are unavailable; use the broker workspace.'),{definitive:true});
  const result=await api('/api/command',{action,payload},{'Idempotency-Key':key});
  if(!attempt.uncertain){tradingGeneration++;acknowledgeTradingResult(state,action,payload,result);renderManager();}
@@ -177,6 +177,7 @@ function updateTicket(){
 
 function setSide(next){side=next;draft=true;updateTicket();}
 function stage(nextSide,kind='market',price){
+ ticketRevision++;
  if(readonlyMarket())return toast('IBKR futures data is read-only. Orders are disabled.',true);
  if(ws.replay.state.active)return toast('Exit chart replay before staging a paper order.',true);
  side=nextSide;$('#orderKind').value=kind;if(price){$('#entryPrice').value=snap(price);$('#triggerPrice').value=snap(price);}
@@ -185,19 +186,21 @@ function stage(nextSide,kind='market',price){
 }
 $('#sideBuy').onclick=()=>setSide('buy');$('#sideSell').onclick=()=>setSide('sell');
 $('#quickBuy').onclick=()=>stageTrade('buy');$('#quickSell').onclick=()=>stageTrade('sell');
-$('#orderForm').oninput=()=>{draft=true;updateTicket();};
+$('#orderForm').oninput=()=>{ticketRevision++;draft=true;updateTicket();};
+$('#orderForm').onchange=()=>{ticketRevision++;draft=true;updateTicket();};
 $('#orderKind').onchange=()=>{if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
 $('#orderForm').onsubmit=async e=>{
  e.preventDefault();if(readonlyMarket())return toast('IBKR futures data is read-only.',true);if(busy)return;
  if(ws.replay.state.active)return toast('Paper orders are disabled during chart replay.',true);
  if(brokerContext?.selected){await reviewBrokerTicket();return;}
  const p=payload();if(!Number.isFinite(Number(p.qty))||Number(p.qty)<=0){$('#orderError').textContent='Set a valid quantity and stop for risk sizing.';return;}
+ if(!ticketSubmission)ticketSubmission={signature:JSON.stringify(['order',p]),account:activeAccount,revision:ticketRevision};
  busy=true;$('#orderError').textContent='';updateTicket();
- try{await command('order',p);draft=false;toast('Paper order accepted by The Desk.');setPanel('orders');}
+ try{await command('order',p);ticketSubmission=null;draft=false;toast('Paper order accepted by The Desk.');setPanel('orders');}
  catch(e){$('#orderError').textContent=e.message;}
  finally{busy=false;updateTicket();}
 };
-$('#discardDraft').onclick=()=>{draft=false;$('#orderError').textContent='';toast('Order projection discarded.');};
+$('#discardDraft').onclick=()=>{ticketRevision++;ticketSubmission=null;draft=false;$('#orderError').textContent='';toast('Order projection discarded.');};
 $('#tradeButton').onclick=()=>{document.body.classList.toggle('rail-hidden');$('#tradeButton').setAttribute('aria-expanded',!document.body.classList.contains('rail-hidden'));ws.cells().forEach(c=>c.chart.resize());};
 
 function showDialog(title,body,submit,{submitLabel='Confirm',cancelLabel='Cancel'}={}){

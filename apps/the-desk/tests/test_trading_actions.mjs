@@ -21,6 +21,15 @@ test('uncertain responses reconcile without replaying a committed result',async(
  const actions=createTradingActions({accountId:()=> 'a',replay:()=>false,key:()=>String(++next),schedule:fn=>{scheduled=fn;return 1;},cancelSchedule:()=>{},reconcile:async attempt=>{checked++;return mode==='unknown'?{state:'unknown'}:{state:'committed',result:{id:'old',status:'filled'}};},onReconciled:()=>reconciled++,send:async(a,p,k)=>{keys.push(k);throw Error('Offline');}});
  const tick=()=>new Promise(resolve=>setImmediate(resolve));await assert.rejects(actions.run('order',{account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'}),/Offline/);await tick();assert.equal(checked,1);assert.equal(reconciled,0);mode='committed';await scheduled();await tick();assert.equal(reconciled,1);assert.deepEqual(keys,['1']);
 });
+test('unknown command reserves its instrument until reconciliation; identical retry keeps the key',async()=>{
+ let next=0;const sent=[];const order={account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'};
+ const actions=createTradingActions({accountId:()=> 'a',replay:()=>false,key:()=>String(++next),reconcile:()=>new Promise(()=>{}),send:async(a,p,k)=>{sent.push({a,p,k});if(sent.length===1)throw Error('offline');return {id:'accepted'};}});
+ await assert.rejects(actions.run('order',order),/offline/);await new Promise(resolve=>setImmediate(resolve));
+ const changed={...order,qty:'.002'};await assert.rejects(actions.run('order',changed),/still being reconciled/);assert.equal(sent.length,1);
+ await actions.run('order',{...order,instrument:'hyperliquid:ETH'});assert.equal(sent.length,2,'other instruments remain available');
+ await actions.run('order',order);assert.equal(sent.length,3);assert.equal(sent[0].k,sent[2].k,'safe identical retry reuses the idempotency key');
+ assert.equal(actions.pending('a','hyperliquid:BTC'),false);
+});
 test('a late response after uncertainty resolves through reconciliation',async()=>{
  let first=true,reconciled=0,attempts=[];const actions=createTradingActions({accountId:()=> 'a',replay:()=>false,key:()=> 'same',reconcile:async()=>({state:'unknown'}),schedule:fn=>{attempts.push(fn);return attempts.length;},cancelSchedule:()=>{},onReconciled:()=>reconciled++,send:async(a,p,k,attempt)=>{if(first){first=false;throw Error('Lost acknowledgement');}assert.equal(attempt.uncertain,true);return {id:'cached',status:'filled'};}});
  await assert.rejects(actions.run('order',{account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'}),/Lost/);await new Promise(resolve=>setImmediate(resolve));await actions.run('order',{account_id:'a',instrument:'hyperliquid:BTC',side:'buy',kind:'market',qty:'.001'});assert.equal(reconciled,1);
