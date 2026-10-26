@@ -56,9 +56,10 @@ permission by themselves. History requests time out visibly rather than inventin
 ## Scope and rights
 
 - Single dated MYM contract; no continuous alias, automatic rolls or synthetic conId.
-- Intraday 1m/3m/5m/15m/30m/1h/4h TRADES bars, up to 600 cached per interval.
+- 1m/2m/3m/5m/15m/30m/1h/4h/1d TRADES bars, up to 600 cached per interval.
+- Requests longer than 365 calendar days use year units to stay within IBKR duration limits.
 - Bounded recent history; range queries outside it can return empty. No complete archive.
-- Preserve native broker timestamps; no daily bars, exchange holiday calendar or session-status claim.
+- Preserve native intraday broker timestamps. Daily trading-date labels use standard CME session boundaries; no verified holiday/early-close calendar or session-status claim.
 - No depth, tick tape, futures strategy P&L, futures paper matching or broker execution.
 - Market data stays in memory. User layouts/drawings can retain chart metadata.
 - Local display access does not establish rights for caching, agent/non-display
@@ -86,3 +87,28 @@ accuracy, installed SDK/wire compatibility, broker execution or measured latency
 References: [TWS API](https://www.interactivebrokers.com/docs/tws-api/doc/introduction),
 [historical bars](https://www.interactivebrokers.com/docs/tws-api/doc/md/historical-bars),
 [data requirements](https://www.interactivebrokers.com/docs/general/market-data-subscriptions/market-data-requirements).
+
+## Local setup update — October 26, 2026
+
+Official Apple Silicon IB Gateway 10.50 and TWS API 1050.02 were installed in the
+user's Applications folder. A dedicated Python 3.11 environment contains official
+`ibapi==10.50.2`, `protobuf==5.29.5` and the existing market-stream dependency.
+The ignored local external-storage policy selects this Python runtime; its
+volume, aliases, budget and database locations are unchanged.
+
+The native IB Gateway application must be signed in separately from Client Portal.
+Use IB API mode, keep Read-Only API enabled, and verify the actual socket port.
+For a data-only connection the authenticated live username can supply subscribed
+market data without enabling orders; the usual live Gateway port is 4001.
+The adapter exposes no account or order API, regardless of the login's mode.
+An authenticated session, real-time quotes, broker-resolved contract details and
+actual candles must be observed before claiming successful real-data acceptance.
+
+Focused local checks: 18 Python IBKR tests and 13 Node provider/trading-model
+tests passed. These do not establish an authenticated real-data connection.
+
+The local socket handshake and dated MYM contract discovery were verified against
+an authenticated Gateway. Real-time quotes and candles have not passed acceptance:
+IBKR returned error 354 (market data not subscribed). Complete the required
+account funding and market-data entitlement steps, then repeat data acceptance.
+No delayed or synthetic fallback was substituted, and no orders were submitted.
