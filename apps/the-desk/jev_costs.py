@@ -103,7 +103,9 @@ class JevCostMeter:
           COALESCE(SUM(status!='DISABLED'),0) requests,
           COALESCE(SUM(status!='DISABLED' AND cost_nano_usd IS NOT NULL),0) priced_requests,
           COALESCE(SUM(status='PENDING'),0) pending_requests,
-          COALESCE(SUM(status NOT IN ('DISABLED','PENDING') AND cost_nano_usd IS NULL),0) unknown_cost_requests,
+          COALESCE(SUM(status NOT IN ('DISABLED','PENDING') AND (cost_nano_usd IS NULL OR EXISTS
+            (SELECT 1 FROM predictions p WHERE p.id=jev_usage.prediction_id
+             AND COALESCE(json_extract(p.response,'$.transport.unpriced_attempts'),0)>0))),0) unknown_cost_requests,
           COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
           COALESCE(SUM(cost_nano_usd),0) cost_nano_usd,
           COALESCE(SUM(status!='DISABLED' AND provenance='legacy_repriced'),0) legacy_repriced_requests,

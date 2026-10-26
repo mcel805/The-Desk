@@ -3,12 +3,18 @@ import json
 import math
 import os
 import threading
+import time
+import random
+from copy import deepcopy
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from jev_costs import safe_usage
 from jev_keychain import MacKeychain, KeychainError
 
 MODEL='jev-1.14.0'
-PROMPT_VERSION='swing-observer.4-volume.1'
+PROMPT_VERSION='swing-observer.5-reliability.1'
 QUESTIONS={
     'directional_lean':{'type':'choice','instructions':'Classify the currently supported directional thesis from this timestamped swing snapshot. This is a contextual LONG / SHORT / NEUTRAL lean, not a trade command and not the next candle direction. Use only recognized structure and observed price action; incomplete evidence, conflicting signals, or price between useful locations can justify neutral.','criteria':{'long':'The observed swing and local response coherently support an upward thesis over a downward one.','short':'The observed swing and local response coherently support a downward thesis over an upward one.','neutral':'Neither direction is sufficiently distinguished: evidence is incomplete, conflicting, or lacks a useful response at recognized structure.'}},
     'next_bar':{'type':'choice','instructions':'Using only the timestamped swing state and price evidence, estimate the direction of the NEXT full 1-minute candle, whose start is prediction_bar. Compare its closing price with its opening price. This is a forecast, not a statement about the forming candle. No outcome or future data is provided.','criteria':{'up':'Next full candle closes at least one tick above its open.','down':'Next full candle closes at least one tick below its open.','flat':'Next full candle closes less than one tick from its open.'}},
@@ -52,14 +58,64 @@ QUESTIONS['volume_pattern']={'type':'choice',
         'down_participation':'Closed downward displacement or continuation is supported by actual relative volume and coherent price acceptance; no stronger exhaustion case is present.',
         'no_match':'No distinct participation or exhaustion pattern: evidence is missing, warming, mixed, price-only, or lacks a useful structural response.'}}
 for _name in tuple(k for k in QUESTIONS if k!='volume_pattern'):
-    QUESTIONS[_name]['instructions']+=' Consider `market_synth` as supporting completed-bar evidence. Its A/B layers are price-derived; only the separate volume fields use traded volume. Treat exhaustion tags as hypotheses and retain neutral/no-match where the question permits when structure or participation conflicts. Do not double-count correlated RSI, WaveTrend and ribbon readings as independent confirmations.'
+    QUESTIONS[_name]['instructions']+=' Use completed `market_synth` evidence as support. A/B are correlated price-derived signals; only volume fields use traded volume. Keep exhaustion hypothetical and retain neutral/no-match for conflicts.'
+
+REQUEST_BUDGET_SECONDS=2.7
+MAX_REQUEST_BYTES=63_000  # Conservative UTF-8 bounds for the two independent token limits.
+MAX_QUESTION_BYTES=32_000
+RETRY_STATUSES=frozenset({429,500,502,503,504,529})
+
+def prepare_state(state):
+    """Bound model evidence; complete source/study records stay in the local ledger."""
+    result=deepcopy(state)
+    study=result.get('liquidity_study')
+    if isinstance(study,dict):
+        for key in ('summaries','plans','counts','cost_scope'):study.pop(key,None)
+        context=study.get('context',{})
+        if 'levels' in study:context.pop('levels',None)
+        for frame in context.get('frames',{}).values():
+            evidence=frame.get('evidence',[])
+            frame['evidence']=evidence[-6:]
+            frame['evidence_omitted']=max(0,len(evidence)-6)
+        # Keep nearby references per own timeframe/side, all manual references,
+        # and all contacted/frozen references in the active campaigns themselves.
+        levels=study.get('levels',[]);selected={x['id'] for x in levels if x.get('source')=='manual'}
+        midpoint=(result.get('bid',0)+result.get('ask',0))/2
+        groups={(x.get('timeframe'),x.get('side')) for x in levels}
+        for frame,side in groups:
+            ordered=sorted((x for x in levels if x.get('timeframe')==frame and x.get('side')==side),key=lambda x:abs(x['price']-midpoint))
+            selected.update(x['id'] for x in ordered[:1])
+        study['levels']=[x for x in levels if x['id'] in selected]
+        study['levels_omitted']=len(levels)-len(study['levels'])
+        study['model_evidence_scope']='Nearest reference per timeframe/side plus manual references; active campaigns retain their frozen reference and target. HTF evidence is the last 6 completed bars per frame. Complete records remain local.'
+        for campaign in study.get('campaigns',[]):
+            # Retain contact candle, timestamps, permission, frozen anchors and
+            # current measured state; old receipts/variant bookkeeping stay local.
+            for key in ('model_receipts','variants','key','context_hash','metrics_at_contact'):
+                campaign.pop(key,None)
+    bars=result.get('closed_bars',[])
+    window=(study or {}).get('settings',{}).get('study_window',5)
+    retained=max(12,2*window+1)
+    result['closed_bars']=bars[-retained:]
+    result['closed_bars_omitted']=max(0,len(bars)-retained)
+    synth=result.get('market_synth')
+    if isinstance(synth,dict):
+        recent=synth.get('recent',[]);synth['recent']=recent[-3:]
+        synth['recent_omitted']=max(0,len(recent)-3)
+    return result
+
+class JevRequestError(ValueError):
+    def __init__(self,diagnostics):
+        super().__init__('Jev request unavailable')
+        self.diagnostics=diagnostics
 
 class JevResponseError(ValueError):
     """Retain only safe billable counters when typed-answer validation fails."""
-    def __init__(self,value):
+    def __init__(self,value,reason='invalid_response'):
         super().__init__('Invalid typed Jev response')
         self.safe_usage=safe_usage(value.get('usage')) if isinstance(value,dict) else None
         self.response_model=value.get('model') if isinstance(value,dict) and isinstance(value.get('model'),str) else None
+        self.diagnostics={'error_code':reason}
 
 def probability(v):
     return type(v) in (int,float) and math.isfinite(v) and 0<=v<=1
@@ -67,15 +123,21 @@ def probability(v):
 def validate_response(value):
     if not isinstance(value,dict) or value.get('model')!=MODEL:raise ValueError('Unexpected model')
     answers=value.get('answers',{})
+    if not isinstance(answers,dict):raise ValueError('answers: invalid_object')
     for key,q in QUESTIONS.items():
         a=answers.get(key,{})
-        if a.get('type')!=q['type']:raise ValueError('Unexpected answer type')
+        if not isinstance(a,dict) or a.get('type')!=q['type']:raise ValueError(key+': invalid_type')
         if q['type']=='noul':
-            if not probability(a.get('noul')):raise ValueError('Invalid probability')
+            if not probability(a.get('noul')):raise ValueError(key+': invalid_probability')
         else:
             dist=a.get('probabilities',{})
-            if set(dist)!=set(q['criteria']) or not all(probability(v) for v in dist.values()) or abs(sum(dist.values())-1)>.001:raise ValueError('Invalid distribution')
-            if a.get('choice') not in dist or dist[a['choice']]<max(dist.values())-1e-6 or not probability(a.get('confidence')):raise ValueError('Invalid choice')
+            if not isinstance(dist,dict) or set(dist)!=set(q['criteria']) or not all(probability(v) for v in dist.values()):raise ValueError(key+': invalid_distribution')
+            # The wire contract allows approximate sums. Accept only the error
+            # bounded by rounding each option to two decimal places; keep raw values.
+            rounded=all(abs(v*100-round(v*100))<1e-8 for v in dist.values())
+            tolerance=len(dist)*.005+1e-9 if rounded else .001
+            if abs(sum(dist.values())-1)>tolerance:raise ValueError(key+': distribution_sum')
+            if a.get('choice') not in dist or dist[a['choice']]<max(dist.values())-1e-6 or not probability(a.get('confidence')):raise ValueError(key+': invalid_choice')
     return {'model':value['model'],'answers':answers,'usage':value.get('usage',{})}
 
 class Jev:
@@ -133,7 +195,56 @@ class Jev:
     def judge(self,state):
         key=self._key()
         if not key:raise ValueError('Jev key unavailable')
-        request=Request('https://api.typesafe.ai/v1/systemone',data=json.dumps({'model':MODEL,'state':state,'questions':QUESTIONS},allow_nan=False).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+key})
-        with urlopen(request,timeout=2) as response:value=json.load(response)
-        try:return validate_response(value)
-        except (ValueError,TypeError,AttributeError):raise JevResponseError(value) from None
+        model_state=prepare_state(state)
+        encoded=lambda questions:json.dumps({'model':MODEL,'state':model_state,'questions':questions},allow_nan=False,separators=(',',':')).encode()
+        payload=encoded(QUESTIONS)
+        question_bytes=max(len(encoded({k:q})) for k,q in QUESTIONS.items())
+        if len(payload)>MAX_REQUEST_BYTES or question_bytes>MAX_QUESTION_BYTES:
+            raise JevRequestError({'error_code':'local_context_budget_exceeded','request_bytes':len(payload),'largest_question_bytes':question_bytes,'attempt_count':0})
+        deadline=time.monotonic()+REQUEST_BUDGET_SECONDS
+        prediction=state.get('prediction_bar')
+        if type(prediction) is int:deadline=min(deadline,time.monotonic()+max(0,prediction/1000-time.time()-.05))
+        attempts=[]
+        for index in range(3):
+            remaining=deadline-time.monotonic()
+            if remaining<=.05:break
+            request=Request('https://api.typesafe.ai/v1/systemone',data=payload,headers={'Content-Type':'application/json','Authorization':'Bearer '+key})
+            try:
+                with urlopen(request,timeout=min(1.8,remaining)) as response:value=json.load(response)
+                try:result=validate_response(value)
+                except (ValueError,TypeError,AttributeError) as e:
+                    error=JevResponseError(value,str(e));error.diagnostics.update(attempt_count=len(attempts)+1,request_bytes=len(payload),attempt_errors=attempts)
+                    raise error from None
+                result['transport']={'attempt_count':len(attempts)+1,'attempt_errors':attempts,'request_bytes':len(payload),'projection':PROMPT_VERSION,
+                                     'unpriced_attempts':sum(a.get('http_status') not in (429,529) for a in attempts)}
+                return result
+            except HTTPError as e:
+                code=None
+                try:
+                    detail=json.loads(e.read(4096)).get('detail',{})
+                    # Never persist arbitrary provider text or an echoed request.
+                    code=detail.get('error_type') if isinstance(detail,dict) else None
+                except (ValueError,OSError,AttributeError):pass
+                known={'max_tokens_exceeded','invalid_api_key','rate_limit_exceeded','overloaded'}
+                error={'http_status':e.code,'error_code':code if code in known else 'http_error'}
+                delay=.15*2**index+random.uniform(0,.05)
+                retry_after=e.headers.get('Retry-After') if e.headers else None
+                retry_ms=e.headers.get('retry-after-ms') if e.headers else None
+                try:
+                    if retry_ms is not None:delay=max(delay,float(retry_ms)/1000)
+                    if retry_after is not None:
+                        try:seconds=float(retry_after)
+                        except ValueError:seconds=(parsedate_to_datetime(retry_after)-datetime.now(timezone.utc)).total_seconds()
+                        delay=max(delay,seconds)
+                except (ValueError,TypeError,OverflowError):delay=REQUEST_BUDGET_SECONDS
+                e.close()
+                retry=e.code in RETRY_STATUSES
+            except (URLError,TimeoutError,OSError,json.JSONDecodeError):
+                # A lost response may have been billable. Do not issue another
+                # potentially duplicate inference without an idempotency contract.
+                error={'error_code':'connection_or_response_error'};delay=0;retry=False
+            attempts.append(error)
+            if not retry or index==2 or delay+.05>=deadline-time.monotonic():
+                raise JevRequestError({**error,'attempt_count':len(attempts),'attempt_errors':attempts,'request_bytes':len(payload)}) from None
+            time.sleep(delay)
+        raise JevRequestError({'error_code':'freshness_deadline','attempt_count':len(attempts),'attempt_errors':attempts,'request_bytes':len(payload)})
