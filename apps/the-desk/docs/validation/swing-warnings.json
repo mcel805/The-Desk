@@ -34,7 +34,7 @@
     "web/swing-tracker.mjs": "bace297b7a658e5f6ce4eeb217a6ed95192a18cf1fc7bf503f66930a2ae80c9c",
     "web/swing-lab.mjs": "f8d8edd13a8583f0ed58a12582c71f7f79fdc50e3ea155d8c0dac953a231dae2",
     "web/swing-settings.mjs": "fc6ccf3472ee52cdea7e9cf88f6ed841301baf65b373fbb362f75ef92719147a",
-    "scripts/score-swing-warnings.mjs": "5711e5dea8974898e764c10abca59adcb5a864ffb151b590bcd546676e5dbc7c"
+    "scripts/score-swing-warnings.mjs": "5c1a8e5a70e663a43258bb2172206a1743f14048bffa2a2017cf28ca424c96c2"
   },
   "pending": [
     "No-mistakes gate and publication result recorded after commit",
