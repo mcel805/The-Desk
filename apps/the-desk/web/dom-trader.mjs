@@ -1,6 +1,6 @@
 import {summarizePositions,formatPnl,ladderPrices} from './trading-model.mjs';
 
-export function setupDOMTrader({state,instrument,quote,accountId,replay,stage,book,editOrder,closePosition,editBracket,showDialog,command,toast,config}){
+export function setupDOMTrader({state,instrument,quote,accountId,replay,stage,book,editOrder,closePosition,editBracket,showDialog,command,pending=()=>false,cancelOrder,toast,config}){
   const $=s=>document.querySelector(s),fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:8});
   const panel=$('#domPanel'),view=$('#domView'),ladder=$('#domLadder'),orders=$('#domOrders');
   let center=null,current='',lastOrderSignature='',lastPositionSignature='',unit=config().pnlUnit;
@@ -10,6 +10,7 @@ export function setupDOMTrader({state,instrument,quote,accountId,replay,stage,bo
   const batch=(action,title,items)=>{
     if(replay())return toast('Exit replay to manage paper trading.',true);
     const snapshot={account_id:accountId(),instrument:instrument(),orders:refs(items.orders),positions:refs(items.positions)};
+    if(config().instant){void command(action,snapshot).then(()=>toast(title+' accepted · PAPER')).catch(e=>toast(e.message,true));return;}
     showDialog(title,`<p>${snapshot.instrument.toUpperCase()} · PAPER</p><p>${action==='cancel_orders'?'Cancel '+items.orders.length+' working orders.':action==='flatten'?'Cancel '+items.orders.length+' working orders and close '+items.positions.length+' positions.':'Cancel '+items.orders.length+' working orders and reverse the net position at the current server quote.'}</p>`,async()=>{await command(action,snapshot);toast(title+' accepted · PAPER');});
   };
   function paint(){
@@ -26,13 +27,13 @@ export function setupDOMTrader({state,instrument,quote,accountId,replay,stage,bo
       lastOrderSignature=sig;orders.replaceChildren();
       for(const o of items.orders){const row=document.createElement('div');row.className='dom-own-order';row.dataset.orderId=o.id;row.draggable=true;
         const label=document.createElement('button');label.textContent=o.side.toUpperCase()+' '+o.kind.replace('_',' ').toUpperCase()+' '+fmt(o.qty)+' @ '+fmt(o.trigger||o.price);label.dataset.modify=o.id;label.onclick=()=>editOrder(o);label.disabled=locked;
-        const cancel=document.createElement('button');cancel.textContent='×';cancel.dataset.cancel=o.id;cancel.setAttribute('aria-label','Cancel '+o.side+' '+o.kind+' order');cancel.disabled=locked;cancel.onclick=async()=>{try{await command('cancel',{id:o.id,account_id:o.account_id,revision:o.revision});toast('Paper order cancelled.');}catch(e){toast(e.message,true);}};
+        const cancel=document.createElement('button');cancel.textContent='×';cancel.dataset.cancel=o.id;cancel.setAttribute('aria-label','Cancel '+o.side+' '+o.kind+' order');cancel.disabled=locked;cancel.onclick=()=>cancelOrder(o);
         row.append(label,cancel);row.ondragstart=e=>{if(locked){e.preventDefault();return;}e.dataTransfer.setData('application/x-desk-order',o.id);e.dataTransfer.effectAllowed='move';};orders.append(row);
       }
       if(!items.orders.length){const label=document.createElement('span');label.className='muted';label.textContent='No working orders';orders.append(label);}
     }
-    orders.querySelectorAll('button').forEach(b=>b.disabled=locked);
-    const psig=JSON.stringify(items.positions);if(psig!==lastPositionSignature){lastPositionSignature=psig;$('#domPositionActions').replaceChildren();for(const p of items.positions){const row=document.createElement('div');row.className='dom-position-actions';const bracket=document.createElement('button');bracket.textContent='SL / TP · '+fmt(p.qty);bracket.onclick=()=>editBracket(p);bracket.dataset.bracket=p.id;const close=document.createElement('button');close.textContent='Close / partial';close.onclick=()=>closePosition(p);close.dataset.close=p.id;row.append(bracket,close);$('#domPositionActions').append(row);}}
+    orders.querySelectorAll('button').forEach(b=>b.disabled=locked||pending(accountId(),b.dataset.cancel||b.dataset.modify));
+    const psig=JSON.stringify(items.positions);if(psig!==lastPositionSignature){lastPositionSignature=psig;$('#domPositionActions').replaceChildren();for(const p of items.positions){const row=document.createElement('div');row.className='dom-position-actions';const bracket=document.createElement('button');bracket.textContent='SL / TP · '+fmt(p.qty);bracket.onclick=()=>editBracket(p);bracket.dataset.bracket=p.id;const close=document.createElement('button');close.textContent='Close';close.onclick=()=>closePosition(p);close.dataset.close=p.id;const partial=document.createElement('button');partial.textContent='Partial';partial.onclick=()=>closePosition(p,{partial:true});row.append(bracket,close,partial);$('#domPositionActions').append(row);}}
     $('#domPositionActions').querySelectorAll('button').forEach(b=>b.disabled=locked);
     const isLadder=view.value==='ladder';$('#domBook').hidden=isLadder;ladder.hidden=!isLadder;
     if(isLadder&&q){

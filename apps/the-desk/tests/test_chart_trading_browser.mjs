@@ -1,0 +1,59 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {writeFile} from 'node:fs/promises';
+let url=process.env.DESK_CHART_QA_URL;
+test('full chart and manager trading against isolated real paper engine',{skip:!url&&!process.env.DESK_CHART_QA,timeout:180000},async t=>{
+ let server;
+ if(!url){server=spawn('python3',[fileURLToPath(new URL('./launch_chart_trader_fixture.py',import.meta.url))],{stdio:['ignore','pipe','inherit']});t.after(()=>server.kill());url=await new Promise((resolve,reject)=>{server.stdout.once('data',b=>resolve(b.toString().trim()));server.once('error',reject);server.once('exit',code=>reject(Error('Fixture exited '+code)));});}
+ const {chromium}=await import(process.env.DESK_PLAYWRIGHT_MODULE||'playwright');
+ const browser=await chromium.launch({headless:true,...(process.env.DESK_CHROME_BIN?{executablePath:process.env.DESK_CHROME_BIN}:{})});
+ const page=await browser.newPage({viewport:{width:1600,height:1000}}),errors=[],steps=[],latencies=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',r=>new URL(r.request().url()).origin===new URL(url).origin||r.request().url().startsWith('data:')?r.continue():r.abort());
+ const get=async path=>(await page.request.get(url+path)).json();
+ const post=async(path,json)=>(await page.request.post(url+path,{data:json})).json();
+ async function until(fn){const end=Date.now()+8000;while(Date.now()<end){const result=await fn();if(result)return result;await page.waitForTimeout(60);}throw Error('State expectation timed out');}
+ const state=()=>get('/api/state');
+ const working=s=>s.orders.filter(o=>['working','triggered'].includes(o.status));
+ const line=(id,field='price')=>page.locator(`.trade-line[data-item-id="${id}"][data-field="${field}"]`).first();
+ const noDialog=async()=>assert.equal(await page.locator('#dialog').evaluate(e=>e.open),false);
+ async function setting(instant){await page.locator('#tradingSettings').click();await page.locator('[name=instant]').setChecked(instant);await page.locator('#dialogForm button[type=submit]').click();await page.locator('#dialog').waitFor({state:'hidden'});}
+ async function ticket({side='buy',kind='limit',price='79500',trigger='80500',stop='',target='',qty='.002',sizeMode='units'}={}){
+  await page.locator(side==='buy'?'#sideBuy':'#sideSell').click();await page.locator('#orderKind').selectOption(kind);await page.locator('#sizeMode').selectOption(sizeMode);await page.locator('#quantity').fill(qty);
+  if(['limit','stop_limit'].includes(kind))await page.locator('#entryPrice').fill(price);if(kind.includes('stop'))await page.locator('#triggerPrice').fill(trigger);
+  await page.locator('#stopPrice').fill(stop);await page.locator('#targetPrice').fill(target);await page.locator('#submitOrder').click();
+  return until(async()=>{const s=await state();return s.orders.find(o=>o.side===side&&o.kind===kind&&(kind==='market'?o.status==='filled':o.status==='working'));});
+ }
+ async function context(side,y){const box=await page.locator('.trade-overlay').first().boundingBox();await page.mouse.click(box.x+box.width*.55,box.y+box.height*y,{button:'right'});await page.locator('#chartMenu [data-action='+side+']').click();}
+ async function cancel(o){await line(o.id).locator('[data-action=cancel]').click();await noDialog();await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.status==='cancelled');}
+ try{
+  assert.equal((await state()).accounts[0].name,'ISOLATED CHART QA','Only the isolated fixture may be targeted');
+  await page.goto(url);await page.locator('.trade-overlay').waitFor({state:'attached'});await page.locator('#submitOrder').waitFor({state:'visible'});await until(()=>page.locator('#submitOrder').isEnabled());
+  await page.locator('#tradingSettings').click();assert.equal(await page.locator('[name=instant]').isChecked(),true);await page.locator('#dialogCancel').click();steps.push('one-click defaults on');
+  await context('buy',.72);await noDialog();let o=await until(async()=>working(await state())[0]);assert.equal(o.side,'buy');assert.equal(o.stop,null);await page.getByText('1h',{exact:true}).first().click();await page.getByText('1m',{exact:true}).click();await line(o.id).waitFor({state:'visible'});assert.equal(working(await state())[0].id,o.id);await page.getByText('1m',{exact:true}).first().click();await page.getByText('1h',{exact:true}).click();await line(o.id).waitFor({state:'visible'});steps.push('resting limit survives 1h to 1m and back');await cancel(o);steps.push('right-click buy limit and chart X cancel');
+  await context('sell',.2);await noDialog();o=await until(async()=>working(await state())[0]);assert.equal(o.side,'sell');await page.locator(`[data-cancel="${o.id}"]`).click();await noDialog();await until(async()=>!working(await state()).length);steps.push('right-click sell limit and manager cancel');
+  o=await ticket({stop:'79000',target:'81000'});await line(o.id).waitFor({state:'visible'});
+  const label=line(o.id).locator('.trade-line-label'),box=await label.boundingBox();await label.hover();await page.mouse.down();await page.mouse.move(box.x+box.width/2,box.y+box.height/2-20,{steps:8});await page.mouse.up();await noDialog();
+  await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.revision>o.revision);steps.push('drag live entry immediately amends');
+  await line(o.id,'stop').locator('[data-action=cancel]').click();await noDialog();await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.stop===null);assert.equal((await state()).orders.find(x=>x.id===o.id).target,'81000');steps.push('remove protection preserves other fields');
+  await cancel((await state()).orders.find(x=>x.id===o.id));
+  for(const kind of ['stop','stop_limit']){o=await ticket({kind,price:'80400'});assert.equal(o.status,'working');await line(o.id,'trigger').locator('[data-action=cancel]').click();await noDialog();await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.status==='cancelled');}steps.push('stop market and stop limit placement/cancellation');
+  for(const [sizeMode,qty,stop] of [['cash','159',''],['balance','.02',''],['risk','1','79000']]){o=await ticket({sizeMode,qty,stop});assert.equal(o.qty,'0.002');await cancel(o);}steps.push('cash, percent-balance and stop-risk sizing');
+  await ticket({kind:'market',stop:'79000',target:'81000'});let p=await until(async()=>(await state()).positions[0]);await page.locator('[data-panel=positions]').click();await page.locator(`[data-partial="${p.id}"]`).click();await page.locator('#dialogForm [name=qty]').fill('.001');await page.locator('#dialogForm button[type=submit]').click();await until(async()=>(await state()).positions[0]?.qty==='0.001');
+  await line(p.id,'entry').locator('[data-action=close]').click();await noDialog();await until(async()=>!(await state()).positions.length);steps.push('market entry, explicit partial close, chart one-click full close');
+  await ticket({kind:'market',side:'sell'});p=await until(async()=>(await state()).positions[0]);await line(p.id,'entry').locator('[data-action=reverse]').click();await noDialog();await until(async()=>(await state()).positions[0]?.side==='buy');steps.push('one-click position reversal');
+  await page.locator('[data-rail=dom]').click();await page.locator('#domFlatten').click();await noDialog();await until(async()=>!(await state()).positions.length);steps.push('DOM one-click flatten');
+  o=await ticket();await post('/qa/faults',{command_delay:.3});const commandCount=(await get('/qa/commands')).length;await line(o.id).locator('[data-action=cancel]').dblclick({delay:10});await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.status==='cancelled');assert.equal((await get('/qa/commands')).length,commandCount+1);await post('/qa/faults',{});steps.push('double-click cancel sends one command');
+  o=await ticket();await post('/qa/faults',{state_delay:3});const started=Date.now();await line(o.id).locator('[data-action=cancel]').click();await line(o.id).waitFor({state:'detached',timeout:1500});latencies.push({action:'cancel with 3s state poll',ms:Date.now()-started});await noDialog();await post('/qa/faults',{});steps.push('cancel acknowledgement independent of slow poll');
+  o=await ticket();await post('/qa/faults',{reject:true});await line(o.id).locator('[data-action=cancel]').click();await until(async()=>(await page.locator('#toast').innerText()).includes('Synthetic command rejection'));assert.equal((await state()).orders.find(x=>x.id===o.id).status,'working');assert.equal(await line(o.id).count(),1);await post('/qa/faults',{});await cancel(o);steps.push('rejected cancel retains order and reports error; retry succeeds');
+  await page.locator('[data-rail=watch]').click();await setting(false);await context('buy',.72);await page.getByRole('heading',{name:'Place paper buy limit'}).waitFor();const before=(await get('/qa/commands')).length;await page.locator('#dialogForm button[type=submit]').click();o=await until(async()=>working(await state())[0]);assert.equal((await get('/qa/commands')).length,before+1);await line(o.id).locator('[data-action=cancel]').click();await page.getByRole('heading',{name:'Cancel chart order'}).waitFor();await page.locator('#dialogForm button[type=submit]').click();await until(async()=>!working(await state()).length);steps.push('optional review placement and confirmed cancellation work');
+  await setting(true);await page.reload();await page.locator('.trade-overlay').waitFor({state:'attached'});await page.locator('#tradingSettings').click();assert.equal(await page.locator('[name=instant]').isChecked(),true);await page.locator('#dialogCancel').click();steps.push('one-click preference persists across reload');
+  o=await ticket();await line(o.id).waitFor({state:'visible'});await page.locator('.trade-line[data-kind=draft]').waitFor({state:'detached'});await page.waitForTimeout(100);await page.evaluate(()=>{window.qaMutations=0;window.qaObserver=new MutationObserver(records=>window.qaMutations+=records.filter(r=>r.type==='childList').length);window.qaObserver.observe(document.querySelector('.trade-overlay'),{subtree:true,childList:true});});await page.waitForTimeout(500);const textMutations=await page.evaluate(()=>{window.qaObserver.disconnect();return window.qaMutations;});assert.equal(textMutations,0,'Stable chart labels should not be replaced every animation frame');steps.push('stable labels avoid repeated DOM replacement');
+  await page.locator('#replayButton').click();await page.locator('#startReplay').click();await until(()=>page.locator('#submitOrder').isDisabled());const replayCommands=(await get('/qa/commands')).length;await page.locator('#orderForm').evaluate(f=>f.requestSubmit());await page.waitForTimeout(100);assert.equal((await get('/qa/commands')).length,replayCommands);await page.locator('#stopReplay').click();await line(o.id).waitFor({state:'visible'});steps.push('replay blocks submissions and restores resting orders on exit');
+  if(process.env.DESK_CHART_SCREENSHOT)await page.screenshot({path:process.env.DESK_CHART_SCREENSHOT});await cancel(o);
+  assert.deepEqual(errors,[]);const report={synthetic:true,realPaperEngine:true,liveOrders:0,steps,latencies,stableChartTextMutations:textMutations,commands:(await get('/qa/commands')).length};
+  if(process.env.DESK_CHART_REPORT)await writeFile(process.env.DESK_CHART_REPORT,JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+ }finally{await browser.close();}
+});

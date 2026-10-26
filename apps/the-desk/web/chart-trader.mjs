@@ -3,8 +3,8 @@ import {marketIdentity,tradingLevels,tradeLevelPlacement,paperExecutionMarkers,f
 import {moveDraftBracket,bracketLabel} from './chart-bracket-model.mjs';
 import {createAgenticElliotPanel} from './agentic-elliot-panel.mjs';
 
-export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,placeDraft,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,toast}){
-  const wraps=new Map(),abcModels=new Map();let drag=null;
+export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,menu,placeDraft,editOrder,editBracket,closePosition,reversePosition,cancelOrder,removeProtection,pending=()=>false,toast}){
+  const wraps=new Map(),abcModels=new Map();let drag=null,lastFrame=0;
   const agenticPosition=value=>typeof value==='string'?value.trim().toLowerCase().replace(/\s+/g,'_'):null;
   function agenticModel(event){const {id,model}=event.detail||{};if(!id)return;const cells=workspace()?.cells()||[],exact=[];for(const cell of cells)for(const study of cell.chart.indicators?.()||[])if(study.id===id||study.instanceId===id)exact.push({cell,study});let matches=exact;if(!matches.length){for(const cell of cells)for(const study of cell.chart.indicators?.()||[])if(study.title==='Agentic - Elliot Waves'||study.name==='Agentic - Elliot Waves'||study.source?.includes('indicator("Agentic - Elliot Waves", "Agentic - Elliot Waves"'))matches.push({cell,study});if(matches.length!==1)return;}for(const {cell,study} of matches){const wrap=wraps.get(cell.id);if(!wrap)continue;const key=study.id||study.instanceId||id;let panel=wrap.elliotPanels.get(key);if(!panel){panel=createAgenticElliotPanel(wrap.overlay,key);wrap.elliotPanels.set(key,panel);}panel.update(model);}}
   window.addEventListener('desk:agentic-elliot-model',agenticModel);
@@ -43,19 +43,22 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
     if(level.kind==='position'&&level.field==='entry'){
       for(const [action,text] of [['protect','SL/TP'],['reverse','⇄'],['close','×']]){const b=document.createElement('button');b.textContent=text;b.dataset.action=action;b.setAttribute('aria-label',action==='close'?'Close chart position':action==='reverse'?'Reverse chart position':'Protect chart position');b.onclick=()=>action==='close'?closePosition(node.level.item):action==='reverse'?reversePosition(node.level.item):editBracket(node.level.item);group.append(b);}
     }
-    return node;
+    node.refs={label,badge,group,buttons:[...group.querySelectorAll('button')],reverse:group.querySelector('[data-action=reverse]')};return node;
   }
-  function frame(){
+  function frame(now=0){
+    requestAnimationFrame(frame);
+    if(document.hidden||now-lastFrame<(drag?15:32))return;lastFrame=now;
     const ws=workspace(),s=state(),c=config();
     if(drag&&!validDrag(drag))drag=null;
     if(ws&&s)for(const cell of ws.cells()){
       const wrap=wraps.get(cell.id);if(!wrap)continue;
       const {overlay,nodes,native,quick}=wrap,pane=native.scene?.panes.get('price');if(!pane)continue;
+      const axisWidth=Math.max(0,overlay.clientWidth-native.coords.width);
       const studyIds=new Set((cell.chart.indicators?.()||[]).flatMap(h=>[h.id,h.instanceId].filter(Boolean)));for(const [id,panel] of wrap.elliotPanels)if(!studyIds.has(id)){panel.destroy();wrap.elliotPanels.delete(id);}
       for(const [id,panel] of wrap.abcPanels)if(!studyIds.has(id)){panel.destroy();wrap.abcPanels.delete(id);}
       for(const study of cell.chart.indicators?.()||[]){const key=study.id||study.instanceId,model=abcModels.get(key)||abcModels.get(study.instanceId);let panel=wrap.abcPanels.get(key);if(!model){if(panel)panel.root.hidden=true;continue;}if(!panel){panel=createAgenticABCPanel(overlay,key);wrap.abcPanels.set(key,panel);}if(panel.model!==model){panel.update(model);panel.model=model;}panel.root.hidden=!study.visible||study.inputValues?.().abcSummary===false||!model.tables?.length;}
       const market=marketIdentity(cell.chart),replay=ws.replay.state.active;
-      quick.hidden=!c.quickButtons||replay||market.startsWith('ibkr:');const quote=s.quotes[market];quick.querySelectorAll('button').forEach(b=>{b.disabled=!quote||Date.now()/1000-quote.received_at>15;b.textContent=(b.dataset.quick==='buy'?'Buy ':'Sell ')+(quote?quote[b.dataset.quick==='buy'?'ask':'bid']:'—')+' · '+(s.tradingMode||'PAPER');});
+      quick.hidden=!c.quickButtons||replay||market.startsWith('ibkr:');const quote=s.quotes[market];quick.querySelectorAll('button').forEach(b=>{b.disabled=!quote||Date.now()/1000-quote.received_at>15;setText(b,(b.dataset.quick==='buy'?'Buy ':'Sell ')+(quote?quote[b.dataset.quick==='buy'?'ask':'bid']:'—')+' · '+(s.tradingMode||'PAPER'));});
       const levels=replay?[]:tradingLevels(s,market,c);if(!replay&&cell.id===ws.active.id)levels.push(...draftLevels());
       const live=new Set(levels.map(l=>l.key));if(drag?.cellId===cell.id&&!live.has(drag.level.key))drag=null;for(const [key,node] of nodes)if(!live.has(key)){node.remove();nodes.delete(key);}
       const occupied=[],preview=drag?.level.kind==='draft'?moveDraftBracket(drag.level.item,drag.level.field,drag.price,Number(quote?.tick||.01)):null;
@@ -65,22 +68,24 @@ export function setupChartTrader({workspace,state,config,draftLevels,snap,stage,
         let node=nodes.get(level.key);if(!node){node=createLine(level,wrap,cell,pane);nodes.set(level.key,node);}node.level=level;node.dataset.price=level.price;node.dataset.kind=level.kind;node.dataset.field=level.field;node.dataset.itemId=level.item?.id||'';
         const placement=tradeLevelPlacement(native.coords.priceToY(level.price,pane.scale,pane.bounds),pane.bounds),y=placement?.y;
         node.offscale=placement?.edge||null;node.classList.toggle('offscale',!!node.offscale);node.dataset.edge=node.offscale||'';
-        node.style.display=placement?'':'none';node.style.top=y+'px';node.style.right=Math.max(0,overlay.clientWidth-native.coords.width)+'px';node.style.left='0px';node.style.setProperty('--level',level.color);node.classList.toggle('draft',level.kind==='draft');
+        node.style.display=placement?'':'none';setStyle(node,'top',y+'px');setStyle(node,'right',axisWidth+'px');node.style.left='0px';node.style.setProperty('--level',level.color);node.classList.toggle('draft',level.kind==='draft');
         node.classList.toggle('protection',['stop','target'].includes(level.field));node.classList.toggle('dragging',dragging);
-        const axisWidth=Math.max(0,overlay.clientWidth-native.coords.width);node.querySelector('.trade-price-badge').style.width=axisWidth+'px';node.querySelector('.trade-price-badge').textContent=Number(level.price).toLocaleString('en-US',{maximumFractionDigits:8});
+        setStyle(node.refs.badge,'width',axisWidth+'px');setText(node.refs.badge,Number(level.price).toLocaleString('en-US',{maximumFractionDigits:8}));
         let labelY=Math.max(pane.bounds.top+13,Math.min(y,pane.bounds.top+pane.bounds.height-13));
         for(let i=0;i<levels.length*2;i++){const candidate=labelY+(i%2?1:-1)*Math.ceil(i/2)*26;if(candidate>=pane.bounds.top+13&&candidate<=pane.bounds.top+pane.bounds.height-13&&!occupied.some(v=>Math.abs(v-candidate)<25)){labelY=candidate;break;}}
-        occupied.push(labelY);node.querySelector('.trade-line-controls').style.transform='translateY('+(labelY-y)+'px)';
-        const label=node.querySelector('.trade-line-label');label.textContent=node.offscale?(node.offscale==='top'?'↑ ':'↓ ')+level.label+(level.label.includes(' @ ')?' · off scale':' · '+level.item.side.toUpperCase()+' '+level.item.qty+' · '+formatTradePrice(level.price)+' · off scale'):level.label;
+        occupied.push(labelY);setStyle(node.refs.group,'transform','translateY('+(labelY-y)+'px)');
+        const label=node.refs.label;setText(label,node.offscale?(node.offscale==='top'?'↑ ':'↓ ')+level.label+(level.label.includes(' @ ')?' · off scale':' · '+level.item.side.toUpperCase()+' '+level.item.qty+' · '+formatTradePrice(level.price)+' · off scale'):level.label);
+        for(const button of node.refs.buttons)button.disabled=pending(level.item.account_id,level.item.id);
         label.title=(level.kind==='draft'?'Draft':'Paper')+' · '+level.item.side+' '+level.item.qty+(dragging?' · Release to '+(level.kind==='draft'?'update ticket':'review amendment'):'');label.setAttribute('aria-label',level.label+' at '+level.price+(node.offscale?'. Outside visible price scale. Click or press Enter to edit.':'. Drag or press Enter to edit.'));
-        const reverse=node.querySelector('[data-action=reverse]');if(reverse){reverse.hidden=!c.reverse;reverse.disabled=market.startsWith('coinbase:');reverse.title=market.startsWith('coinbase:')?'Spot reversal would create an unsupported short':'Reverse paper position';}
+        const reverse=node.refs.reverse;if(reverse){reverse.hidden=!c.reverse;reverse.disabled=pending(level.item.account_id,level.item.id)||market.startsWith('coinbase:');reverse.title=market.startsWith('coinbase:')?'Spot reversal would create an unsupported short':'Reverse paper position';}
       }
       const executions=paperExecutionMarkers(s,market,c,replay),ids=new Set(executions.map(f=>f.id));for(const [id,n] of wrap.fills)if(!ids.has(id)){n.remove();wrap.fills.delete(id);}
-      for(const fill of executions){let n=wrap.fills.get(fill.id);if(!n){n=document.createElement('div');n.className='chart-execution';n.dataset.fillId=fill.id;n.title='PAPER · '+fill.side.toUpperCase()+' '+fill.qty+' '+fill.instrument+' at '+fill.price+' · '+fill.reason+' · '+fill.executed_at;n.setAttribute('aria-label',n.title);overlay.append(n);wrap.fills.set(fill.id,n);}const x=native.coords.timeToX(Date.parse(fill.executed_at)),y=native.coords.priceToY(Number(fill.price),pane.scale,pane.bounds);n.style.display=Number.isFinite(x)&&x>=0&&x<=native.coords.width&&y>=pane.bounds.top&&y<=pane.bounds.top+pane.bounds.height?'':'none';n.style.left=x+'px';n.style.top=y+'px';n.classList.toggle('buy',fill.side==='buy');n.classList.toggle('sell',fill.side==='sell');n.textContent=fill.side==='buy'?'▲':'▼';}
+      for(const fill of executions){let n=wrap.fills.get(fill.id);if(!n){n=document.createElement('div');n.className='chart-execution';n.dataset.fillId=fill.id;n.title='PAPER · '+fill.side.toUpperCase()+' '+fill.qty+' '+fill.instrument+' at '+fill.price+' · '+fill.reason+' · '+fill.executed_at;n.setAttribute('aria-label',n.title);overlay.append(n);wrap.fills.set(fill.id,n);}const x=native.coords.timeToX(Date.parse(fill.executed_at)),y=native.coords.priceToY(Number(fill.price),pane.scale,pane.bounds);n.style.display=Number.isFinite(x)&&x>=0&&x<=native.coords.width&&y>=pane.bounds.top&&y<=pane.bounds.top+pane.bounds.height?'':'none';n.style.left=x+'px';n.style.top=y+'px';n.classList.toggle('buy',fill.side==='buy');n.classList.toggle('sell',fill.side==='sell');setText(n,fill.side==='buy'?'▲':'▼');}
     }
     const activeStudyIds=new Set((ws?.cells()||[]).flatMap(cell=>(cell.chart.indicators?.()||[]).flatMap(h=>[h.id,h.instanceId].filter(Boolean))));for(const id of abcModels.keys())if(!activeStudyIds.has(id))abcModels.delete(id);
-    requestAnimationFrame(frame);
   }
+  function setText(node,value){if(node.textContent!==value)node.textContent=value;}
+  function setStyle(node,name,value){if(node.style[name]!==value)node.style[name]=value;}
   function cleanup(){for(const [id,wrap] of wraps)if(!workspace().cells().some(c=>c.id===id)){wrap.offIndicatorInputs?.();for(const panel of wrap.elliotPanels.values())panel.destroy();for(const panel of wrap.abcPanels.values())panel.destroy();wrap.overlay.remove();wraps.delete(id);}}
   return {attach,cleanup,start:()=>requestAnimationFrame(frame)};
 }

@@ -1,5 +1,5 @@
 import {tradeColors,bracketLabel} from './chart-bracket-model.mjs';
-export const tradingDefaults=Object.freeze({positions:true,orders:true,brackets:true,executionHistory:false,pnl:true,reverse:true,quickButtons:true,instant:false,pnlUnit:'money'});
+export const tradingDefaults=Object.freeze({positions:true,orders:true,brackets:true,executionHistory:false,pnl:true,reverse:true,quickButtons:true,instant:true,pnlUnit:'money'});
 export function tradingConfig(input={}){const c={...tradingDefaults};for(const k of Object.keys(c))if(typeof input[k]==='boolean'&&k!=='pnlUnit')c[k]=input[k];if(['money','ticks','percent'].includes(input.pnlUnit))c.pnlUnit=input.pnlUnit;return c;}
 // Older always-on execution/quantity settings do not opt into history review.
 export function paperExecutionMarkers(state,market,config,replay=false){
