@@ -7,9 +7,11 @@ const previous = {
   dataDir: process.env.JOURNAL_DATA_DIR,
   mode: process.env.DESK_STORAGE_MODE,
   policy: process.env.DESK_STORAGE_POLICY,
+  state: process.env.DESK_STORAGE_STATE,
 };
 const scratch = mkdtempSync(join(tmpdir(), "journal-budget-test-"));
 const policyPath = join(scratch, "policy.json");
+const statePath = join(scratch, "state.json");
 const externalRoot = join(scratch, "external");
 mkdirSync(externalRoot);
 writeFileSync(
@@ -19,10 +21,19 @@ writeFileSync(
 process.env.JOURNAL_DATA_DIR = join(scratch, "database");
 process.env.DESK_STORAGE_MODE = "LOCAL_TEMPORARY";
 process.env.DESK_STORAGE_POLICY = policyPath;
+process.env.DESK_STORAGE_STATE = statePath;
 
 const { db, settings } = await import("../src/db");
 writeFileSync(join(externalRoot, "pressure.bin"), Buffer.alloc(2 * 1024 * 1024));
 process.env.DESK_STORAGE_MODE = "EXTERNAL";
+writeFileSync(
+  statePath,
+  JSON.stringify({
+    external_root: externalRoot,
+    limit_bytes: 129 * 1024 * 1024,
+    used_bytes: 2 * 1024 * 1024,
+  }),
+);
 const { createJournalBudget } = await import("../src/server/storage-budget");
 createJournalBudget(join(scratch, "database/journal.db"));
 
@@ -34,6 +45,8 @@ afterAll(() => {
   else process.env.DESK_STORAGE_MODE = previous.mode;
   if (previous.policy === undefined) delete process.env.DESK_STORAGE_POLICY;
   else process.env.DESK_STORAGE_POLICY = previous.policy;
+  if (previous.state === undefined) delete process.env.DESK_STORAGE_STATE;
+  else process.env.DESK_STORAGE_STATE = previous.state;
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -52,5 +65,22 @@ describe("managed Journal storage budget", () => {
       "Journal storage budget reached",
     );
     expect(() => db.delete(settings).run()).toThrow("Journal storage budget reached");
+  });
+
+  it("uses updated supervisor usage without walking the external root", () => {
+    process.env.DESK_STORAGE_MODE = "LOCAL_TEMPORARY";
+    db.insert(settings).values({ key: "state-backed", value: "1" }).run();
+    process.env.DESK_STORAGE_MODE = "EXTERNAL";
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        external_root: externalRoot,
+        limit_bytes: 129 * 1024 * 1024,
+        used_bytes: 128 * 1024 * 1024,
+      }),
+    );
+    expect(() => db.update(settings).set({ value: "2" }).run()).toThrow(
+      "Journal storage budget reached",
+    );
   });
 });
