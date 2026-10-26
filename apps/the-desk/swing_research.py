@@ -15,7 +15,7 @@ import threading
 import time
 import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
-from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
+from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS, JevRequestError, JevResponseError
 from swing_volume import SwingVolume, VERSION as VOLUME_VERSION
 from swing_warnings import WarningEngine, REVISION as WARNING_VERSION, DEFAULTS as WARNING_DEFAULTS, validate_config as validate_warning_config
 from jev_costs import JevCostMeter, RATES
@@ -420,6 +420,22 @@ class SwingResearch:
                 jev={'status':'STALE' if stale else 'AVAILABLE','latency_ms':round(elapsed),'received_at':finished,'prompt':PROMPT_VERSION,**result}
             except Exception as e:
                 jev={'status':'UNAVAILABLE','error_class':type(e).__name__,'prompt':PROMPT_VERSION}
+                if isinstance(e,(JevRequestError,JevResponseError)):
+                    # The adapter vets codes and excludes provider bodies. Keep
+                    # only its defined diagnostic contract at this boundary.
+                    diagnostics=e.diagnostics
+                    for field in ('http_status','error_code','attempt_count','request_bytes','largest_question_bytes'):
+                        if field in diagnostics:jev[field]=deepcopy(diagnostics[field])
+                    attempts=[{k:deepcopy(value) for k,value in attempt.items() if k in ('http_status','error_code')}
+                              for attempt in diagnostics.get('attempt_errors',[])[:3]]
+                    count=diagnostics.get('attempt_count',1)
+                    unknown=sum(attempt.get('http_status') not in (429,529) for attempt in attempts)
+                    # A malformed received response can still be billable.
+                    if isinstance(e,JevResponseError) and not e.safe_usage:unknown+=1
+                    if count and not attempts and isinstance(e,JevRequestError):unknown=count
+                    jev['transport']={'attempt_count':count,'attempt_errors':attempts,
+                                      'request_bytes':diagnostics.get('request_bytes'),
+                                      'unpriced_attempts':unknown,'projection':PROMPT_VERSION}
                 if getattr(e,'safe_usage',None):jev.update(usage=e.safe_usage,model=getattr(e,'response_model',MODEL))
             jev['pricing_snapshot']=pricing
             with self.db() as db:

@@ -141,3 +141,42 @@ class WarningServiceTests(unittest.TestCase):
         self.command('pause')
         with self.assertRaises(ValueError):self.command('start_auto',expected_revision=current)
         self.assertFalse(self.service.active)
+
+    def test_jev_failure_diagnostics_survive_history_export_and_reliability(self):
+        from jev_swing import JevRequestError
+        self.command('configure',config={'jev_enabled':True});self.command('start')
+        diagnostics={'http_status':400,'error_code':'max_tokens_exceeded','attempt_count':1,
+                     'request_bytes':24000,'largest_question_bytes':18000,
+                     'attempt_errors':[{'http_status':400,'error_code':'max_tokens_exceeded','body':'PRIVATE_PROVIDER_BODY'}],
+                     'provider_body':'PRIVATE_PROVIDER_BODY'}
+        def fail(state):raise JevRequestError(diagnostics)
+        self.service.judge.judge=fail;self.sample()
+        h=self.service.history(SYMBOL);failure=h['predictions'][0]['response']
+        for field in ('http_status','error_code','attempt_count','request_bytes','largest_question_bytes'):
+            self.assertEqual(failure[field],diagnostics[field])
+        self.assertEqual(failure['transport']['attempt_count'],1)
+        self.assertEqual(failure['transport']['attempt_errors'],[{'http_status':400,'error_code':'max_tokens_exceeded'}])
+        self.assertEqual(h['reliability']['errors']['400 / max_tokens_exceeded'],1)
+        exported=self.service.export(SYMBOL)
+        saved=json.loads(exported['predictions'][0]['response'])
+        self.assertEqual(saved,failure);self.assertNotIn('PRIVATE_PROVIDER_BODY',json.dumps(exported))
+        self.assertEqual(exported['jev_costs']['unknown_cost_requests'],1)
+
+    def test_exhausted_retry_diagnostics_and_invalid_response_usage_are_retained(self):
+        from jev_swing import JevRequestError,JevResponseError
+        self.command('configure',config={'jev_enabled':True});self.command('start')
+        attempts=[{'http_status':503,'error_code':'http_error'},{'http_status':529,'error_code':'overloaded'}]
+        def fail(state):raise JevRequestError({'http_status':529,'error_code':'overloaded','attempt_count':2,'attempt_errors':attempts,'request_bytes':1234})
+        self.service.judge.judge=fail;self.sample()
+        saved=self.service.history(SYMBOL)['predictions'][0]['response']
+        self.assertEqual(saved['transport']['attempt_count'],2);self.assertEqual(saved['transport']['unpriced_attempts'],1)
+        self.assertEqual(saved['transport']['attempt_errors'],attempts)
+        self.gateway.now+=15000
+        def invalid(state):
+            e=JevResponseError({'model':'jev-1.14.0','usage':{'input_tokens':100,'output_tokens':10}},'next_bar: invalid_distribution')
+            e.diagnostics.update(attempt_count=1,request_bytes=999,attempt_errors=[])
+            raise e
+        self.service.judge.judge=invalid;self.sample()
+        saved=self.service.history(SYMBOL)['predictions'][0]['response']
+        self.assertEqual(saved['error_code'],'next_bar: invalid_distribution');self.assertEqual(saved['usage'],{'input_tokens':100,'output_tokens':10})
+        self.assertEqual(saved['transport']['unpriced_attempts'],0)

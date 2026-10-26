@@ -3,11 +3,11 @@
   "base": "5294f0f",
   "scope": "Deterministic synthetic data and isolated browser fixtures; no paid requests or live orders.",
   "local_checks": {
-    "swing_python_including_http": 96,
+    "swing_python_including_http": 98,
     "jev_python": 35,
-    "swing_and_jev_js": 50,
+    "swing_and_jev_js": 51,
     "pine_package": 73,
-    "total": 254
+    "total": 257
   },
   "browser": {
     "panel": {
@@ -28,7 +28,7 @@
   },
   "hashes": {
     "swing_warnings.py": "dc692f9e615e5de51b73978cc0d1db837c39740c354f31b0cbb7d0070ab603ab",
-    "swing_research.py": "3975058bbab599a20897849df58689f3a624627ceafae4102636e38a517a8615",
+    "swing_research.py": "411006c2454095872f1bd55758947830f6c35b228327b9077c83b6c97d98d519",
     "jev_swing.py": "a1af439d8ac8dfd2e6fc9a1eca837adfc18b30a45ca6cc00e12391140ec97bdf",
     "web/swing-warnings.mjs": "b7c72ffc0fd3f3253030b20248c61b683474688f79b4cea093617daa59eec079",
     "web/swing-tracker.mjs": "bace297b7a658e5f6ce4eeb217a6ed95192a18cf1fc7bf503f66930a2ae80c9c",
@@ -41,5 +41,21 @@
     "Native TradingView compile/realtime alerts",
     "MYM collector adapter and calibrated MYM outcome model",
     "Deployment into the user running Desk checkout"
-  ]
+  ],
+  "review_fixes": [
+    "Preserve warmup warning sequence before forward persistence",
+    "Exclude warmup-derived warning observations before outcome deduplication",
+    "Retain vetted Jev failure/retry diagnostics, usage and cost uncertainty",
+    "Refresh validation hashes after source changes"
+  ],
+  "public_data_probe": {
+    "source": "Hyperliquid public REST",
+    "scope": "Prior isolated observation-only probe; Jev disabled",
+    "saved_observations": 12,
+    "complete_four_slot_minutes": 2,
+    "features_per_sample": 8,
+    "model_requests": 0,
+    "paused_after_verification": true,
+    "source_revision": "53aef75118eb741a1e449074e20c9da76849c4c6"
+  }
 }
