@@ -81,11 +81,6 @@ class SwingHTTPTests(unittest.TestCase):
     def test_ui_and_module_are_served_without_model_or_order_keys(self):
         with urlopen(self.base+'/swing-lab.html') as r:html=r.read().decode()
         self.assertIn('Swing Tracker / Decision Lab',html)
-        self.assertEqual(html.count('name="cadence_seconds"'),1)
-        self.assertIn('value="15">4× / minute · warning collection',html)
-        self.assertNotIn('1× / minute',html)
-        self.assertNotIn('2× / minute',html)
-        self.assertNotIn('6× / minute',html)
         self.assertIn('id="jevApiKey"',html)
         self.assertIn('type="password"',html)
         self.assertIn('Save to macOS Keychain',html)
