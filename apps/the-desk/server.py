@@ -225,6 +225,7 @@ def main():
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
+                if parsed.path=='/api/swing/settings':return self.json(swing_research.settings_state())
                 if parsed.path=='/api/swing/status':return self.json(swing_research.status())
                 if parsed.path=='/api/swing/study/archive':return self.json(swing_research.study_archive(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/study':return self.json(swing_research.study_report(value('symbol','hyperliquid:BTC')))

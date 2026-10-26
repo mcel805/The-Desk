@@ -147,3 +147,7 @@ without a model key; add a session key in **Swing Lab → Jev connection**, or s
 server-side `TYPESAFE_API_KEY` when launching.
 No orders are routed. See [SWING-TRACKER.md](SWING-TRACKER.md) for setup, provenance,
 known port differences and measurement boundaries.
+
+Swing warning v1.3 adds measured episode evidence, recognition-time chart tags,
+Jev context and a Desk-export outcome audit. See [SWING-WARNINGS.md](SWING-WARNINGS.md)
+for the observation path, settings, source boundaries and calibration gates.

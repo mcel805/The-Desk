@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "checks": 19,
+  "details": [
+    "Actual Pine computes bounded warning pressure and coverage",
+    "Pine emits typed warning episodes, clearing and multiple feature families",
+    "Origin, recognition and first-observed timestamps parse with causal ordering",
+    "Future bars do not change prior warning pressure, states or event sequence",
+    "Pine numerical measurements match the executable JavaScript reference",
+    "Pine downward delivery mirrors upward measurement behavior",
+    "Unavailable volume never becomes an effort warning",
+    "Actual Pine tags positive volume effort/rejection at a new extreme",
+    "Actual Pine tags momentum divergence using a pivot known before the new high",
+    "Pine automatic one-minute direction flips only on the bar after confirmed failure",
+    "Zero enabled weight produces unavailable pressure rather than a false zero probability",
+    "Future-declared manual references do not backfill warnings",
+    "Known contacted/rejected reference produces a location warning",
+    "Warning-enabled source preserves baseline v1.2 entry, risk, management and event behavior",
+    "Disabling warning layer removes warnings without fabricating zero-risk values",
+    "Data gaps invalidate warning history until a fresh contiguous warmup",
+    "Cleared-event display toggle respects warning lifecycle",
+    "Forming candle cannot commit warning episodes",
+    "Drawing and exposed plot budgets remain bounded"
+  ],
+  "sha256": "2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2",
+  "runtime": "Local Vela/PineTS execution. Native TradingView compilation and realtime alert delivery pending."
+}

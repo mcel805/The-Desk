@@ -17,15 +17,42 @@ import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
 from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
 from swing_volume import SwingVolume, VERSION as VOLUME_VERSION
+from swing_warnings import WarningEngine, REVISION as WARNING_VERSION, DEFAULTS as WARNING_DEFAULTS, validate_config as validate_warning_config
 from jev_costs import JevCostMeter, RATES
 from swing_liquidity import DEFAULTS as STUDY_DEFAULTS, VERSION as STUDY_VERSION, LiquidityStudy, build_htf_context, validate_settings, FRAME_MS
 from swing_metrics import forecast_metrics
 from storage import connect, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
-CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
+CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_warnings.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
+
+def request_reliability(rows):
+    """All retained evaluations in this run; disabled and pending are not successes."""
+    def summarize(items):
+        available=failed=pending=disabled=recovered=0;errors={}
+        for r in items:
+            n=r['n'];status=r['status']
+            if status=='DISABLED':disabled+=n
+            elif status=='PENDING':pending+=n
+            elif status=='AVAILABLE':
+                available+=n
+                if r['attempts']>1:recovered+=n
+            else:
+                failed+=n
+                code=r['error_code'] or status
+                label=(str(r['http_status'])+' / ' if r['http_status'] else '')+code
+                errors[label]=errors.get(label,0)+n
+        completed=available+failed;rate=failed/completed if completed else None
+        return {'completed':completed,'available':available,'failed':failed,'pending':pending,'disabled':disabled,
+                'recovered':recovered,'failure_rate':rate,'target_failure_rate':.01,
+                'below_target':rate<.01 if rate is not None else None,'errors':errors,
+                'zero_failure_upper_95':1-.05**(1/completed) if completed and not failed else None}
+    rows=[dict(r) for r in rows]
+    return {**summarize(rows),'by_prompt':{p:summarize([r for r in rows if r['prompt']==p]) for p in sorted({r['prompt'] for r in rows})},
+            'current_prompt':PROMPT_VERSION,'scope':'Current run, all retained evaluations; stale, unavailable and unresolved count as failures. Neutral is a valid answer. Small samples do not establish a long-run failure rate.'}
+
 
 class SwingResearch:
     def __init__(self,gateway,directory,judge=None):
@@ -52,7 +79,7 @@ class SwingResearch:
         self.backfill_bars()
         self.cost_meter=JevCostMeter(self.path)
         for symbol in SYMBOLS:
-            default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':15,'jev_enabled':False,**deepcopy(STUDY_DEFAULTS)}
+            default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':15,'jev_enabled':False,'warning_settings':deepcopy(WARNING_DEFAULTS),**deepcopy(STUDY_DEFAULTS)}
             self.configs[symbol]={**default,**saved.get(symbol,{})}
             self.last[symbol]={'status':'PAUSED','detail':'Start a new observation run. Restart never resumes automatically.'}
             with self.db() as db:
@@ -73,6 +100,13 @@ class SwingResearch:
         try:
             with db:yield db
         finally:db.close()
+
+    def settings_state(self):
+        with self.lock:
+            return {'symbols':{symbol:{'config':deepcopy(self.configs[symbol]),
+                    'revision':digest(self.configs[symbol]),'running':symbol in self.active,
+                    'run':self.last[symbol].get('run')} for symbol in SYMBOLS},
+                    'jev_configured':self.judge.configured,'as_of':int(time.time()*1000)}
 
     def append(self,run,symbol,kind,at,payload,db=None):
         with (nullcontext(db) if db is not None else self.db()) as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
@@ -144,10 +178,22 @@ class SwingResearch:
                     'Key set for this server session.' if key else 'Jev disabled for this server session.')+' First successful Jev response verifies access.'}
 
     def command(self,p):
-        if not isinstance(p,dict) or set(p)-{'action','symbol','config','level','level_id'}:raise ValueError('Invalid research command')
+        if not isinstance(p,dict) or set(p)-{'action','symbol','config','level','level_id','expected_revision'}:raise ValueError('Invalid research command')
         symbol=p.get('symbol');action=p.get('action')
         if symbol not in SYMBOLS:raise ValueError('Swing research supports Hyperliquid BTC and ETH only')
         with self.lock:
+            if action=='start_auto':
+                if symbol in self.active:return self.settings_state()
+                if self.active:raise ValueError('Pause the current market before starting another')
+                if p.get('expected_revision')!=digest(self.configs[symbol]):
+                    raise ValueError('Settings changed in another tab. Reload settings and start again.')
+                patch=p.get('config',{})
+                if not isinstance(patch,dict):raise ValueError('Invalid research configuration')
+                if 'study_levels' in patch and patch['study_levels']!=self.configs[symbol]['study_levels']:
+                    raise ValueError('Use timestamped level commands for manual references')
+                cfg={**deepcopy(self.configs[symbol]),**patch}
+                self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'}})
+                return self.command({'action':'start','symbol':symbol})
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])
                 if action=='level_add':
@@ -166,9 +212,10 @@ class SwingResearch:
                 if 'study_levels' in cfg:raise ValueError('Use timestamped level_add or level_remove for manual references')
                 cfg={**self.configs[symbol],**cfg}
                 validate_settings(cfg)
+                cfg['warning_settings']=validate_warning_config(cfg.get('warning_settings'))
                 if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds'] not in (10,15,30,60):raise ValueError('Cadence must be 10, 15, 30 or 60 seconds')
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
-                Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS})
+                Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled','warning_settings') and k not in STUDY_DEFAULTS})
                 if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 self.pause(symbol,'CONFIG_CHANGED');self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
@@ -197,7 +244,9 @@ class SwingResearch:
         self.last[symbol]={**self.last[symbol],'status':'PAUSED','detail':reason,'run':a['run'] if a else self.last[symbol].get('run')}
         if a and a['tracker']:
             a['tracker'].terminate(reason,int(time.time()*1000))
+            previous_warnings=self.last[symbol].get('snapshot',{}).get('warnings')
             self.last[symbol]['snapshot']=a['tracker'].snapshot()
+            if previous_warnings:self.last[symbol]['snapshot']['warnings']=previous_warnings
             if a.get('volume_engine'):self.last[symbol]['snapshot']['market_synth']=a['volume_engine'].snapshot(a['tracker'].candidates)
         if a and a.get('study'):
             a['study'].end(reason,int(time.time()*1000));self.persist_study(symbol,a,int(time.time()*1000))
@@ -266,8 +315,12 @@ class SwingResearch:
             pending_events=[];new_bars=[]
             warming=a['tracker'] is None
             if warming:
-                a['tracker']=SwingTracker(Config(**{k:v for k,v in a['config'].items() if k not in ('cadence_seconds','jev_enabled') and k not in STUDY_DEFAULTS}),tick)
+                a['tracker']=SwingTracker(Config(**{k:v for k,v in a['config'].items() if k not in ('cadence_seconds','jev_enabled','warning_settings') and k not in STUDY_DEFAULTS}),tick)
                 a['volume_engine']=SwingVolume(symbol,tick)
+                a['warnings']=WarningEngine({**a['config'].get('warning_settings',{}),'tick':tick})
+                a['warning_persisted_seq']=0
+                a['warning_warmup_seq']=0
+                a['warning_live']=None
             tracker=a['tracker']
             if not warming and a.get('study'):
                 if context:a['study'].set_context(context,closed)
@@ -276,6 +329,7 @@ class SwingResearch:
                 if tracker.last_time is None or b['time']>tracker.last_time:
                     tracker.feed(b,observed_at=None if warming else now);a['seen'][b['time']]=digest(b)
                     a['volume_engine'].feed(b)
+                    a['warnings'].feed(b, None if warming else now)
                     new_bars.append(b)
                     if not warming:
                         pending_events.append(('BAR_CLOSED',{'bar':b,'observed_at':now}))
@@ -299,12 +353,38 @@ class SwingResearch:
                     tracker.set_study_campaigns([])
             for ev in tracker.events:
                 if not warming and ev['seq']>a['persisted_seq']:pending_events.append(('TRACKER_EVENT',ev))
-            snap=tracker.snapshot();prediction_bar=(now//60000+1)*60000
+            warnings=a['warnings']
+            if warming:a['warning_warmup_seq']=warnings.sequence
+            # First receipt is a separate availability barrier. New references
+            # cannot claim contact in a candle that began before discovery.
+            known_levels=[]
+            for level in (a['study'].levels.values() if a.get('study') else []):
+                if not level.get('in_current_map'):continue
+                known=max(level['known_at'],level.get('available_at',now))
+                if known<=now:
+                    known_levels.append({'id':level['id'],'price':level['price'],'side':'upper' if level['side']=='high' else 'lower',
+                                         'knownAt':known,'producerKnownAt':level['known_at'],'source':level.get('source'),'timeframe':level.get('timeframe')})
+            warnings.set_levels(known_levels,now)
+            if forming and forming['time']==warnings.last_closed+60000 and forming['time']<=now<forming['time']+60000:
+                live=warnings.observe(forming,now,source_at=int(as_of))
+                if live is not None:a['warning_live']=live
+            if not forming or (a.get('warning_live') and a['warning_live']['closedCutoff']!=warnings.last_closed+60000):a['warning_live']=None
+            warning_state={'version':WARNING_VERSION,'closed':deepcopy(warnings.last_snapshot),'provisional':deepcopy(a['warning_live']),
+                           'events':[{**deepcopy(ev),'scope':'WARMUP' if ev['seq']<=a['warning_warmup_seq'] else 'FORWARD'} for ev in warnings.events[-80:]],
+                           'scope':'Deterministic warning pressure; not calibrated reversal probability. Forming evidence cannot confirm entries.'}
+            for value in (warning_state['closed'],warning_state['provisional']):
+                if value:
+                    value['symbol']=symbol
+                    value['featureConfig']=encode({'engine':WARNING_VERSION,'implementation':'desk-python','code_hash':CODE_HASH,'settings':json.loads(value['featureConfig'])})
+            for ev in warnings.events:
+                if not warming and ev['seq']>a['warning_persisted_seq']:pending_events.append(('WARNING_EVENT',ev))
+            snap=tracker.snapshot();snap['warnings']=warning_state;prediction_bar=(now//60000+1)*60000
             snap['market_synth']=a['volume_engine'].snapshot(snap['candidates'])
             primary=a['last_bucket']!=now//60000
             # Independent evaluations are grouped by source minute. Secondary intrabar samples are diagnostic.
             state={'symbol':symbol,'provider':'Hyperliquid public REST','observed_at':now,'quote_at':source,'candles_as_of':as_of,'bid':float(bid),'ask':float(ask),'tick':tick,'closed_cutoff':snap['cutoff'],'forming':forming,'forming_is_confirmed':False,'prediction_bar':prediction_bar,'definition':'next full 1m close vs its open; >= one tick','evaluation_bar':now//60000*60000,'evaluation_slot':now%60000//(a['config']['cadence_seconds']*1000)+1,'cadence_seconds':a['config']['cadence_seconds'],'revision':REVISION,'code_hash':CODE_HASH,'parent_id':snap['parent_id'],'trend':snap['trend'],'pivots':snap['pivots'][-10:],'candidates':snap['candidates'][-4:],'closed_bars':closed[-max(24,a['config'].get('study_window',5)*2+1):]}
             if a.get('study'):state['liquidity_study']=self.study_brief(a['study'].snapshot(),include_evidence=True)
+            state['swing_warnings']=deepcopy(warning_state)
             state['market_synth']={**snap['market_synth'],'recent':snap['market_synth']['recent'][-12:]}
             pid=uuid.uuid5(uuid.NAMESPACE_URL,a['run']+':'+str(slot)).hex
             pricing=deepcopy(RATES.get(MODEL))
@@ -320,6 +400,7 @@ class SwingResearch:
                 db.execute('INSERT INTO collection_checkpoints VALUES(?,?,?,?,?,?) ON CONFLICT(run) DO UPDATE SET observed_at=excluded.observed_at,closed_cutoff=excluded.closed_cutoff,prediction_id=excluded.prediction_id,seq=excluded.seq,snapshot=excluded.snapshot',
                            (a['run'],now,snap['cutoff'],pid,tracker.seq,encode(snap)))
             if a.get('study'):self.persist_study(symbol,a,now)
+            a['warning_persisted_seq']=warnings.sequence
             a['sample_slot']=slot;a['persisted_seq']=tracker.seq;a['last_bucket']=now//60000
             current={'status':'OBSERVING','run':a['run'],'started':a['started'],'observed_at':now,'quote_at':source,'snapshot':snap,'forming':forming,'primary_sample':primary,'prediction_id':pid,'prediction_bar':prediction_bar,'jev':{'status':'DISABLED'},'detail':'Completed bars confirm setups. Intrabar snapshots only update research judgments.'}
             if a.get('study'):current['study']=self.study_brief(a['study'].snapshot())
@@ -471,7 +552,7 @@ class SwingResearch:
                 'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
             costs=self.cost_meter.summary(contexts,MODEL)
             for k,v in result.items():v['costs']=costs['symbols'][k]
-            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
+            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []
@@ -506,10 +587,20 @@ class SwingResearch:
               json_extract(response,'$.answers.next_bar') forecast,json_extract(outcome,'$.label') label,
               json_extract(state,'$.closed_bars[#-1]') last_bar,json_extract(state,'$.tick') tick
               FROM predictions WHERE symbol=? AND run=? AND primary_sample=1 ORDER BY at''',(symbol,run)).fetchall()
+            reliability_rows=db.execute('''SELECT
+              COALESCE(json_extract(p.response,'$.status'),u.status,'UNRESOLVED') status,
+              COALESCE(json_extract(p.response,'$.prompt'),'legacy/unknown') prompt,
+              json_extract(p.response,'$.http_status') http_status,
+              json_extract(p.response,'$.error_code') error_code,
+              COALESCE(json_extract(p.response,'$.transport.attempt_count'),1) attempts,COUNT(*) n
+              FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id
+              WHERE p.symbol=? AND p.run=? GROUP BY 1,2,3,4,5''',(symbol,run)).fetchall()
         predictions=[{**dict(r),'state':json.loads(r['state']),'response':json.loads(r['response']) if r['response'] else None,'outcome':json.loads(r['outcome']) if r['outcome'] else None} for r in rows]
         return {'run':run,'run_ended':ended,'predictions':predictions,
                 'events':[{**dict(r),'payload':json.loads(r['payload'])} for r in events],
-                'metrics':forecast_metrics(primary,total,ended)}
+                'metrics':forecast_metrics(primary,total,ended),
+                'reliability':request_reliability(reliability_rows)}
+
 
     def export(self,symbol):
         if symbol not in SYMBOLS:raise ValueError('Unsupported symbol')
@@ -524,4 +615,4 @@ class SwingResearch:
         with self.db() as db:
             bars=[dict(r) for r in db.execute('SELECT * FROM run_bars WHERE symbol=? ORDER BY time DESC LIMIT 100000',(symbol,))]
             checkpoints=[dict(r) for r in db.execute('SELECT c.* FROM collection_checkpoints c JOIN runs r ON r.id=c.run WHERE r.symbol=?',(symbol,))]
-        return {'run_bars':bars,'checkpoints':checkpoints,'revision':REVISION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'jev_usage':usage,'jev_costs':costs,'limits':{'runs':100,'ledger':20000,'predictions':20000,'jev_usage':20000,'run_bars':100000},'study':self.study_report(symbol),'study_version':STUDY_VERSION,'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}
+        return {'run_bars':bars,'checkpoints':checkpoints,'revision':REVISION,'warning_version':WARNING_VERSION,'current_code_hash':CODE_HASH,'model':MODEL,'prompt_version':PROMPT_VERSION,'questions':QUESTIONS,'runs':runs,'ledger':ledger,'predictions':predictions,'jev_usage':usage,'jev_costs':costs,'limits':{'runs':100,'ledger':20000,'predictions':20000,'jev_usage':20000,'run_bars':100000},'study':self.study_report(symbol),'study_version':STUDY_VERSION,'execution':'none','coverage':'REST snapshots and closed 1m OHLC; not tick replay'}

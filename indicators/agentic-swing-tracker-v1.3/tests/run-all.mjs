@@ -1,0 +1,13 @@
+import {spawn} from 'node:child_process';import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';import {createHash} from 'node:crypto';
+const dir=path.dirname(fileURLToPath(import.meta.url)),root=path.dirname(dir);
+const jobs=[['engine',['--test',path.join(dir,'engine.test.mjs')]],['pine',[path.join(dir,'pine-warnings.mjs')]],['legacy',[path.join(dir,'legacy-regression.mjs')]],['live',[path.join(dir,'pine-live.mjs')]]];
+const results=await Promise.all(jobs.map(([name,args])=>new Promise(resolve=>{let log='';const p=spawn(process.execPath,args,{cwd:root});p.stdout.on('data',s=>log+=s);p.stderr.on('data',s=>log+=s);p.on('error',e=>resolve({name,exitCode:1,log:e.message}));p.on('close',async code=>{await fs.writeFile(path.join(dir,name+'-run.log'),log);process.stdout.write(name+': '+(code===0?'completed':'FAILED')+'\n');resolve({name,exitCode:code,log});});})));
+const failed=results.filter(r=>r.exitCode!==0);for(const r of failed)process.stderr.write(r.log);
+const live=await fs.readFile(path.join(dir,'pine-live-validation.json'),'utf8').then(JSON.parse).catch(()=>null);
+const pine=await fs.readFile(path.join(dir,'pine-validation.json'),'utf8').then(JSON.parse).catch(()=>null);
+const legacy=await fs.readFile(path.join(dir,'validation.json'),'utf8').then(JSON.parse).catch(()=>null);
+const engineCount=Number(results.find(r=>r.name==='engine')?.log.match(/# pass (\d+)/)?.[1]??0);
+const source=await fs.readFile(path.join(root,'Agentic_Swing_Tracker_v1_3.pine'));
+const sourceHashes={};for(const name of ['Agentic_Swing_Tracker_v1_3.pine','warnings.pine','warning-engine.mjs','reversal-study.mjs','study-cli.mjs'])sourceHashes[name]=createHash('sha256').update(await fs.readFile(path.join(root,name))).digest('hex');
+const report={status:failed.length?'FAILED':'PASS_LOCAL_NATIVE_VERIFICATION_PENDING',checks:engineCount+(pine?.checks??0)+(legacy?.checks??0),engineChecks:engineCount,pineChecks:pine?.checks??0,legacyChecks:legacy?.checks??0,sourceSha256:createHash('sha256').update(source).digest('hex'),sourceHashes,suites:results.map(({name,exitCode})=>({name,exitCode})),intrabarProbe:live,nativeTradingView:'Not compiled: native app can be read but chart input reports noWindowsAvailable.',noMistakes:'Not run by this local test command; repository gate and publication evidence are recorded separately.',data:'Deterministic synthetic OHLC, not the supplied October 26 market replay.',probability:'Outcome-label and chronological-holdout machinery tested; no MYM-trained model or calibrated MYM probability.'};
+await fs.writeFile(path.join(root,'validation-report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));process.exitCode=failed.length?1:0;

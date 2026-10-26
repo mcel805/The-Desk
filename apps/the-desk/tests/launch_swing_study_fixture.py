@@ -4,6 +4,7 @@ No public market, Jev, Keychain or Codex requests. Never a performance record.
 """
 from pathlib import Path
 import json
+import math
 import sys
 import time
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -15,6 +16,7 @@ from test_swing_advisors import FakeSession
 from swing_liquidity import LiquidityStudy
 from swing_advisors import SwingAdvisors
 from swing_research import SwingResearch
+from swing_warnings import WarningEngine
 
 
 class FixtureResearch(SwingResearch):
@@ -33,10 +35,16 @@ class FixtureResearch(SwingResearch):
             self.persist_study(symbol,{'run':run,'study':s,'config':cfg},fixtures.BASE+360000)
             report=self.study_report(symbol,run);report['scope']='SYNTHETIC UI TEST — invented prices and outcomes; no model calls, no performance claim. '+report['scope']
             with self.db() as db:db.execute('UPDATE study_state SET state=? WHERE run=?',(json.dumps(report),run))
+            warnings=WarningEngine({'side':1})
+            for i in range(-70,5):
+                price=104+8*math.sin(i/5)
+                warnings.feed(fixtures.bar(i,o=price-1,h=price+3,l=price-3,c=price))
+            evidence={'version':'swing-warnings-1.3.0','closed':warnings.last_snapshot,'provisional':None,
+                      'events':[{**x,'scope':'WARMUP'} for x in warnings.events[-80:]]}
             self.last[symbol]={'run':run,'status':'PAUSED','observed_at':fixtures.BASE+370000,
                               'detail':'SYNTHETIC UI TEST · invented prices; no market or model requests.',
                               'snapshot':{'config':cfg,'tick':1,'parent_id':1,'trend':0,'cutoff':fixtures.BASE+300000,
-                                          'reserved_session':0,'candidates':[],'plans':[],'pivots':[],
+                                          'warnings':evidence,'reserved_session':0,'candidates':[],'plans':[],'pivots':[],
                                           'display_bars':[fixtures.bar(i) for i in range(-12,5)]},
                               'study':self.study_brief(report),'jev':{'status':'DISABLED'}}
     def start(self):pass

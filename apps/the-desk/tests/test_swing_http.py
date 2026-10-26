@@ -135,4 +135,21 @@ class SwingHTTPTests(unittest.TestCase):
         self.assertFalse(status['jev_key_storage']['available'])
         self.assertFalse(status['jev_configured'])
 
+
+    def test_warning_settings_endpoint_and_atomic_run_reject_stale_revision(self):
+        symbol='hyperliquid:BTC'
+        for market in ('hyperliquid:BTC','hyperliquid:ETH'):
+            self.request('/api/swing/control',{'action':'pause','symbol':market})
+        state=self.request('/api/swing/settings');current=state['symbols'][symbol]
+        self.assertEqual(current['config']['warning_settings']['weights'],[2,2,1,2,1,3])
+        body={'action':'start_auto','symbol':symbol,'expected_revision':current['revision'],
+              'config':{'warning_settings':{'side':1,'slowRatio':.6}}}
+        try:
+            started=self.request('/api/swing/control',body)
+            self.assertTrue(started['symbols'][symbol]['running'])
+            self.assertEqual(started['symbols'][symbol]['config']['warning_settings']['slowRatio'],.6)
+            self.request('/api/swing/control',{'action':'pause','symbol':symbol})
+            with self.assertRaises(HTTPError):self.request('/api/swing/control',body)
+        finally:self.request('/api/swing/control',{'action':'pause','symbol':symbol})
+
 if __name__=='__main__':unittest.main()

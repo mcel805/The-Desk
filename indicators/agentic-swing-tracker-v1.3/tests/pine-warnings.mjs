@@ -1,0 +1,43 @@
+import fs from 'node:fs/promises';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
+import {run,rows,fixture,basePrepared,source} from './runtime.mjs';
+import {measurements,DEFAULTS} from '../warning-engine.mjs';
+const checks=[];const pass=name=>{checks.push(name);console.log('PASS '+name);};
+const bars=fixture(),inputs={wDirectionMode:'Track UP',wShowTags:true,wTagLimit:90};
+const model=await run({bars,inputs});
+const pressure=rows(model,'Warnings · closed pressure 0–100 NOT probability');assert.ok(pressure.some(x=>Number.isFinite(x)&&x>0));assert.ok(pressure.filter(Number.isFinite).every(x=>x>=0&&x<=100));pass('Actual Pine computes bounded warning pressure and coverage');
+const warningLabels=m=>m.labels.filter(x=>x.tooltip?.includes('"phase"'));
+const packets=m=>warningLabels(m).map(x=>JSON.parse(x.tooltip.split('\n')[1]));
+const events=packets(model);assert.ok(events.some(x=>x.phase==='START'));assert.ok(events.some(x=>x.phase==='CLEARED'));assert.ok(new Set(events.map(x=>x.feature)).size>=5);pass('Pine emits typed warning episodes, clearing and multiple feature families');
+for(const p of events){assert.ok(p.origin_at<=p.first_confirmed_at&&p.first_confirmed_at<=p.known_at);assert.ok(p.first_observed_at<=p.known_at);assert.ok(p.id>0&&p.sequence>0);}pass('Origin, recognition and first-observed timestamps parse with causal ordering');
+for(const count of [35,70,110]){const prefix=await run({bars:bars.slice(0,count),inputs});for(const title of ['Warnings · closed pressure 0–100 NOT probability','Warnings · active distinct families','Warnings · turn stage 0 track 1 micro 2 protected 3 confirmed','Warnings · event sequence'])assert.deepEqual(rows(prefix,title),rows(model,title).slice(0,count),title);}pass('Future bars do not change prior warning pressure, states or event sequence');
+for(const title of ['Warnings · speed ratio','Warnings · efficiency','Warnings · overlap','Warnings · opposing wick fraction','Warnings · rolling momentum balance']){
+  const series=rows(model,title);for(let i=30;i<bars.length;i++){
+    const m=measurements(bars.slice(0,i+1),1,53000,DEFAULTS),value=title.endsWith('speed ratio')?m.values.speedRatio:title.endsWith('efficiency')?m.values.efficiency:title.endsWith('overlap')?m.values.overlap:title.endsWith('wick fraction')?m.values.rejection:m.values.rsi;
+    if(value==null)assert.ok(!Number.isFinite(series[i]));else assert.ok(Math.abs(series[i]-value)<1e-7,title+' bar '+i);
+  }
+}pass('Pine numerical measurements match the executable JavaScript reference');
+const mirrored=bars.map(b=>({...b,open:106000-b.open,high:106000-b.low,low:106000-b.high,close:106000-b.close}));
+const short=await run({bars:mirrored,inputs:{...inputs,wDirectionMode:'Track DOWN'}});assert.deepEqual(rows(short,'Warnings · speed ratio'),rows(model,'Warnings · speed ratio'));assert.deepEqual(rows(short,'Warnings · efficiency'),rows(model,'Warnings · efficiency'));pass('Pine downward delivery mirrors upward measurement behavior');
+const unavailable=await run({bars:bars.map(b=>({...b,volume:0})),inputs:{...inputs,wVolumeEnabled:true}});assert.ok(!packets(unavailable).some(p=>p.feature==='EFFORT'&&p.phase==='START'));pass('Unavailable volume never becomes an effort warning');
+const trendBars=Array.from({length:45},(_,i)=>{let p=53000+i*3;return {time:bars[0].time+i*60000,open:p-2,high:p+.5,low:p-2.5,close:p,volume:100};});
+Object.assign(trendBars.at(-1),{open:53132,high:53144,low:53131,close:53132,volume:1000});
+const effort=await run({bars:trendBars,inputs:{...inputs,wVolumeEnabled:true}});assert.ok(packets(effort).some(p=>p.feature==='EFFORT'&&p.phase==='START'));pass('Actual Pine tags positive volume effort/rejection at a new extreme');
+const momentumPrices=[...Array.from({length:20},(_,i)=>53000+i*5),53110,53120,53140,53160,53180,53200,53190,53180,53185,53190,53195,53201,53205,53210];
+const momentumBars=momentumPrices.map((p,i)=>({time:bars[0].time+i*60000,open:p-2,high:p+1,low:p-3,close:p,volume:100}));
+const divergence=await run({bars:momentumBars,inputs});assert.ok(packets(divergence).some(p=>p.feature==='DIVERGENCE'&&p.phase==='START'));pass('Actual Pine tags momentum divergence using a pivot known before the new high');
+const autoPrices=[...Array.from({length:45},(_,i)=>53000+i*3),53120,53100,53090,53100,53110,53105,53095,53085,53075,53070,53065,53060];
+const autoBars=autoPrices.map((p,i)=>({time:bars[0].time+i*60000,open:p+1,high:p+2,low:p-2,close:p,volume:100}));
+const auto=await run({bars:autoBars,inputs:{wDirectionMode:'Automatic'}}),stages=rows(auto,'Warnings · turn stage 0 track 1 micro 2 protected 3 confirmed'),sides=rows(auto,'Warnings · observed delivery side'),turn=stages.findIndex(x=>x===3);assert.ok(turn>=0);assert.equal(sides[turn],1);assert.equal(sides[turn+1],-1);pass('Pine automatic one-minute direction flips only on the bar after confirmed failure');
+const noWeight=await run({bars,inputs:{...inputs,wDeliveryWeight:0,wRejectionWeight:0,wExtensionWeight:0,wLocationWeight:0,wVolumeWeight:0,wStructureWeight:0}});assert.ok(rows(noWeight,'Warnings · closed pressure 0–100 NOT probability').every(x=>!Number.isFinite(x)));pass('Zero enabled weight produces unavailable pressure rather than a false zero probability');
+const declared=await run({bars,inputs:{...inputs,wManualUpper:53030,wManualKnownAt:bars.at(-1).time+60000}});assert.ok(!packets(declared).some(p=>p.feature==='LEVEL'));pass('Future-declared manual references do not backfill warnings');
+const known=await run({bars,inputs:{...inputs,wManualUpper:53030,wManualKnownAt:bars[0].time}});assert.ok(packets(known).some(p=>p.feature==='LEVEL'&&p.phase==='START'));pass('Known contacted/rejected reference produces a location warning');
+const base=await basePrepared(),baseModel=await run({bars,script:base,inputs});
+for(const title of ['Signal direction','Signal plan ID','Original stop','Original target','Signal recognized at','BE change next bar','Session reserved risk','Event sequence'])assert.deepEqual(rows(model,title),rows(baseModel,title),title);pass('Warning-enabled source preserves baseline v1.2 entry, risk, management and event behavior');
+const disabled=await run({bars,inputs:{wEnabled:false}});assert.ok(!warningLabels(disabled).length);assert.ok(rows(disabled,'Warnings · closed pressure 0–100 NOT probability').every(x=>!Number.isFinite(x)));pass('Disabling warning layer removes warnings without fabricating zero-risk values');
+const gaps=bars.map((b,i)=>({...b,time:b.time+(i>=85?60000:0)}));const gm=await run({bars:gaps,inputs});for(let i=85;i<99;i++)assert.ok(!Number.isFinite(rows(gm,'Warnings · closed pressure 0–100 NOT probability')[i]));pass('Data gaps invalidate warning history until a fresh contiguous warmup');
+const hidden=await run({bars,inputs:{...inputs,wShowCleared:false}});for(const p of packets(hidden))assert.notEqual(p.phase,'CLEARED');pass('Cleared-event display toggle respects warning lifecycle');
+const now=Math.floor(Date.now()/60000)*60000;const history=bars.slice(0,70).map((b,i)=>({...b,time:now-(70-i)*60000}));const closed=await run({bars:history,inputs});const current={...bars[70],time:now,high:bars[70].high+100};const live=await run({bars:[...history,current],inputs});assert.equal(rows(live,'Warnings · event sequence').at(-1),rows(closed,'Warnings · event sequence').at(-1));pass('Forming candle cannot commit warning episodes');
+assert.ok(model.labels.length<=300&&model.boxes.length<=12&&model.series.length<64);pass('Drawing and exposed plot budgets remain bounded');
+await fs.writeFile(new URL('./warning-preview.json',import.meta.url),JSON.stringify({bars,model}));
+await fs.writeFile(new URL('./pine-validation.json',import.meta.url),JSON.stringify({status:'PASS',checks:checks.length,details:checks,sha256:createHash('sha256').update(source).digest('hex'),runtime:'Local Vela/PineTS execution. Native TradingView compilation and realtime alert delivery pending.'},null,2));
+console.log(JSON.stringify({status:'PASS',checks:checks.length}));

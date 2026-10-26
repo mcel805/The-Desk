@@ -1,0 +1,6 @@
+{
+  "base": "baseline/Agentic_Swing_Tracker_v1_2.pine",
+  "base_sha256": "4bfeba62abb63b5aef17f0fe69dfa654c3ac144789bf5d20d33d3c1fdb23a5dc",
+  "output_sha256": "2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2",
+  "revision": "swing-warnings-1.3.0"
+}
