@@ -233,7 +233,7 @@ class SwingResearch:
                 cfg=self.lab.selected_config(symbol,cfg)
                 # Configure and start share this lock; no blank form or other tab can intervene.
                 self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
-                result=self._start_run(symbol,compact=True)
+                result=self._start_run(symbol,compact=bool(p.get('compact')))
                 self.lab.intent(symbol,True);return result
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])

@@ -110,12 +110,14 @@ def attach_aliases(policy, base):
         set_alias(item['path'], target)
 
 def capacity_available(policy, additional=0):
+    from storage_budget import reconcile, snapshot
     try:
         used = size(policy['external_root'])
         free = shutil.disk_usage(policy['volume']).free
     except OSError:
         return False, 0
-    return (used + additional + CAPTURE_RESERVE_BYTES <= policy['limit_bytes'] and
+    reconcile(policy, used); _, reserved = snapshot(policy)
+    return (used + reserved + additional + CAPTURE_RESERVE_BYTES <= policy['limit_bytes'] and
             free > max(MIN_FREE_BYTES, additional + CAPTURE_RESERVE_BYTES)), used
 
 def port_occupied(port):
@@ -222,15 +224,22 @@ class Host:
         self.error = ''; self.archives = []
         if (self.control / 'archives.json').exists():
             self.archives = json.loads((self.control / 'archives.json').read_text())
+        try:
+            from storage_budget import initialize
+            initialize(self.policy, size(self.policy['external_root']))
+        except OSError: pass
 
     def state(self):
+        from storage_budget import snapshot
         ready = drive_ready(self.policy)
         return_capacity = ready and self.mode == 'LOCAL_TEMPORARY' and self.active and self.active.exists()
         if return_capacity:
             return_capacity, self.used = capacity_available(self.policy, size(self.active))
+        try: _, reserved = snapshot(self.policy)
+        except OSError: reserved = 0
         return {'mode': self.mode, 'external_connected': ready, 'external_root': self.policy['external_root'],
                 'active_root': str(self.active) if self.active else None,
-                'limit_bytes': self.policy['limit_bytes'], 'used_bytes': self.used,
+                'limit_bytes': self.policy['limit_bytes'], 'used_bytes': self.used, 'reserved_bytes': reserved,
                 'message': self.error or ('SAMSUNG USB is the active data drive.' if self.mode == 'EXTERNAL' else
                    'Temporary local storage. Plug in SAMSUNG USB; external history is available when reconnected.'),
                 'can_return': bool(return_capacity),
@@ -253,6 +262,9 @@ class Host:
             source_size=source.stat().st_size
             available, self.used = capacity_available(self.policy, source_size)
             if not available:continue
+            from storage_budget import reserve
+            try: lease = reserve(self.policy, CAPTURE_RESERVE_BYTES + source_size)
+            except RuntimeError: continue
             target=destination/source.name
             if target.exists():target=destination/(source.stem+'-'+uuid.uuid4().hex[:8]+source.suffix)
             stage=destination/('.copying-'+target.name+'-'+uuid.uuid4().hex)
@@ -264,7 +276,8 @@ class Host:
             except (OSError,RuntimeError):
                 try:stage.unlink(missing_ok=True)
                 except OSError:pass
-                continue
+                lease.finish();continue
+            lease.finish(target.stat().st_size)
             self.used+=target.stat().st_size;source.unlink()
 
 
@@ -297,6 +310,7 @@ class Host:
         migrate_journal_secret(self.active / 'journal' / '.secret', self.control / 'journal-secret')
         env = dict(os.environ, TMPDIR=str(temporary), SQLITE_TMPDIR=str(temporary),
                    DESK_CODEX_STATE_DIR=str(self.active/'desk/llm-runtime'), DESK_STORAGE_MANAGED='1', DESK_STORAGE_STATE=str(self.state_file),
+                   DESK_STORAGE_RESERVATIONS=str(self.control/'storage-budget.sqlite3'),
                    DESK_STORAGE_RETURN=str(self.return_external),
                    DESK_STORAGE_POLICY=str(POLICY), DESK_STORAGE_MODE=self.mode,
                    JOURNAL_DATA_DIR=str(self.active / 'journal'),
@@ -373,9 +387,14 @@ class Host:
         needed = size(self.active)
         available, self.used = capacity_available(self.policy, needed)
         if not available: raise RuntimeError('External storage lacks capacity; temporary work remains local')
+        from storage_budget import reserve
+        lease = reserve(self.policy, CAPTURE_RESERVE_BYTES + needed)
         destination = root / 'offline-sessions' / self.active.name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        verified_copy(self.active, destination)
+        try: verified_copy(self.active, destination)
+        except BaseException:
+            lease.finish(); raise
+        lease.finish(needed)
         self.archives.append(str(destination))
         atomic(self.control / 'archives.json', self.archives)
         atomic(self.control / 'offline-active.json', {'path':str(self.active),'archived':str(destination)})

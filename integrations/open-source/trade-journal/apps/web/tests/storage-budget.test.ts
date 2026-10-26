@@ -34,7 +34,7 @@ writeFileSync(
     used_bytes: 2 * 1024 * 1024,
   }),
 );
-const { createJournalBudget } = await import("../src/server/storage-budget");
+const { createJournalBudget, JournalBudget } = await import("../src/server/storage-budget");
 createJournalBudget(join(scratch, "database/journal.db"));
 
 afterAll(() => {
@@ -82,5 +82,23 @@ describe("managed Journal storage budget", () => {
     expect(() => db.update(settings).set({ value: "2" }).run()).toThrow(
       "Journal storage budget reached",
     );
+  });
+
+  it("counts a concurrent writer reservation against stale supervisor usage", () => {
+    process.env.DESK_STORAGE_MODE = "EXTERNAL";
+    writeFileSync(
+      policyPath,
+      JSON.stringify({ volume: scratch, external_root: externalRoot, limit_bytes: 256 * 1024 * 1024 }),
+    );
+    writeFileSync(
+      statePath,
+      JSON.stringify({ external_root: externalRoot, limit_bytes: 256 * 1024 * 1024, used_bytes: 0 }),
+    );
+    const writer = new JournalBudget(join(scratch, "database/journal.db"));
+    const contender = new JournalBudget(join(scratch, "database/journal.db"));
+    writer.withReservation(() => {
+      expect(contender.available()).toBe(false);
+    });
+    expect(contender.available()).toBe(true);
   });
 });
