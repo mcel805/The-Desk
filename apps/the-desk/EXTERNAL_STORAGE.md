@@ -75,3 +75,15 @@ height, header/account alignment, and viewport-contained footer without writing
 settings or switching the real storage mode. HTTP fixtures explicitly mark their
 isolated server children as managed so they cannot route through the production
 storage supervisor.
+
+## Journal security and capacity
+
+The encrypted Journal database stays on USB. Its decryption key stays in the Mac's
+private `.storage-control/journal-secret` file. Activation verifies and durably saves
+any older USB key locally before removing that USB copy; conflicting keys stop startup.
+
+Managed Journal writes use SQLite rollback journaling and a conservative database
+page limit that reserves room for a full rollback copy, plus 128 MiB of headroom.
+The database can therefore use less than half the remaining shared budget. Inserts,
+updates, deletes, migrations and attachments check capacity, and child logs retain
+only their latest 8 MiB. Isolated QA/test workspaces remain explicitly supported.
