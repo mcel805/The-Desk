@@ -24,6 +24,7 @@ from swing_metrics import forecast_metrics
 from storage import connect, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
+WARNING_CADENCE_SECONDS=15
 CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_warnings.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
@@ -79,8 +80,10 @@ class SwingResearch:
         self.backfill_bars()
         self.cost_meter=JevCostMeter(self.path)
         for symbol in SYMBOLS:
-            default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':15,'jev_enabled':False,'warning_settings':deepcopy(WARNING_DEFAULTS),**deepcopy(STUDY_DEFAULTS)}
-            self.configs[symbol]={**default,**saved.get(symbol,{})}
+            default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':WARNING_CADENCE_SECONDS,'jev_enabled':False,'warning_settings':deepcopy(WARNING_DEFAULTS),**deepcopy(STUDY_DEFAULTS)}
+            saved_config={**saved.get(symbol,{})}
+            saved_config['cadence_seconds']=WARNING_CADENCE_SECONDS
+            self.configs[symbol]={**default,**saved_config}
             self.last[symbol]={'status':'PAUSED','detail':'Start a new observation run. Restart never resumes automatically.'}
             with self.db() as db:
                 previous=db.execute('SELECT id FROM runs WHERE symbol=? ORDER BY started DESC LIMIT 1',(symbol,)).fetchone()
@@ -213,7 +216,7 @@ class SwingResearch:
                 cfg={**self.configs[symbol],**cfg}
                 validate_settings(cfg)
                 cfg['warning_settings']=validate_warning_config(cfg.get('warning_settings'))
-                if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds'] not in (10,15,30,60):raise ValueError('Cadence must be 10, 15, 30 or 60 seconds')
+                if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds']!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
                 Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled','warning_settings') and k not in STUDY_DEFAULTS})
                 if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
@@ -225,6 +228,7 @@ class SwingResearch:
                 if self.active:
                     current=next(iter(self.active))
                     raise ValueError('One observation run at a time. Pause '+current+' before starting '+symbol+'.')
+                if self.configs[symbol].get('cadence_seconds')!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')
                 if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 cfg=deepcopy(self.configs[symbol]);reference=self.validation_reference(symbol,cfg)
                 run=uuid.uuid4().hex;now=int(time.time()*1000)

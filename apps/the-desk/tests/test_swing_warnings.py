@@ -1,6 +1,6 @@
 """Executable parity, cadence and full observation persistence; no network."""
 from copy import deepcopy
-import json, math
+import json, math, sqlite3
 from pathlib import Path
 import subprocess, tempfile, unittest
 from unittest.mock import patch
@@ -89,6 +89,23 @@ class WarningServiceTests(unittest.TestCase):
         with patch('swing_research.time.time',return_value=self.gateway.now/1000):return self.service.command(dict(symbol=SYMBOL,action=action,**kw))
     def sample(self):
         with patch('swing_research.time.time',return_value=self.gateway.now/1000):self.service.sample(SYMBOL,self.service.active[SYMBOL])
+
+    def test_warning_collection_requires_four_slots_and_normalizes_legacy_settings_for_new_runs(self):
+        for cadence in (10,30,60):
+            with self.assertRaisesRegex(ValueError,'15-second cadence'):self.command('configure',config={'cadence_seconds':cadence})
+        self.service.close()
+        legacy='legacy-cadence-run'
+        with sqlite3.connect(self.service.path) as db:
+            db.execute('INSERT INTO settings VALUES(?,?)',(SYMBOL,json.dumps({'cadence_seconds':60})))
+            db.execute('INSERT INTO runs VALUES(?,?,?,?)',(legacy,SYMBOL,SERVICE_BASE,json.dumps({'cadence_seconds':60})))
+            db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(legacy,SYMBOL,'RUN_START',SERVICE_BASE,json.dumps({'config':{'cadence_seconds':60}})))
+        self.service=SwingResearch(self.gateway,Path(self.tmp.name),FakeJudge());self.service.context_for=lambda *args:context()
+        self.assertEqual(self.service.configs[SYMBOL]['cadence_seconds'],15)
+        self.service.command({'symbol':SYMBOL,'action':'start'})
+        exported=self.service.export(SYMBOL)
+        runs={row['id']:json.loads(row['config'])['cadence_seconds'] for row in exported['runs']}
+        self.assertEqual(runs[legacy],60)
+        self.assertEqual(runs[self.service.last[SYMBOL]['run']],15)
 
     def test_four_slots_persist_to_jev_export_and_checkpoint_without_duplicates(self):
         self.command('configure',config={'jev_enabled':True,'warning_settings':{'side':1,'volumeEnabled':True}});self.command('start')

@@ -11,7 +11,7 @@
 <label>Study horizon · bars<input name="study_horizon" type="number" min="3" max="500" required></label><label>Jev contextual fit floor<input name="study_jev_min" type="number" min="0.5" max="1" step="0.01" required></label>
 <label class="wide">Round-trip cost scenario · bps<input name="study_cost_bps" type="number" min="0" max="1000" step="any" placeholder="Unset · gross only"></label>
 <label>Swing timeframe<select name="swing_minutes"><option value="1">1 minute</option><option value="2">2 minutes</option><option value="3">3 minutes</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option></select></label>
-<label>Sampling cadence<select name="cadence_seconds"><option value="60">1× / minute</option><option value="30">2× / minute</option><option value="15">4× / minute</option><option value="10">6× / minute</option></select></label>
+<label>Sampling cadence<select name="cadence_seconds"><option value="15">4× / minute · warning collection</option></select></label>
 <label>Micro pivot sides<input name="micro_bars" type="number" min="1" max="8" required></label><label>Parent pivot sides<input name="parent_bars" type="number" min="2" max="20" required></label>
 <label>Research quantity<input name="quantity" type="number" step="any" min="0.000001" required></label><label>Attempt risk · USD<input name="attempt_risk" type="number" step="any" min="0.01" required></label>
 <label>Parent budget · USD<input name="parent_risk" type="number" min="0.01" step="any" required></label><label>UTC day budget · USD<input name="session_risk" type="number" min="0.01" step="any" required></label>

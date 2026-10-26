@@ -11,10 +11,11 @@ reference/outcome tools live in `indicators/agentic-swing-tracker-v1.3/`.
    remain Hyperliquid BTC/ETH perpetuals. MYM TradingView charts are a separate
    source; no MYM market adapter or alert webhook is added by this feature.
 2. The server requests public venue 1m OHLCV and fresh verified quote metadata.
-   Its configured cadence defaults to 15 seconds. One saved observation per run
-   and sampling slot; extra tabs and charts create no extra requests. The warning
-   provisional sub-sampler uses 15-second slots; changing the outer cadence to
-   10/30/60 seconds changes available receipts, not a guaranteed four observations.
+   Desk runs require 15-second collection (four slots per minute).
+   One saved observation per run and sampling slot; extra tabs and charts create
+   no extra requests. A slot is retained only when fresh provider data is
+   available; downtime, stale snapshots and missing updates never fabricate a
+   warning receipt.
 3. New closed bars advance both the existing structure tracker and the warning
    engine. Existing parent, ABC, permissions, risk and shadow-plan rules remain
    separate. Forming OHLC supplies provisional warnings only; partial volume is

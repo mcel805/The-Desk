@@ -28,11 +28,12 @@
   },
   "hashes": {
     "swing_warnings.py": "dc692f9e615e5de51b73978cc0d1db837c39740c354f31b0cbb7d0070ab603ab",
-    "swing_research.py": "411006c2454095872f1bd55758947830f6c35b228327b9077c83b6c97d98d519",
+    "swing_research.py": "bbc39eba574710f9de6c1e6d84c6ff6bd2359b085924fa412ab9fef9e638eb38",
     "jev_swing.py": "a1af439d8ac8dfd2e6fc9a1eca837adfc18b30a45ca6cc00e12391140ec97bdf",
     "web/swing-warnings.mjs": "b7c72ffc0fd3f3253030b20248c61b683474688f79b4cea093617daa59eec079",
     "web/swing-tracker.mjs": "bace297b7a658e5f6ce4eeb217a6ed95192a18cf1fc7bf503f66930a2ae80c9c",
-    "web/swing-lab.mjs": "f8d8edd13a8583f0ed58a12582c71f7f79fdc50e3ea155d8c0dac953a231dae2",
+    "web/swing-lab.html": "33315c0d7815b2244852a87b0c0fac272e475a927e8f6f20f0f6da203fd2ec19",
+    "web/swing-lab.mjs": "85c8d09241e958f8f89f77300c35ac8e7b2edd71c526dd4c67cd30ddcb81d7a9",
     "web/swing-settings.mjs": "fc6ccf3472ee52cdea7e9cf88f6ed841301baf65b373fbb362f75ef92719147a",
     "scripts/score-swing-warnings.mjs": "5c1a8e5a70e663a43258bb2172206a1743f14048bffa2a2017cf28ca424c96c2"
   },
@@ -46,7 +47,8 @@
     "Preserve warmup warning sequence before forward persistence",
     "Exclude warmup-derived warning observations before outcome deduplication",
     "Retain vetted Jev failure/retry diagnostics, usage and cost uncertainty",
-    "Refresh validation hashes after source changes"
+    "Refresh validation hashes after source changes",
+    "Require 15-second warning collection and normalize legacy settings for new runs"
   ],
   "public_data_probe": {
     "source": "Hyperliquid public REST",

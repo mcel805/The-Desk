@@ -34,7 +34,7 @@ $('#openChart').href='/?swing_market='+encodeURIComponent(market);$('#openChart'
 // Settings hydrate independently; a delayed history refresh never overwrites edits.
 $('#start').textContent=document.querySelector('[name=jev_enabled]').checked?'Start Jev observations':'Start tracker only';
 $('#export').href='/api/swing/export?symbol='+encodeURIComponent(market);$('#export').download='swing-research-'+market.split(':')[1]+'.json';
-$('#state').innerHTML=`<strong>${esc(market)}</strong> · ${esc(s.detail)}<br>${snap?`Parent #${snap.parent_id} · ${snap.trend===1?'Higher highs / lows':snap.trend===-1?'Lower highs / lows':'Rotation / developing'} · confirmed cutoff ${stamp(snap.cutoff)}<br>Gross reserved risk: $${snap.reserved_session.toFixed(2)} this UTC day · tick ${price(snap.tick)}<br>`:''}Run ${esc(s.run?.slice(0,10)||'not started')} · ${s.config.cadence_seconds}s requested cadence`;
+$('#state').innerHTML=`<strong>${esc(market)}</strong> · ${esc(s.detail)}<br>${snap?`Parent #${snap.parent_id} · ${snap.trend===1?'Higher highs / lows':snap.trend===-1?'Lower highs / lows':'Rotation / developing'} · confirmed cutoff ${stamp(snap.cutoff)}<br>Gross reserved risk: $${snap.reserved_session.toFixed(2)} this UTC day · tick ${price(snap.tick)}<br>`:''}Run ${esc(s.run?.slice(0,10)||'not started')} · ${s.config.cadence_seconds}s warning cadence`;
 const j=s.jev,a=j?.answers,available=j?.status==='AVAILABLE'&&s.status==='OBSERVING';
 renderSwingWarnings(snap?.warnings,{status:s.status,judgment:j});
 renderSwingVolume(snap?.market_synth||history.predictions[0]?.state.market_synth,{status:s.status,judgment:j});
