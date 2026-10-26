@@ -26,7 +26,8 @@ const policy = (): StoragePolicy | null => {
   if (!path) return null;
   try {
     const value = JSON.parse(readFileSync(path, "utf8")) as StoragePolicy;
-    if (!value.volume || !value.external_root || !Number.isSafeInteger(value.limit_bytes)) return null;
+    if (!value.volume || !value.external_root || !Number.isSafeInteger(value.limit_bytes))
+      return null;
     return value;
   } catch {
     return null;
@@ -70,7 +71,10 @@ export class JournalBudget {
     const now = Date.now();
     if (!force && now - this.refreshedAt < REFRESH_INTERVAL_MS) return true;
     try {
-      this.nonDatabaseBytes = Math.max(0, bytesIn(this.configured.external_root) - sidecarBytes(this.dbPath));
+      this.nonDatabaseBytes = Math.max(
+        0,
+        bytesIn(this.configured.external_root) - sidecarBytes(this.dbPath),
+      );
       this.refreshedAt = now;
       return true;
     } catch {
@@ -86,8 +90,20 @@ export class JournalBudget {
       const stats = statfsSync(this.configured.volume);
       const free = Number(stats.bavail) * Number(stats.bsize);
       const used = this.nonDatabaseBytes + sidecarBytes(this.dbPath);
-      return used + additional + JOURNAL_TOTAL_RESERVE_BYTES <= this.configured.limit_bytes &&
-        free > Math.max(MIN_FREE_BYTES, additional + JOURNAL_TOTAL_RESERVE_BYTES);
+      // Managed connections use a rollback journal. Reserve a full database copy
+      // so even one large transaction cannot exhaust the shared budget.
+      let rollbackReserve = 0;
+      try {
+        rollbackReserve = statSync(this.dbPath).size;
+      } catch {
+        /* New database. */
+      }
+      return (
+        used + 2 * additional + rollbackReserve + JOURNAL_TOTAL_RESERVE_BYTES <=
+          this.configured.limit_bytes &&
+        free >
+          Math.max(MIN_FREE_BYTES, 2 * additional + rollbackReserve + JOURNAL_TOTAL_RESERVE_BYTES)
+      );
     } catch {
       return false;
     }
@@ -97,15 +113,17 @@ export class JournalBudget {
     if (!this.available(additional)) throw new JournalStorageBudgetError();
   }
 
-  configureSqlite(sqlite: { pragma: (statement: string, options?: { simple: boolean }) => unknown; setProgressHandler: (callback: () => number, n: number) => void }): void {
+  configureSqlite(sqlite: {
+    pragma: (statement: string, options?: { simple: boolean }) => unknown;
+  }): void {
     this.assert();
     if (process.env.DESK_STORAGE_MODE !== "EXTERNAL" || !this.configured) return;
     const pageSize = Number(sqlite.pragma("page_size", { simple: true }));
     const currentPages = Number(sqlite.pragma("page_count", { simple: true }));
-    const remaining = this.configured.limit_bytes - this.nonDatabaseBytes - JOURNAL_TOTAL_RESERVE_BYTES;
-    const maxPages = Math.max(currentPages, Math.floor(remaining / pageSize));
+    const remaining =
+      this.configured.limit_bytes - this.nonDatabaseBytes - JOURNAL_TOTAL_RESERVE_BYTES;
+    const maxPages = Math.max(currentPages, Math.floor(remaining / (2 * pageSize)));
     sqlite.pragma(`max_page_count = ${maxPages}`);
-    sqlite.setProgressHandler(() => (this.available() ? 0 : 1), 1000);
   }
 }
 
