@@ -13,6 +13,13 @@ function fixture({empty=false,cursorTime=1_800_000_000_000}={}){
  return {actions,calls};
 }
 
+test('placement labels describe direct and reviewed chart actions',()=>{
+ const direct=fixture().actions;
+ assert.equal(direct.find(x=>x.id==='buy').label,'Buy limit at 51,902 · Review & place · PAPER');
+ const oneClick=buildChartMenuActions({price:51902,priceLabel:'51,902',placementLabel:'Place now · PAPER'});
+ assert.equal(oneClick.find(x=>x.id==='buy').label,'Buy limit at 51,902 · Place now · PAPER');
+});
+
 test('right-click chart actions carry out their expected chart and paper-ticket effects',async()=>{
  const {actions,calls}=fixture();
  assert.deepEqual(actions.map(x=>x.id),['reset','copy','paste','alert','buy','sell','order','lock-time','table','objects','template','remove-drawings','remove-indicators','settings']);

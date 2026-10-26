@@ -38,6 +38,10 @@ export function acknowledgeTradingResult(state,action,payload,result){
     const i=state.orders.findIndex(o=>o.id===result.id);
     if(i<0)state.orders.unshift(result);else state.orders[i]=result;
   }
+  if(action==='order'&&result.position){
+    const i=state.positions.findIndex(p=>p.id===result.position.id);
+    if(i<0)state.positions.unshift(result.position);else state.positions[i]=result.position;
+  }
   if(action==='bracket')for(const p of state.positions)if(p.id===result.updated){p.stop=payload.stop||null;p.target=payload.target||null;p.revision++;}
   if(action==='close')state.positions=state.positions.flatMap(p=>{
     if(p.id!==result.position_id)return [p];

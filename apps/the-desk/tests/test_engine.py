@@ -20,7 +20,8 @@ class PaperTests(unittest.TestCase):
         return self.e.execute(key,'order',{'account_id':self.a,'instrument':self.i,'side':'buy','kind':'market','qty':'1',**kw})
     def state(self):return self.e.state(self.a)
     def test_market_fee_and_partial_exit_reconcile(self):
-        self.order(qty='2');p=self.state()['positions'][0]
+        order=self.order(qty='2');p=self.state()['positions'][0]
+        self.assertEqual(order['position_id'],p['id']);self.assertEqual(order['position'],p)
         self.assertEqual(p['entry'],'101');self.assertEqual(Decimal(self.state()['accounts'][0]['balance']),Decimal('9999.899'))
         self.quote(110,111)
         self.e.execute('close','close',{'account_id':self.a,'id':p['id'],'revision':p['revision'],'qty':'.5'})

@@ -244,7 +244,11 @@ class Engine:
         db.execute('INSERT INTO orders(id,account_id,instrument,side,kind,qty,price,trigger,stop,target,status,revision,created_at,updated_at,expires_at) VALUES(:id,:account_id,:instrument,:side,:kind,:qty,:price,:trigger,:stop,:target,:status,:revision,:created_at,:updated_at,:expires_at)',o)
         self.event(db,'order',{'account_id':a['id'],'order_id':o['id'],'message':side.upper()+' '+kind+' accepted · PAPER'})
         if kind=='market':self.fill_order(db,o,dec(q['ask'] if side=='buy' else q['bid']))
-        return dict(db.execute('SELECT * FROM orders WHERE id=?',(o['id'],)).fetchone())
+        result=dict(db.execute('SELECT * FROM orders WHERE id=?',(o['id'],)).fetchone())
+        if result.get('position_id'):
+            position=db.execute("SELECT * FROM positions WHERE id=? AND account_id=? AND status='open'",(result['position_id'],a['id'])).fetchone()
+            if position:result['position']=dict(position)
+        return result
 
     def owned_order(self,db,p):
         o=db.execute('SELECT * FROM orders WHERE id=? AND account_id=?',(p.get('id'),p.get('account_id'))).fetchone()
