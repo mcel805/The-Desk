@@ -5,6 +5,7 @@ function chart(initial=[]){let n=0;const rows=structuredClone(initial);return {d
 const drawing=(id,text)=>({id,type:'hline',text:{value:text},anchors:[{time:1,price:100}]});
 test('requested natural language timeframes route the two user scenarios',()=>{
  assert.equal(requestedFrame('on the one-minute chart profile every swing'),'1');
+ assert.equal(requestedFrame('draw liquidity on the three-minute chart'),'3');
  assert.equal(requestedFrame('On the 30-minute chart draw liquidity'),'30');
  assert.equal(requestedFrame('on 4h chart'),'240');
  assert.equal(frame(requestedFrame('on 2h chart')),'2h');

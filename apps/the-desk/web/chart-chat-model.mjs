@@ -7,8 +7,8 @@ export const scopeKey=s=>s.symbol+'|'+s.timeframe;
 export function requestedFrame(text){
  if(/\b(daily|day chart)\b/i.test(text))return 'D';
  if(/\bhourly\b/i.test(text))return '60';
- const m=text.toLowerCase().match(/\b(one|thirty|fifteen|five|four|two|\d+)\s*[- ]?\s*(minute|min|m|hour|hr|h|day|d)\b/);
- if(!m)return null;const n=({one:1,two:2,four:4,five:5,fifteen:15,thirty:30})[m[1]]||Number(m[1]);
+ const m=text.toLowerCase().match(/\b(one|two|three|four|five|fifteen|thirty|\d+)\s*[- ]?\s*(minute|min|m|hour|hr|h|day|d)\b/);
+ if(!m)return null;const n=({one:1,two:2,three:3,four:4,five:5,fifteen:15,thirty:30})[m[1]]||Number(m[1]);
  const unit=m[2][0];return unit==='h'?String(n*60):unit==='d'?'D':String(n);
 }
 export function chartScope(ws,cell=ws.active){return {cellId:cell.id,symbol:marketIdentity(cell.chart),timeframe:frame(cell.chart.market.timeframe),replay:!!ws.replay.state.active};}
