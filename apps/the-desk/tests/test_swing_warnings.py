@@ -119,6 +119,38 @@ class WarningServiceTests(unittest.TestCase):
         checkpoint=json.loads(self.service.export(SYMBOL)['checkpoints'][0]['snapshot']);self.assertEqual(checkpoint['warnings'],self.calls[-1]['swing_warnings'])
         self.assertTrue(all(x.get('scope')=='WARMUP' for x in checkpoint['warnings']['events']));self.assertEqual(self.service.status()['warning_version'],'swing-warnings-1.3.0')
 
+    def test_warning_rules_enrich_existing_observations_without_changing_tracker_or_volume(self):
+        # Opposing warning recipes must not change existing structure or shadow plans.
+        with tempfile.TemporaryDirectory() as other_dir:
+            other=SwingResearch(self.gateway,Path(other_dir),FakeJudge())
+            other.context_for=lambda *args:context()
+            try:
+                self.command('configure',config={'warning_settings':{'side':1,'weights':[0]*6}})
+                with patch('swing_research.time.time',return_value=self.gateway.now/1000):
+                    other.command(dict(symbol=SYMBOL,action='configure',config={'warning_settings':{'side':-1,'weights':[2,2,1,2,1,3]}}))
+                    other.command(dict(symbol=SYMBOL,action='start'))
+                self.command('start')
+                for minute in range(4):
+                    for slot in range(4):
+                        self.gateway.now=SERVICE_BASE+minute*60000+slot*15000+1000
+                        self.sample()
+                        with patch('swing_research.time.time',return_value=self.gateway.now/1000):
+                            other.sample(SYMBOL,other.active[SYMBOL])
+                        left=self.service.last[SYMBOL]['snapshot']
+                        right=other.last[SYMBOL]['snapshot']
+                        self.assertEqual({k:v for k,v in left.items() if k!='warnings'},
+                                         {k:v for k,v in right.items() if k!='warnings'})
+                        self.assertIn('market_synth',left)
+                left_history=self.service.history(SYMBOL)['predictions']
+                right_history=other.history(SYMBOL)['predictions']
+                self.assertEqual(len(left_history),16);self.assertEqual(len(right_history),16)
+                for row in left_history:
+                    self.assertIn('swing_warnings',row['state'])
+                    self.assertIn('market_synth',row['state'])
+                    self.assertIn('liquidity_study',row['state'])
+                self.assertNotEqual(left['warnings']['closed']['featureConfig'],right['warnings']['closed']['featureConfig'])
+            finally:other.close()
+
     def test_closed_warning_ledger_and_pause_restart_retain_evidence(self):
         self.command('configure',config={'warning_settings':{'side':1}});self.command('start');self.sample();old=self.service.last[SYMBOL]['snapshot']['warnings']
         original_bars=self.gateway.bars

@@ -5,6 +5,13 @@ retains their episode lifecycle, sends bounded evidence to Jev and displays tags
 on the selected matching 1m Desk chart. The standalone TradingView source and
 reference/outcome tools live in `indicators/agentic-swing-tracker-v1.3/`.
 
+This is an additive enhancement to the existing Swing Tracker observation. It
+uses the same collector, saved prediction, Jev request and chart overlay. It does
+not replace the structure tracker, HTF liquidity study, volume evidence, existing
+Jev questions, next-candle scorecard or shadow-plan rules. Warning settings govern
+only the new evidence layer; they cannot grant trade permission or change an
+existing tracker plan. Existing saved runs retain their original observations.
+
 ## Observation flow
 
 1. Start an observation run in Swing Lab. The supported collector instruments
