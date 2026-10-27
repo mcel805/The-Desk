@@ -141,6 +141,10 @@ def tools(action,s):
             if earlier_clearances:
                 g['pivots']=[x for x in g['pivots'] if x['index']>earlier_clearances[-1]]
                 g['price']=sum(x['price'] for x in g['pivots'])/len(g['pivots'])
+                p=g['pivots'][-1]
+                boundary=max(y['price'] for y in g['pivots']) if g['side']=='high' else min(y['price'] for y in g['pivots'])
+                cleared=lambda x:x['high']>boundary+tolerance if g['side']=='high' else x['low']<boundary-tolerance
+                if any(cleared(x) for x in bars[p['index']+1:]):continue
             touches=len(g['pivots']);departure=max([abs(x['close']-g['price']) for x in bars[p['index']:p['index']+8]] or [0])/max(spread,1e-9)
             score=touches*2+min(departure,1)+(p['index']/len(bars))*.5
             evidence.append({'id':f'pool-{len(evidence)+1}','price':g['price'],'side':g['side'],'touches':touches,

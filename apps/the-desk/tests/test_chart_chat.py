@@ -130,6 +130,22 @@ class ChatTests(unittest.TestCase):
         r=tools('liquidity',snapshot(c))
         rebuilt=next(e for e in r['evidence'] if abs(e['price']-100.01)<.001)
         self.assertEqual(rebuilt['touches'],1);self.assertEqual(rebuilt['state'],'rebuilt-candidate')
+    def test_rebuilt_pool_is_rechecked_against_its_new_boundary(self):
+        for side in ('high','low'):
+            with self.subTest(side=side):
+                c=chart(n=50)
+                if side=='high':
+                    for b in c['bars']:b.update(open=95,high=97,low=93,close=95)
+                    for i,v in ((6,100.10),(10,50),(17,150),(20,50),(24,100.00),(28,50)):
+                        c['bars'][i]['high' if i not in (10,20,28) else 'low']=v
+                    for i,v in ((31,100.15),(32,100.20),(33,100.25)):c['bars'][i]['high']=v
+                else:
+                    for b in c['bars']:b.update(open=105,high=107,low=103,close=105)
+                    for i,v in ((6,99.90),(10,150),(17,50),(20,150),(24,100.00),(28,150)):
+                        c['bars'][i]['low' if i not in (10,20,28) else 'high']=v
+                    for i,v in ((31,99.85),(32,99.80),(33,99.75)):c['bars'][i]['low']=v
+                result=tools('liquidity',snapshot(c))
+                self.assertFalse(any(e['side']==side and abs(e['price']-100.0)<.001 for e in result['evidence']))
     def test_real_orchestrator_invokes_both_specialist_interfaces_and_persists(self):
         FakeSession.calls=[]
         with tempfile.TemporaryDirectory() as tmp:
