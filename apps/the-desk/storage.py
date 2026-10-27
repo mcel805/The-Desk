@@ -64,7 +64,7 @@ def atomic_json(path,value):
 
 SWING_PAUSE_MARKER='swing-pause.json'
 
-def _storage_control_dir(data_dir=None,control=None):
+def _storage_control_dir(*,data_dir=None,control=None):
     if control:return Path(control)
     configured=os.environ.get('DESK_STORAGE_CONTROL')
     if configured:return Path(configured)
@@ -80,7 +80,7 @@ def _storage_control_dir(data_dir=None,control=None):
     return Path(data_dir)/'.storage-control'
 
 def swing_pause_path(*,data_dir=None,control=None):
-    return _storage_control_dir(data_dir,control)/SWING_PAUSE_MARKER
+    return _storage_control_dir(data_dir=data_dir,control=control)/SWING_PAUSE_MARKER
 
 _INVALID_PAUSE_MARKER=object()
 
@@ -107,7 +107,7 @@ def read_swing_pause(*,data_dir=None,control=None,symbol=None):
 
 def persist_swing_pause(*,symbol,reason='USER_PAUSED',data_dir=None,control=None):
     if not isinstance(symbol,str) or not symbol or len(symbol)>64 or not isinstance(reason,str) or not reason or len(reason)>128:raise ValueError('Invalid Swing pause marker')
-    directory=_storage_control_dir(data_dir,control);directory.mkdir(parents=True,exist_ok=True,mode=0o700);path=directory/SWING_PAUSE_MARKER
+    directory=_storage_control_dir(data_dir=data_dir,control=control);directory.mkdir(parents=True,exist_ok=True,mode=0o700);path=directory/SWING_PAUSE_MARKER
     records=_pause_records(path)
     if records is _INVALID_PAUSE_MARKER:records={}
     records[symbol]={'symbol':symbol,'reason':reason,'at':int(time.time()*1000)}

@@ -87,6 +87,13 @@ class LearningTests(unittest.TestCase):
         fresh=SwingResearch(FakeGateway(1770000000000),Path(self.tmp.name),FakeJudge())
         try:self.assertFalse(fresh.recover_auto())
         finally:fresh.close()
+    def test_pause_marker_blocks_recovery_when_intent_is_unavailable(self):
+        self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
+        with patch.object(self.service.lab,'disable_intent',side_effect=OSError('external intent failed')):
+            self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
+        with patch.object(self.service.lab,'intent',side_effect=OSError('external intent unavailable')):
+            self.assertFalse(self.service.recover_auto())
+        self.assertFalse(self.service.active)
     def test_pause_rejects_a_different_active_symbol(self):
         self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
         with self.assertRaisesRegex(ValueError,'active Swing symbol'):

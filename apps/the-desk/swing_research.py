@@ -352,7 +352,11 @@ class SwingResearch:
 
     def recover_auto(self):
         with self.lock:
-            intent=self.lab.intent()
+            marker=read_swing_pause(data_dir=self.data_dir)
+            try:intent=self.lab.intent()
+            except (OSError,sqlite3.Error,StorageFault):
+                if marker:return False
+                raise
             if intent and intent['enabled'] and not read_swing_pause(data_dir=self.data_dir,symbol=intent['symbol']):
                 self.command({'action':'start_auto','symbol':intent['symbol']},clear_pause=False)
                 return True
