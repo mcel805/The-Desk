@@ -190,13 +190,34 @@ class SwingResearch:
                     'Saved key loaded from macOS Keychain.' if action=='load' else
                     'Key set for this server session.' if key else 'Jev disabled for this server session.')+' First successful Jev response verifies access.'}
 
+    def _start_run(self,symbol,compact=False):
+        if symbol in self.active:return self.settings_state() if compact else self.status()
+        if self.active:
+            current=next(iter(self.active))
+            raise ValueError('One observation run at a time. Pause '+current+' before starting '+symbol+'.')
+        if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
+        if self.configs[symbol].get('cadence_seconds')!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')
+        cfg=deepcopy(self.configs[symbol]);reference=self.validation_reference(symbol,cfg)
+        run=uuid.uuid4().hex;now=int(time.time()*1000)
+        if self.storage_guard:self.storage_guard()
+        with self.db() as db:
+            db.execute('INSERT INTO runs VALUES(?,?,?,?)',(run,symbol,now,encode(cfg)))
+            self.append(run,symbol,'RUN_START',now,{'config':cfg,'revision':REVISION,'code_hash':CODE_HASH,'model':MODEL,'prompt':PROMPT_VERSION,'study_version':STUDY_VERSION,'validation_reference':reference},db=db)
+        self.active[symbol]={'run':run,'config':cfg,'tracker':None,'persisted_seq':0,'last_bucket':None,'sample_slot':None,'seen':{},'started':now,'study':None,'validation_reference':reference}
+        if hasattr(self,'lab'):
+            contract=self.lab.assign(run,symbol,cfg,now)
+            self.append(run,symbol,'LAB_ASSIGNMENT',now,contract)
+        self.context_cache.pop(symbol,None)
+        self.next_due[symbol]=0;self.last[symbol]={'status':'WARMING','run':run,'detail':'Loading completed 1m candles; historical events are warmup only.'}
+        return self.settings_state() if compact else self.status()
+
     def command(self,p):
         if not isinstance(p,dict) or set(p)-{'action','symbol','config','level','level_id','expected_revision','compact'}:raise ValueError('Invalid research command')
         symbol=p.get('symbol');action=p.get('action')
         if symbol not in SYMBOLS:raise ValueError('Swing research supports Hyperliquid BTC and ETH only')
         with self.lock:
-            if action=='start_auto':
-                if symbol in self.active:return self.settings_state()
+            if action in ('start','start_auto'):
+                if symbol in self.active:return self.settings_state() if p.get('compact') else self.status()
                 if self.active:raise ValueError('Pause the current market before starting another')
                 if p.get('expected_revision') and p['expected_revision']!=digest(self.configs[symbol]):
                     raise ValueError('Settings changed in another tab. Reload settings and start again.')
@@ -218,8 +239,8 @@ class SwingResearch:
                 cfg=self.lab.selected_config(symbol,cfg)
                 # Configure and start share this lock; no blank form or other tab can intervene.
                 self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
-                result=self.command({'action':'start','symbol':symbol,'compact':True})
-                self.lab.intent(symbol,True);return result
+                result=self._start_run(symbol,compact=bool(p.get('compact')))
+                self.lab.intent(symbol,action=='start_auto');return result
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])
                 if action=='level_add':
@@ -250,25 +271,6 @@ class SwingResearch:
                 self.pause(symbol,'CONFIG_CHANGED');self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
                 self.configs[symbol]=cfg
-            elif action=='start':
-                if symbol in self.active:return self.settings_state() if p.get('compact') else self.status()
-                if self.active:
-                    current=next(iter(self.active))
-                    raise ValueError('One observation run at a time. Pause '+current+' before starting '+symbol+'.')
-                if self.configs[symbol].get('cadence_seconds')!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')
-                if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
-                cfg=deepcopy(self.configs[symbol]);reference=self.validation_reference(symbol,cfg)
-                run=uuid.uuid4().hex;now=int(time.time()*1000)
-                if self.storage_guard:self.storage_guard()
-                with self.db() as db:
-                    db.execute('INSERT INTO runs VALUES(?,?,?,?)',(run,symbol,now,encode(cfg)))
-                    self.append(run,symbol,'RUN_START',now,{'config':cfg,'revision':REVISION,'code_hash':CODE_HASH,'model':MODEL,'prompt':PROMPT_VERSION,'study_version':STUDY_VERSION,'validation_reference':reference},db=db)
-                self.active[symbol]={'run':run,'config':cfg,'tracker':None,'persisted_seq':0,'last_bucket':None,'sample_slot':None,'seen':{},'started':now,'study':None,'validation_reference':reference}
-                if hasattr(self,'lab'):
-                    contract=self.lab.assign(run,symbol,cfg,now)
-                    self.append(run,symbol,'LAB_ASSIGNMENT',now,contract)
-                self.context_cache.pop(symbol,None)
-                self.next_due[symbol]=0;self.last[symbol]={'status':'WARMING','run':run,'detail':'Loading completed 1m candles; historical events are warmup only.'}
             elif action=='pause':
                 self.pause(symbol,'USER_PAUSED')
                 intent=self.lab.intent()

@@ -41,6 +41,7 @@ class SwingHTTPTests(unittest.TestCase):
         self.request('/api/swing/control',{'action':'configure','symbol':'hyperliquid:ETH','config':{'cadence_seconds':15,'quantity':.01}})
         s=self.request('/api/swing/control',{'action':'start','symbol':'hyperliquid:ETH'})
         self.assertTrue(s['symbols']['hyperliquid:ETH']['running'])
+        self.assertIn('observation',s)
         self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:ETH'})
         after=self.request('/api/state')
         for key in ('orders','positions','fills','accounts'):self.assertEqual(before[key],after[key])

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from swing_research import SwingResearch
-from swing_lab import LearningLab,challenger,compare,verdict,ENGINE,replay
+from swing_lab import LearningLab,challenger,compare,verdict,ENGINE,replay,ident
 from storage import connect_readonly
 from test_swing_tracker import FakeJudge,FakeGateway
 
@@ -31,6 +31,19 @@ class LearningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'another tab'):
             self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC','expected_revision':state['revision'],'config':{'micro_bars':1}})
         self.assertFalse(self.service.active);self.assertEqual(self.service.configs['hyperliquid:BTC']['micro_bars'],2)
+    def test_legacy_start_preserves_promoted_policy(self):
+        symbol='hyperliquid:BTC';cfg=self.service.configs[symbol]
+        trial,factor=challenger(cfg)
+        promoted={'symbol':symbol,'engine':ENGINE,'baseline':trial,'challenger':cfg,'factor':factor,'stage':'EXPLORATION',
+                  'frozen_at':1,'index':1,'revision':1,'promoted_from':ident(cfg)}
+        self.service.lab.write('INSERT OR REPLACE INTO lab_policies VALUES(?,?)',(symbol,json.dumps(promoted,sort_keys=True,separators=(',',':'))))
+        self.service.command({'action':'start','symbol':symbol})
+        run=self.service.active[symbol]['run']
+        assignment=json.loads(self.service.lab.read('SELECT payload FROM lab_assignments WHERE run=?',(run,))[0]['payload'])
+        expected=json.loads(json.dumps(trial))
+        self.assertEqual(self.service.configs[symbol],expected)
+        self.assertEqual(assignment['baseline'],expected)
+        self.assertFalse(self.service.lab.intent()['enabled'])
     def test_pause_disables_recovery_restart_preserves_opt_in_and_records_gap(self):
         start=self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
         run=start['symbols']['hyperliquid:BTC']['run'];self.service.close()

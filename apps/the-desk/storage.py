@@ -25,16 +25,19 @@ def external_guard(additional=0):
     """Fail closed for a lost volume; never create a fake /Volumes directory."""
     policy_path=os.environ.get('DESK_STORAGE_POLICY')
     if not policy_path or os.environ.get('DESK_STORAGE_MODE')!='EXTERNAL':return
-    from storage_host import capacity_available, drive_ready
+    from storage_budget import snapshot
+    from storage_host import drive_ready
     policy=json.loads(Path(policy_path).read_text())
     if not drive_ready(policy):raise StorageFault('SAMSUNG USB disconnected. Connect it or choose temporary local storage in The Desk.')
-    available,_=capacity_available(policy,additional)
-    if not available:raise StorageFault('External storage budget or free-space reserve reached. Free space or choose temporary local storage.')
-    state_path=os.environ.get('DESK_STORAGE_STATE')
-    if state_path and Path(state_path).is_file():
-        state=json.loads(Path(state_path).read_text())
-        if state.get('used_bytes',0)>=policy['limit_bytes']-64*1024*1024:
-            raise StorageFault('External storage budget reached. Free space or choose temporary local storage.')
+    if additional:
+        from storage_host import capacity_available
+        available,_=capacity_available(policy,additional)
+        if not available:raise StorageFault('External storage budget or free-space reserve reached. Free space or choose temporary local storage.')
+    used,reserved=snapshot(policy)
+    try:free=shutil.disk_usage(policy['volume']).free
+    except OSError:raise StorageFault('External storage volume is unavailable.')
+    reserve=64*1024*1024+additional
+    if used+reserved+reserve>policy['limit_bytes'] or free<=max(64*1024*1024,reserve):raise StorageFault('External storage budget or free-space reserve reached. Free space or choose temporary local storage.')
 
 
 def fsync_dir(path):
@@ -45,6 +48,11 @@ def fsync_dir(path):
 def atomic_json(path,value):
     external_guard()
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    lease=None;before=path.stat().st_size if path.exists() else 0
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+        from storage_budget import reserve
+        lease=reserve(json.loads(Path(policy_path).read_text()),64*1024*1024)
     fd,tmp=tempfile.mkstemp(prefix='.'+path.name+'-',dir=path.parent)
     try:
         with os.fdopen(fd,'w') as f:
@@ -52,11 +60,26 @@ def atomic_json(path,value):
         os.replace(tmp,path);fsync_dir(path.parent)
     finally:
         if os.path.exists(tmp):os.unlink(tmp)
+        if lease:lease.finish((path.stat().st_size if path.exists() else 0)-before)
 
 def connect(path):
     """Every writer uses FULL sync, WAL, a bounded busy wait, and FK validation."""
     external_guard()
-    db=sqlite3.connect(str(path),timeout=15);db.row_factory=sqlite3.Row
+    lease=None;before=sum(Path(str(path)+suffix).stat().st_size for suffix in ('','-wal','-shm') if Path(str(path)+suffix).exists())
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+        from storage_budget import reserve
+        lease=reserve(json.loads(Path(policy_path).read_text()),64*1024*1024)
+    class Guarded(sqlite3.Connection):
+        def close(self):
+            try:return super().close()
+            finally:
+                if lease:lease.finish(sum(Path(str(path)+suffix).stat().st_size for suffix in ('','-wal','-shm') if Path(str(path)+suffix).exists())-before)
+    try:db=sqlite3.connect(str(path),timeout=15,factory=Guarded)
+    except BaseException:
+        if lease:lease.finish()
+        raise
+    db.row_factory=sqlite3.Row
     try:
         db.execute('PRAGMA busy_timeout=15000');db.execute('PRAGMA journal_mode=WAL')
         db.execute('PRAGMA synchronous=FULL');db.execute('PRAGMA foreign_keys=ON')

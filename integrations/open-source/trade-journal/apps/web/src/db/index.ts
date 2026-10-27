@@ -23,15 +23,16 @@ const createDb = () => {
   const budget = createJournalBudget(dbPath);
   sqlite.function("journal_storage_budget_available", () => (journalBudgetAvailable() ? 1 : 0));
   const budgeted = <T>(operation: () => T): T => {
-    budget.configureSqlite(sqlite);
-    try {
-      return operation();
-    } catch (error) {
-      if (!budget.available()) throw new JournalStorageBudgetError();
-      throw error;
-    }
+    return budget.withReservation(() => {
+      budget.configureSqlite(sqlite);
+      try {
+        return operation();
+      } catch (error) {
+        if (!budget.available()) throw new JournalStorageBudgetError();
+        throw error;
+      }
+    });
   };
-  budget.configureSqlite(sqlite);
   budgeted(() =>
     sqlite.pragma(
       process.env.DESK_STORAGE_MODE === "EXTERNAL"
