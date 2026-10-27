@@ -179,7 +179,7 @@ def tools(action,s):
 
 class ChartChat:
     def __init__(self,engine,session_factory=CodexSession):
-        self.skills={'RIDER':(Path(__file__).parent/'rider/trading-lens.md').read_text(),'Spider':(Path(__file__).parent/'spider/references/playbook.md').read_text()}
+        self.skills={'RIDER':(Path(__file__).parent/'swing-advisors/rider-trading-lens.md').read_text(),'Spider':(Path(__file__).parent/'spider/references/playbook.md').read_text()}
         self.engine=engine;self.factory=session_factory;self.lock=threading.RLock();self.running={};self.sessions=set();self.threads=set()
         with engine.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS chart_chats(id TEXT PRIMARY KEY,title TEXT NOT NULL,updated REAL NOT NULL)')

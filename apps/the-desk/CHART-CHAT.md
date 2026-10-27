@@ -44,7 +44,8 @@ remove this chat's drawings. These are application analyst sessions, separate
 from the independent paper agent fleet. They do not arm a worker, submit a paper
 order or control a broker.
 
-RIDER loads the pinned `rider/trading-lens.md` snapshot; Spider loads the existing
+RIDER shares the existing `swing-advisors/rider-trading-lens.md` snapshot with
+Swing Advisors; Spider loads the existing
 `spider/references/playbook.md`. Missing parent frames, manual bias, participant
 sequence and qualified entries remain missing. This MVP analyzes the requested
 chart; it does not fabricate a full multi-timeframe package.
@@ -150,3 +151,7 @@ The retained package at
 predates the latest source-scoped clearing, empty-refresh, label-safety,
 late-stop/context-rollback and stale-poll hardening; treat it as pre-hardening
 evidence rather than current proof of those follow-up paths.
+
+Focused fixture regressions and syntax checks run in GitHub Actions through
+`.github/workflows/chart-chat.yml`. Real Codex/web/provider runs remain manual
+acceptance checks so CI does not consume account usage or depend on live feeds.

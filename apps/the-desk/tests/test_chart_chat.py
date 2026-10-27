@@ -31,6 +31,14 @@ class FakeSession:
     def close(self):pass
 
 class ChatTests(unittest.TestCase):
+    def test_shared_rider_rulebook_is_loaded_for_both_consumers(self):
+        from swing_advisors import instructions
+        with tempfile.TemporaryDirectory() as tmp:
+            service=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),FakeSession)
+            shared=(Path(__file__).resolve().parents[1]/'swing-advisors/rider-trading-lens.md').read_text()
+            self.assertEqual(service.skills['RIDER'],shared)
+            self.assertTrue(instructions('rider').endswith(shared))
+            service.close()
     def test_completed_snapshot_hash_and_ohlc_validation(self):
         c=chart();c['bars'].append({**c['bars'][-1],'time':c['cutoff']})
         s=snapshot(c);self.assertEqual(len(s['bars']),180);self.assertEqual(snapshot(c)['sha256'],s['sha256'])
