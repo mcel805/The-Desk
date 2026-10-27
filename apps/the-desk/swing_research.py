@@ -15,7 +15,7 @@ import threading
 import time
 import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
-from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS
+from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS, JevRequestError, JevResponseError
 from swing_volume import SwingVolume, VERSION as VOLUME_VERSION
 from swing_warnings import WarningEngine, REVISION as WARNING_VERSION, DEFAULTS as WARNING_DEFAULTS, validate_config as validate_warning_config
 from jev_costs import JevCostMeter, RATES
@@ -24,6 +24,7 @@ from swing_metrics import forecast_metrics
 from storage import connect, connect_readonly, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
+WARNING_CADENCE_SECONDS=15
 CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_warnings.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
@@ -78,8 +79,10 @@ class SwingResearch:
         self.backfill_bars()
         self.cost_meter=JevCostMeter(self.path)
         for symbol in SYMBOLS:
-            default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':15,'jev_enabled':False,'warning_settings':deepcopy(WARNING_DEFAULTS),**deepcopy(STUDY_DEFAULTS)}
-            self.configs[symbol]={**default,**saved.get(symbol,{})}
+            default={**asdict(Config(quantity=.001 if symbol.endswith('BTC') else .01)),'cadence_seconds':WARNING_CADENCE_SECONDS,'jev_enabled':False,'warning_settings':deepcopy(WARNING_DEFAULTS),**deepcopy(STUDY_DEFAULTS)}
+            saved_config={**saved.get(symbol,{})}
+            saved_config['cadence_seconds']=WARNING_CADENCE_SECONDS
+            self.configs[symbol]={**default,**saved_config}
             self.last[symbol]={'status':'PAUSED','detail':'Start a new observation run. Restart never resumes automatically.'}
             with self.db() as db:
                 previous=db.execute('SELECT id FROM runs WHERE symbol=? ORDER BY started DESC LIMIT 1',(symbol,)).fetchone()
@@ -208,6 +211,10 @@ class SwingResearch:
                         self.append(previous,symbol,'RUN_END',int(time.time()*1000),{'reason':'STORAGE_INTERRUPTED','open_plans':'unresolved'})
                         self.end_saved_study(previous,'STORAGE_INTERRUPTED')
                 cfg={**deepcopy(self.configs[symbol]),**patch}
+                # Learning Lab selection compares the full frozen configuration.
+                # A partial warning update must retain the existing nested rules.
+                if isinstance(patch.get('warning_settings'),dict):
+                    cfg['warning_settings']={**deepcopy(self.configs[symbol].get('warning_settings',{})),**patch['warning_settings']}
                 cfg=self.lab.selected_config(symbol,cfg)
                 # Configure and start share this lock; no blank form or other tab can intervene.
                 self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
@@ -231,9 +238,11 @@ class SwingResearch:
                 if not isinstance(cfg,dict) or set(cfg)-set(self.configs[symbol]):raise ValueError('Invalid research configuration')
                 if 'study_levels' in cfg:raise ValueError('Use timestamped level_add or level_remove for manual references')
                 cfg={**self.configs[symbol],**cfg}
+                if isinstance(cfg.get('warning_settings'),dict):
+                    cfg['warning_settings']={**deepcopy(self.configs[symbol].get('warning_settings',{})),**cfg['warning_settings']}
                 validate_settings(cfg)
                 cfg['warning_settings']=validate_warning_config(cfg.get('warning_settings'))
-                if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds'] not in (10,15,30,60):raise ValueError('Cadence must be 10, 15, 30 or 60 seconds')
+                if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds']!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
                 Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled','warning_settings') and k not in STUDY_DEFAULTS})
                 if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
@@ -246,6 +255,7 @@ class SwingResearch:
                 if self.active:
                     current=next(iter(self.active))
                     raise ValueError('One observation run at a time. Pause '+current+' before starting '+symbol+'.')
+                if self.configs[symbol].get('cadence_seconds')!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')
                 if self.configs[symbol]['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
                 cfg=deepcopy(self.configs[symbol]);reference=self.validation_reference(symbol,cfg)
                 run=uuid.uuid4().hex;now=int(time.time()*1000)
@@ -387,7 +397,9 @@ class SwingResearch:
             for ev in tracker.events:
                 if not warming and ev['seq']>a['persisted_seq']:pending_events.append(('TRACKER_EVENT',ev))
             warnings=a['warnings']
-            if warming:a['warning_warmup_seq']=warnings.sequence
+            if warming:
+                a['warning_warmup_seq']=warnings.sequence
+                a['warning_persisted_seq']=warnings.sequence
             # First receipt is a separate availability barrier. New references
             # cannot claim contact in a candle that began before discovery.
             known_levels=[]
@@ -451,7 +463,22 @@ class SwingResearch:
                 jev={'status':'STALE' if stale else 'AVAILABLE','latency_ms':round(elapsed),'received_at':finished,'prompt':PROMPT_VERSION,**result}
             except Exception as e:
                 jev={'status':'UNAVAILABLE','error_class':type(e).__name__,'prompt':PROMPT_VERSION}
-                jev.update(getattr(e,'diagnostics',{}))
+                if isinstance(e,(JevRequestError,JevResponseError)):
+                    # The adapter vets codes and excludes provider bodies. Keep
+                    # only its defined diagnostic contract at this boundary.
+                    diagnostics=e.diagnostics
+                    for field in ('http_status','error_code','attempt_count','request_bytes','largest_question_bytes'):
+                        if field in diagnostics:jev[field]=deepcopy(diagnostics[field])
+                    attempts=[{k:deepcopy(value) for k,value in attempt.items() if k in ('http_status','error_code')}
+                              for attempt in diagnostics.get('attempt_errors',[])[:3]]
+                    count=diagnostics.get('attempt_count',1)
+                    unknown=sum(attempt.get('http_status') not in (429,529) for attempt in attempts)
+                    # A malformed received response can still be billable.
+                    if isinstance(e,JevResponseError) and not e.safe_usage:unknown+=1
+                    if count and not attempts and isinstance(e,JevRequestError):unknown=count
+                    jev['transport']={'attempt_count':count,'attempt_errors':attempts,
+                                      'request_bytes':diagnostics.get('request_bytes'),
+                                      'unpriced_attempts':unknown,'projection':PROMPT_VERSION}
                 if getattr(e,'safe_usage',None):jev.update(usage=e.safe_usage,model=getattr(e,'response_model',MODEL))
             jev['pricing_snapshot']=pricing
             with self.db() as db:

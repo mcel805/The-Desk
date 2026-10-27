@@ -81,7 +81,10 @@ class SwingHTTPTests(unittest.TestCase):
         finally:self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
 
     def test_invalid_symbols_cadence_key_and_cross_origin_rejected(self):
-        for p in [{'action':'start','symbol':'coinbase:BTC-USD'}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'cadence_seconds':1}}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'jev_enabled':True}}]:
+        for cadence in (1,10,30,60):
+            with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',{'action':'configure','symbol':'hyperliquid:BTC','config':{'cadence_seconds':cadence}})
+            self.assertEqual(e.exception.code,400)
+        for p in [{'action':'start','symbol':'coinbase:BTC-USD'}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'jev_enabled':True}}]:
             with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',p)
             self.assertEqual(e.exception.code,400)
         with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'},{'Origin':'https://external.example'})
@@ -91,7 +94,6 @@ class SwingHTTPTests(unittest.TestCase):
     def test_ui_and_module_are_served_without_model_or_order_keys(self):
         with urlopen(self.base+'/swing-lab.html') as r:html=r.read().decode()
         self.assertIn('Swing Tracker / Decision Lab',html)
-        self.assertIn('4× / minute',html)
         self.assertIn('id="jevApiKey"',html)
         self.assertIn('type="password"',html)
         self.assertIn('Save to macOS Keychain',html)

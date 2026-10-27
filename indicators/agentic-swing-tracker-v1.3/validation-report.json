@@ -47,7 +47,7 @@
     "scope": "Local Vela/PineTS with controlled clock and synthetic updates; native TradingView scheduling and delivery unverified."
   },
   "nativeTradingView": "Not compiled: native app can be read but chart input reports noWindowsAvailable.",
-  "noMistakes": "Unavailable: artifact workspace has no Git repository/origin. No publication or CI attempted.",
+  "noMistakes": "Not run by this local test command; repository gate and publication evidence are recorded separately.",
   "data": "Deterministic synthetic OHLC, not the supplied October 26 market replay.",
   "probability": "Outcome-label and chronological-holdout machinery tested; no MYM-trained model or calibrated MYM probability."
 }

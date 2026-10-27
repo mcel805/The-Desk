@@ -73,7 +73,7 @@ Node 22+ and the locally installed Vela/PineTS runtime are used. `tests/runtime.
 
 The suite executes actual generated Pine under Vela/PineTS, compares numerical features with the reference, checks future-prefix invariance, directions, level provenance, missing volume, gaps, warning clearing and legacy permissions/risk/management. The inherited v1.1 sweep fixture explicitly uses parent sensitivity 3 because v1.2's default 4 recognizes the parent late enough to restart that child; the separate exact-v1.2 comparison retains defaults. A fresh staircase fixture supplies actual higher highs/lows for continuation tests. No source-string tests are used as evidence of behavior.
 
-`validation-report.json` binds the results to the generated Pine SHA-256. Local Pine execution is not native TradingView compilation. The live adapter probe records any limitation in realtime bar-state behavior rather than declaring four native samples verified. Native app automation could read the chart but returned `noWindowsAvailable` for chart input, so native compile/replay and live alert delivery remain unverified. The no-mistakes pipeline could not attach because this artifact workspace is not a Git repository with an origin; no push, PR or CI is claimed.
+`validation-report.json` binds the results to the generated Pine SHA-256. Local Pine execution is not native TradingView compilation. The live adapter probe records any limitation in realtime bar-state behavior rather than declaring four native samples verified. Native app automation could read the chart but returned `noWindowsAvailable` for chart input, so native compile/replay and live alert delivery remain unverified. This artifact receipt covers local validation only; repository gate, publication and CI status are recorded separately.
 
 Official semantics: [Pine execution model](https://www.tradingview.com/pine-script-docs/language/execution-model/), [varip declarations](https://www.tradingview.com/pine-script-docs/language/variable-declarations/), [alerts](https://www.tradingview.com/pine-script-docs/concepts/alerts/).
 
@@ -83,5 +83,5 @@ The repository delivery is integrated with the independent Swing Lab collector.
 See [Desk observation flow](../../apps/the-desk/SWING-WARNINGS.md). The native
 TradingView alert channel remains a separate source; this does not create a MYM
 feed or import native alert observations into the Desk server. The original
-standalone validation receipt predates Git packaging; current repository
-validation and publication evidence is recorded with the feature commit.
+standalone validation receipt covers local artifact checks; repository validation,
+publication and CI evidence are recorded by the surrounding repository workflow.

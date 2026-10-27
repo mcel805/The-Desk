@@ -5,16 +5,24 @@ retains their episode lifecycle, sends bounded evidence to Jev and displays tags
 on the selected matching 1m Desk chart. The standalone TradingView source and
 reference/outcome tools live in `indicators/agentic-swing-tracker-v1.3/`.
 
+This is an additive enhancement to the existing Swing Tracker observation. It
+uses the same collector, saved prediction, Jev request and chart overlay. It does
+not replace the structure tracker, HTF liquidity study, volume evidence, existing
+Jev questions, next-candle scorecard or shadow-plan rules. Warning settings govern
+only the new evidence layer; they cannot grant trade permission or change an
+existing tracker plan. Existing saved runs retain their original observations.
+
 ## Observation flow
 
 1. Start an observation run in Swing Lab. The supported collector instruments
    remain Hyperliquid BTC/ETH perpetuals. MYM TradingView charts are a separate
    source; no MYM market adapter or alert webhook is added by this feature.
 2. The server requests public venue 1m OHLCV and fresh verified quote metadata.
-   Its configured cadence defaults to 15 seconds. One saved observation per run
-   and sampling slot; extra tabs and charts create no extra requests. The warning
-   provisional sub-sampler uses 15-second slots; changing the outer cadence to
-   10/30/60 seconds changes available receipts, not a guaranteed four observations.
+   Desk runs require 15-second collection (four slots per minute).
+   One saved observation per run and sampling slot; extra tabs and charts create
+   no extra requests. A slot is retained only when fresh provider data is
+   available; downtime, stale snapshots and missing updates never fabricate a
+   warning receipt.
 3. New closed bars advance both the existing structure tracker and the warning
    engine. Existing parent, ABC, permissions, risk and shadow-plan rules remain
    separate. Forming OHLC supplies provisional warnings only; partial volume is
@@ -40,6 +48,15 @@ sources retain the existing run barriers. Paused/restarted snapshots remain
 archived; restart intent follows the existing Learning Lab policy rather than a
 new warning-specific auto-start. New code only runs after the updated server is
 launched and a new run starts.
+
+## Existing Learning Lab integration
+
+The existing Learning Lab remains enabled in the same Desk service. Its frozen
+baseline and challenger settings retain the warning configuration, and the same
+run stores warning, tracker, volume and HTF context together. Learning Lab replay
+continues to evaluate its existing tracker/liquidity experiments; it does not
+currently use warning pressure to choose settings or train a reversal model.
+The warning outcome audit is a separate research tool.
 
 ## Rules and interpretation
 

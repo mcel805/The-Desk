@@ -1,12 +1,12 @@
 """Executable parity, cadence and full observation persistence; no network."""
 from copy import deepcopy
-import json, math
+import json, math, sqlite3
 from pathlib import Path
 import subprocess, tempfile, unittest
 from unittest.mock import patch
 from swing_warnings import WarningEngine, validate_config
 from swing_research import SwingResearch
-from jev_swing import prepare_state, PROMPT_VERSION
+from jev_swing import Jev, QUESTIONS, prepare_state
 from test_swing_tracker import BASE, bar, FakeJudge, response
 from test_swing_study_service import Gateway, context, SYMBOL, BASE as SERVICE_BASE
 
@@ -90,6 +90,23 @@ class WarningServiceTests(unittest.TestCase):
     def sample(self):
         with patch('swing_research.time.time',return_value=self.gateway.now/1000):self.service.sample(SYMBOL,self.service.active[SYMBOL])
 
+    def test_warning_collection_requires_four_slots_and_normalizes_legacy_settings_for_new_runs(self):
+        for cadence in (10,30,60):
+            with self.assertRaisesRegex(ValueError,'15-second cadence'):self.command('configure',config={'cadence_seconds':cadence})
+        self.service.close()
+        legacy='legacy-cadence-run'
+        with sqlite3.connect(self.service.path) as db:
+            db.execute('INSERT INTO settings VALUES(?,?)',(SYMBOL,json.dumps({'cadence_seconds':60})))
+            db.execute('INSERT INTO runs VALUES(?,?,?,?)',(legacy,SYMBOL,SERVICE_BASE,json.dumps({'cadence_seconds':60})))
+            db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(legacy,SYMBOL,'RUN_START',SERVICE_BASE,json.dumps({'config':{'cadence_seconds':60}})))
+        self.service=SwingResearch(self.gateway,Path(self.tmp.name),FakeJudge());self.service.context_for=lambda *args:context()
+        self.assertEqual(self.service.configs[SYMBOL]['cadence_seconds'],15)
+        self.service.command({'symbol':SYMBOL,'action':'start'})
+        exported=self.service.export(SYMBOL)
+        runs={row['id']:json.loads(row['config'])['cadence_seconds'] for row in exported['runs']}
+        self.assertEqual(runs[legacy],60)
+        self.assertEqual(runs[self.service.last[SYMBOL]['run']],15)
+
     def test_four_slots_persist_to_jev_export_and_checkpoint_without_duplicates(self):
         self.command('configure',config={'jev_enabled':True,'warning_settings':{'side':1,'volumeEnabled':True}});self.command('start')
         for i in range(4):self.gateway.now=SERVICE_BASE+i*15000+1000;self.sample();self.sample()
@@ -101,6 +118,58 @@ class WarningServiceTests(unittest.TestCase):
         self.assertEqual(self.calls[-1]['swing_warnings'],h['predictions'][0]['state']['swing_warnings'])
         checkpoint=json.loads(self.service.export(SYMBOL)['checkpoints'][0]['snapshot']);self.assertEqual(checkpoint['warnings'],self.calls[-1]['swing_warnings'])
         self.assertTrue(all(x.get('scope')=='WARMUP' for x in checkpoint['warnings']['events']));self.assertEqual(self.service.status()['warning_version'],'swing-warnings-1.3.0')
+
+    def test_learning_lab_assignment_and_warning_evidence_share_run(self):
+        self.command('configure',config={'warning_settings':{'weights':[5,4,3,2,1,0]}})
+        revision=self.service.settings_state()['symbols'][SYMBOL]['revision']
+        self.command('start_auto',expected_revision=revision,config={'warning_settings':{'side':1,'slowRatio':.6}})
+        run=self.service.last[SYMBOL]['run']
+        assignment=json.loads(self.service.lab.read('select payload from lab_assignments where run=?',(run,))[0]['payload'])
+        self.assertEqual(assignment['baseline']['warning_settings']['side'],1)
+        self.assertEqual(assignment['baseline']['warning_settings']['weights'],[5,4,3,2,1,0])
+        self.assertEqual(assignment['challenger']['warning_settings'],assignment['baseline']['warning_settings'])
+        for slot in range(4):
+            self.gateway.now=SERVICE_BASE+slot*15000+1000
+            self.sample()
+        records=self.service.history(SYMBOL)['predictions']
+        self.assertEqual(len(records),4)
+        self.assertTrue(all(r['state']['swing_warnings'] and r['state']['market_synth'] and r['state']['liquidity_study'] for r in records))
+        self.command('pause')
+        self.service.lab.review()
+        self.assertGreaterEqual(self.service.lab.status()['runs_reviewed'],1)
+        self.assertTrue(self.service.export(SYMBOL)['checkpoints'])
+
+    def test_warning_rules_enrich_existing_observations_without_changing_tracker_or_volume(self):
+        # Opposing warning recipes must not change existing structure or shadow plans.
+        with tempfile.TemporaryDirectory() as other_dir:
+            other=SwingResearch(self.gateway,Path(other_dir),FakeJudge())
+            other.context_for=lambda *args:context()
+            try:
+                self.command('configure',config={'warning_settings':{'side':1,'weights':[0]*6}})
+                with patch('swing_research.time.time',return_value=self.gateway.now/1000):
+                    other.command(dict(symbol=SYMBOL,action='configure',config={'warning_settings':{'side':-1,'weights':[2,2,1,2,1,3]}}))
+                    other.command(dict(symbol=SYMBOL,action='start'))
+                self.command('start')
+                for minute in range(4):
+                    for slot in range(4):
+                        self.gateway.now=SERVICE_BASE+minute*60000+slot*15000+1000
+                        self.sample()
+                        with patch('swing_research.time.time',return_value=self.gateway.now/1000):
+                            other.sample(SYMBOL,other.active[SYMBOL])
+                        left=self.service.last[SYMBOL]['snapshot']
+                        right=other.last[SYMBOL]['snapshot']
+                        self.assertEqual({k:v for k,v in left.items() if k!='warnings'},
+                                         {k:v for k,v in right.items() if k!='warnings'})
+                        self.assertIn('market_synth',left)
+                left_history=self.service.history(SYMBOL)['predictions']
+                right_history=other.history(SYMBOL)['predictions']
+                self.assertEqual(len(left_history),16);self.assertEqual(len(right_history),16)
+                for row in left_history:
+                    self.assertIn('swing_warnings',row['state'])
+                    self.assertIn('market_synth',row['state'])
+                    self.assertIn('liquidity_study',row['state'])
+                self.assertNotEqual(left['warnings']['closed']['featureConfig'],right['warnings']['closed']['featureConfig'])
+            finally:other.close()
 
     def test_closed_warning_ledger_and_pause_restart_retain_evidence(self):
         self.command('configure',config={'warning_settings':{'side':1}});self.command('start');self.sample();old=self.service.last[SYMBOL]['snapshot']['warnings']
@@ -121,7 +190,7 @@ class WarningServiceTests(unittest.TestCase):
     def test_rule_change_ends_run_and_changes_recipe(self):
         self.command('start');self.sample();run=self.service.last[SYMBOL]['run'];recipe=self.service.recipe_id(SYMBOL,self.service.configs[SYMBOL])
         self.command('configure',config={'warning_settings':{'slowRatio':.6}})
-        self.assertNotIn(SYMBOL,self.service.active);self.assertNotEqual(recipe,self.service.recipe_id(SYMBOL,self.service.configs[SYMBOL]));self.command('start');self.assertNotEqual(run,self.service.last[SYMBOL]['run'])
+        self.assertNotIn(SYMBOL,self.service.active);self.assertEqual(self.service.configs[SYMBOL]['warning_settings']['weights'],[2,2,1,2,1,3]);self.assertNotEqual(recipe,self.service.recipe_id(SYMBOL,self.service.configs[SYMBOL]));self.command('start');self.assertNotEqual(run,self.service.last[SYMBOL]['run'])
         with self.assertRaises(ValueError):self.command('configure',config={'warning_settings':{'weights':[9]*6}})
 
     def test_jev_projection_preserves_features_and_clocks_without_full_history(self):
@@ -130,4 +199,64 @@ class WarningServiceTests(unittest.TestCase):
         for key in ('closed','provisional'):
             for field in ('observedAt','closedCutoff','severity','values','pressure','coverage','probability'):self.assertEqual(projected['swing_warnings'][key][field],source['swing_warnings'][key][field])
             self.assertNotIn('episodes',projected['swing_warnings'][key])
-        self.assertLessEqual(len(projected['swing_warnings']['events']),8);self.assertIn('warnings',PROMPT_VERSION)
+        self.assertLessEqual(len(projected['swing_warnings']['events']),8)
+        sent=[]
+        class Reply:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self,*args):return json.dumps(response()).encode()
+        judge=Jev(store=False);judge.set_session_key('test-only-session-token')
+        with patch('jev_swing.time.time',return_value=source['observed_at']/1000),patch('jev_swing.urlopen',side_effect=lambda request,**kwargs:(sent.append(json.loads(request.data)) or Reply())):
+            judge.judge(source)
+        self.assertEqual(len(sent),1)
+        self.assertEqual(sent[0]['state']['swing_warnings'],projected['swing_warnings'])
+        self.assertEqual(sent[0]['questions']['swing_warning_response'],QUESTIONS['swing_warning_response'])
+
+    def test_atomic_settings_start_freezes_warning_rules_and_rejects_stale_tabs(self):
+        current=self.service.settings_state()['symbols'][SYMBOL]['revision']
+        state=self.command('start_auto',expected_revision=current,config={'warning_settings':{'side':1,'slowRatio':.6}})
+        run=self.service.last[SYMBOL]['run'];self.assertTrue(state['symbols'][SYMBOL]['running'])
+        self.assertEqual(self.service.active[SYMBOL]['config']['warning_settings']['slowRatio'],.6)
+        self.command('start_auto',expected_revision=current);self.assertEqual(run,self.service.last[SYMBOL]['run'])
+        self.command('pause')
+        with self.assertRaises(ValueError):self.command('start_auto',expected_revision=current)
+        self.assertFalse(self.service.active)
+
+    def test_jev_failure_diagnostics_survive_history_export_and_reliability(self):
+        from jev_swing import JevRequestError
+        self.command('configure',config={'jev_enabled':True});self.command('start')
+        diagnostics={'http_status':400,'error_code':'max_tokens_exceeded','attempt_count':1,
+                     'request_bytes':24000,'largest_question_bytes':18000,
+                     'attempt_errors':[{'http_status':400,'error_code':'max_tokens_exceeded','body':'PRIVATE_PROVIDER_BODY'}],
+                     'provider_body':'PRIVATE_PROVIDER_BODY'}
+        def fail(state):raise JevRequestError(diagnostics)
+        self.service.judge.judge=fail;self.sample()
+        h=self.service.history(SYMBOL);failure=h['predictions'][0]['response']
+        for field in ('http_status','error_code','attempt_count','request_bytes','largest_question_bytes'):
+            self.assertEqual(failure[field],diagnostics[field])
+        self.assertEqual(failure['transport']['attempt_count'],1)
+        self.assertEqual(failure['transport']['attempt_errors'],[{'http_status':400,'error_code':'max_tokens_exceeded'}])
+        self.assertEqual(h['reliability']['errors']['400 / max_tokens_exceeded'],1)
+        exported=self.service.export(SYMBOL)
+        saved=json.loads(exported['predictions'][0]['response'])
+        self.assertEqual(saved,failure);self.assertNotIn('PRIVATE_PROVIDER_BODY',json.dumps(exported))
+        self.assertEqual(exported['jev_costs']['unknown_cost_requests'],1)
+
+    def test_exhausted_retry_diagnostics_and_invalid_response_usage_are_retained(self):
+        from jev_swing import JevRequestError,JevResponseError
+        self.command('configure',config={'jev_enabled':True});self.command('start')
+        attempts=[{'http_status':503,'error_code':'http_error'},{'http_status':529,'error_code':'overloaded'}]
+        def fail(state):raise JevRequestError({'http_status':529,'error_code':'overloaded','attempt_count':2,'attempt_errors':attempts,'request_bytes':1234})
+        self.service.judge.judge=fail;self.sample()
+        saved=self.service.history(SYMBOL)['predictions'][0]['response']
+        self.assertEqual(saved['transport']['attempt_count'],2);self.assertEqual(saved['transport']['unpriced_attempts'],1)
+        self.assertEqual(saved['transport']['attempt_errors'],attempts)
+        self.gateway.now+=15000
+        def invalid(state):
+            e=JevResponseError({'model':'jev-1.14.0','usage':{'input_tokens':100,'output_tokens':10}},'next_bar: invalid_distribution')
+            e.diagnostics.update(attempt_count=1,request_bytes=999,attempt_errors=[])
+            raise e
+        self.service.judge.judge=invalid;self.sample()
+        saved=self.service.history(SYMBOL)['predictions'][0]['response']
+        self.assertEqual(saved['error_code'],'next_bar: invalid_distribution');self.assertEqual(saved['usage'],{'input_tokens':100,'output_tokens':10})
+        self.assertEqual(saved['transport']['unpriced_attempts'],0)

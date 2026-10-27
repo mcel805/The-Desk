@@ -12,5 +12,5 @@ source=source.replace('if dynamicAlerts and barstate.isrealtime and barstate.isc
 source=source.replace('"1.2 · "+swingTimeframe','"1.3 · "+swingTimeframe')
 output=here/'Agentic_Swing_Tracker_v1_3.pine'
 output.write_text(source+'\n'+body)
-(here/'source-manifest.json').write_text(json.dumps({'base':str(base),'base_sha256':hashlib.sha256(base.read_bytes()).hexdigest(),'output_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'revision':'swing-warnings-1.3.0'},indent=2)+'\n')
+(here/'source-manifest.json').write_text(json.dumps({'base':str(base.relative_to(here)),'base_sha256':hashlib.sha256(base.read_bytes()).hexdigest(),'output_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'revision':'swing-warnings-1.3.0'},indent=2)+'\n')
 print(output)
