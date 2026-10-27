@@ -37,10 +37,12 @@ cannot establish a missing stock/futures feed by researching a website.
 ## Agent and chart contract
 
 The server uses the existing `spider_codex.CodexSession` transport and local Codex
-sign-in. Credentials stay server-side. Each request runs an actual coordinator
-and RIDER review; liquidity / block requests also run an actual Spider review.
-These are application analyst sessions, separate from the independent paper
-agent fleet. They do not arm a worker, submit a paper order or control a broker.
+sign-in. Credentials stay server-side. Each analysis request runs an actual
+coordinator and RIDER review; liquidity / block requests also run an actual
+Spider review. Explicit clear requests skip specialist review because they only
+remove this chat's drawings. These are application analyst sessions, separate
+from the independent paper agent fleet. They do not arm a worker, submit a paper
+order or control a broker.
 
 RIDER loads the pinned `rider/trading-lens.md` snapshot; Spider loads the existing
 `spider/references/playbook.md`. Missing parent frames, manual bias, participant
