@@ -109,4 +109,30 @@ describe("managed Journal storage budget", () => {
     });
     expect(contender.available()).toBe(true);
   });
+
+  it("keeps the active reservation available for the SQLite page limit", () => {
+    const pageLimitRoot = join(scratch, "page-limit-root");
+    mkdirSync(pageLimitRoot);
+    writeFileSync(
+      policyPath,
+      JSON.stringify({ volume: scratch, external_root: pageLimitRoot, limit_bytes: 256 * 1024 * 1024 }),
+    );
+    writeFileSync(
+      statePath,
+      JSON.stringify({ external_root: pageLimitRoot, limit_bytes: 256 * 1024 * 1024, used_bytes: 0 }),
+    );
+    const budget = new JournalBudget(join(scratch, "database/journal.db"));
+    const pragmas: string[] = [];
+    budget.withReservation(() => {
+      budget.configureSqlite({
+        pragma(statement) {
+          if (statement === "page_size") return 4096;
+          if (statement === "page_count") return 1;
+          pragmas.push(statement);
+          return undefined;
+        },
+      });
+    });
+    expect(pragmas).toEqual(["max_page_count = 32768"]);
+  });
 });

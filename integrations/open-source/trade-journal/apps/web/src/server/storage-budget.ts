@@ -279,7 +279,8 @@ export class JournalBudget {
     if (!tracked) throw new JournalStorageBudgetError();
     const pageSize = Number(sqlite.pragma("page_size", { simple: true }));
     const currentPages = Number(sqlite.pragma("page_count", { simple: true }));
-    const remaining = this.configured.limit_bytes - tracked.used - tracked.reserved - this.reservationBytes(0);
+    const ownReservation = this.activeToken ? this.reservationBytes(0) : 0;
+    const remaining = this.configured.limit_bytes - tracked.used - tracked.reserved + ownReservation;
     const maxPages = Math.max(currentPages, Math.floor(remaining / (2 * pageSize)));
     sqlite.pragma(`max_page_count = ${maxPages}`);
   }
