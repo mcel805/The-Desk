@@ -1,7 +1,7 @@
 import {canonicalFrame} from './spider-model.mjs';
 import {marketIdentity} from './trading-model.mjs';
 export const owned=d=>d.text?.value?.startsWith('Desk AI · ');
-export const frame=canonicalFrame;
+export const frame=tf=>String(tf)==='120'?'2h':canonicalFrame(tf);
 export const drawingScope=d=>d.text?.value?.split(' · ')[2]||'';
 export const scopeKey=s=>s.symbol+'|'+s.timeframe;
 export function requestedFrame(text){

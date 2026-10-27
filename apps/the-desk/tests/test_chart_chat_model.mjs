@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {requestedFrame,sameScope,applyMarkup,restoreMarkup,chartSnapshot} from '../web/chart-chat-model.mjs';
+import {requestedFrame,sameScope,applyMarkup,restoreMarkup,chartSnapshot,frame} from '../web/chart-chat-model.mjs';
 function chart(initial=[]){let n=0;const rows=structuredClone(initial);return {drawings:{all:()=>structuredClone(rows),add:(type,options)=>{if(type==='bad')return null;const d={...structuredClone(options),type,id:'new'+ ++n};rows.push(d);return d;},remove:id=>{const i=rows.findIndex(d=>d.id===id);if(i>=0)rows.splice(i,1);}}};}
 const drawing=(id,text)=>({id,type:'hline',text:{value:text},anchors:[{time:1,price:100}]});
 test('requested natural language timeframes route the two user scenarios',()=>{
  assert.equal(requestedFrame('on the one-minute chart profile every swing'),'1');
  assert.equal(requestedFrame('On the 30-minute chart draw liquidity'),'30');
  assert.equal(requestedFrame('on 4h chart'),'240');
+ assert.equal(frame(requestedFrame('on 2h chart')),'2h');
+ assert.equal(frame(requestedFrame('on daily chart')),'1d');
  assert.equal(requestedFrame('what is the current trend?'),null);
 });
 test('only matching concept is replaced and undo restores exact prior geometry',()=>{
