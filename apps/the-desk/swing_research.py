@@ -21,7 +21,7 @@ from swing_warnings import WarningEngine, REVISION as WARNING_VERSION, DEFAULTS 
 from jev_costs import JevCostMeter, RATES
 from swing_liquidity import DEFAULTS as STUDY_DEFAULTS, VERSION as STUDY_VERSION, LiquidityStudy, build_htf_context, validate_settings, FRAME_MS
 from swing_metrics import forecast_metrics
-from storage import connect, connect_readonly, StorageFault, atomic_json
+from storage import clear_swing_pause, connect, connect_readonly, persist_swing_pause, read_swing_pause, StorageFault, atomic_json
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
 WARNING_CADENCE_SECONDS=15
@@ -57,7 +57,7 @@ def request_reliability(rows):
 class SwingResearch:
     def __init__(self,gateway,directory,judge=None):
         self.gateway=gateway;self.judge=judge or Jev();self.lock=threading.RLock();self.stop=threading.Event()
-        self.path=Path(directory)/'swing-research.sqlite3';self.path.parent.mkdir(parents=True,exist_ok=True)
+        self.data_dir=Path(directory);self.path=self.data_dir/'swing-research.sqlite3';self.path.parent.mkdir(parents=True,exist_ok=True)
         self.active={};self.last={};self.next_due={};self.configs={};self.context_cache={};self.worker=None;self.storage_guard=None
         with self.db() as db:
             db.executescript('''
@@ -120,6 +120,16 @@ class SwingResearch:
                     'revision':digest(self.configs[symbol]),'running':symbol in self.active,
                     'run':self.last[symbol].get('run')} for symbol in SYMBOLS},
                     'jev_configured':self.judge.configured,'as_of':int(time.time()*1000)}
+
+    def effective_lab_intent(self):
+        intent=self.lab.intent();marker=read_swing_pause(self.data_dir)
+        if not marker:return intent
+        if intent:return {**intent,'enabled':False,'paused_by_marker':True}
+        return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
+
+    def lab_status(self):
+        result=self.lab.status();result['intent']=self.effective_lab_intent();result['swing_pause']=read_swing_pause(self.data_dir)
+        return result
 
     def append(self,run,symbol,kind,at,payload,db=None):
         with (nullcontext(db) if db is not None else self.db()) as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
@@ -211,7 +221,7 @@ class SwingResearch:
         self.next_due[symbol]=0;self.last[symbol]={'status':'WARMING','run':run,'detail':'Loading completed 1m candles; historical events are warmup only.'}
         return self.settings_state() if compact else self.status()
 
-    def command(self,p):
+    def command(self,p,*,clear_pause=True):
         if not isinstance(p,dict) or set(p)-{'action','symbol','config','level','level_id','expected_revision','compact'}:raise ValueError('Invalid research command')
         symbol=p.get('symbol');action=p.get('action')
         if symbol not in SYMBOLS:raise ValueError('Swing research supports Hyperliquid BTC and ETH only')
@@ -240,7 +250,9 @@ class SwingResearch:
                 # Configure and start share this lock; no blank form or other tab can intervene.
                 self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
                 result=self._start_run(symbol,compact=bool(p.get('compact')))
-                self.lab.intent(symbol,action=='start_auto');return result
+                self.lab.intent(symbol,action=='start_auto')
+                if clear_pause:clear_swing_pause(self.data_dir)
+                return result
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])
                 if action=='level_add':
@@ -281,6 +293,7 @@ class SwingResearch:
     def pause(self,symbol,reason):
         a=self.active.pop(symbol,None)
         self.last[symbol]={**self.last[symbol],'status':'PAUSED','detail':reason,'run':a['run'] if a else self.last[symbol].get('run')}
+        if reason=='USER_PAUSED':persist_swing_pause(symbol,reason,data_dir=self.data_dir)
         if a and a['tracker']:
             a['tracker'].terminate(reason,int(time.time()*1000))
             previous_warnings=self.last[symbol].get('snapshot',{}).get('warnings')
@@ -292,13 +305,21 @@ class SwingResearch:
             self.last[symbol]['study']=self.study_brief(a['study'].snapshot())
         if a:self.append(a['run'],symbol,'RUN_END',int(time.time()*1000),{'reason':reason,'snapshot':self.last[symbol].get('snapshot'),'open_plans':'unresolved; no observation after run end'})
 
+    def recover_auto(self):
+        with self.lock:
+            if read_swing_pause(self.data_dir):return False
+            intent=self.lab.intent()
+            if intent and intent['enabled']:
+                self.command({'action':'start_auto','symbol':intent['symbol']},clear_pause=False)
+                return True
+            return False
+
     def loop(self):
         while not self.stop.is_set():
             if not self.active and time.monotonic()>=self.recover_after:
                 self.recover_after=time.monotonic()+30
                 try:
-                    intent=self.lab.intent()
-                    if intent and intent['enabled']:self.command({'action':'start_auto','symbol':intent['symbol']})
+                    self.recover_auto()
                 except Exception:pass  # Key/storage/settings errors remain paused; retry with backoff.
             with self.lock:
                 symbol=next(iter(self.active),None)
@@ -593,7 +614,7 @@ class SwingResearch:
 
     def status(self):
         with self.lock:
-            now=int(time.time()*1000);result={}
+            now=int(time.time()*1000);result={};pause_marker=read_swing_pause(self.data_dir);lab_intent=self.effective_lab_intent()
             for symbol in SYMBOLS:
                 s=deepcopy(self.last[symbol]);s['running']=symbol in self.active;s['config']=deepcopy(self.configs[symbol])
                 with self.read_db() as db:
@@ -615,7 +636,7 @@ class SwingResearch:
                 'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
             costs=self.cost_meter.summary(contexts,MODEL)
             for k,v in result.items():v['costs']=costs['symbols'][k]
-            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':result,'costs':costs,'as_of':now}
+            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'lab_intent':lab_intent,'swing_pause':pause_marker,'symbols':result,'costs':costs,'as_of':now}
 
     def dots(self,run,snapshot,forming):
         if not run:return []

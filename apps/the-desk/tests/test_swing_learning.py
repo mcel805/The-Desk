@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from swing_research import SwingResearch
 from swing_lab import LearningLab,challenger,compare,verdict,ENGINE,replay,ident
-from storage import connect_readonly
+from storage import connect_readonly, read_swing_pause
 from test_swing_tracker import FakeJudge,FakeGateway
 
 class LearningTests(unittest.TestCase):
@@ -55,6 +55,24 @@ class LearningTests(unittest.TestCase):
             other.command({'action':'pause','symbol':'hyperliquid:BTC'})
             self.assertFalse(other.lab.intent()['enabled'])
         finally:other.close()
+    def test_pause_marker_survives_failed_run_end_and_blocks_restart(self):
+        self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
+        with patch.object(self.service,'append',side_effect=OSError('external RUN_END failed')):
+            with self.assertRaises(OSError):self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
+        self.assertFalse(self.service.active)
+        self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
+        other=SwingResearch(FakeGateway(1770000000000),Path(self.tmp.name),FakeJudge())
+        try:
+            self.assertFalse(other.recover_auto())
+            self.assertFalse(other.lab_status()['intent']['enabled'])
+        finally:other.close()
+    def test_pause_marker_survives_failed_lab_intent_write(self):
+        self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
+        with patch.object(self.service.lab,'intent',side_effect=OSError('external intent failed')):
+            with self.assertRaises(OSError):self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
+        self.assertFalse(self.service.active)
+        self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
+        self.assertFalse(self.service.lab_status()['intent']['enabled'])
     def test_readonly_paths_do_not_scan_capacity_and_refuse_writes(self):
         with patch('storage.external_guard',side_effect=AssertionError('capacity scan')):
             db=connect_readonly(self.service.path)

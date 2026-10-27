@@ -16,11 +16,12 @@ class SwingHTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory(prefix='desk-swing-http-')
+        cls.quota=Path(cls.tmp.name)/'quota-fixture'
         with socket.socket() as s:s.bind(('127.0.0.1',0));cls.port=s.getsockname()[1]
         cls.base='http://127.0.0.1:'+str(cls.port)
         env={**os.environ};env.pop('TYPESAFE_API_KEY',None);env['DESK_JEV_KEYCHAIN']='disabled'
-        # Explicitly disable the research worker only inside this test process.
-        code='import swing_research; swing_research.SwingResearch.start=lambda self:None; import server; server.main()'
+        env['DESK_STORAGE_MANAGED']='1';env['SWING_TEST_QUOTA_SENTINEL']=str(cls.quota)
+        code='import os,swing_research; swing_research.SwingResearch.start=lambda self:None; import server; original=server.DataVault.writable; server.DataVault.writable=lambda self,additional=0: (_ for _ in ()).throw(server.StorageFault("quota fixture")) if os.path.exists(os.environ["SWING_TEST_QUOTA_SENTINEL"]) else original(self,additional); server.main()'
         cls.proc=subprocess.Popen([sys.executable,'-c',code,'--port',str(cls.port),'--data-dir',cls.tmp.name,'--no-workers'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
         try:
             for _ in range(100):
@@ -80,6 +81,17 @@ class SwingHTTPTests(unittest.TestCase):
             self.assertIn('revision',state['symbols']['hyperliquid:BTC'])
             self.assertEqual(self.request('/api/swing/lab')['version'],'swing-learning.1')
         finally:self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+
+    def test_pause_is_accepted_when_storage_preflight_fails(self):
+        self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+        started=self.request('/api/swing/control',{'action':'start_auto','symbol':'hyperliquid:BTC'})
+        self.assertTrue(started['symbols']['hyperliquid:BTC']['running'])
+        self.quota.touch()
+        try:
+            paused=self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+            self.assertFalse(paused['symbols']['hyperliquid:BTC']['running'])
+            self.assertFalse(self.request('/api/swing/lab')['intent']['enabled'])
+        finally:self.quota.unlink(missing_ok=True)
 
     def test_invalid_symbols_cadence_key_and_cross_origin_rejected(self):
         for cadence in (1,10,30,60):

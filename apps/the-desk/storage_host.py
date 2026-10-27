@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from storage import persist_swing_pause, read_swing_pause
 
 ROOT = Path(__file__).resolve().parent
 POLICY = ROOT / 'storage-policy.local.json'
@@ -240,6 +241,7 @@ class Host:
         return {'mode': self.mode, 'external_connected': ready, 'external_root': self.policy['external_root'],
                 'active_root': str(self.active) if self.active else None,
                 'limit_bytes': self.policy['limit_bytes'], 'used_bytes': self.used, 'reserved_bytes': reserved,
+                'swing_pause': read_swing_pause(control=self.control),
                 'message': self.error or ('SAMSUNG USB is the active data drive.' if self.mode == 'EXTERNAL' else
                    'Temporary local storage. Plug in SAMSUNG USB; external history is available when reconnected.'),
                 'can_return': bool(return_capacity),
@@ -369,6 +371,16 @@ class Host:
                 return self.send(200, page.encode(), 'text/html; charset=utf-8')
             def do_POST(self):
                 if not self.trusted() or not self.headers.get('Origin'): return self.send(403, b'{}')
+                if self.path == '/api/swing/control':
+                    try:
+                        length=int(self.headers.get('Content-Length',0))
+                        payload=json.loads(self.rfile.read(length))
+                        if not isinstance(payload,dict) or set(payload)!={'action','symbol'} or payload['action']!='pause' or payload['symbol'] not in ('hyperliquid:BTC','hyperliquid:ETH'):
+                            raise ValueError()
+                        persist_swing_pause(payload['symbol'],control=host.control)
+                        return self.send(200,json.dumps({'paused':True,'symbol':payload['symbol']}).encode())
+                    except (ValueError,TypeError,json.JSONDecodeError):
+                        return self.send(400,b'{"error":"Pause requires a supported Swing symbol."}')
                 if self.path != '/api/storage/continue-local': return self.send(404, b'{}')
                 if shutil.disk_usage(host.control).free < 512 * 1024**2:
                     return self.send(507, b'{"error":"Local disk needs at least 512 MiB free."}')

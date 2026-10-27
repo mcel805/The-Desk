@@ -37,6 +37,8 @@ class HostHTTPTests(unittest.TestCase):
     try:
      wait_for(lambda:h.gate is not None)
      self.assertEqual(request('/api/storage/status')['mode'],'WAITING')
+     self.assertTrue(request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'},'http://127.0.0.1:'+str(port))['paused'])
+     self.assertEqual(request('/api/storage/status')['swing_pause']['symbol'],'hyperliquid:BTC')
      with self.assertRaises(HTTPError) as err:request('/api/state')
      self.assertEqual(err.exception.code,503)
      with self.assertRaises(HTTPError):request('/api/storage/continue-local',{},'http://evil.example')
@@ -46,6 +48,7 @@ class HostHTTPTests(unittest.TestCase):
      connected[0]=True
      self.assertTrue(h.state()['can_return']);h.return_external.touch()
      wait_for(lambda:h.mode=='EXTERNAL' and alias.resolve()==(external/'live/desk').resolve())
+     self.assertEqual(h.state()['swing_pause']['symbol'],'hyperliquid:BTC')
      self.assertEqual((alias/'history').read_text(),'original external history')
      self.assertFalse((alias/'offline-record').exists())
      archives=list((external/'offline-sessions').glob('*/desk/offline-record'))

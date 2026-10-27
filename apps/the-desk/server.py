@@ -229,7 +229,7 @@ def main():
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
                 if parsed.path=='/api/swing/settings':return self.json(swing_research.settings_state())
-                if parsed.path=='/api/swing/lab':return self.json(swing_research.lab.status())
+                if parsed.path=='/api/swing/lab':return self.json(swing_research.lab_status())
                 if parsed.path=='/api/swing/status':return self.json(swing_research.status())
                 if parsed.path=='/api/swing/study/archive':return self.json(swing_research.study_archive(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/study':return self.json(swing_research.study_report(value('symbol','hyperliquid:BTC')))
@@ -261,7 +261,7 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
-                if path.startswith(('/api/spider/','/api/swing/')):vault.writable()
+                if path.startswith(('/api/spider/','/api/swing/')) and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))

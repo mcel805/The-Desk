@@ -62,6 +62,53 @@ def atomic_json(path,value):
         if os.path.exists(tmp):os.unlink(tmp)
         if lease:lease.finish((path.stat().st_size if path.exists() else 0)-before)
 
+SWING_PAUSE_MARKER='swing-pause.json'
+
+def _storage_control_dir(data_dir=None,control=None):
+    if control:return Path(control)
+    configured=os.environ.get('DESK_STORAGE_CONTROL')
+    if configured:return Path(configured)
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path:
+        try:
+            configured=json.loads(Path(policy_path).read_text())['control']
+            if not isinstance(configured,str) or not configured:raise ValueError()
+            return Path(configured)
+        except (OSError,ValueError,KeyError,TypeError):
+            raise StorageFault('Storage control policy is unavailable.')
+    if data_dir is None:raise StorageFault('Storage control directory is unavailable.')
+    return Path(data_dir)/'.storage-control'
+
+def swing_pause_path(data_dir=None,control=None):
+    return _storage_control_dir(data_dir,control)/SWING_PAUSE_MARKER
+
+def read_swing_pause(data_dir=None,control=None):
+    path=swing_pause_path(data_dir,control)
+    try:
+        if path.stat().st_size>4096:return {'symbol':None,'reason':'INVALID_MARKER','at':0}
+        value=json.loads(path.read_text())
+        if not isinstance(value,dict) or not isinstance(value.get('symbol'),str) or not value['symbol'] or not isinstance(value.get('reason'),str) or not isinstance(value.get('at'),int):raise ValueError()
+        return {'symbol':value['symbol'],'reason':value['reason'],'at':value['at']}
+    except FileNotFoundError:return None
+    except (OSError,ValueError,TypeError, json.JSONDecodeError):return {'symbol':None,'reason':'INVALID_MARKER','at':0}
+
+def persist_swing_pause(symbol,reason='USER_PAUSED',data_dir=None,control=None):
+    if not isinstance(symbol,str) or not symbol or len(symbol)>64 or not isinstance(reason,str) or not reason or len(reason)>128:raise ValueError('Invalid Swing pause marker')
+    directory=_storage_control_dir(data_dir,control);directory.mkdir(parents=True,exist_ok=True,mode=0o700)
+    path=directory/SWING_PAUSE_MARKER;temp=directory/('.'+path.name+'-'+uuid.uuid4().hex)
+    try:
+        with open(temp,'w') as f:
+            os.chmod(temp,0o600);json.dump({'symbol':symbol,'reason':reason,'at':int(time.time()*1000)},f,separators=(',',':'));f.flush();os.fsync(f.fileno())
+        os.replace(temp,path);fsync_dir(directory)
+    finally:
+        if temp.exists():temp.unlink()
+
+def clear_swing_pause(data_dir=None,control=None):
+    path=swing_pause_path(data_dir,control)
+    try:path.unlink()
+    except FileNotFoundError:return
+    fsync_dir(path.parent)
+
 def connect(path):
     """Every writer uses FULL sync, WAL, a bounded busy wait, and FK validation."""
     external_guard()

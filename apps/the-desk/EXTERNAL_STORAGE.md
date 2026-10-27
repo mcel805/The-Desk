@@ -22,6 +22,13 @@ When the USB is missing, the Desk stops its database services and shows a connec
 error. Choose **Continue with temporary local storage** to use a separate workspace.
 External history is unavailable in that workspace. Agents and manually started research do not resume automatically. Swing Lab **Start automatic lab** can explicitly opt its single observation market into automatic new runs after restart; **Start observing** and **Enable Jev & start** remain manual, and Pause disables automatic recovery.
 
+Pause also writes a bounded `swing-pause.json` cancellation marker in the private
+storage-control directory before ending the run. The active Desk and the
+disconnected supervisor gate accept this cancellation even when protected data
+writes are blocked; reconnect and restart recovery continue honoring it. An
+explicit successful Swing start clears the marker after its normal storage,
+configuration, and key checks; background recovery never clears it.
+
 After reconnecting, choose **Save temporary work & return to USB** in the storage
 banner. The temporary dataset is copied and hash-verified under
 `offline-sessions/<session>/` before its local copy is removed. Main and temporary
