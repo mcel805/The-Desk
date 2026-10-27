@@ -143,3 +143,8 @@ The browser check verifies native drawings, both specialists, actual web events,
 timeframe isolation, hide/show, clear/undo, manual-drawing preservation,
 cancellation, collapse and persistence. It never submits an order. Acceptance
 results and screenshots are local evidence, not evidence of trading performance.
+The retained package at
+`/Users/markceleste/Documents/Oct 2026 Charts MYM/chart-chat-qa-2026-10-27/acceptance.json`
+predates the latest source-scoped clearing, empty-refresh, label-safety,
+late-stop/context-rollback and stale-poll hardening; treat it as pre-hardening
+evidence rather than current proof of those follow-up paths.

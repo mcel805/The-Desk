@@ -25,15 +25,35 @@ REVIEW = obj({'summary':STRING,'evidenceIds':{'type':'array','items':STRING},'li
 ANSWER = obj({'answer':STRING,'followups':{'type':'array','items':STRING}})
 def encoded(value):return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
 def finite(v):return type(v) in (int,float) and math.isfinite(v)
+def web_action(item):
+    action=item.get('action') if isinstance(item,dict) else None
+    return action if isinstance(action,dict) else {}
+
+def web_urls(item):
+    if not isinstance(item,dict):return []
+    action=web_action(item)
+    urls=[action.get('url'),item.get('url')]
+    for source in (action.get('sources'),item.get('sources')):
+        if isinstance(source,list):urls.extend(x.get('url') for x in source if isinstance(x,dict))
+    return [url for url in urls if isinstance(url,str)]
+
+def web_kind(item):
+    action=web_action(item);action_type=str(action.get('type') or '').lower()
+    item_type=str(item.get('type') or '').lower() if isinstance(item,dict) else ''
+    if action_type in ('search','web_search','websearch','search_query') or action.get('query') or item.get('query'):
+        return 'search'
+    if action_type in ('open','open_page','open_url','openpage') or item_type in ('open','open_page','open_url','openpage') or web_urls(item):
+        return 'open'
+    return ''
+
 def web_research_complete(searches):
     searched=False
     for item in searches:
-        action=item.get('action') or {}
-        if action.get('type')=='search':
+        kind=web_kind(item)
+        if kind=='search':
             searched=True
-        if searched and action.get('type')=='open':
-            urls=[action.get('url')]+[x.get('url') for x in item.get('sources',[]) if isinstance(x,dict)]
-            if any(public_url(url) for url in urls):return True
+        if searched and kind=='open' and any(public_url(url) for url in web_urls(item)):
+            return True
     return False
 
 def snapshot(raw):
@@ -204,9 +224,15 @@ class ChartChat:
     def ask(self,r,cancel,agent,instructions,prompt,schema,web=False):
         if cancel.is_set():raise ValueError('Stopped by you.')
         self.event(r,agent,'Researching the web and chart evidence…' if web else 'Reading the frozen chart evidence…')
+        observed={'search':False,'open':False}
         def event(kind,data):
             if kind=='search':
                 action=data.get('action') or {};self.event(r,agent,'Web · '+str(action.get('query') or action.get('url') or action.get('type') or 'source search')[:240])
+                if data.get('status')!='completed':return
+                if action.get('query') or action.get('type') in ('search','web_search','webSearch','search_query'):observed['search']=True
+                for url in web_urls({'action':action}):
+                    if public_url(url):observed['open']=True
+                    if public_url(url) and url not in r['sources']:r['sources'].append(url)
         session=self.factory(cwd=Path(__file__).parent,on_event=event,web_search='live' if web else 'disabled',service_name='the-desk-chart-chat')
         with self.lock:self.sessions.add(session)
         try:
@@ -221,15 +247,14 @@ class ChartChat:
                 self.event(r,agent,'Repairing an invalid structured reply…')
                 value,repair_searches=session.run('The application rejected your JSON: '+str(error)+'. Return only these exact fields with their declared types: '+encoded(schema)+'. This bounded application response contract overrides any report format in the strategy rulebook. Prior response: '+encoded(value)[:12000],schema,timeout=240,cancel=cancel)
                 searches+=repair_searches;validate_shape(value,schema)
-            if web and not web_research_complete(searches):
+            if web and not (web_research_complete(searches) or observed['search'] and observed['open']):
                 value,repair_searches=session.run('Live web research was requested but the required search and public source open were not both observed. Search now and open a primary source, then return the complete same-schema review of the retained facts.',schema,timeout=240,cancel=cancel);validate_shape(value,schema)
                 searches+=repair_searches
-                if not web_research_complete(searches):raise ValueError('Web research did not complete a search and public source open. Disable Web research or retry; no research will be claimed.')
+                if not (web_research_complete(searches) or observed['search'] and observed['open']):raise ValueError('Web research did not complete a search and public source open. Disable Web research or retry; no research will be claimed.')
             if cancel.is_set():raise ValueError('Stopped by you.')
             for item in searches:
-                action=item.get('action') or {}
-                for url in [action.get('url')]+[x.get('url') for x in item.get('sources',[]) if isinstance(x,dict)]:
-                    if url and public_url(url) and url not in r['sources']:r['sources'].append(url)
+                for url in web_urls(item):
+                    if public_url(url) and url not in r['sources']:r['sources'].append(url)
             return value
         finally:
             session.close()
