@@ -37,3 +37,13 @@ test('reload restores the retained draft and recognizes a lost acknowledgement',
 test('invalid saves fail once and retain the draft without a retry loop',async()=>{
  let calls=0;const f=fixture({write:async()=>{calls++;const e=Error('invalid');e.status=400;throw e;}});await f.client.load();await assert.rejects(f.client.save({workspace:[]}),/invalid/);await settle();assert.equal(calls,1);assert.ok(f.storage.getItem(f.client.key));
 });
+test('pending and committed hooks expose durable workspace lifecycle before and after server acknowledgement',async()=>{
+ const events=[],f=fixture({onPending:(values,expected)=>events.push(['pending',values.workspace.layout,expected.workspace]),onCommit:(values,result)=>events.push(['commit',values.workspace.layout,result.revisions.workspace])});
+ await f.client.load();await f.client.save({workspace:{layout:'4'}});
+ assert.deepEqual(events,[['pending','4',1],['commit','4',2]]);assert.deepEqual(f.client.serverValues.workspace,{layout:'1'});
+});
+test('a retained workspace from the previous build seeds a new empty settings database',async()=>{
+ const f=fixture();f.server.values={};f.server.revisions={};f.storage.setItem(f.client.key,JSON.stringify({values:{workspace:{layout:'4'}},expected:{workspace:7}}));
+ const loaded=await f.client.load();assert.equal(loaded.workspace.layout,'4');assert.equal(f.client.conflict,false);assert.equal(f.client.expected.workspace,0);
+ f.client.resume();await settle();assert.equal(f.server.values.workspace.layout,'4');assert.equal(f.writes[0].expected.workspace,0);
+});

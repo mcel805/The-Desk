@@ -1,6 +1,7 @@
 import {createTradingActions,acknowledgeTradingResult} from './trading-actions.mjs';
 import {setupSwingTracker} from './swing-tracker.mjs';
 import {DurableSettings} from './durable-settings.mjs';
+import {WorkspaceMirror} from './workspace-mirror.mjs';
 import {stripSpiderDrawings} from './spider-model.mjs';
 import {setupSpider} from './spider-ui.mjs';
 import {SpiderIntervalProvider,BinanceProvider} from './spider-provider.mjs';
@@ -344,9 +345,12 @@ $('#stepReplay').onclick=()=>{ws.replay.step();replayUpdate();};$('#playReplay')
 function replayUpdate(){const r=ws?.replay.state;$('#replayState').textContent=r?.active?(r.playing?'Playing':'Paused')+' · '+r.remaining+' hidden bars':'Replay off';updateTicket();renderManager();}
 
 let settingsWriter=sessionStorage.getItem('the-desk.settings-writer');if(!settingsWriter){settingsWriter=crypto.randomUUID();sessionStorage.setItem('the-desk.settings-writer',settingsWriter);}
+const workspaceMirror=new WorkspaceMirror();
 const durableSettings=new DurableSettings({writer:settingsWriter,read:()=>api('/api/settings/state'),write:value=>api('/api/settings/commit',value),
  prepare:async values=>values.workspace?{...values,workspace:await upgradeLiquidityWorkspace(values.workspace)}:values,
- onCommit:values=>Object.assign(settings,values),onState:status=>{$('#saveStatus').textContent=({saving:'Saving…',saved:'All changes saved',failed:status.local?'Saved locally · server rejected save':'Save rejected',retrying:status.local?'Saved locally · retrying server':'Save failed · retrying',conflict:'Local draft · changed in another tab',recovered:'Local draft recovered'})[status.state]||'Workspace restored';}});
+ onPending:(values,expected)=>{if(values.workspace)workspaceMirror.capture(values.workspace,expected.workspace);},
+ onCommit:(values,result)=>{Object.assign(settings,values);if(values.workspace)workspaceMirror.acknowledge(values.workspace,result.revisions?.workspace);},
+ onState:status=>{$('#saveStatus').textContent=({saving:'Saving…',saved:'All changes saved',failed:status.local?'Saved locally · server rejected save':'Save rejected',retrying:status.local?'Saved locally · retrying server':'Save failed · retrying',conflict:'Local draft · changed in another tab',recovered:'Local draft recovered'})[status.state]||'Workspace restored';}});
 window.addEventListener('online',()=>durableSettings.resume());window.addEventListener('pagehide',()=>durableSettings.close());
 async function saveSettings(values,options){return durableSettings.save(values,options);}
 $('#saveWorkspace').onclick=async()=>{try{await saveSettings({workspace:stripSpiderDrawings(ws.getState())},{force:true});$('#saveStatus').textContent='Saved to this computer';toast('Workspace saved, including drawings and indicator settings.');}catch(e){toast(e.message,true);}};
@@ -438,7 +442,7 @@ brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.
 
 
 async function boot(){
- try{settings=await durableSettings.load();durableSettings.resume();await refreshIBKR();try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
+ try{settings=await durableSettings.load();const workspaceState=workspaceMirror.reconcile({serverWorkspace:durableSettings.serverValues?.workspace,serverRevision:durableSettings.revisions.workspace,pendingWorkspace:durableSettings.pending.workspace});settings.workspace=workspaceState.workspace;durableSettings.resume();if(workspaceState.recover)void saveSettings({workspace:workspaceState.workspace});await refreshIBKR();try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   if(brokerContext.selected)await brokerContext.refresh(true);
   const spiderHistories={coinbase:new SpiderIntervalProvider(new CoinbaseProvider(),'coinbase'),hyperliquid:new SpiderIntervalProvider(new DeskHyperliquidProvider(),'hyperliquid')};
