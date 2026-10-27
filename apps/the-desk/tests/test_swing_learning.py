@@ -69,12 +69,19 @@ class LearningTests(unittest.TestCase):
         finally:other.close()
     def test_pause_marker_survives_failed_lab_intent_write(self):
         self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
-        with patch.object(self.service.lab,'intent',side_effect=OSError('external intent failed')):
+        with patch.object(self.service.lab,'disable_intent',side_effect=OSError('external intent failed')):
             paused=self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
         self.assertFalse(self.service.active)
         self.assertTrue(paused['audit_pending'])
         self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
         self.assertFalse(self.service.lab_status()['intent']['enabled'])
+    def test_pause_rejects_a_different_active_symbol(self):
+        self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
+        with self.assertRaisesRegex(ValueError,'active Swing symbol'):
+            self.service.command({'action':'pause','symbol':'hyperliquid:ETH'})
+        self.assertTrue(self.service.active['hyperliquid:BTC'])
+        self.assertTrue(self.service.lab.intent()['enabled'])
+        self.assertIsNone(read_swing_pause(self.service.data_dir,'hyperliquid:ETH'))
     def test_readonly_paths_do_not_scan_capacity_and_refuse_writes(self):
         with patch('storage.external_guard',side_effect=AssertionError('capacity scan')):
             db=connect_readonly(self.service.path)

@@ -39,6 +39,8 @@ class HostHTTPTests(unittest.TestCase):
      self.assertEqual(request('/api/storage/status')['mode'],'WAITING')
      self.assertTrue(request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'},'http://127.0.0.1:'+str(port))['paused'])
      self.assertEqual(request('/api/storage/status')['swing_pause']['symbol'],'hyperliquid:BTC')
+     with self.assertRaises(HTTPError) as mismatch:request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:ETH'},'http://127.0.0.1:'+str(port))
+     self.assertEqual(mismatch.exception.code,400)
      with self.assertRaises(HTTPError) as err:request('/api/state')
      self.assertEqual(err.exception.code,503)
      with self.assertRaises(HTTPError):request('/api/storage/continue-local',{},'http://evil.example')

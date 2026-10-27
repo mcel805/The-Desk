@@ -82,29 +82,62 @@ def _storage_control_dir(data_dir=None,control=None):
 def swing_pause_path(data_dir=None,control=None):
     return _storage_control_dir(data_dir,control)/SWING_PAUSE_MARKER
 
-def read_swing_pause(data_dir=None,control=None):
-    path=swing_pause_path(data_dir,control)
+_INVALID_PAUSE_MARKER=object()
+
+def _pause_records(path):
     try:
-        if path.stat().st_size>4096:return {'symbol':None,'reason':'INVALID_MARKER','at':0}
+        if path.stat().st_size>4096:return _INVALID_PAUSE_MARKER
         value=json.loads(path.read_text())
+        if isinstance(value,dict) and isinstance(value.get('pauses'),dict):
+            records={}
+            for symbol,record in value['pauses'].items():
+                if not isinstance(symbol,str) or not isinstance(record,dict) or record.get('symbol')!=symbol or not isinstance(record.get('reason'),str) or not record['reason'] or not isinstance(record.get('at'),int):raise ValueError()
+                records[symbol]={'symbol':symbol,'reason':record['reason'],'at':record['at']}
+            return records
         if not isinstance(value,dict) or not isinstance(value.get('symbol'),str) or not value['symbol'] or not isinstance(value.get('reason'),str) or not isinstance(value.get('at'),int):raise ValueError()
-        return {'symbol':value['symbol'],'reason':value['reason'],'at':value['at']}
-    except FileNotFoundError:return None
-    except (OSError,ValueError,TypeError, json.JSONDecodeError):return {'symbol':None,'reason':'INVALID_MARKER','at':0}
+        return {value['symbol']:{'symbol':value['symbol'],'reason':value['reason'],'at':value['at']}}
+    except FileNotFoundError:return {}
+    except (OSError,ValueError,TypeError, json.JSONDecodeError):return _INVALID_PAUSE_MARKER
+
+def read_swing_pause(data_dir=None,control=None,symbol=None):
+    records=_pause_records(swing_pause_path(data_dir,control))
+    if records is _INVALID_PAUSE_MARKER:return {'symbol':None,'reason':'INVALID_MARKER','at':0}
+    if symbol is not None:return records.get(symbol)
+    return next(iter(records.values())) if len(records)==1 else None
 
 def persist_swing_pause(symbol,reason='USER_PAUSED',data_dir=None,control=None):
     if not isinstance(symbol,str) or not symbol or len(symbol)>64 or not isinstance(reason,str) or not reason or len(reason)>128:raise ValueError('Invalid Swing pause marker')
-    directory=_storage_control_dir(data_dir,control);directory.mkdir(parents=True,exist_ok=True,mode=0o700)
-    path=directory/SWING_PAUSE_MARKER;temp=directory/('.'+path.name+'-'+uuid.uuid4().hex)
+    directory=_storage_control_dir(data_dir,control);directory.mkdir(parents=True,exist_ok=True,mode=0o700);path=directory/SWING_PAUSE_MARKER
+    records=_pause_records(path)
+    if records is _INVALID_PAUSE_MARKER:records={}
+    records[symbol]={'symbol':symbol,'reason':reason,'at':int(time.time()*1000)}
+    temp=directory/('.'+path.name+'-'+uuid.uuid4().hex)
     try:
         with open(temp,'w') as f:
-            os.chmod(temp,0o600);json.dump({'symbol':symbol,'reason':reason,'at':int(time.time()*1000)},f,separators=(',',':'));f.flush();os.fsync(f.fileno())
+            os.chmod(temp,0o600);json.dump({'pauses':records},f,separators=(',',':'));f.flush();os.fsync(f.fileno())
         os.replace(temp,path);fsync_dir(directory)
     finally:
         if temp.exists():temp.unlink()
 
-def clear_swing_pause(data_dir=None,control=None):
+def clear_swing_pause(data_dir=None,control=None,symbol=None):
     path=swing_pause_path(data_dir,control)
+    if symbol is not None:
+        records=_pause_records(path)
+        if records is _INVALID_PAUSE_MARKER or symbol not in records:return
+        del records[symbol]
+        if records:
+            directory=path.parent;temp=directory/('.'+path.name+'-'+uuid.uuid4().hex)
+            try:
+                with open(temp,'w') as f:
+                    os.chmod(temp,0o600);json.dump({'pauses':records},f,separators=(',',':'));f.flush();os.fsync(f.fileno())
+                os.replace(temp,path);fsync_dir(directory)
+            finally:
+                if temp.exists():temp.unlink()
+        else:
+            try:path.unlink()
+            except FileNotFoundError:return
+            fsync_dir(path.parent)
+        return
     try:path.unlink()
     except FileNotFoundError:return
     fsync_dir(path.parent)

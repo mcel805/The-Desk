@@ -123,8 +123,14 @@ class SwingResearch:
 
     def effective_lab_intent(self):
         marker=read_swing_pause(self.data_dir)
-        if marker:return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
-        intent=self.lab.intent()
+        try:intent=self.lab.intent()
+        except (OSError,sqlite3.Error,StorageFault):
+            if marker:return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
+            raise
+        if marker and (not intent or intent['symbol']==marker['symbol']):return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
+        if intent:
+            marker=read_swing_pause(self.data_dir,intent['symbol'])
+            if marker:return {**intent,'enabled':False,'paused_by_marker':True}
         return intent
 
     def lab_status(self):
@@ -134,8 +140,16 @@ class SwingResearch:
     def paused_compact(self,symbol,detail,audit_pending=False):
         result=self.settings_state();entry=result['symbols'][symbol]
         entry.update({'status':'PAUSED','running':False,'detail':detail,'audit_pending':audit_pending})
-        result.update({'audit_pending':audit_pending,'lab_intent':{'symbol':symbol,'enabled':False,'paused_by_marker':True},'swing_pause':read_swing_pause(self.data_dir)})
+        result.update({'audit_pending':audit_pending,'lab_intent':{'symbol':symbol,'enabled':False,'paused_by_marker':True},'swing_pause':read_swing_pause(self.data_dir,symbol)})
         return result
+
+    def pause_target(self,symbol):
+        if self.active:
+            if symbol not in self.active:raise ValueError('Pause the active Swing symbol before pausing '+symbol+'.')
+            return True
+        intent=self.lab.intent()
+        if intent and intent['enabled'] and intent['symbol']!=symbol:raise ValueError('Pause the automatic Swing symbol '+intent['symbol']+' instead.')
+        return bool(intent and intent['enabled'] and intent['symbol']==symbol)
 
     def pause_result(self,symbol,compact=False,audit_error=None):
         if audit_error:
@@ -269,7 +283,7 @@ class SwingResearch:
                 self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
                 result=self._start_run(symbol,compact=bool(p.get('compact')))
                 self.lab.intent(symbol,action=='start_auto')
-                if clear_pause:clear_swing_pause(self.data_dir)
+                if clear_pause:clear_swing_pause(self.data_dir,symbol=symbol)
                 return result
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])
@@ -281,7 +295,7 @@ class SwingResearch:
                     if not isinstance(p.get('level_id'),str) or not any(x['id']==p['level_id'] for x in cfg['study_levels']):raise ValueError('Unknown manual reference')
                     cfg['study_levels']=[x for x in cfg['study_levels'] if x['id']!=p['level_id']]
                 validate_settings(cfg)
-                self.lab.intent(symbol,False)
+                self.lab.disable_intent(symbol)
                 self.pause(symbol,'HTF_MAP_CHANGED');self.configs[symbol]=cfg;self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
             elif action=='configure':
@@ -297,17 +311,19 @@ class SwingResearch:
                 if type(cfg['jev_enabled']) is not bool:raise ValueError('Invalid Jev setting')
                 Config(**{k:v for k,v in cfg.items() if k not in ('cadence_seconds','jev_enabled','warning_settings') and k not in STUDY_DEFAULTS})
                 if cfg['jev_enabled'] and not self.judge.configured:raise ValueError('Add your TypeSafe API key in Jev connection before enabling Jev')
-                if not p.get('compact'):self.lab.intent(symbol,False)
+                if not p.get('compact'):self.lab.disable_intent(symbol)
                 self.pause(symbol,'CONFIG_CHANGED');self.context_cache.pop(symbol,None)
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
                 self.configs[symbol]=cfg
             elif action=='pause':
+                intent_target=self.pause_target(symbol)
                 persist_swing_pause(symbol,'USER_PAUSED',data_dir=self.data_dir)
                 audit_error=None
                 try:self.pause(symbol,'USER_PAUSED')
                 except (OSError,sqlite3.Error,StorageFault) as error:audit_error=error
-                try:self.lab.intent(symbol,False)
-                except (OSError,sqlite3.Error,StorageFault) as error:audit_error=audit_error or error
+                if intent_target:
+                    try:self.lab.disable_intent(symbol)
+                    except (OSError,sqlite3.Error,StorageFault) as error:audit_error=audit_error or error
                 return self.pause_result(symbol,bool(p.get('compact')),audit_error)
             else:raise ValueError('Unknown research action')
             return self.settings_state() if p.get('compact') else self.status()
@@ -328,9 +344,8 @@ class SwingResearch:
 
     def recover_auto(self):
         with self.lock:
-            if read_swing_pause(self.data_dir):return False
             intent=self.lab.intent()
-            if intent and intent['enabled']:
+            if intent and intent['enabled'] and not read_swing_pause(self.data_dir,intent['symbol']):
                 self.command({'action':'start_auto','symbol':intent['symbol']},clear_pause=False)
                 return True
             return False
@@ -635,7 +650,7 @@ class SwingResearch:
 
     def status(self):
         with self.lock:
-            now=int(time.time()*1000);result={};pause_marker=read_swing_pause(self.data_dir);lab_intent=self.effective_lab_intent()
+            now=int(time.time()*1000);result={};lab_intent=self.effective_lab_intent();pause_marker=read_swing_pause(self.data_dir,lab_intent.get('symbol') if lab_intent else None)
             for symbol in SYMBOLS:
                 s=deepcopy(self.last[symbol]);s['running']=symbol in self.active;s['config']=deepcopy(self.configs[symbol])
                 with self.read_db() as db:

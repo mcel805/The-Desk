@@ -119,6 +119,9 @@ class LearningLab:
     def intent(self,symbol=None,enabled=None):
         if symbol is not None:self.write('INSERT OR REPLACE INTO lab_intent VALUES(1,?,?)',(symbol,int(enabled)))
         rows=self.read('SELECT * FROM lab_intent');return rows[0] if rows else None
+
+    def disable_intent(self,symbol):
+        self.write('UPDATE lab_intent SET enabled=0 WHERE id=1 AND symbol=?',(symbol,))
     def policy(self,symbol,cfg):
         cfg=json.loads(dump(cfg))
         rows=self.read('SELECT payload FROM lab_policies WHERE symbol=?',(symbol,));p=json.loads(rows[0]['payload']) if rows else None
