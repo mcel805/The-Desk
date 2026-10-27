@@ -37,15 +37,54 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(web_research_complete([search,opened]))
         self.assertFalse(web_research_complete([opened,search]))
         self.assertFalse(web_research_complete([search,{'type':'webSearch','sources':[{'url':'https://example.com/source'}]}]))
+        self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'openPage','sources':[{'url':'https://example.com/source'}]}}]))
         self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'findInPage','url':'https://example.com/source'}}]))
         self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'openPage','url':'file:///private/source'}}]))
-    def test_shared_rider_rulebook_is_loaded_for_both_consumers(self):
+
+    def test_completed_callback_events_require_the_same_ordered_explicit_open(self):
+        class CallbackOnly(FakeSession):
+            def __init__(self,mode,**kw):
+                super().__init__(**kw);self.mode=mode
+            def run(self,prompt,schema,**kw):
+                if schema==REVIEW and self.kw.get('web_search')=='live':
+                    search={'type':'webSearch','action':{'type':'search','query':'fixture'}}
+                    opened={'type':'webSearch','action':{'type':'openPage','url':'https://example.com/fixture'}}
+                    if self.mode=='reversed':events=[opened,search]
+                    elif self.mode=='sources':events=[search,{'type':'webSearch','sources':[{'url':'https://example.com/fixture'}]}]
+                    elif self.mode=='find':events=[search,{'type':'webSearch','action':{'type':'findInPage','url':'https://example.com/fixture'}}]
+                    else:events=[search,opened]
+                    for item in events:self.kw['on_event']('search',{**item,'status':'completed'})
+                    return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},[]
+                return super().run(prompt,schema,**kw)
+
+        for mode,expected in (('ordered','ready'),('reversed','failed'),('sources','failed'),('find','failed')):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as tmp:
+                factory=lambda mode=mode,**kw:CallbackOnly(mode,**kw)
+                service=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),factory)
+                run=service.begin({'text':'Rank liquidity','snapshot':chart(),'web':True})
+                for _ in range(100):
+                    run=service.read(run['id'])
+                    if run['status']!='running':break
+                    time.sleep(.01)
+                self.assertEqual(run['status'],expected,run.get('error'))
+                service.close()
+    def test_chart_chat_delivers_the_swing_rider_rulebook_contract(self):
         from swing_advisors import instructions
+        FakeSession.calls=[]
         with tempfile.TemporaryDirectory() as tmp:
             service=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),FakeSession)
-            shared=(Path(__file__).resolve().parents[1]/'swing-advisors/rider-trading-lens.md').read_text()
-            self.assertEqual(service.skills['RIDER'],shared)
-            self.assertTrue(instructions('rider').endswith(shared))
+            run=service.begin({'text':'Rank liquidity','snapshot':chart()})
+            for _ in range(100):
+                run=service.read(run['id'])
+                if run['status']!='running':break
+                time.sleep(.01)
+            self.assertEqual(run['status'],'ready',run.get('error'))
+            swing_prompt=instructions('rider')
+            marker='\n\nSTRATEGY SOURCE SNAPSHOT\n'
+            self.assertIn(marker,swing_prompt)
+            shared=swing_prompt.split(marker,1)[1]
+            rider_prompt=next(call[0] for call in FakeSession.calls if call[0].startswith('You are RIDER,') and 'PINNED SPECIALIST RULEBOOK' in call[0])
+            self.assertIn('\nPINNED SPECIALIST RULEBOOK\n'+shared,rider_prompt)
             service.close()
     def test_completed_snapshot_hash_and_ohlc_validation(self):
         c=chart();c['bars'].append({**c['bars'][-1],'time':c['cutoff']})
@@ -102,6 +141,7 @@ class ChatTests(unittest.TestCase):
             self.assertEqual([x['agent'] for x in saved['reviews']],['RIDER','Spider'])
             self.assertTrue(any(x[2]['web_search']=='live' for x in FakeSession.calls))
             self.assertEqual(len(FakeSession.calls),4)
+            self.assertEqual(saved['sources'],['https://example.com/fixture'])
             self.assertIn('lead trader',FakeSession.calls[2][0].lower())
             self.assertIn('RIDER SUPPORTING REVIEW',FakeSession.calls[2][1])
             self.assertIn('Spider lead',FakeSession.calls[3][0])
@@ -145,7 +185,9 @@ class ChatTests(unittest.TestCase):
     def test_unperformed_web_research_fails_without_ready_markup(self):
         class NoWeb(FakeSession):
             def run(self,prompt,schema,**kw):
-                result,_=super().run(prompt,schema,**kw);return result,[]
+                if schema==REVIEW and self.kw.get('web_search')=='live':
+                    return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},[]
+                return super().run(prompt,schema,**kw)
         with tempfile.TemporaryDirectory() as tmp:
             s=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),NoWeb)
             r=s.begin({'text':'Rank liquidity','snapshot':chart(),'web':True})
@@ -157,10 +199,9 @@ class ChatTests(unittest.TestCase):
     def test_search_only_web_research_fails_without_ready_markup(self):
         class SearchOnly(FakeSession):
             def run(self,prompt,schema,**kw):
-                result,_=super().run(prompt,schema,**kw)
                 if schema==REVIEW and self.kw.get('web_search')=='live':
-                    return result,[{'type':'webSearch','action':{'type':'search','query':'fixture'}}]
-                return result,[]
+                    return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},[{'type':'webSearch','action':{'type':'search','query':'fixture'}}]
+                return super().run(prompt,schema,**kw)
         with tempfile.TemporaryDirectory() as tmp:
             s=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),SearchOnly)
             r=s.begin({'text':'Rank liquidity','snapshot':chart(),'web':True})
