@@ -96,16 +96,13 @@ const createDb = () => {
     for (const { name } of tables) {
       const table = name.replaceAll('"', '""');
       const trigger = name.replace(/[^a-zA-Z0-9_]/g, "_");
-      sqlite.exec(`CREATE TRIGGER IF NOT EXISTS "journal_budget_${trigger}_insert"
+      sqlite.exec(`DROP TRIGGER IF EXISTS "journal_budget_${trigger}_delete";
+      CREATE TRIGGER IF NOT EXISTS "journal_budget_${trigger}_insert"
       BEFORE INSERT ON "${table}"
       BEGIN SELECT CASE WHEN journal_storage_budget_available() = 0
         THEN RAISE(ABORT, 'Journal storage budget reached') END; END`);
       sqlite.exec(`CREATE TRIGGER IF NOT EXISTS "journal_budget_${trigger}_update"
       BEFORE UPDATE ON "${table}"
-      BEGIN SELECT CASE WHEN journal_storage_budget_available() = 0
-        THEN RAISE(ABORT, 'Journal storage budget reached') END; END`);
-      sqlite.exec(`CREATE TRIGGER IF NOT EXISTS "journal_budget_${trigger}_delete"
-      BEFORE DELETE ON "${table}"
       BEGIN SELECT CASE WHEN journal_storage_budget_available() = 0
         THEN RAISE(ABORT, 'Journal storage budget reached') END; END`);
     }
@@ -115,19 +112,22 @@ const createDb = () => {
   const prepare = sqlite.prepare.bind(sqlite);
   sqlite.prepare = ((...args: Parameters<typeof prepare>) => {
     const statement = prepare(...args);
+    const cleanup = /^\s*DELETE\b/i.test(args[0]);
     if (statement.readonly) return statement;
     return new Proxy(statement, {
       get(target, property) {
         const value = Reflect.get(target, property, target);
         if (typeof value !== "function") return value;
         if (["run", "get", "all", "iterate"].includes(String(property)))
-          return (...parameters: unknown[]) => budgeted(() => value.apply(target, parameters));
+          return (...parameters: unknown[]) =>
+            cleanup ? value.apply(target, parameters) : budgeted(() => value.apply(target, parameters));
         return value.bind(target);
       },
     });
   }) as typeof sqlite.prepare;
   const exec = sqlite.exec.bind(sqlite);
-  sqlite.exec = ((sql: string) => budgeted(() => exec(sql))) as typeof sqlite.exec;
+  sqlite.exec = ((sql: string) =>
+    /^\s*DELETE\b/i.test(sql) ? exec(sql) : budgeted(() => exec(sql))) as typeof sqlite.exec;
   return drizzle(sqlite, { schema });
 };
 

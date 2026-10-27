@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { eq } from "drizzle-orm";
 
 const previous = {
   dataDir: process.env.JOURNAL_DATA_DIR,
@@ -57,14 +58,21 @@ describe("managed Journal storage budget", () => {
     );
   });
 
-  it("guards updates and deletes at the same SQLite boundary", () => {
+  it("guards updates while allowing deletes to reclaim space", () => {
     process.env.DESK_STORAGE_MODE = "LOCAL_TEMPORARY";
     db.insert(settings).values({ key: "existing", value: "1" }).run();
+    db.insert(settings).values({ key: "direct", value: "1" }).run();
+    db.insert(settings).values({ key: "exec", value: "1" }).run();
     process.env.DESK_STORAGE_MODE = "EXTERNAL";
     expect(() => db.update(settings).set({ value: "2" }).run()).toThrow(
       "Journal storage budget reached",
     );
-    expect(() => db.delete(settings).run()).toThrow("Journal storage budget reached");
+    expect(() => db.delete(settings).where(eq(settings.key, "existing")).run()).not.toThrow();
+    expect(() => db.$client.prepare("DELETE FROM settings WHERE key = ?").run("direct")).not.toThrow();
+    expect(() => db.$client.exec("DELETE FROM settings WHERE key = 'exec'")).not.toThrow();
+    expect(db.select().from(settings).where(eq(settings.key, "existing")).get()).toBeUndefined();
+    expect(db.select().from(settings).where(eq(settings.key, "direct")).get()).toBeUndefined();
+    expect(db.select().from(settings).where(eq(settings.key, "exec")).get()).toBeUndefined();
   });
 
   it("uses updated supervisor usage without walking the external root", () => {
