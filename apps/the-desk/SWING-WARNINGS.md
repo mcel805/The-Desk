@@ -117,7 +117,7 @@ warning projection, clearing, escaping, stale displays, settings and export audi
 Full Swing Lab, volume, HTTP and Jev reliability regression suites are included.
 Browser fixtures use invented data and no paid requests or trading accounts.
 
-The Pine package retains its 73 local checks. Native TradingView compilation and
+The Pine package retains its 74 local checks. Native TradingView compilation and
 four-slot alerts remain unverified: the local Vela/PineTS adapter emits only the
 first realtime slot. Desk's four-slot collector is independently tested. These
 are different runtimes and evidence must not be substituted between them.

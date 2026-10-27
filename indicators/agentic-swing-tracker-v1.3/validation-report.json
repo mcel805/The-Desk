@@ -1,14 +1,14 @@
 {
   "status": "PASS_LOCAL_NATIVE_VERIFICATION_PENDING",
-  "checks": 73,
-  "engineChecks": 24,
+  "checks": 74,
+  "engineChecks": 25,
   "pineChecks": 19,
   "legacyChecks": 30,
   "sourceSha256": "2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2",
   "sourceHashes": {
     "Agentic_Swing_Tracker_v1_3.pine": "2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2",
     "warnings.pine": "ff4f09d4d9b30b617da9f80a59c01c3d67dda05b1288981b7082a71465023f20",
-    "warning-engine.mjs": "2861ab4816619ffa35b2b746f974b61287f13a6a4445b3d1139328b74fdf4e35",
+    "warning-engine.mjs": "79676f6907f82cfe168f2daa63a520ade03c61334937baa4e01d6084ecba78cb",
     "reversal-study.mjs": "edfe77cd45ce3e46c14db8c2d5b4e34a1b730976244f3e4c9cc0e5e4b240d0f2",
     "study-cli.mjs": "e618e60dde7b30df90232efb3a56f5749b4d742b8be3cf30fc792bef873f414f"
   },

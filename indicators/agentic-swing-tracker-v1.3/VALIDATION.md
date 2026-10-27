@@ -2,7 +2,7 @@
 
 Built Agentic Swing Tracker 1.3 with eight warning calculations, capped family scoring, episode history, live provisional observations and a reversal-outcome evaluation library. Existing v1.2 entry, risk and management behavior is retained.
 
-**73 local checks passed**: 24 reference/outcome/CLI checks, 19 actual Pine warning checks and 30 regression checks.
+**74 local checks passed**: 25 reference/outcome/CLI checks, 19 actual Pine warning checks and 30 regression checks.
 
 Pine SHA-256: `2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2`
 
