@@ -16,6 +16,14 @@ const shot=name=>cmd('screenshot',path.join(out,name+'.png'));
 const report={url,createdAt:new Date().toISOString(),checks:[]};
 try{
  assert.equal(await evaluate(()=>location.origin),new URL(url).origin);await capture();
+ const labels=await evaluate(async()=>{
+  const {paintLiquidityLabels}=await import('/chart-chat-labels.mjs'),host=document.createElement('div');document.body.append(host);
+  const unsafe='red"><img src=x onerror=window.__ccLabelInjected=true>';
+  const value='Desk AI · liquidity · fixture:TEST|1m · #1 <img src=x onerror=window.__ccLabelInjected=true>';
+  paintLiquidityLabels(host,[{type:'hray',visible:true,text:{value},anchors:[{price:100}],style:{lineColor:unsafe}}],{top:10,bottom:200,priceToY:()=>80});
+  const result={labels:host.children.length,images:host.querySelectorAll('img').length,text:host.textContent,color:host.firstElementChild.style.color,injected:!!window.__ccLabelInjected};host.remove();return result;
+ });
+ assert.equal(labels.labels,1);assert.equal(labels.images,0);assert.equal(labels.injected,false);assert.equal(labels.color,'');report.checks.push({scenario:'imported label styles render safely as data',passed:true});
  // The caller starts the 30m web run through the real composer before this script.
  await until(()=>!document.querySelector('#ccSend').disabled,'30m agent run');
  const liquidity=await latest();assert.equal(liquidity.status,'complete',liquidity.error||liquidity.application);assert.equal(liquidity.snapshot.timeframe,'30m');
@@ -32,7 +40,8 @@ try{
  await evaluate(()=>{document.querySelector('#ccHide').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.text?.value?.startsWith('Desk AI · ')).length),0);
  await evaluate(()=>{document.querySelector('#ccHide').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.type==='fixedrangevp').length),native.profiles);
  const manual=await evaluate(()=>{const c=__chatQA.chart,b=c.renderer.renderer.scene.bars.at(-5);return c.drawings.add('hline',{anchors:[{time:b.time,price:b.close}],text:{value:'QA manual drawing',size:'small',hAlign:'right',vAlign:'top'}}).id;});
- await evaluate(()=>{document.querySelector('#ccClear').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.text?.value?.startsWith('Desk AI · ')).length),0);
+ await evaluate(()=>{document.querySelector('#ccClear').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.text?.value?.startsWith('Desk AI · ')).length),0);
+ assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.text?.value?.includes('hyperliquid:BTC|30m')).length),poolCount);
  assert.ok(await evaluate(`() => __chatQA.chart.drawings.all().some(d=>d.id===${JSON.stringify(manual)})`));
  await evaluate(()=>{document.querySelector('#ccUndo').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.type==='fixedrangevp').length),native.profiles);report.checks.push({scenario:'hide/show + clear/undo preserves manual drawings',passed:true});
  await evaluate(()=>{document.querySelector('#ccClose').click();return true;});assert.equal(await evaluate(()=>document.querySelector('#chartChat').hidden),true);await evaluate(()=>{document.querySelector('#chartChatButton').click();return true;});assert.equal(await evaluate(()=>document.querySelector('#chartChat').hidden),false);

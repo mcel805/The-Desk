@@ -24,7 +24,8 @@ model parity. No proprietary Quant code or prompts are used.
    strongest evidence on each side and why.”
 3. Enable **Web research** to require live research during the specialist review.
 4. Inspect RIDER / Spider reviews, Source & method, the ranked levels and chart.
-5. Use Hide AI, Clear AI drawings, or Undo markup. Manual drawings and the
+5. Use Hide AI, Clear AI drawings, or Undo markup. Clear affects only the active
+   symbol/timeframe, preserving hidden AI drawings for other scopes. Manual drawings and the
    separate Spider report drawings are preserved.
 
 Additional bounded tools: candidate blocks, fair value gaps, close breaks and
@@ -61,7 +62,7 @@ analysis and transformed candles are unavailable in this MVP.
 
 Native Vela drawings are applied as a batch. Failure removes the new batch while
 retaining previous markup. A repeated concept replaces its own source-scoped
-drawings. AI drawings are visible only on their captured symbol/timeframe;
+drawings, including removal of old candidates when a refresh finds none. AI drawings are visible only on their captured symbol/timeframe;
 liquidity badges show up to six ranked levels without crowding nearby prices.
 Manual drawings remain editable through Vela. AI drawings initially land locked
 and can be unlocked in Vela. Undo markup reverses the latest chat batch/clear.
@@ -94,6 +95,20 @@ pass Spider's block/trap/secondary-pool requirements or establish entry readines
 This is a frozen chart study. New bars do not automatically redraw an old request.
 Send a fresh request to refresh. Existing studies, Pine compilation, chart
 controls and broker review flows continue through their existing interfaces.
+
+## Local access policy
+
+This MVP is a trusted-local application. The owner explicitly chose to allow
+same-machine processes to read saved chart-chat research through its loopback
+API. Chat IDs are identifiers, not access credentials. There is no per-user
+login or conversation ownership boundary. The server continues to reject
+non-loopback Hosts and cross-origin browser requests through its shared route
+checks. Keep this deployment bound to loopback. Network/multi-user hosting
+requires a separate authenticated access model before exposure.
+
+Helpful/Improve controls are an intentional part of the Quant-style MVP, as
+confirmed by the owner. They retain feedback in this browser and let the trader
+request an improved response; they do not train a model.
 
 ## Persistence and verification
 

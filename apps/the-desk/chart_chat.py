@@ -273,9 +273,15 @@ class ChartChat:
     def applied(self,p):
         with self.lock:
             r=self.read(p.get('id'))
-            if r['status']!='ready':raise ValueError('Run is no longer ready for chart application.')
             if p.get('sha256')!=r['snapshot']['sha256']:raise ValueError('Snapshot identity mismatch.')
-            r['application']=str(p.get('outcome',''))[:300];r['status']='complete';self.save(r);return r
+            if p.get('rolledBack') is True:
+                if r['status'] in ('ready','complete'):
+                    r.update(status='complete',application='Not applied · chart batch rolled back');self.save(r)
+                return r
+            outcome=str(p.get('outcome',''))[:300]
+            if r['status']=='complete' and r.get('application')==outcome:return r
+            if r['status']!='ready':raise ValueError('Run is no longer ready for chart application.')
+            r['application']=outcome;r['status']='complete';self.save(r);return r
     def get(self,h,path,q):
         value=lambda k:q.get(k,[''])[0]
         if path=='/api/chart-chat/history':h.json(self.history(value('chatId') or None));return True

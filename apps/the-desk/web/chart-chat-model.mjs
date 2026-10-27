@@ -4,6 +4,7 @@ export const owned=d=>d.text?.value?.startsWith('Desk AI · ');
 export const frame=tf=>String(tf)==='120'?'2h':canonicalFrame(tf);
 export const drawingScope=d=>d.text?.value?.split(' · ')[2]||'';
 export const scopeKey=s=>s.symbol+'|'+s.timeframe;
+export const isMarkupAction=action=>['volume_profile','liquidity','blocks','fvg','structure','clear'].includes(action);
 export function requestedFrame(text){
  if(/\b(daily|day chart)\b/i.test(text))return 'D';
  if(/\bhourly\b/i.test(text))return '60';
@@ -22,6 +23,8 @@ export function chartSnapshot(ws){
   bars:bars.slice(-1000).map(b=>({time:b.time,open:b.open,high:b.high,low:b.low,close:b.close,volume:b.volume??null}))};
 }
 export function applyMarkup(chart,result){
+ if(!isMarkupAction(result.action))return {ids:[],removed:[]};
+ if(typeof result.scope!=='string'||!result.scope.includes('|'))throw Error('A symbol and timeframe scope is required for AI markup.');
  const previous=chart.drawings.all().filter(owned).map(d=>structuredClone(d.serialize?.()||d));
  const ids=[];
  try{
@@ -29,7 +32,7 @@ export function applyMarkup(chart,result){
  }catch(e){for(const id of ids)chart.drawings.remove(id);throw e;}
  // Commit only after every new drawing exists. One concept replaces only itself.
  const concept=result.action==='clear'?null:result.action;
- const matches=d=>result.action==='clear'||(d.text?.value?.startsWith('Desk AI · '+concept+' · ')&&(!result.scope||drawingScope(d)===result.scope));
+ const matches=d=>drawingScope(d)===result.scope&&(result.action==='clear'||d.text?.value?.startsWith('Desk AI · '+concept+' · '));
  const removed=previous.filter(matches);
  for(const d of removed)chart.drawings.remove(d.id);
  return {ids,removed};
@@ -37,4 +40,14 @@ export function applyMarkup(chart,result){
 export function restoreMarkup(chart,change){
  for(const id of change.ids)chart.drawings.remove(id);
  for(const d of change.removed)chart.drawings.add(d.type,{...d,id:undefined});
+}
+// A local batch is provisional until its receipt succeeds in the same run/context.
+export async function commitMarkup({chart,result,receipt,isCurrent,onRollback=async()=>{}}){
+ if(!isCurrent())return null;
+ const change=applyMarkup(chart,result);
+ let done;
+ try{done=await receipt(change);}
+ catch(error){restoreMarkup(chart,change);await onRollback();if(!isCurrent())return null;throw error;}
+ if(!isCurrent()){restoreMarkup(chart,change);await onRollback();return null;}
+ return {change,done};
 }

@@ -89,7 +89,11 @@ class ChatTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'mismatch'):service.applied({'id':r['id'],'sha256':'bad'})
             done=service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'outcome':'18 drawings applied'})
             self.assertEqual(done['status'],'complete')
+            self.assertEqual(service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'outcome':'18 drawings applied'})['status'],'complete')
             self.assertEqual(ChartChat(engine,FakeSession).history(r['chatId'])['runs'][0]['answer'],'Synthetic final analysis')
+            retracted=service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'rolledBack':True})
+            self.assertEqual(retracted['application'],'Not applied · chart batch rolled back')
+            with self.assertRaisesRegex(ValueError,'no longer ready'):service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'outcome':'18 drawings applied'})
     def test_stop_rejects_late_application(self):
         with tempfile.TemporaryDirectory() as tmp:
             engine=Engine(Path(tmp)/'desk.sqlite3');service=ChartChat(engine,FakeSession)

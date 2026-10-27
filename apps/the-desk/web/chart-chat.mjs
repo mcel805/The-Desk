@@ -1,4 +1,5 @@
-import {frame,requestedFrame,chartSnapshot,chartScope,sameScope,applyMarkup,restoreMarkup,owned,drawingScope,scopeKey} from './chart-chat-model.mjs';
+import {paintLiquidityLabels} from './chart-chat-labels.mjs';
+import {frame,requestedFrame,chartSnapshot,chartScope,sameScope,applyMarkup,restoreMarkup,owned,drawingScope,scopeKey,isMarkupAction,commitMarkup} from './chart-chat-model.mjs';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z" stroke="currentColor" stroke-width="1.5"/><path d="m7 12 3-3 3 2 4-5" stroke="currentColor" stroke-width="1.5"/></svg>';
 async function api(path,payload){const r=await fetch('/api/chart-chat/'+path,payload===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.error||'Chart chat unavailable');return d;}
@@ -13,11 +14,16 @@ export function setupChartChat({workspace,toast}){
  <p class="cc-disclaimer">Chart research · verify the evidence before trading.</p><div id="ccResize" role="separator" aria-orientation="vertical" aria-label="Resize chart chat" tabindex="0"></div>`;
  document.querySelector('.desk-main').prepend(panel);
  const $=id=>panel.querySelector('#'+id),messages=$('ccMessages');let chatId=null,running=null,scope=null,epoch=0,polling=false,undo=null,hidden=false,pending=false;
- const seen=new Set(),applications=new Map();let contextChanged=false;
+ const seen=new Set();let contextChanged=false;
  const labels=new Map();
  function syncMarkup(){for(const cell of ws.cells()){const key=scopeKey(chartScope(ws,cell));for(const d of cell.chart.drawings.all().filter(owned)){const visible=!hidden&&drawingScope(d)===key;if(d.visible!==visible)cell.chart.drawings.update(d.id,{visible});}}}
  function attachScopes(){for(const cell of ws.cells()){if(labels.has(cell))continue;const overlay=document.createElement("div");overlay.className="cc-chart-labels";cell.host.append(overlay);labels.set(cell,overlay);cell.chart.on("market:changed",()=>{if(running)contextChanged=true;syncMarkup();});}}
- function paintLabels(){for(const [cell,overlay] of labels){if(!ws.cells().includes(cell)){overlay.remove();labels.delete(cell);continue;}const n=cell.chart.renderer?.renderer||cell.chart.rendererControl?.renderer,pane=n?.scene?.panes.get("price");if(!pane)continue;const placed=[];overlay.innerHTML=cell.chart.drawings.all().filter(d=>owned(d)&&d.visible!==false&&d.type==="hray").map(d=>{const label=d.text.value.split(" · ").at(-1),rank=Number(label.match(/^#(\d+)/)?.[1]);if(!rank||rank>6)return "";const y=n.coords.priceToY(d.anchors[0].price,pane.scale,pane.bounds);if(y<10||y>pane.bounds.top+pane.bounds.height-15||placed.some(v=>Math.abs(v-y)<18))return "";placed.push(y);return `<span style="top:${y}px;color:${d.style.lineColor}">${esc(label.replace(/Buy-side|Sell-side/g,"").trim())}</span>`;}).join("");}}
+ function paintLabels(){for(const [cell,overlay] of labels){
+  if(!ws.cells().includes(cell)){overlay.remove();labels.delete(cell);continue;}
+  const n=cell.chart.renderer?.renderer||cell.chart.rendererControl?.renderer,pane=n?.scene?.panes.get('price');
+  if(!pane)continue;
+  paintLiquidityLabels(overlay,cell.chart.drawings.all(),{top:10,bottom:pane.bounds.top+pane.bounds.height-15,priceToY:price=>n.coords.priceToY(price,pane.scale,pane.bounds)});
+ }}
  function resize(){for(const c of ws.cells())c.chart.resize();}
  function open(show){panel.hidden=!show;button.setAttribute('aria-expanded',String(show));localStorage.setItem('desk.chart-chat.open',String(show));resize();if(show)$('ccInput').focus();}
  function context(){const s=running&&scope?scope:chartScope(ws);$('ccMarket').textContent=s.symbol.split(':').at(-1)+' · '+s.timeframe;$('ccMarket').title=s.symbol;$('ccScope').textContent=running?'Run pinned to captured chart':'Active chart';}
@@ -46,39 +52,36 @@ export function setupChartChat({workspace,toast}){
  }
  async function apply(r,runEpoch){
   if(runEpoch!==epoch)return;
-  const existing=applications.get(r.id);if(existing){render(await api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome:existing}));return;}
   const cell=ws.cells().find(c=>c.id===r.snapshot.cellId);
-  let outcome='Analysis complete · no chart changes',change=null,priorUndo=undo,priorHidden=hidden;
-  if(r.result?.drawings.length||r.result?.action==='clear'){
-   if(contextChanged||!cell||!sameScope(r.snapshot,chartScope(ws,cell))||!sameScope(scope,chartScope(ws))){outcome='Not applied · chart context changed';}
+  const current=()=>runEpoch===epoch&&running===r.id&&!contextChanged&&cell&&ws.cells().includes(cell)&&sameScope(r.snapshot,chartScope(ws,cell))&&sameScope(scope,chartScope(ws));
+  let outcome='Analysis complete · no chart changes';
+  if(isMarkupAction(r.result?.action)){
+   if(!current())outcome='Not applied · chart context changed';
    else{
-    const current=chartSnapshot(ws),byTime=new Map(current.bars.map(b=>[b.time,b]));
-    // Never apply after a provider correction or history replacement at the same symbol.
+    const snap=chartSnapshot(ws),byTime=new Map(snap.bars.map(b=>[b.time,b]));
     const unchanged=r.snapshot.bars.every(b=>{const x=byTime.get(b.time);return x&&['open','high','low','close','volume'].every(k=>x[k]===b[k]);});
     if(!unchanged)outcome='Not applied · source candles changed';
     else{
-     change=applyMarkup(cell.chart,r.result);
-     if(runEpoch!==epoch||running!==r.id){restoreMarkup(cell.chart,change);syncMarkup();return;}
-     if(contextChanged){restoreMarkup(cell.chart,change);change=null;syncMarkup();outcome='Not applied · chart context changed';}
-     else outcome=r.result.action==='clear'?'AI drawings cleared':`${change.ids.length} drawings applied to ${r.snapshot.timeframe}`;
+     try{
+      const committed=await commitMarkup({chart:cell.chart,result:r.result,isCurrent:current,onRollback:async()=>{try{await api('applied',{id:r.id,sha256:r.snapshot.sha256,rolledBack:true});}catch{toast('Chart batch rolled back. Its server receipt could not be updated.',true);}},receipt:change=>{
+       outcome=r.result.action==='clear'?'AI drawings cleared':`${change.ids.length} drawings applied to ${r.snapshot.timeframe}`;
+       return api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome});
+      }});
+      if(!committed)return;
+      undo={cell,change:committed.change,scope:chartScope(ws,cell)};hidden=false;$('ccHide').textContent='◉ Hide AI';
+      render(committed.done);controls();return;
+     }finally{syncMarkup();}
     }
    }
   }
-  try{
-   const done=await api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome});
-   if(change){undo={cell,change,scope:chartScope(ws,cell)};hidden=false;$('ccHide').textContent='◉ Hide AI';syncMarkup();}
-   applications.set(r.id,outcome);render(done);controls();
-  }catch(e){
-   if(change){restoreMarkup(cell.chart,change);undo=priorUndo;hidden=priorHidden;$('ccHide').textContent=hidden?'◉ Show AI':'◉ Hide AI';syncMarkup();}
-   if(runEpoch!==epoch||running!==r.id)return;
-   throw e;
-  }
+  const done=await api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome});
+  if(runEpoch===epoch&&running===r.id){render(done);controls();}
  }
  async function poll(){
   if(polling||!running)return;polling=true;const id=running,runEpoch=epoch;
   try{const r=await api('run?id='+id);if(id!==running||runEpoch!==epoch)return;
    if(r.status==='running'){$('ccWork').hidden=false;$('ccWork').innerHTML='<div class="cc-working"><span></span> Working with your chart</div>'+r.events.slice(-4).map(e=>`<div class="cc-step"><b>${esc(e.agent)}</b><span>${esc(e.message)}</span></div>`).join('');}
-   else{if(r.status==='ready')await apply(r,runEpoch);else render(r);running=null;$('ccWork').hidden=true;controls();}
+   else{if(r.status==='ready')await apply(r,runEpoch);else render(r);if(id===running&&runEpoch===epoch){running=null;$('ccWork').hidden=true;controls();}}
   }catch(e){status(e.message+' · retrying connection',true);}finally{polling=false;}
  }
  async function send(e){
@@ -102,7 +105,7 @@ export function setupChartChat({workspace,toast}){
  $('ccClose').onclick=()=>open(false);button.onclick=()=>open(panel.hidden);
  $('ccUndo').onclick=()=>{if(!undo)return;if(!ws.cells().includes(undo.cell)||!sameScope(undo.scope,chartScope(ws,undo.cell)))return toast('Return to the original chart before undoing this markup.',true);restoreMarkup(undo.cell.chart,undo.change);undo=null;syncMarkup();controls();};
  $('ccHide').onclick=()=>{hidden=!hidden;syncMarkup();$('ccHide').textContent=hidden?'◉ Show AI':'◉ Hide AI';};
- $('ccClear').onclick=()=>{const cell=ws.active;undo={cell,scope:chartScope(ws),change:applyMarkup(cell.chart,{action:'clear',drawings:[]})};controls();};
+ $('ccClear').onclick=()=>{const cell=ws.active;undo={cell,scope:chartScope(ws),change:applyMarkup(cell.chart,{action:'clear',scope:scopeKey(chartScope(ws)),drawings:[]})};controls();};
  $('ccHistory').onclick=async()=>{const list=$('ccHistoryList');list.hidden=!list.hidden;if(list.hidden)return;try{const data=await api('history');list.innerHTML=data.chats.map(c=>`<button data-chat="${c.id}">${esc(c.title)}<small>${new Date(c.updated*1000).toLocaleDateString()}</small></button>`).join('')||'<p>No saved conversations.</p>';for(const b of list.querySelectorAll('[data-chat]'))b.onclick=()=>load(b.dataset.chat);}catch(e){status(e.message,true);}};
  async function load(id){if(running||pending)return toast('Stop the current reply before switching chats.',true);try{const data=await api('history?chatId='+id);epoch++;chatId=id;seen.clear();messages.innerHTML='';for(const r of data.runs){user(r.text);if(r.status==='running'){running=r.id;scope=r.snapshot;void poll();}else if(r.status==='ready'){r.application='Saved analysis · markup not reapplied';render(r);}else render(r);}if(!data.runs.length)empty();$('ccHistoryList').hidden=true;localStorage.setItem('desk.chart-chat.last',id);controls();}catch(e){status(e.message,true);}}
  let startX=0,startW=0;
