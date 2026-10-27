@@ -1,9 +1,17 @@
 // Hydrate settings independently of history, costs and audit rendering.
 export function settingsController({form,market,request,onState,onMessage,storage=globalThis.localStorage}){
- let ready=false,dirty=false,revision=null,pending=null,pendingMarket=null,boundMarket=null;
+ let ready=false,dirty=false,revision=null,pending=null,pendingMarket=null,boundMarket=null,baseWarnings=null;
  const fields=()=>[...form.elements].filter(e=>e.name);
- function fill(config){for(const e of fields()){const value=config[e.name];if(value===undefined)throw Error('Incomplete server setting: '+e.name);if(e.type==='checkbox')e.checked=!!value;else e.value=value??'';}}
- function values(){const cfg={};for(const e of fields()){cfg[e.name]=e.type==='checkbox'?e.checked:['target_mode','manual_bias','study_playbook','study_phase'].includes(e.name)?e.value:e.name==='study_cost_bps'&&e.value.trim()===''?null:Number(e.value);}return cfg;}
+ function fill(config){baseWarnings=config.warning_settings?structuredClone(config.warning_settings):null;for(const e of fields()){const value=e.name.split('.').reduce((v,k)=>v?.[k],config);if(value===undefined)throw Error('Incomplete server setting: '+e.name);if(e.type==='checkbox')e.checked=!!value;else e.value=value??'';}}
+ function values(){const cfg={};for(const e of fields()){
+  const value=e.type==='checkbox'?e.checked:['target_mode','manual_bias','study_playbook','study_phase'].includes(e.name)?e.value:e.name==='study_cost_bps'&&e.value.trim()===''?null:Number(e.value);
+  if(e.name.startsWith('warning_settings.')){
+   cfg.warning_settings??=structuredClone(baseWarnings||{});
+   const keys=e.name.split('.').slice(1);let target=cfg.warning_settings;
+   for(const k of keys.slice(0,-1))target=target[k];target[keys.at(-1)]=value;
+  }else cfg[e.name]=value;
+ }return cfg;}
+
  function remember(config){try{storage?.setItem('desk.swing.settings.'+market(),JSON.stringify(config));}catch{}}
  function preview(){ready=false;dirty=false;revision=null;boundMarket=market();
   for(const e of fields())e.disabled=true;

@@ -1,0 +1,45 @@
+{
+  "version": "desk-swing-warning-validation.1",
+  "base": "5294f0f",
+  "scope": "Deterministic synthetic data and isolated browser fixtures; no paid requests or live orders.",
+  "local_checks": {
+    "swing_python_including_http": 96,
+    "jev_python": 35,
+    "swing_and_jev_js": 50,
+    "pine_package": 73,
+    "total": 254
+  },
+  "browser": {
+    "panel": {
+      "all_eight_features": true,
+      "settings_hydrated": true,
+      "settings_endpoint": true,
+      "port": 18895
+    },
+    "chart": {
+      "single_owner": true,
+      "selection": true,
+      "hide_show": true,
+      "port": 18897,
+      "synthetic": true,
+      "warning_tags": 35,
+      "jev_dots": 60
+    }
+  },
+  "hashes": {
+    "swing_warnings.py": "dc692f9e615e5de51b73978cc0d1db837c39740c354f31b0cbb7d0070ab603ab",
+    "swing_research.py": "94516c8f2e4d74f2691431ae965d5d8e37c8641483688faf0f64d27dfb9f3143",
+    "jev_swing.py": "a1af439d8ac8dfd2e6fc9a1eca837adfc18b30a45ca6cc00e12391140ec97bdf",
+    "web/swing-warnings.mjs": "b7c72ffc0fd3f3253030b20248c61b683474688f79b4cea093617daa59eec079",
+    "web/swing-tracker.mjs": "bace297b7a658e5f6ce4eeb217a6ed95192a18cf1fc7bf503f66930a2ae80c9c",
+    "web/swing-lab.mjs": "f8d8edd13a8583f0ed58a12582c71f7f79fdc50e3ea155d8c0dac953a231dae2",
+    "web/swing-settings.mjs": "fc6ccf3472ee52cdea7e9cf88f6ed841301baf65b373fbb362f75ef92719147a",
+    "scripts/score-swing-warnings.mjs": "5711e5dea8974898e764c10abca59adcb5a864ffb151b590bcd546676e5dbc7c"
+  },
+  "pending": [
+    "No-mistakes gate and publication result recorded after commit",
+    "Native TradingView compile/realtime alerts",
+    "MYM collector adapter and calibrated MYM outcome model",
+    "Deployment into the user running Desk checkout"
+  ]
+}
