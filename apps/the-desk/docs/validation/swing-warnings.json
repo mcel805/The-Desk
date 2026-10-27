@@ -1,0 +1,96 @@
+{
+  "version": "desk-swing-warning-validation.1",
+  "base": "5294f0f",
+  "scope": "Deterministic synthetic data and isolated browser fixtures; no paid requests or live orders.",
+  "local_checks": {
+    "swing_python_including_http": 100,
+    "jev_python": 35,
+    "swing_and_jev_js": 51,
+    "pine_package": 73,
+    "total": 259
+  },
+  "browser": {
+    "panel": {
+      "all_eight_features": true,
+      "settings_hydrated": true,
+      "settings_endpoint": true,
+      "port": 18895
+    },
+    "chart": {
+      "single_owner": true,
+      "selection": true,
+      "hide_show": true,
+      "port": 18897,
+      "synthetic": true,
+      "warning_tags": 35,
+      "jev_dots": 60
+    }
+  },
+  "hashes": {
+    "swing_warnings.py": "dc692f9e615e5de51b73978cc0d1db837c39740c354f31b0cbb7d0070ab603ab",
+    "swing_research.py": "bbc39eba574710f9de6c1e6d84c6ff6bd2359b085924fa412ab9fef9e638eb38",
+    "jev_swing.py": "a1af439d8ac8dfd2e6fc9a1eca837adfc18b30a45ca6cc00e12391140ec97bdf",
+    "web/swing-warnings.mjs": "b7c72ffc0fd3f3253030b20248c61b683474688f79b4cea093617daa59eec079",
+    "web/swing-tracker.mjs": "bace297b7a658e5f6ce4eeb217a6ed95192a18cf1fc7bf503f66930a2ae80c9c",
+    "web/swing-lab.html": "33315c0d7815b2244852a87b0c0fac272e475a927e8f6f20f0f6da203fd2ec19",
+    "web/swing-lab.mjs": "85c8d09241e958f8f89f77300c35ac8e7b2edd71c526dd4c67cd30ddcb81d7a9",
+    "web/swing-settings.mjs": "fc6ccf3472ee52cdea7e9cf88f6ed841301baf65b373fbb362f75ef92719147a",
+    "scripts/score-swing-warnings.mjs": "5c1a8e5a70e663a43258bb2172206a1743f14048bffa2a2017cf28ca424c96c2"
+  },
+  "pending": [
+    "No-mistakes gate and publication result recorded after commit",
+    "Native TradingView compile/realtime alerts",
+    "MYM collector adapter and calibrated MYM outcome model",
+    "Deployment into the user running Desk checkout"
+  ],
+  "review_fixes": [
+    "Preserve warmup warning sequence before forward persistence",
+    "Exclude warmup-derived warning observations before outcome deduplication",
+    "Retain vetted Jev failure/retry diagnostics, usage and cost uncertainty",
+    "Refresh validation hashes after source changes",
+    "Require 15-second warning collection and normalize legacy settings for new runs"
+  ],
+  "public_data_probe": {
+    "source": "Hyperliquid public REST",
+    "scope": "Prior isolated observation-only probe; Jev disabled",
+    "saved_observations": 12,
+    "complete_four_slot_minutes": 2,
+    "features_per_sample": 8,
+    "model_requests": 0,
+    "paused_after_verification": true,
+    "source_revision": "53aef75118eb741a1e449074e20c9da76849c4c6"
+  },
+  "additive_integration": {
+    "same_collector": true,
+    "same_saved_prediction": true,
+    "same_jev_request": true,
+    "original_tracker_source_unchanged": true,
+    "regression": "Opposing warning recipes leave existing tracker, volume, candidate, plan and risk snapshots identical across 16 saved observations; warning, volume and HTF evidence coexist."
+  },
+  "combined_desk_validation": {
+    "baseline": "eb7a0e03e10f77082d297e32a388d6f6ac8ec500",
+    "scope": "Synthetic fixtures; no paid model or broker calls. Existing Learning Lab and external-storage source retained.",
+    "local_checks": {
+      "swing_python_including_learning_and_http": 110,
+      "jev_python": 35,
+      "swing_and_jev_js": 55,
+      "pine_package": 73
+    },
+    "browser": {
+      "learning_lab_api_status": 200,
+      "warning_features": 8,
+      "cadence_seconds": 15,
+      "chart_overlays": 1,
+      "jev_dots": 60,
+      "warning_tags": 35
+    },
+    "source_sha256": {
+      "swing_research.py": "cd7a578be7df974dbd7ba0a1d8cd3d7cd9e0781e7d7da8c013817c98d75b1f7f",
+      "swing_warnings.py": "dc692f9e615e5de51b73978cc0d1db837c39740c354f31b0cbb7d0070ab603ab",
+      "swing_lab.py": "1c7b9b44e11c224ca066062cf12319501a0a3b3855a237472a2466b4fd6ad032",
+      "jev_swing.py": "a1af439d8ac8dfd2e6fc9a1eca837adfc18b30a45ca6cc00e12391140ec97bdf",
+      "web/swing-lab.mjs": "ee59c85f5c5d126b3bdbbb670136b05236612f9f61bd139472d24cfbf47809b7"
+    },
+    "limitation": "Native TradingView compile and four-slot alerts unverified; MYM collector not added. Original local-validation hashes above identify an earlier source snapshot, not this combined build."
+  }
+}

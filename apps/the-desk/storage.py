@@ -21,13 +21,38 @@ JSON_COLUMNS={'settings':('value',),'runs':('config',),'ledger':('payload',),
 
 class StorageFault(RuntimeError):pass
 
+def external_guard(additional=0):
+    """Fail closed for a lost volume; never create a fake /Volumes directory."""
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if not policy_path or os.environ.get('DESK_STORAGE_MODE')!='EXTERNAL':return
+    from storage_budget import snapshot
+    from storage_host import drive_ready
+    policy=json.loads(Path(policy_path).read_text())
+    if not drive_ready(policy):raise StorageFault('SAMSUNG USB disconnected. Connect it or choose temporary local storage in The Desk.')
+    if additional:
+        from storage_host import capacity_available
+        available,_=capacity_available(policy,additional)
+        if not available:raise StorageFault('External storage budget or free-space reserve reached. Free space or choose temporary local storage.')
+    used,reserved=snapshot(policy)
+    try:free=shutil.disk_usage(policy['volume']).free
+    except OSError:raise StorageFault('External storage volume is unavailable.')
+    reserve=64*1024*1024+additional
+    if used+reserved+reserve>policy['limit_bytes'] or free<=max(64*1024*1024,reserve):raise StorageFault('External storage budget or free-space reserve reached. Free space or choose temporary local storage.')
+
+
 def fsync_dir(path):
     fd=os.open(str(path),os.O_RDONLY)
     try:os.fsync(fd)
     finally:os.close(fd)
 
 def atomic_json(path,value):
+    external_guard()
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    lease=None;before=path.stat().st_size if path.exists() else 0
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+        from storage_budget import reserve
+        lease=reserve(json.loads(Path(policy_path).read_text()),64*1024*1024)
     fd,tmp=tempfile.mkstemp(prefix='.'+path.name+'-',dir=path.parent)
     try:
         with os.fdopen(fd,'w') as f:
@@ -35,15 +60,128 @@ def atomic_json(path,value):
         os.replace(tmp,path);fsync_dir(path.parent)
     finally:
         if os.path.exists(tmp):os.unlink(tmp)
+        if lease:lease.finish((path.stat().st_size if path.exists() else 0)-before)
+
+SWING_PAUSE_MARKER='swing-pause.json'
+
+def _storage_control_dir(*,data_dir=None,control=None):
+    if control:return Path(control)
+    configured=os.environ.get('DESK_STORAGE_CONTROL')
+    if configured:return Path(configured)
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path:
+        try:
+            configured=json.loads(Path(policy_path).read_text())['control']
+            if not isinstance(configured,str) or not configured:raise ValueError()
+            return Path(configured)
+        except (OSError,ValueError,KeyError,TypeError):
+            raise StorageFault('Storage control policy is unavailable.')
+    if data_dir is None:raise StorageFault('Storage control directory is unavailable.')
+    return Path(data_dir)/'.storage-control'
+
+def swing_pause_path(*,data_dir=None,control=None):
+    return _storage_control_dir(data_dir=data_dir,control=control)/SWING_PAUSE_MARKER
+
+_INVALID_PAUSE_MARKER=object()
+
+def _pause_records(path):
+    try:
+        if path.stat().st_size>4096:return _INVALID_PAUSE_MARKER
+        value=json.loads(path.read_text())
+        if isinstance(value,dict) and isinstance(value.get('pauses'),dict):
+            records={}
+            for symbol,record in value['pauses'].items():
+                if not isinstance(symbol,str) or not isinstance(record,dict) or record.get('symbol')!=symbol or not isinstance(record.get('reason'),str) or not record['reason'] or not isinstance(record.get('at'),int):raise ValueError()
+                records[symbol]={'symbol':symbol,'reason':record['reason'],'at':record['at']}
+            return records
+        if not isinstance(value,dict) or not isinstance(value.get('symbol'),str) or not value['symbol'] or not isinstance(value.get('reason'),str) or not isinstance(value.get('at'),int):raise ValueError()
+        return {value['symbol']:{'symbol':value['symbol'],'reason':value['reason'],'at':value['at']}}
+    except FileNotFoundError:return {}
+    except (OSError,ValueError,TypeError, json.JSONDecodeError):return _INVALID_PAUSE_MARKER
+
+def read_swing_pause(*,data_dir=None,control=None,symbol=None):
+    records=_pause_records(swing_pause_path(data_dir=data_dir,control=control))
+    if records is _INVALID_PAUSE_MARKER:return {'symbol':None,'reason':'INVALID_MARKER','at':0}
+    if symbol is not None:return records.get(symbol)
+    return next(iter(records.values())) if len(records)==1 else None
+
+def persist_swing_pause(*,symbol,reason='USER_PAUSED',data_dir=None,control=None):
+    if not isinstance(symbol,str) or not symbol or len(symbol)>64 or not isinstance(reason,str) or not reason or len(reason)>128:raise ValueError('Invalid Swing pause marker')
+    directory=_storage_control_dir(data_dir=data_dir,control=control);directory.mkdir(parents=True,exist_ok=True,mode=0o700);path=directory/SWING_PAUSE_MARKER
+    records=_pause_records(path)
+    if records is _INVALID_PAUSE_MARKER:records={}
+    records[symbol]={'symbol':symbol,'reason':reason,'at':int(time.time()*1000)}
+    temp=directory/('.'+path.name+'-'+uuid.uuid4().hex)
+    try:
+        with open(temp,'w') as f:
+            os.chmod(temp,0o600);json.dump({'pauses':records},f,separators=(',',':'));f.flush();os.fsync(f.fileno())
+        os.replace(temp,path);fsync_dir(directory)
+    finally:
+        if temp.exists():temp.unlink()
+
+def clear_swing_pause(*,data_dir=None,control=None,symbol=None):
+    path=swing_pause_path(data_dir=data_dir,control=control)
+    if symbol is not None:
+        records=_pause_records(path)
+        if records is _INVALID_PAUSE_MARKER or symbol not in records:return
+        del records[symbol]
+        if records:
+            directory=path.parent;temp=directory/('.'+path.name+'-'+uuid.uuid4().hex)
+            try:
+                with open(temp,'w') as f:
+                    os.chmod(temp,0o600);json.dump({'pauses':records},f,separators=(',',':'));f.flush();os.fsync(f.fileno())
+                os.replace(temp,path);fsync_dir(directory)
+            finally:
+                if temp.exists():temp.unlink()
+        else:
+            try:path.unlink()
+            except FileNotFoundError:return
+            fsync_dir(path.parent)
+        return
+    try:path.unlink()
+    except FileNotFoundError:return
+    fsync_dir(path.parent)
 
 def connect(path):
     """Every writer uses FULL sync, WAL, a bounded busy wait, and FK validation."""
-    db=sqlite3.connect(str(path),timeout=15);db.row_factory=sqlite3.Row
+    external_guard()
+    lease=None;before=sum(Path(str(path)+suffix).stat().st_size for suffix in ('','-wal','-shm') if Path(str(path)+suffix).exists())
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+        from storage_budget import reserve
+        lease=reserve(json.loads(Path(policy_path).read_text()),64*1024*1024)
+    class Guarded(sqlite3.Connection):
+        def __exit__(self,*args):
+            try:return super().__exit__(*args)
+            finally:
+                if lease:self.close()
+        def close(self):
+            try:return super().close()
+            finally:
+                if lease:lease.finish(sum(Path(str(path)+suffix).stat().st_size for suffix in ('','-wal','-shm') if Path(str(path)+suffix).exists())-before)
+    try:db=sqlite3.connect(str(path),timeout=15,factory=Guarded)
+    except BaseException:
+        if lease:lease.finish()
+        raise
+    db.row_factory=sqlite3.Row
     try:
         db.execute('PRAGMA busy_timeout=15000');db.execute('PRAGMA journal_mode=WAL')
         db.execute('PRAGMA synchronous=FULL');db.execute('PRAGMA foreign_keys=ON')
         return db
     except BaseException:db.close();raise
+
+def connect_readonly(path):
+    """Read existing evidence without write guards or recursive capacity scans."""
+    policy_path=os.environ.get('DESK_STORAGE_POLICY')
+    if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+        from storage_host import drive_ready
+        if not drive_ready(json.loads(Path(policy_path).read_text())):
+            raise StorageFault('External storage disconnected')
+    db=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=3)
+    db.row_factory=sqlite3.Row
+    db.execute('PRAGMA query_only=ON')
+    return db
+
 
 @contextmanager
 def transaction(path):
@@ -126,7 +264,8 @@ class DataVault:
             except (sqlite3.Error,StorageFault,OSError) as e:self.last_check[name]={'integrity':'FAILED','error':str(e),'checked_at':int(time.time()*1000)}
         return not any(v['integrity']!='ok' for v in self.last_check.values())
 
-    def writable(self):
+    def writable(self,additional=0):
+        external_guard(additional)
         if any(v['integrity']!='ok' for v in self.last_check.values()):raise StorageFault('Data integrity failed. Open Data & Backups; collection is stopped.')
         if shutil.disk_usage(self.directory).free<64*1024*1024:raise StorageFault('Low disk space. Free space before starting collection.')
 
@@ -144,8 +283,11 @@ class DataVault:
         if not self.lock.acquire(blocking=False):raise StorageFault('A backup or verification is already running.')
         stage=None
         try:
-            self.busy=True;self.writable()
-            needed=sum(p.stat().st_size for p in self.sources.values() if p.exists())+64*1024*1024
+            self.busy=True
+            reports=self.directory/'spider'
+            report_sources=tuple(p for p in reports.rglob('*.json') if not p.is_symlink() and p.resolve().is_relative_to(reports.resolve())) if reports.exists() else ()
+            needed=sum(p.stat().st_size for p in self.sources.values() if p.exists())+sum(p.stat().st_size for p in report_sources)+64*1024*1024
+            self.writable(needed)
             if shutil.disk_usage(self.root).free<needed:raise StorageFault('Insufficient free space for a verified backup.')
             now=datetime.now(timezone.utc);sid=now.strftime('%Y%m%dT%H%M%S%fZ')+'-'+uuid.uuid4().hex[:8]
             stage=Path(tempfile.mkdtemp(prefix='.building-',dir=self.root));stage.chmod(0o700)
@@ -167,7 +309,6 @@ class DataVault:
                 # The backup API includes committed WAL frames; the output has no live sidecars.
                 with open(dest,'rb') as f:os.fsync(f.fileno())
                 manifest['files'][name]={'kind':'sqlite','bytes':dest.stat().st_size,'sha256':sha256(dest),**check}
-            reports=self.directory/'spider'
             if reports.exists():
                 for source in reports.rglob('*.json'):
                     if source.is_symlink() or not source.resolve().is_relative_to(reports.resolve()):continue
@@ -228,7 +369,7 @@ class DataVault:
 
     def test_restore(self,sid):
         with self.lock:
-            with tempfile.TemporaryDirectory(prefix='desk-restore-test-') as tmp:self.restore_copy(sid,Path(tmp)/'restored')
+            with tempfile.TemporaryDirectory(prefix='desk-restore-test-',dir=self.directory) as tmp:self.restore_copy(sid,Path(tmp)/'restored')
             self.last_restore={'id':sid,'passed':True,'checked_at':int(time.time()*1000)}
             atomic_json(self.directory/'last-restore-test.json',self.last_restore)
             return self.last_restore
@@ -335,4 +476,4 @@ class DataVault:
                 'last_restore_test':restore,
                 'retention':'Latest 8, one per hour for 24 hours, one per day for 7 days, one per week for 4 weeks, and latest 10 manual snapshots, within a 512 MiB target. The newest two verified snapshots and the pre-rebuild baseline are always retained, even when they exceed that target.',
                 'scope':'Desk layouts/indicators and research, Robinhood workspace records, Spider JSON reports, and Journal when configured. Login keys and credentials are excluded; reconnect accounts after recovery.',
-                'protection':'Local verified copies protect against application/data corruption. Configure a separate-volume folder for disk-loss protection.'}
+                'protection':'Verified snapshots on the active data volume protect against application/data corruption. A copy on another physical drive is needed for disk-loss protection.'}

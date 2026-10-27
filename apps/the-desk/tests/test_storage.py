@@ -39,6 +39,14 @@ class StorageTests(unittest.TestCase):
             self.assertEqual((self.v.root/m['id']).stat().st_mode&0o077,0)
         finally:writer.close()
 
+    def test_external_snapshot_budget_rejects_allocation_before_staging(self):
+        policy=self.root/'storage-policy.json'
+        policy.write_text(json.dumps({'volume':str(self.root),'external_root':str(self.root),'limit_bytes':200_000_000_000}))
+        with patch.dict(os.environ,{'DESK_STORAGE_POLICY':str(policy),'DESK_STORAGE_MODE':'EXTERNAL'},clear=False),patch('storage_host.drive_ready',return_value=True),patch('storage_host.capacity_available',return_value=(False,0)):
+            with self.assertRaisesRegex(StorageFault,'budget'):
+                self.v.snapshot()
+        self.assertFalse(any(p.name.startswith('.building-') for p in self.v.root.iterdir()))
+
     def test_interrupted_transaction_rolls_back_and_leaves_a_recoverable_committed_database(self):
         code="import os;from storage import transaction;import sys\nwith transaction(sys.argv[1]) as db:\n db.execute(\"INSERT INTO settings VALUES('committed','1')\")\nwith transaction(sys.argv[1]) as db:\n db.execute(\"INSERT INTO settings VALUES('uncommitted','2')\");os._exit(0)"
         subprocess.run([sys.executable,'-B','-c',code,str(self.root/'desk.sqlite3')],check=True)

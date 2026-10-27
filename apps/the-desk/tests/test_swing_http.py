@@ -16,11 +16,12 @@ class SwingHTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory(prefix='desk-swing-http-')
+        cls.quota=Path(cls.tmp.name)/'quota-fixture'
         with socket.socket() as s:s.bind(('127.0.0.1',0));cls.port=s.getsockname()[1]
         cls.base='http://127.0.0.1:'+str(cls.port)
         env={**os.environ};env.pop('TYPESAFE_API_KEY',None);env['DESK_JEV_KEYCHAIN']='disabled'
-        # Explicitly disable the research worker only inside this test process.
-        code='import swing_research; swing_research.SwingResearch.start=lambda self:None; import server; server.main()'
+        env['DESK_STORAGE_MANAGED']='1';env['SWING_TEST_QUOTA_SENTINEL']=str(cls.quota)
+        code='import os,swing_research; swing_research.SwingResearch.start=lambda self:None; import server; original=server.DataVault.writable; server.DataVault.writable=lambda self,additional=0: (_ for _ in ()).throw(server.StorageFault("quota fixture")) if os.path.exists(os.environ["SWING_TEST_QUOTA_SENTINEL"]) else original(self,additional); server.main()'
         cls.proc=subprocess.Popen([sys.executable,'-c',code,'--port',str(cls.port),'--data-dir',cls.tmp.name,'--no-workers'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
         try:
             for _ in range(100):
@@ -41,6 +42,7 @@ class SwingHTTPTests(unittest.TestCase):
         self.request('/api/swing/control',{'action':'configure','symbol':'hyperliquid:ETH','config':{'cadence_seconds':15,'quantity':.01}})
         s=self.request('/api/swing/control',{'action':'start','symbol':'hyperliquid:ETH'})
         self.assertTrue(s['symbols']['hyperliquid:ETH']['running'])
+        self.assertIn('observation',s)
         self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:ETH'})
         after=self.request('/api/state')
         for key in ('orders','positions','fills','accounts'):self.assertEqual(before[key],after[key])
@@ -67,8 +69,35 @@ class SwingHTTPTests(unittest.TestCase):
             for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
                 self.request('/api/swing/control',{'action':'pause','symbol':symbol})
 
+    def test_fast_settings_and_atomic_auto_start_pause_are_available(self):
+        for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
+            self.request('/api/swing/control',{'action':'pause','symbol':symbol})
+        settings=self.request('/api/swing/settings')
+        cfg=settings['symbols']['hyperliquid:BTC']
+        self.assertGreater(cfg['config']['quantity'],0)
+        try:
+            state=self.request('/api/swing/control',{'action':'start_auto','symbol':'hyperliquid:BTC','expected_revision':cfg['revision']})
+            self.assertTrue(state['symbols']['hyperliquid:BTC']['running'])
+            self.assertIn('revision',state['symbols']['hyperliquid:BTC'])
+            self.assertEqual(self.request('/api/swing/lab')['version'],'swing-learning.1')
+        finally:self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+
+    def test_pause_is_accepted_when_storage_preflight_fails(self):
+        self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+        started=self.request('/api/swing/control',{'action':'start_auto','symbol':'hyperliquid:BTC'})
+        self.assertTrue(started['symbols']['hyperliquid:BTC']['running'])
+        self.quota.touch()
+        try:
+            paused=self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'})
+            self.assertFalse(paused['symbols']['hyperliquid:BTC']['running'])
+            self.assertFalse(self.request('/api/swing/lab')['intent']['enabled'])
+        finally:self.quota.unlink(missing_ok=True)
+
     def test_invalid_symbols_cadence_key_and_cross_origin_rejected(self):
-        for p in [{'action':'start','symbol':'coinbase:BTC-USD'}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'cadence_seconds':1}}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'jev_enabled':True}}]:
+        for cadence in (1,10,30,60):
+            with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',{'action':'configure','symbol':'hyperliquid:BTC','config':{'cadence_seconds':cadence}})
+            self.assertEqual(e.exception.code,400)
+        for p in [{'action':'start','symbol':'coinbase:BTC-USD'}, {'action':'configure','symbol':'hyperliquid:BTC','config':{'jev_enabled':True}}]:
             with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',p)
             self.assertEqual(e.exception.code,400)
         with self.assertRaises(HTTPError) as e:self.request('/api/swing/control',{'action':'pause','symbol':'hyperliquid:BTC'},{'Origin':'https://external.example'})
@@ -78,7 +107,6 @@ class SwingHTTPTests(unittest.TestCase):
     def test_ui_and_module_are_served_without_model_or_order_keys(self):
         with urlopen(self.base+'/swing-lab.html') as r:html=r.read().decode()
         self.assertIn('Swing Tracker / Decision Lab',html)
-        self.assertIn('4× / minute',html)
         self.assertIn('id="jevApiKey"',html)
         self.assertIn('type="password"',html)
         self.assertIn('Save to macOS Keychain',html)

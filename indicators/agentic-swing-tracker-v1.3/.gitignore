@@ -1,0 +1,5 @@
+__pycache__/
+tests/*-run.log
+tests/preview-model.json
+tests/warning-preview.json
+tests/live-alerts.ndjson

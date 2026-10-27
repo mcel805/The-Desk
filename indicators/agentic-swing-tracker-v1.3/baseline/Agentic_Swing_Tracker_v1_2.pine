@@ -1,0 +1,921 @@
+//@version=6
+// Agentic Swing Tracker 1.2 — configurable swing source timeframe, 2026-10-22.
+// Continuous swing observation + separately permissioned candle-sweep research signals.
+// Pivot origins are retrospective structure. Arrows are NEVER offset/backdated.
+// Developing endpoints/channels can evolve; frozen plans and terminal events do not.
+// No account orders. Optional shadow observations use next-bar OHLC, not broker fills.
+indicator("Agentic - Swing Tracker 1.2", "AG Swing 1.2", overlay=true, max_lines_count=300, max_labels_count=300, max_boxes_count=12, max_bars_back=600)
+
+string S="01 · Continuous swing tracker"
+string E="02 · Candle-sweep validation"
+string B="03 · Manual thesis and continuation permission"
+string R="04 · Plan and bounded risk"
+string T="05 · Sessions and cutoff"
+string X="06 · Optional indicator plots"
+string A="07 · Amendment / manual override"
+string V="08 · Display and alerts"
+string swingTimeframe=input.timeframe("5","Swing timeframe · minutes",options=["1","2","3","5","15","30"],group=S,tooltip="Select the timeframe that defines recognized parent and micro swings. For 1-minute entry signals, keep the chart on standard 1-minute candles. Swing pivots are imported only after the source-timeframe confirmation bar closes.")
+int microBars=input.int(1,"Micro pivot bars each side",minval=1,maxval=8,group=S)
+int parentBars=input.int(4,"Parent pivot bars each side",minval=2,maxval=20,group=S)
+int minLegTicks=input.int(8,"Minimum A–B leg · ticks",minval=1,group=S,tooltip="Filters small A–B turns regardless of pivot confirmation sensitivity.")
+float minLegATR=input.float(0.25,"Minimum A–B leg · swing-timeframe ATR",minval=0,step=0.05,group=S)
+int maxCandidateBars=input.int(60,"A/B watch lifetime · swing bars",minval=3,maxval=250,group=S)
+float minRetrace=input.float(0.50,"C region · minimum AB retracement",minval=0.1,maxval=1.0,step=0.05,group=S)
+float maxRetrace=input.float(1.60,"C region · maximum AB retracement",minval=1.0,maxval=3.0,step=0.05,group=S)
+int sweepBars=input.int(2,"Sweep previous completed candles",minval=1,maxval=10,group=E)
+int sweepTicks=input.int(1,"Required penetration · ticks",minval=1,maxval=10,group=E)
+float rejectionPart=input.float(0.50,"Close within rejection fraction of candle",minval=0.1,maxval=0.8,step=0.05,group=E,tooltip="Short: close within this fraction measured from low. Long: from high. No future candle is used.")
+bool directionalBody=input.bool(true,"Require directional candle body",group=E)
+string geometryRule=input.string("Prior channel reclaim","Validation",options=["Prior channel reclaim","Candle only research"],group=E,tooltip="Sweep/reclaim plus an edge rejection or opposite break of the envelope known BEFORE this candle. Candle-only isolates the geometry factor.")
+int maxChaseTicks=input.int(30,"Maximum close distance from C · ticks",minval=1,maxval=250,group=E)
+int gapAllowance=input.int(3,"Shadow next-open allowance · ticks",minval=0,maxval=50,group=E)
+bool shortReversal=input.bool(true,"SHORT_REVERSAL",group=E)
+bool longReversal=input.bool(true,"LONG_REVERSAL · separate research profile",group=E)
+bool shortContinuation=input.bool(true,"SHORT_CONTINUATION · separate research profile",group=E)
+bool longContinuation=input.bool(true,"LONG_CONTINUATION · separate research profile",group=E)
+string permissionMode=input.string("Research all profiles","Signal permission",options=["Research all profiles","Manual permissions","Observe only"],group=B,tooltip="Research explicitly studies enabled long/short profiles. Manual requires timestamped declarations. Observe tracks all swings without entry arrows. None of these modes places orders.")
+string revision=input.string("research-v1.2","Plan revision ID",group=B)
+string manualBias=input.string("Unset","Original thesis",options=["Unset","Short","Long","Neutral"],group=B)
+int biasFrom=input.time(0,"Thesis declared from",group=B)
+int biasUntil=input.time(0,"Thesis expires",group=B)
+float biasInvalidPrice=input.price(0,"Thesis close invalidation · 0 off",group=B)
+string biasReason=input.string("","Thesis rationale",group=B)
+string continuationSide=input.string("Disabled","Independent continuation permission",options=["Disabled","Short","Long","Both"],group=B)
+int continuationFrom=input.time(0,"Continuation declared from",group=B)
+int continuationUntil=input.time(0,"Continuation expires",group=B)
+float continuationInvalidPrice=input.price(0,"Continuation close invalidation · 0 off",group=B,tooltip="For Both, use expiry; a single directional invalidation price is not applied.")
+string continuationReason=input.string("","Continuation rationale",group=B)
+string targetMode=input.string("Swing liquidity","Target source",options=["Swing liquidity","Linked liquidity","Measured AB extension"],group=R,tooltip="Swing liquidity selects a still-unswept recognized pivot beyond B. Linked liquidity uses the explicitly selected plot. Measured extension is a separate research objective, not detected liquidity.")
+float targetExtension=input.float(0.50,"Measured target · AB beyond B",minval=0.1,maxval=3,step=0.1,group=R)
+int stopBuffer=input.int(2,"C stop buffer · ticks",minval=1,maxval=30,group=R)
+float minRoomR=input.float(1.0,"Minimum planned target room / risk",minval=0.1,maxval=10,step=0.1,group=R)
+int quantity=input.int(1,"Research quantity",minval=1,maxval=100,group=R)
+float pointValueOverride=input.float(0,"Point value override · 0 = symbol",minval=0,group=R)
+float maxAttemptRisk=input.float(25,"Maximum planned risk per signal · currency",minval=0.01,group=R)
+float maxParentRisk=input.float(50,"Parent gross reserved-risk budget",minval=0.01,group=R,tooltip="Sum of accepted signal risks, including later nonfills. Never refunded to conceal repeated exposure.")
+float maxSessionRisk=input.float(100,"Session gross reserved-risk budget",minval=0.01,group=R)
+int maxParentSignals=input.int(2,"Maximum accepted signals per parent",minval=1,maxval=10,group=R)
+bool shadowEnabled=input.bool(false,"Observe next-open shadow plans",group=R,tooltip="Optional OHLC observation, not strategy orders or broker fills. One plan owns the slot. Ambiguous same-bar stop/target remains unknown.")
+bool useBE=input.bool(true,"BE after strict completed 1m close beyond B",group=R,tooltip="Short below B; mirrored long above B is a separate research extension. New stop becomes effective on the next bar.")
+int maxPlanBars=input.int(120,"Shadow plan expiry · bars",minval=1,maxval=500,group=R)
+string windowMode=input.string("All exchange hours","Entry window",options=["Original morning","All exchange hours","Custom Pacific"],group=T)
+string customWindow=input.session("0630-0930","Custom Pacific window",group=T)
+bool flattenCutoff=input.bool(true,"End shadow observation at window cutoff",group=T)
+int blackoutFrom=input.time(0,"Holiday / exception blackout from · 0 off",group=T)
+int blackoutUntil=input.time(0,"Holiday / exception blackout until",group=T)
+float supportFeed=input.source(close,"Liquidity · Rider HTF support",group=X)
+float resistanceFeed=input.source(close,"Liquidity · Rider HTF resistance",group=X)
+bool liquidityLinked=input.bool(false,"I selected both Liquidity price plots",group=X)
+float directionFeed=input.source(close,"Bias & Draw · Overall direction -1 0 1",group=X)
+bool directionLinked=input.bool(false,"I selected the signed direction plot",group=X)
+bool requireDirection=input.bool(false,"Require linked direction agreement",group=X)
+int amendPlanId=input.int(0,"Amend exact plan ID · 0 off",minval=0,group=A)
+int amendAt=input.time(0,"Amendment known at",group=A)
+string amendAction=input.string("None","Amendment",options=["None","Tighten stop","Replace target","Manual exit observation"],group=A)
+float amendPrice=input.price(0,"Amended price",group=A)
+string amendReason=input.string("","Required amendment reason",group=A)
+bool showRange=input.bool(true,"Active swing premium / discount",group=V)
+bool showPath=input.bool(true,"Observed swing path",group=V)
+bool showABC=input.bool(true,"Current ABC and C region",group=V)
+bool showChannel=input.bool(true,"Micro correction channel",group=V)
+bool showParentChannel=input.bool(true,"Persistent parent channel band",group=V)
+bool showActiveLeg=input.bool(true,"Highlight developing parent leg",group=V)
+int parentBandTransparency=input.int(90,"Parent band transparency",minval=65,maxval=98,group=V)
+int microBandTransparency=input.int(87,"Micro band transparency",minval=65,maxval=98,group=V)
+bool showPanel=input.bool(true,"Swing / setup panel",group=V)
+bool showBlocked=input.bool(false,"Mark blocked / missed sweep candidates",group=V)
+bool showEvents=input.bool(false,"Recent event journal",group=V)
+bool dynamicAlerts=input.bool(false,"Emit closed-bar event JSON",group=V)
+int historySwings=input.int(35,"Pivot path history",minval=5,maxval=80,group=V)
+int projectionBars=input.int(10,"Visual projection · bars",minval=1,maxval=40,group=V)
+color bullInk=input.color(color.rgb(0,196,159),"Bullish / discount",group=V)
+color bearInk=input.color(color.rgb(244,70,94),"Bearish / premium",group=V)
+color watchInk=input.color(color.rgb(247,204,75),"Developing / management",group=V)
+color railInk=input.color(color.rgb(187,205,227),"Geometry",group=V)
+
+float tick=syminfo.mintick
+float pointValue=pointValueOverride>0?pointValueOverride:syminfo.pointvalue
+float chartMicroHigh=ta.pivothigh(high,microBars,microBars)
+float chartMicroLow=ta.pivotlow(low,microBars,microBars)
+float chartParentHigh=ta.pivothigh(high,parentBars,parentBars)
+float chartParentLow=ta.pivotlow(low,parentBars,parentBars)
+float chartAtr=ta.atr(14)
+f_selectedSwingData() =>
+    float mHigh=ta.pivothigh(high,microBars,microBars)
+    float mLow=ta.pivotlow(low,microBars,microBars)
+    float pHigh=ta.pivothigh(high,parentBars,parentBars)
+    float pLow=ta.pivotlow(low,parentBars,parentBars)
+    float sourceAtr=ta.atr(14)
+    [mHigh[1],mLow[1],time[microBars+1],time_close[1],pHigh[1],pLow[1],time[parentBars+1],time_close[1],sourceAtr[1]]
+
+[requestedMicroHigh,requestedMicroLow,requestedMicroOriginAt,requestedMicroKnownAt,requestedParentHigh,requestedParentLow,requestedParentOriginAt,requestedParentKnownAt,requestedAtr]=request.security(syminfo.tickerid,swingTimeframe,f_selectedSwingData(),gaps=barmerge.gaps_on,lookahead=barmerge.lookahead_on)
+int swingSeconds=timeframe.in_seconds(swingTimeframe)
+int chartSeconds=timeframe.in_seconds()
+bool swingDataValid=not na(swingSeconds) and not na(chartSeconds) and swingSeconds>=chartSeconds
+int barsPerSwing=not na(swingSeconds) and not na(chartSeconds)?math.max(1,int(math.ceil(swingSeconds*1.0/chartSeconds))):1
+bool sameSwingTimeframe=swingSeconds==chartSeconds
+float microHigh=sameSwingTimeframe?chartMicroHigh:requestedMicroHigh
+float microLow=sameSwingTimeframe?chartMicroLow:requestedMicroLow
+int microOriginAt=sameSwingTimeframe?time[microBars]:requestedMicroOriginAt
+int microKnownAt=sameSwingTimeframe?time_close:requestedMicroKnownAt
+float parentHigh=sameSwingTimeframe?chartParentHigh:requestedParentHigh
+float parentLow=sameSwingTimeframe?chartParentLow:requestedParentLow
+int parentOriginAt=sameSwingTimeframe?time[parentBars]:requestedParentOriginAt
+int parentKnownAt=sameSwingTimeframe?time_close:requestedParentKnownAt
+float atr=sameSwingTimeframe?chartAtr:requestedAtr
+float priorHigh=ta.highest(high[1],sweepBars)
+float priorLow=ta.lowest(low[1],sweepBars)
+float initialCShort=ta.highest(high,microBars)
+float initialCLong=ta.lowest(low,microBars)
+int initialCShortOffset=ta.highestbars(high,microBars)
+int initialCLongOffset=ta.lowestbars(low,microBars)
+bool entryChart=chart.is_standard and timeframe.isminutes and timeframe.multiplier==1
+string TZ="America/Chicago"
+string PT="America/Los_Angeles"
+
+// Immutable origin and recognition fields are separate from a developing endpoint.
+type Pivot
+    float price
+    int bar
+    int origin
+    int known
+    int side
+    bool consumed=false
+
+type Candidate
+    int id
+    int parent
+    int day
+    int side
+    int profile
+    Pivot a
+    Pivot b
+    int born
+    int bornBar
+    float c
+    int cBar
+    float target
+    int targetKnown
+    string targetRole
+    int state=0
+    string reason="WAIT C SWEEP"
+
+type Plan
+    int id
+    int parent
+    int day
+    int side
+    int profile
+    float aPrice
+    float bPrice
+    float cPrice
+    float channelUpper
+    float channelLower
+    int channelKnown
+    int aOrigin
+    int aKnown
+    int bOrigin
+    int bKnown
+    int candidateAt
+    int cOrigin
+    int cKnown
+    int signalAt
+    int signalBar
+    float reference
+    float initialStop
+    float initialTarget
+    float beLine
+    float sweepReference
+    int referenceKnown
+    int targetKnown
+    string targetRole
+    float risk
+    float currentStop
+    float currentTarget
+    int phase=1
+    float shadowEntry=na
+    int shadowEntryAt=na
+    int observedAt=na
+    int beEffectiveAt=na
+    bool beActive=false
+    bool amended=false
+    int endAt=na
+    string outcome="SIGNAL"
+
+type Event
+    int at
+    int id
+    string kind
+    string reason
+    string packet
+
+var array<Event> journal=array.new<Event>()
+var array<int> sequence=array.new<int>(1,0)
+var array<Candidate> candidates=array.new<Candidate>(2)
+var array<Plan> archive=array.new<Plan>()
+var array<Pivot> pivots=array.new<Pivot>()
+var array<Pivot> pools=array.new<Pivot>()
+var array<int> barIds=array.new<int>()
+var array<int> barTimes=array.new<int>()
+var array<float> barHighs=array.new<float>()
+var array<float> barLows=array.new<float>()
+var int lastParentPivotKnown=na
+var int lastMicroPivotKnown=na
+
+f_barAtTime(int sourceTime) =>
+    int found=na
+    if not na(sourceTime) and array.size(barTimes)>0
+        for j=0 to array.size(barTimes)-1
+            if array.get(barTimes,j)==sourceTime
+                found:=array.get(barIds,j)
+    found
+
+// Explicit snapshot retains every current field, including terminal outcome.
+f_candidateSnapshot(Candidate p)=>
+    Candidate.new(id=p.id,parent=p.parent,day=p.day,side=p.side,profile=p.profile,a=p.a,b=p.b,born=p.born,bornBar=p.bornBar,c=p.c,cBar=p.cBar,target=p.target,targetKnown=p.targetKnown,targetRole=p.targetRole,state=p.state,reason=p.reason)
+f_planSnapshot(Plan p)=>
+    Plan.new(id=p.id,parent=p.parent,day=p.day,side=p.side,profile=p.profile,aPrice=p.aPrice,bPrice=p.bPrice,cPrice=p.cPrice,channelUpper=p.channelUpper,channelLower=p.channelLower,channelKnown=p.channelKnown,aOrigin=p.aOrigin,aKnown=p.aKnown,bOrigin=p.bOrigin,bKnown=p.bKnown,candidateAt=p.candidateAt,cOrigin=p.cOrigin,cKnown=p.cKnown,signalAt=p.signalAt,signalBar=p.signalBar,reference=p.reference,initialStop=p.initialStop,initialTarget=p.initialTarget,beLine=p.beLine,sweepReference=p.sweepReference,referenceKnown=p.referenceKnown,targetKnown=p.targetKnown,targetRole=p.targetRole,risk=p.risk,currentStop=p.currentStop,currentTarget=p.currentTarget,phase=p.phase,shadowEntry=p.shadowEntry,shadowEntryAt=p.shadowEntryAt,observedAt=p.observedAt,beEffectiveAt=p.beEffectiveAt,beActive=p.beActive,amended=p.amended,endAt=p.endAt,outcome=p.outcome)
+
+f_profile(int p)=>p==1?"SHORT_REVERSAL":p==2?"LONG_REVERSAL":p==3?"SHORT_CONTINUATION":"LONG_CONTINUATION"
+f_price(float p)=>na(p)?"—":str.tostring(p,format.mintick)
+f_num(float n)=>na(n)?"null":str.tostring(n)
+f_safe(string s)=>str.replace_all(str.replace_all(str.replace_all(str.replace_all(s,"\\","/"),"\"","'"),"\n"," "),"\t"," ")
+f_tradeDay(int t)=>
+    int dateStamp=timestamp(TZ,year(t,TZ),month(t,TZ),dayofmonth(t,TZ)+(hour(t,TZ)>=17?1:0),12,0)
+    year(dateStamp,TZ)*10000+month(dateStamp,TZ)*100+dayofmonth(dateStamp,TZ)
+f_market(int t)=>
+    int m=hour(t,TZ)*60+minute(t,TZ)
+    int d=dayofweek(t,TZ)
+    bool dayOK=(d==dayofweek.sunday and m>=1020) or (d>=dayofweek.monday and d<=dayofweek.thursday and (m<960 or m>=1020)) or (d==dayofweek.friday and m<960)
+    bool blacked=blackoutFrom>0 and blackoutUntil>blackoutFrom and t>=blackoutFrom and t<blackoutUntil
+    dayOK and not blacked
+f_morning(int t)=>
+    int m=hour(t,PT)*60+minute(t,PT)
+    m>=390 and m<570
+f_window(int t)=>
+    int start=int(str.tonumber(str.substring(customWindow,0,2)))*60+int(str.tonumber(str.substring(customWindow,2,4)))
+    int ending=int(str.tonumber(str.substring(customWindow,5,7)))*60+int(str.tonumber(str.substring(customWindow,7,9)))
+    int m=hour(t,PT)*60+minute(t,PT)
+    bool customOK=start==ending or (start<ending?m>=start and m<ending:m>=start or m<ending)
+    f_market(t) and (windowMode=="All exchange hours" or (windowMode=="Original morning"?f_morning(t):customOK))
+f_livePermission(int fromAt,int untilAt,int at)=>
+    fromAt>0 and untilAt>fromAt and at>=fromAt and at<untilAt and f_tradeDay(fromAt)==f_tradeDay(at)
+f_sidePermission(int side,int profile,bool thesisOK,bool continuationOK)=>
+    bool thesis=thesisOK and (side==1?manualBias=="Long":manualBias=="Short")
+    bool continuation=continuationOK and (continuationSide=="Both" or (side==1?continuationSide=="Long":continuationSide=="Short"))
+    permissionMode=="Research all profiles" or (permissionMode=="Manual permissions" and (profile<=2?thesis:continuation))
+f_enabled(int profile)=>profile==1?shortReversal:profile==2?longReversal:profile==3?shortContinuation:longContinuation
+
+f_emit(string kind,Candidate c,Plan p,string why)=>
+    int seq=array.get(sequence,0)+1
+    array.set(sequence,0,seq)
+    int id=not na(p)?p.id:not na(c)?c.id:0
+    int parent=not na(p)?p.parent:not na(c)?c.parent:0
+    int side=not na(p)?p.side:not na(c)?c.side:0
+    int profile=not na(p)?p.profile:not na(c)?c.profile:0
+    string uid=syminfo.tickerid+"|"+str.tostring(f_tradeDay(time))+"|"+f_safe(revision)+"|"+str.tostring(seq)+"|"+str.tostring(time_close)
+    string packet="{\"schema\":\"agentic.swing.v1\",\"event_id\":\""+uid+"\",\"symbol\":\""+syminfo.tickerid+"\",\"timeframe\":\""+timeframe.period+"\",\"event\":\""+kind+"\",\"observed_at\":"+str.tostring(time_close)+",\"trade_date\":"+str.tostring(f_tradeDay(time))+",\"plan_id\":"+str.tostring(id)+",\"parent_id\":"+str.tostring(parent)+",\"side\":"+str.tostring(side)+",\"profile\":\""+(profile>0?f_profile(profile):"CONTEXT")+"\",\"mode\":\""+permissionMode+"\",\"morning_eligible\":"+(f_morning(time)?"true":"false")+",\"reason\":\""+f_safe(why)+"\",\"a_origin_at\":"+f_num(not na(p)?p.aOrigin:not na(c)?c.a.origin:na)+",\"a_known_at\":"+f_num(not na(p)?p.aKnown:not na(c)?c.a.known:na)+",\"b_origin_at\":"+f_num(not na(p)?p.bOrigin:not na(c)?c.b.origin:na)+",\"b_known_at\":"+f_num(not na(p)?p.bKnown:not na(c)?c.b.known:na)+",\"candidate_at\":"+f_num(not na(p)?p.candidateAt:not na(c)?c.born:na)+",\"signal_at\":"+f_num(not na(p)?p.signalAt:na)+",\"entry_reference\":"+f_num(not na(p)?p.reference:na)+",\"initial_stop\":"+f_num(not na(p)?p.initialStop:na)+",\"initial_target\":"+f_num(not na(p)?p.initialTarget:na)+",\"be_line\":"+f_num(not na(p)?p.beLine:na)+",\"sweep_reference\":"+f_num(not na(p)?p.sweepReference:na)+",\"sweep_reference_known_at\":"+f_num(not na(p)?p.referenceKnown:na)+",\"target_known_at\":"+f_num(not na(p)?p.targetKnown:not na(c)?c.targetKnown:na)+",\"target_role\":\""+(not na(p)?p.targetRole:not na(c)?c.targetRole:"")+"\",\"effective_stop\":"+f_num(not na(p)?p.currentStop:na)+",\"effective_target\":"+f_num(not na(p)?p.currentTarget:na)+",\"shadow_entry_at\":"+f_num(not na(p)?p.shadowEntryAt:na)+",\"shadow_entry_price\":"+f_num(not na(p)?p.shadowEntry:na)+",\"be_effective_at\":"+f_num(not na(p)?p.beEffectiveAt:na)+",\"actual_order_at\":null,\"actual_fill_at\":null}"
+    packet:=str.substring(packet,0,str.length(packet)-1)+",\"swing_timeframe\":\""+swingTimeframe+"\"}"
+    packet:=str.substring(packet,0,str.length(packet)-1)+",\"c_origin_at\":"+f_num(not na(p)?p.cOrigin:not na(c)?time[bar_index-c.cBar]:na)+",\"c_observed_by\":"+f_num(not na(p)?p.cKnown:not na(c)?time_close:na)+",\"external_producer_known_at\":null,\"external_sample_at\":"+f_num(not na(p) and p.targetRole=="LINKED_LIQUIDITY"?p.targetKnown:na)+",\"original_stop_role\":\"C_EXTREME_PLUS_BUFFER\",\"be_role\":\"FROZEN_B_BREAK\",\"revision\":\""+f_safe(revision)+"\"}"
+    packet:=str.substring(packet,0,str.length(packet)-1)+",\"a_price\":"+f_num(not na(p)?p.aPrice:not na(c)?c.a.price:na)+",\"b_price\":"+f_num(not na(p)?p.bPrice:not na(c)?c.b.price:na)+",\"c_price\":"+f_num(not na(p)?p.cPrice:not na(c)?c.c:na)+",\"prior_channel_upper\":"+f_num(not na(p)?p.channelUpper:na)+",\"prior_channel_lower\":"+f_num(not na(p)?p.channelLower:na)+",\"channel_known_by\":"+f_num(not na(p)?p.channelKnown:na)+",\"stop_level_id\":\""+str.tostring(id)+"|INITIAL_STOP\",\"target_level_id\":\""+str.tostring(id)+"|INITIAL_TARGET\",\"be_level_id\":\""+str.tostring(id)+"|FROZEN_B\"}"
+    array.push(journal,Event.new(time_close,id,kind,why,packet))
+    if array.size(journal)>150
+        array.shift(journal)
+    if dynamicAlerts and barstate.isrealtime and barstate.isconfirmed
+        alert(packet,alert.freq_all)
+    true
+
+// Spine ends at the observed extreme; envelope audits all completed wicks through auditEnd.
+// Calling before pushing the signal candle prevents self-fitting its validation rail.
+// Spine joins a recognized B wick to the prior observed C extreme; parallel bounds
+// enclose every intervening retained wick. It is developing geometry, not a forecast fill.
+f_envelope(int startBar,float startPrice,int endBar,float endPrice,int atBar,int auditEnd)=>
+    float top=na
+    float bottom=na
+    float topStart=na
+    float bottomStart=na
+    float slope=na
+    int count=0
+    if endBar>startBar and endBar-startBar<=400 and array.size(barIds)>0
+        slope:=(endPrice-startPrice)/(endBar-startBar)
+        float hiOffset=0.0
+        float loOffset=0.0
+        bool startFound=false
+        for j=0 to array.size(barIds)-1
+            int x=array.get(barIds,j)
+            if x>=startBar and x<=auditEnd
+                startFound:=startFound or x==startBar
+                float spine=startPrice+slope*(x-startBar)
+                hiOffset:=math.max(hiOffset,array.get(barHighs,j)-spine)
+                loOffset:=math.min(loOffset,array.get(barLows,j)-spine)
+                count+=1
+        if startFound and count>=3
+            topStart:=startPrice+hiOffset
+            bottomStart:=startPrice+loOffset
+            top:=topStart+slope*(atBar-startBar)
+            bottom:=bottomStart+slope*(atBar-startBar)
+    [top,bottom,topStart,bottomStart,slope]
+
+f_target(int side,float b,float ab,bool linkedOK)=>
+    float target=na
+    int known=na
+    string role=targetMode=="Measured AB extension"?"MEASURED_AB":targetMode=="Linked liquidity"?"LINKED_LIQUIDITY":"UNSWEPT_PIVOT"
+    if targetMode=="Measured AB extension"
+        target:=b+side*ab*targetExtension
+        known:=time_close
+    else if targetMode=="Linked liquidity"
+        float source=side==1?resistanceFeed:supportFeed
+        if linkedOK and not na(source) and side*(source-b)>tick
+            target:=source
+            known:=time_close
+    else if array.size(pools)>0
+        for j=0 to array.size(pools)-1
+            Pivot q=array.get(pools,j)
+            if q.side==side and not q.consumed and side*(q.price-b)>tick and (na(target) or side*(q.price-target)<0)
+                target:=q.price
+                known:=q.known
+    [math.round_to_mintick(target),known,role]
+
+var int lastDay=na
+var bool biasInvalid=false
+var bool continuationInvalid=false
+var int parentId=0
+var int nextId=0
+var int parentSignals=0
+var float parentReserved=0
+var float sessionReserved=0
+var Pivot parentLast=na
+var Pivot parentPrevious=na
+var float ph1=na
+var float ph2=na
+var float pl1=na
+var float pl2=na
+var int trend=0
+var Plan active=na
+var Plan lastPlan=na
+var string setupNote="WARMING UP"
+var int lastClosedBar=na
+var float lastClosedPrice=na
+var bool thesisValid=false
+var bool continuationValid=false
+bool longSignal=false
+bool shortSignal=false
+bool blockedSignal=false
+bool beSignal=false
+bool parentEvent=false
+float eventEntry=na
+float eventStop=na
+float eventTarget=na
+float eventBE=na
+int eventId=na
+int eventProfile=na
+
+bool defaultPrices=supportFeed==close and supportFeed[1]==close[1] and resistanceFeed==close and resistanceFeed[1]==close[1]
+bool linkedPricesOK=liquidityLinked and not defaultPrices and not na(supportFeed) and not na(resistanceFeed)
+bool linkedDirectionOK=directionLinked and not na(directionFeed) and (directionFeed==-1 or directionFeed==0 or directionFeed==1)
+
+if barstate.isfirst and (not chart.is_standard or not timeframe.isintraday or timeframe.in_seconds()<60)
+    runtime.error("Use standard intraday time candles of at least 1 minute. Entry signals and shadow management use a 1-minute chart.")
+
+if barstate.isconfirmed
+    lastClosedBar:=bar_index
+    lastClosedPrice:=close
+    int day=f_tradeDay(time)
+    bool newDay=na(lastDay) or day!=lastDay
+    if newDay
+        if not na(active)
+            active.phase:=3
+            active.endAt:=time_close
+            active.outcome:="SESSION_RESET_UNRESOLVED"
+            f_emit(active.outcome,na,active,"Session changed while observation open; no invented cutoff fill")
+            array.push(archive,f_planSnapshot(active))
+            lastPlan:=f_planSnapshot(active)
+            active:=na
+        for slot=0 to 1
+            Candidate old=array.get(candidates,slot)
+            if not na(old) and old.state==0
+                old.state:=3
+                f_emit("EXPIRED_SESSION",old,na,"New Globex trade date")
+            array.set(candidates,slot,na)
+        parentId+=1
+        parentSignals:=0
+        parentReserved:=0
+        sessionReserved:=0
+        biasInvalid:=false
+        continuationInvalid:=false
+        lastDay:=day
+        f_emit("SESSION",na,na,"Fresh plan permissions required for this trade date")
+    bool biasWindow=f_livePermission(biasFrom,biasUntil,time_close)
+    bool contWindow=f_livePermission(continuationFrom,continuationUntil,time_close)
+    bool invalidateBias=biasWindow and not biasInvalid and biasInvalidPrice>0 and ((manualBias=="Short" and close>biasInvalidPrice) or (manualBias=="Long" and close<biasInvalidPrice))
+    bool invalidateCont=contWindow and not continuationInvalid and continuationInvalidPrice>0 and ((continuationSide=="Short" and close>continuationInvalidPrice) or (continuationSide=="Long" and close<continuationInvalidPrice))
+    if invalidateBias
+        biasInvalid:=true
+        f_emit("THESIS_INVALIDATED",na,na,biasReason)
+    if invalidateCont
+        continuationInvalid:=true
+        f_emit("CONTINUATION_INVALIDATED",na,na,continuationReason)
+    thesisValid:=biasWindow and not biasInvalid and (manualBias=="Short" or manualBias=="Long")
+    continuationValid:=contWindow and not continuationInvalid and continuationSide!="Disabled"
+
+    // Observe previous signal only from the NEXT available bar. Nothing fills at C.
+    if not na(active) and active.phase==1 and bar_index>active.signalBar
+        bool permission=f_sidePermission(active.side,active.profile,thesisValid[1] and f_livePermission(biasFrom,biasUntil,time),continuationValid[1] and f_livePermission(continuationFrom,continuationUntil,time))
+        bool sameNextMinute=time==active.signalAt
+        bool allowedGap=math.abs(open-active.reference)<=gapAllowance*tick
+        float actualRisk=math.abs(open-active.initialStop)*pointValue*quantity
+        bool bracketOK=active.side*(open-active.initialStop)>0 and active.side*(active.initialTarget-open)>0 and active.side*(active.initialTarget-open)/math.max(active.side*(open-active.initialStop),tick)>=minRoomR
+        if not sameNextMinute or not f_window(time) or day!=active.day or not permission
+            active.phase:=3
+            active.outcome:="MISSED_TIME_OR_PERMISSION"
+        else if not allowedGap or not bracketOK or actualRisk>active.risk
+            active.phase:=3
+            active.outcome:="MISSED_NO_CHASE"
+        else
+            active.phase:=2
+            active.shadowEntry:=open
+            active.shadowEntryAt:=time
+            active.observedAt:=time_close
+            f_emit("SHADOW_OPEN_OBSERVED",na,active,"Next-bar open proxy observed at bar close; actual order/fill unavailable")
+    if not na(active) and active.phase==2
+        bool stopHit=active.side==1?low<=active.currentStop:high>=active.currentStop
+        bool targetHit=active.side==1?high>=active.currentTarget:low<=active.currentTarget
+        if stopHit or targetHit
+            active.phase:=3
+            active.outcome:=stopHit and targetHit?"AMBIGUOUS_STOP_TARGET":stopHit?(active.beActive?"SHADOW_BE_STOP":"SHADOW_STOP"):"SHADOW_TARGET"
+        else if flattenCutoff and not f_window(time_close)
+            active.phase:=3
+            active.outcome:="SHADOW_CUTOFF_CLOSE"
+        else if bar_index-active.signalBar>=maxPlanBars
+            active.phase:=3
+            active.outcome:="SHADOW_EXPIRY_CLOSE"
+        else
+            // Amendments are addressed to an exact plan and cannot act before known time.
+            bool amendNow=not active.amended and amendPlanId==active.id and amendAt>active.signalAt and time_close>=amendAt and amendAction!="None"
+            if amendNow
+                active.amended:=true
+                bool reasonOK=str.length(amendReason)>0
+                bool validStop=active.side*(amendPrice-active.currentStop)>=0 and active.side*(close-amendPrice)>0
+                bool validTarget=active.side*(amendPrice-close)>0
+                if reasonOK and amendAction=="Tighten stop" and validStop
+                    active.currentStop:=amendPrice
+                    f_emit("STOP_AMENDED",na,active,amendReason+"; effective next bar")
+                else if reasonOK and amendAction=="Replace target" and validTarget
+                    active.currentTarget:=amendPrice
+                    f_emit("TARGET_AMENDED",na,active,amendReason+"; effective next bar")
+                else if reasonOK and amendAction=="Manual exit observation"
+                    active.phase:=3
+                    active.outcome:="MANUAL_EXIT_OBSERVATION"
+                    f_emit("MANUAL_OVERRIDE",na,active,amendReason+"; chart close observation, not broker execution")
+                else
+                    f_emit("AMENDMENT_BLOCKED",na,active,"Reason missing, stop widens/crosses price, or target is on wrong side")
+            bool beNow=active.phase==2 and useBE and not active.beActive and active.side*(close-active.beLine)>0
+            if beNow
+                // The prior effective stop was already tested against this entire bar.
+                active.currentStop:=active.side==1?math.max(active.currentStop,active.shadowEntry):math.min(active.currentStop,active.shadowEntry)
+                active.beActive:=true
+                active.beEffectiveAt:=time_close
+                beSignal:=true
+                f_emit("BE_EFFECTIVE_NEXT_BAR",na,active,"Strict completed 1m close beyond frozen B; price BE, costs excluded")
+    if not na(active) and active.phase==3
+        active.endAt:=time_close
+        f_emit(active.outcome,na,active,"Terminal observation; original plan retained")
+        array.push(archive,f_planSnapshot(active))
+        lastPlan:=f_planSnapshot(active)
+        active:=na
+    if array.size(archive)>100
+        array.shift(archive)
+
+    // Consume known local pools before selecting any new candidate's objective.
+    if array.size(pools)>0
+        for q in pools
+            if not q.consumed and time_close>q.known and (q.side==1?high>=q.price:low<=q.price)
+                q.consumed:=true
+
+    // Existing candidates get first use of the bar; new pivot information is later.
+    for slot=0 to 1
+        Candidate c=array.get(candidates,slot)
+        if not na(c) and c.state==0 and bar_index>c.bornBar
+            float leg=math.abs(c.a.price-c.b.price)
+            [upper,lower,upperStart,lowerStart,slope]=f_envelope(c.b.bar,c.b.price,c.cBar,c.c,bar_index,bar_index-1)
+            float candleExtreme=c.side==1?low:high
+            if c.side*(candleExtreme-c.c)<0
+                c.c:=candleExtreme
+                c.cBar:=bar_index
+            float retracement=c.side*(c.b.price-c.c)/leg
+            bool brokeB=c.side==1?high>=c.b.price+tick:low<=c.b.price-tick
+            bool expired=bar_index-c.bornBar>maxCandidateBars*barsPerSwing
+            bool continuationBroken=c.profile>2 and c.side*(c.c-c.a.price)<=0
+            bool invalid=retracement>maxRetrace or continuationBroken
+            float ref=c.side==1?priorLow:priorHigh
+            bool sweep=c.side==1?low<=ref-sweepTicks*tick and close>ref:high>=ref+sweepTicks*tick and close<ref
+            bool bodyOK=not directionalBody or c.side*(close-open)>0
+            float candleRange=math.max(high-low,tick)
+            bool closeOK=c.side==1?close>=high-candleRange*rejectionPart:close<=low+candleRange*rejectionPart
+            bool geoOK=geometryRule=="Candle only research" or (not na(upper) and (c.side==1?low<=lower and close>lower or low<=upper and close>upper:high>=upper and close<upper or high>=lower and close<lower))
+            bool formed=retracement>=minRetrace and bar_index-c.bornBar>sweepBars
+            bool qualified=formed and sweep and bodyOK and closeOK and geoOK
+            if expired or invalid or brokeB
+                c.state:=3
+                c.reason:=expired?"EXPIRED":continuationBroken?"FAILED_CONTINUATION_STRUCTURE":invalid?"FAILED_C_FORECAST":"MISSED_B_BREAK"
+                f_emit(c.reason,c,na,"Terminal A/B hypothesis; later pivots create a new ID")
+                setupNote:=c.reason
+            else if qualified
+                float stop=c.c-c.side*stopBuffer*tick
+                float riskDistance=c.side*(close-stop)
+                float reservedRisk=(riskDistance+gapAllowance*tick)*pointValue*quantity
+                float room=c.side*(c.target-close)
+                bool permission=f_sidePermission(c.side,c.profile,thesisValid,continuationValid)
+                bool chase=c.side*(close-c.c)>maxChaseTicks*tick
+                bool directionOK=not requireDirection or (linkedDirectionOK and directionFeed==c.side)
+                string why=not entryChart?"1M_SIGNAL_ONLY":not f_enabled(c.profile)?"PROFILE_DISABLED":not permission?"PERMISSION":not f_window(time_close)?"WINDOW_OR_MAINTENANCE":(not na(active) or longSignal or shortSignal)?"POSITION_BUSY":chase?"NO_CHASE":not directionOK?"LINKED_DIRECTION":na(c.target)?"TARGET_UNAVAILABLE":na(pointValue) or pointValue<=0?"POINT_VALUE_UNAVAILABLE":riskDistance<=0 or room<=0 or room/riskDistance<minRoomR?"ROOM_OR_BRACKET":reservedRisk>maxAttemptRisk?"ATTEMPT_RISK":parentSignals>=maxParentSignals?"PARENT_ATTEMPT_CAP":parentReserved+reservedRisk>maxParentRisk?"PARENT_RISK":sessionReserved+reservedRisk>maxSessionRisk?"SESSION_RISK":"READY"
+                c.state:=why=="READY"?1:2
+                c.reason:=why
+                setupNote:=f_profile(c.profile)+" · "+why
+                if why=="READY"
+                    parentSignals+=1
+                    parentReserved+=reservedRisk
+                    sessionReserved+=reservedRisk
+                    Plan p=Plan.new(id=c.id,parent=c.parent,day=c.day,side=c.side,profile=c.profile,aPrice=c.a.price,bPrice=c.b.price,cPrice=c.c,channelUpper=upper,channelLower=lower,channelKnown=time_close[1],aOrigin=c.a.origin,aKnown=c.a.known,bOrigin=c.b.origin,bKnown=c.b.known,candidateAt=c.born,cOrigin=time[bar_index-c.cBar],cKnown=time_close,signalAt=time_close,signalBar=bar_index,reference=close,initialStop=stop,initialTarget=c.target,beLine=c.b.price,sweepReference=ref,referenceKnown=time_close[1],targetKnown=c.targetKnown,targetRole=c.targetRole,risk=reservedRisk,currentStop=stop,currentTarget=c.target)
+                    f_emit("SWEEP_READY",c,p,(c.side*(c.c-c.a.price)<0?"C_OVER_A":"INSIDE_A")+"; completed candle validation, not a guaranteed reversal")
+                    longSignal:=c.side==1
+                    shortSignal:=c.side==-1
+                    eventEntry:=p.reference
+                    eventStop:=p.initialStop
+                    eventTarget:=p.initialTarget
+                    eventBE:=p.beLine
+                    eventId:=p.id
+                    eventProfile:=p.profile
+                    if shadowEnabled
+                        active:=p
+                    else
+                        p.phase:=3
+                        p.outcome:="SIGNAL_ONLY"
+                        array.push(archive,f_planSnapshot(p))
+                    lastPlan:=f_planSnapshot(p)
+                else
+                    blockedSignal:=true
+                    f_emit(why=="NO_CHASE"?"MISSED":"BLOCKED",c,na,why)
+            else
+                c.reason:=not formed?"DEVELOPING C":not sweep?"WAIT CANDLE SWEEP":not geoOK?"WAIT CHANNEL RECLAIM":"WAIT REJECTION CLOSE"
+                setupNote:=f_profile(c.profile)+" · "+c.reason
+
+    if longSignal or shortSignal
+        setupNote:=f_profile(eventProfile)+" · SWEEP READY #"+str.tostring(eventId)
+
+    // Macro direction is structural context; it does not replace manual permission.
+    bool uniqueParent=swingDataValid and ((not na(parentHigh))!=(not na(parentLow))) and not na(parentKnownAt) and not na(f_barAtTime(parentOriginAt)) and (na(lastParentPivotKnown) or parentKnownAt!=lastParentPivotKnown)
+    if uniqueParent
+        lastParentPivotKnown:=parentKnownAt
+        int side=not na(parentHigh)?1:-1
+        Pivot q=Pivot.new(not na(parentHigh)?parentHigh:parentLow,f_barAtTime(parentOriginAt),parentOriginAt,parentKnownAt,side)
+        if side==1
+            ph2:=ph1
+            ph1:=q.price
+        else
+            pl2:=pl1
+            pl1:=q.price
+        trend:=not na(ph2) and not na(pl2)?ph1>ph2 and pl1>pl2?1:ph1<ph2 and pl1<pl2?-1:0:0
+        if na(parentLast)
+            parentLast:=q
+        else if side!=parentLast.side
+            parentPrevious:=parentLast.copy()
+            parentLast:=q
+            parentId+=1
+            parentSignals:=0
+            parentReserved:=0
+            parentEvent:=true
+            f_emit("PARENT_SWING",na,na,"New recognized parent swing; continuous tracker does not require liquidity contact")
+            for slot=0 to 1
+                Candidate c=array.get(candidates,slot)
+                if not na(c) and c.state==0
+                    c.state:=3
+                    f_emit("EXPIRED_PARENT",c,na,"Parent changed; old forecast remains terminal")
+                    // Delayed macro recognition must not erase a still-developing micro
+                    // setup. Start a NEW child using only the already known anchors.
+                    // Failed/blocked/signalled children never enter this branch.
+                    nextId+=1
+                    Candidate fresh=f_candidateSnapshot(c)
+                    fresh.id:=nextId
+                    fresh.parent:=parentId
+                    fresh.born:=time_close
+                    fresh.bornBar:=bar_index
+                    fresh.state:=0
+                    fresh.reason:="PARENT_RECOGNIZED · WAIT NEW CANDLE"
+                    fresh.profile:=fresh.side==-1?(trend==-1?3:1):(trend==1?4:2)
+                    array.set(candidates,slot,fresh)
+                    f_emit("AB_WATCH",fresh,na,"New parent child from an open watch; no failed forecast revived")
+        else if side*(q.price-parentLast.price)>0
+            parentLast:=q
+
+    bool uniqueMicro=swingDataValid and ((not na(microHigh))!=(not na(microLow))) and not na(microKnownAt) and not na(f_barAtTime(microOriginAt)) and (na(lastMicroPivotKnown) or microKnownAt!=lastMicroPivotKnown)
+    if uniqueMicro
+        lastMicroPivotKnown:=microKnownAt
+        int side=not na(microHigh)?1:-1
+        Pivot q=Pivot.new(not na(microHigh)?microHigh:microLow,f_barAtTime(microOriginAt),microOriginAt,microKnownAt,side)
+        array.push(pools,q.copy())
+        if array.size(pools)>160
+            array.shift(pools)
+        int n=array.size(pivots)
+        if n==0
+            array.push(pivots,q)
+        else
+            Pivot prior=array.get(pivots,n-1)
+            if side==prior.side
+                // Only the open path endpoint may extend. Frozen A/B objects are copies.
+                if side*(q.price-prior.price)>0
+                    array.set(pivots,n-1,q)
+            else
+                array.push(pivots,q)
+                if math.abs(q.price-prior.price)>=math.max(minLegTicks*tick,nz(atr)*minLegATR)
+                    int direction=side
+                    int slot=direction==1?0:1
+                    Candidate old=array.get(candidates,slot)
+                    if not na(old) and old.state==0
+                        old.state:=3
+                        f_emit("SUPERSEDED_AB",old,na,"Fresh recognized A/B uses a new ID; previous forecast is retained")
+                    int profile=direction==-1?(trend==-1?3:1):(trend==1?4:2)
+                    [objective,known,role]=f_target(direction,q.price,math.abs(q.price-prior.price),linkedPricesOK)
+                    nextId+=1
+                    float initialC=direction==1?initialCLong:initialCShort
+                    Candidate c=Candidate.new(id=nextId,parent=parentId,day=day,side=direction,profile=profile,a=prior.copy(),b=q.copy(),born=time_close,bornBar=bar_index,c=initialC,cBar=bar_index+(direction==1?initialCLongOffset:initialCShortOffset),target=objective,targetKnown=known,targetRole=role)
+                    array.set(candidates,slot,c)
+                    f_emit("AB_WATCH",c,na,"Anchors frozen; next eligible candle can validate C")
+        if array.size(pivots)>100
+            array.shift(pivots)
+    array.push(barIds,bar_index)
+    array.push(barTimes,time)
+    array.push(barHighs,high)
+    array.push(barLows,low)
+    if array.size(barIds)>1500
+        array.shift(barIds)
+        array.shift(barTimes)
+        array.shift(barHighs)
+        array.shift(barLows)
+
+// First 20 plots are stable machine-readable signal/audit exports.
+plot(longSignal?1:shortSignal?-1:0,"Signal direction",display=display.data_window)
+plot(eventId,"Signal plan ID",display=display.data_window)
+plot(eventProfile,"Signal profile ID",display=display.data_window)
+plot(eventEntry,"Planned entry reference",display=display.data_window)
+plot(eventStop,"Original stop",display=display.data_window)
+plot(eventTarget,"Original target",display=display.data_window)
+plot(eventBE,"Frozen BE line",display=display.data_window)
+plot(longSignal or shortSignal?time_close:na,"Signal recognized at",display=display.data_window)
+plot(parentId,"Parent campaign ID",display=display.data_window)
+plot(lastDay,"Globex trade date YYYYMMDD",display=display.data_window)
+plot(thesisValid?1:0,"Manual thesis active",display=display.data_window)
+plot(continuationValid?1:0,"Continuation permission active",display=display.data_window)
+plot(parentReserved,"Parent reserved risk",display=display.data_window)
+plot(sessionReserved,"Session reserved risk",display=display.data_window)
+plot(not na(active)?active.phase:0,"Shadow phase 0 idle 1 pending 2 open",display=display.data_window)
+plot(not na(active)?active.currentStop:na,"Effective shadow stop",display=display.data_window)
+plot(not na(active)?active.shadowEntryAt:na,"Shadow open time",display=display.data_window)
+plot(beSignal?1:0,"BE change next bar",display=display.data_window)
+plot(f_morning(time)?1:0,"Original morning-window eligibility",display=display.data_window)
+plot(trend,"Parent structure direction",display=display.data_window)
+// Additional data-window diagnostics make replay decisions inspectable.
+f_outcome(string v)=>v=="SIGNAL_ONLY"?1:v=="MISSED_TIME_OR_PERMISSION"?2:v=="MISSED_NO_CHASE"?3:v=="AMBIGUOUS_STOP_TARGET"?4:v=="SHADOW_BE_STOP"?5:v=="SHADOW_STOP"?6:v=="SHADOW_TARGET"?7:v=="SHADOW_CUTOFF_CLOSE"?8:v=="SHADOW_EXPIRY_CLOSE"?9:v=="MANUAL_EXIT_OBSERVATION"?10:v=="SESSION_RESET_UNRESOLVED"?11:0
+Candidate longWatch=array.get(candidates,0)
+Candidate shortWatch=array.get(candidates,1)
+plot(not na(longWatch)?longWatch.id:na,"Long watch ID",display=display.data_window)
+plot(not na(longWatch)?longWatch.state:na,"Long watch state 0 watch 1 signal 2 blocked 3 terminal",display=display.data_window)
+plot(not na(shortWatch)?shortWatch.id:na,"Short watch ID",display=display.data_window)
+plot(not na(shortWatch)?shortWatch.state:na,"Short watch state 0 watch 1 signal 2 blocked 3 terminal",display=display.data_window)
+plot(not na(lastPlan)?lastPlan.initialStop:na,"Last plan original stop",display=display.data_window)
+plot(not na(lastPlan)?lastPlan.initialTarget:na,"Last plan original target",display=display.data_window)
+plot(not na(lastPlan)?f_outcome(lastPlan.outcome):0,"Last terminal outcome code",display=display.data_window)
+plot(array.get(sequence,0),"Event sequence",display=display.data_window)
+plot(blockedSignal?1:0,"Blocked opportunity",display=display.data_window)
+plotshape(longSignal,"Long closed-bar sweep",shape.arrowup,location.belowbar,bullInk,size=size.small,text="SW")
+plotshape(shortSignal,"Short closed-bar sweep",shape.arrowdown,location.abovebar,bearInk,size=size.small,text="SW")
+plotshape(showBlocked and blockedSignal,"Blocked or missed",shape.xcross,location.abovebar,color.new(watchInk,35),size=size.tiny)
+plotshape(beSignal,"BE confirmed",shape.diamond,location.belowbar,watchInk,size=size.tiny,text="BE")
+alertcondition(longSignal,"Swing Tracker · LONG","{{ticker}}: closed-bar LONG research sweep; plan {{plot_1}}, entry reference {{plot_3}}, stop {{plot_4}}, target {{plot_5}}, BE line {{plot_6}}. No order placed.")
+alertcondition(shortSignal,"Swing Tracker · SHORT","{{ticker}}: closed-bar SHORT research sweep; plan {{plot_1}}, entry reference {{plot_3}}, stop {{plot_4}}, target {{plot_5}}, BE line {{plot_6}}. No order placed.")
+alertcondition(beSignal,"Swing Tracker · BE next bar","{{ticker}}: completed 1m management close; shadow BE changes next bar. No account modification.")
+
+// Display-only revision 1.1. None of these helpers submit, qualify or manage a plan.
+// One selector drives BOTH the on-chart ABC and its panel identity.
+f_focus(Candidate one,Candidate two,Plan owned,int signalId,int day,int campaign)=>
+    Candidate selected=na
+    int best=-1
+    for slot=0 to 1
+        Candidate c=slot==0?one:two
+        if not na(c) and c.day==day
+            int score=not na(owned) and c.id==owned.id?500:c.id==signalId?400:c.parent==campaign and c.state==0?300:c.parent==campaign?100:0
+            if score>0 and (na(selected) or score>best or (score==best and c.id>selected.id))
+                selected:=c
+                best:=score
+    selected
+f_state(Candidate c)=>c.state==0?"WATCH":c.state==1?"VALIDATED":c.state==2?"BLOCKED":"TERMINAL"
+var Candidate focus=na
+if barstate.isconfirmed
+    focus:=f_focus(array.get(candidates,0),array.get(candidates,1),active,eventId,lastDay,parentId)
+
+// Bounded redraw of the latest COMPLETED bar. Forming wicks are not read.
+var array<line> lines=array.new<line>()
+var array<label> labels=array.new<label>()
+var array<box> boxes=array.new<box>()
+var array<linefill> bands=array.new<linefill>()
+var table panel=table.new(position.top_right,2,9,bgcolor=color.new(color.rgb(14,20,30),8),border_width=0)
+var table eventsPanel=table.new(position.bottom_right,3,7,bgcolor=color.new(color.rgb(14,20,30),8),border_width=0)
+f_line(int x1,float y1,int x2,float y2,color ink,string style,int width)=>
+    if not na(x1) and not na(y1) and not na(y2) and x2>x1 and x1>=bar_index-9000
+        array.push(lines,line.new(x1,y1,x2,y2,xloc=xloc.bar_index,color=ink,style=style,width=width))
+    true
+f_label(int x,float y,string caption,color ink,string tip)=>
+    if not na(y) and x>=bar_index-9000
+        array.push(labels,label.new(x,y,caption,xloc=xloc.bar_index,style=label.style_none,textcolor=ink,size=size.small,tooltip=tip))
+    true
+f_box(int left,float top,int right,float bottom,color ink,string caption)=>
+    if not na(top) and not na(bottom) and top>bottom and left>=bar_index-9000
+        array.push(boxes,box.new(left,top,right,bottom,border_color=color.new(ink,85),bgcolor=color.new(ink,90),text=caption,text_color=color.new(ink,10),text_size=size.small,text_halign=text.align_right))
+    true
+
+// A visual channel may rebase to the retained 500-bar window. This cannot alter
+// the frozen signal envelope, campaign, A/B anchors, stop, target or BE logic.
+f_visualEnvelope(int anchorBar,float anchorPrice,int endBar,float endPrice,int atBar)=>
+    int left=na
+    float hiStart=na
+    float loStart=na
+    float hiEnd=na
+    float loEnd=na
+    float slope=na
+    int count=0
+    if endBar>anchorBar and array.size(barIds)>0
+        slope:=(endPrice-anchorPrice)/(endBar-anchorBar)
+        float hiOffset=0.0
+        float loOffset=0.0
+        left:=math.max(anchorBar,array.get(barIds,0))
+        for j=0 to array.size(barIds)-1
+            int x=array.get(barIds,j)
+            if x>=left and x<=atBar
+                float spine=anchorPrice+slope*(x-anchorBar)
+                hiOffset:=math.max(hiOffset,array.get(barHighs,j)-spine)
+                loOffset:=math.min(loOffset,array.get(barLows,j)-spine)
+                count+=1
+        if count>=2
+            // Flat/narrow candles still produce a visible band at least 2 ticks wide.
+            float padding=math.max(0.0,(2*tick-(hiOffset-loOffset))/2)
+            hiOffset+=padding
+            loOffset-=padding
+            hiStart:=anchorPrice+slope*(left-anchorBar)+hiOffset
+            loStart:=anchorPrice+slope*(left-anchorBar)+loOffset
+            hiEnd:=anchorPrice+slope*(atBar-anchorBar)+hiOffset
+            loEnd:=anchorPrice+slope*(atBar-anchorBar)+loOffset
+    [left,hiStart,loStart,hiEnd,loEnd,slope]
+f_band(int left,float hiStart,float loStart,int closedBar,float hiEnd,float loEnd,float slope,int right,color ink,int transparency,int width)=>
+    if not na(hiEnd) and closedBar>left and left>=bar_index-9000
+        line upper=line.new(left,hiStart,closedBar,hiEnd,xloc=xloc.bar_index,color=color.new(ink,15),width=width)
+        line lower=line.new(left,loStart,closedBar,loEnd,xloc=xloc.bar_index,color=color.new(ink,15),width=width)
+        array.push(lines,upper)
+        array.push(lines,lower)
+        array.push(bands,linefill.new(upper,lower,color.new(ink,transparency)))
+        if right>closedBar
+            line upperProjection=line.new(closedBar,hiEnd,right,hiEnd+slope*(right-closedBar),xloc=xloc.bar_index,color=color.new(ink,55),style=line.style_dashed,width=1)
+            line lowerProjection=line.new(closedBar,loEnd,right,loEnd+slope*(right-closedBar),xloc=xloc.bar_index,color=color.new(ink,55),style=line.style_dashed,width=1)
+            array.push(lines,upperProjection)
+            array.push(lines,lowerProjection)
+            array.push(bands,linefill.new(upperProjection,lowerProjection,color.new(ink,math.min(98,transparency+5))))
+    true
+
+// Redraw on the forming bar too, but ONLY from committed closed-bar state.
+// This preserves fills while waiting for the next close; live wicks cannot move rails.
+if barstate.islastconfirmedhistory or barstate.islast
+    // Delete fill handles first, then their underlying lines. No accumulation.
+    for band in bands
+        linefill.delete(band)
+    array.clear(bands)
+    for ln in lines
+        line.delete(ln)
+    for lb in labels
+        label.delete(lb)
+    for bx in boxes
+        box.delete(bx)
+    array.clear(lines)
+    array.clear(labels)
+    array.clear(boxes)
+    int right=lastClosedBar+projectionBars
+    int displayClosedAt=not na(lastClosedBar)?time_close[bar_index-lastClosedBar]:time_close
+
+    // Range location remains the v1.0 parent range; the sloped band below tracks
+    // the next developing leg from the latest recognized parent pivot.
+    if showRange and not na(parentPrevious) and not na(parentLast)
+        float top=math.max(parentPrevious.price,parentLast.price)
+        float bottom=math.min(parentPrevious.price,parentLast.price)
+        for j=0 to array.size(barIds)-1
+            if array.get(barIds,j)>=parentLast.bar
+                top:=math.max(top,array.get(barHighs,j))
+                bottom:=math.min(bottom,array.get(barLows,j))
+        float span=top-bottom
+        int left=math.max(parentPrevious.bar,lastClosedBar-500)
+        f_box(left,top,right,top-span*0.15,bearInk,"PREMIUM")
+        f_box(left,bottom+span*0.15,right,bottom,bullInk,"DISCOUNT")
+        f_box(left,bottom+span*0.52,right,bottom+span*0.48,color.gray,"EQUILIBRIUM")
+        f_line(left,top,right,top,color.new(bearInk,45),line.style_solid,1)
+        f_line(left,bottom,right,bottom,color.new(bullInk,45),line.style_solid,1)
+        f_label(right,top,f_price(top),bearInk,"Observed parent range high; not a forecast target")
+        f_label(right,bottom,f_price(bottom),bullInk,"Observed parent range low; not an entry")
+
+    // Keep the background micro path quiet so the selected swing stands out.
+    int n=array.size(pivots)
+    if showPath and n>1
+        for j=math.max(1,n-historySwings) to n-1
+            Pivot p=array.get(pivots,j-1)
+            Pivot q=array.get(pivots,j)
+            f_line(p.bar,p.price,q.bar,q.price,color.new(railInk,78),line.style_solid,1)
+
+    bool parentReady=false
+    int legDirection=0
+    int legEndBar=na
+    float legEndPrice=na
+    if not na(parentLast) and array.size(barIds)>0
+        legDirection:=-parentLast.side
+        for j=0 to array.size(barIds)-1
+            int x=array.get(barIds,j)
+            if x>parentLast.bar and x<=lastClosedBar
+                float price=legDirection==1?array.get(barHighs,j):array.get(barLows,j)
+                // Equal extremes use the most recent completed occurrence.
+                if na(legEndPrice) or legDirection*(price-legEndPrice)>=0
+                    legEndPrice:=price
+                    legEndBar:=x
+        if not na(legEndBar)
+            [left,hs,ls,hi,lo,slope]=f_visualEnvelope(parentLast.bar,parentLast.price,legEndBar,legEndPrice,lastClosedBar)
+            parentReady:=not na(hi)
+            color parentInk=legDirection==1?bullInk:bearInk
+            if showParentChannel and parentReady
+                f_band(left,hs,ls,lastClosedBar,hi,lo,slope,right,parentInk,parentBandTransparency,2)
+                f_line(left,(hs+ls)/2,lastClosedBar,(hi+lo)/2,color.new(railInk,65),line.style_dotted,1)
+            if showActiveLeg
+                f_line(math.max(parentLast.bar,lastClosedBar-500),parentLast.bar>=lastClosedBar-500?parentLast.price:parentLast.price+(legEndPrice-parentLast.price)/(legEndBar-parentLast.bar)*(lastClosedBar-500-parentLast.bar),legEndBar,legEndPrice,parentInk,line.style_solid,3)
+                f_label(math.max(parentLast.bar,lastClosedBar-500),parentLast.price-legDirection*5*tick,"P#"+str.tostring(parentId)+(legDirection==1?" · UP":" · DOWN"),parentInk,"Developing parent leg from recognized pivot; origin "+str.tostring(parentLast.origin)+"; known "+str.tostring(parentLast.known))
+                f_label(legEndBar,legEndPrice+legDirection*5*tick,legDirection==1?"DEVELOPING HIGH":"DEVELOPING LOW",parentInk,"Observed completed-candle extreme. It may extend; no entry is implied.")
+                if legEndBar<lastClosedBar
+                    f_line(legEndBar,legEndPrice,lastClosedBar,lastClosedPrice,color.new(railInk,35),line.style_dotted,1)
+
+    string microStatus="NO CURRENT ABC"
+    if not na(focus)
+        Candidate c=focus
+        bool current=c.state==0 or c.state==1
+        color ink=current?watchInk:color.new(railInk,55)
+        string identity="#"+str.tostring(c.id)+" "+(c.side==1?"LONG":"SHORT")+" · "+f_state(c)
+        [hi,lo,hs,ls,slope]=f_envelope(c.b.bar,c.b.price,c.cBar,c.c,lastClosedBar,lastClosedBar)
+        microStatus:=not current?"ABC "+f_state(c):not na(hi)?"MICRO READY":"MICRO BUILDING · NEED 3 BARS"
+        if showABC
+            f_line(c.a.bar,c.a.price,c.b.bar,c.b.price,color.new(railInk,25),line.style_solid,2)
+            f_line(c.b.bar,c.b.price,c.cBar,c.c,ink,line.style_dashed,2)
+            f_label(c.a.bar,c.a.price-c.side*tick,"A #"+str.tostring(c.id),ink,"Selected "+f_profile(c.profile)+"; origin "+str.tostring(c.a.origin)+"; known "+str.tostring(c.a.known))
+            f_label(c.b.bar,c.b.price+c.side*tick,"B #"+str.tostring(c.id),ink,"Selected ABC; recognized "+str.tostring(c.b.known))
+            f_label(c.cBar,c.c-c.side*3*tick,(c.state==0?"C? ":"C ")+identity,ink,c.reason+"; drawings and panel share this candidate")
+            f_line(c.b.bar,c.b.price,right,c.b.price,ink,line.style_solid,2)
+            if c.state==0
+                float ab=math.abs(c.a.price-c.b.price)
+                float near=c.b.price-c.side*ab*minRetrace
+                float far=c.b.price-c.side*ab*maxRetrace
+                f_box(lastClosedBar,math.max(near,far),right,math.min(near,far),watchInk,"C WATCH #"+str.tostring(c.id)+" "+(c.side==1?"LONG":"SHORT"))
+        if showChannel and current and not na(hi)
+            f_band(c.b.bar,hs,ls,lastClosedBar,hi,lo,slope,right,watchInk,microBandTransparency,1)
+
+    if not na(active)
+        f_line(active.signalBar,active.currentStop,right,active.currentStop,bearInk,line.style_dashed,1)
+        f_line(active.signalBar,active.currentTarget,right,active.currentTarget,bullInk,line.style_dashed,1)
+        f_line(active.signalBar,active.beLine,right,active.beLine,watchInk,line.style_solid,2)
+        f_label(right,active.currentStop,"STOP "+f_price(active.currentStop),bearInk,"Original "+f_price(active.initialStop))
+        f_label(right,active.currentTarget,"TARGET "+f_price(active.currentTarget),bullInk,"Original "+f_price(active.initialTarget))
+
+    if showPanel
+        color parentInk=legDirection==1?bullInk:legDirection==-1?bearInk:railInk
+        table.cell(panel,0,0,"AGENTIC SWING",text_color=color.white,text_size=size.small)
+        table.cell(panel,1,0,"1.2 · "+swingTimeframe+"M SWING · "+(entryChart?"1M ENTRY":"TRACK ONLY")+(swingDataValid?"":" · TF BELOW CHART"),text_color=watchInk,text_size=size.small)
+        table.cell(panel,0,1,"PARENT #"+str.tostring(parentId),text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,1,legDirection==0?"WARMING UP":(legDirection==1?"UP LEG":"DOWN LEG")+" · "+(parentReady?"TRACKING":"BUILDING"),text_color=parentInk,text_size=size.small)
+        table.cell(panel,0,2,"STRUCTURE",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,2,trend==1?"HIGHER HIGHS / LOWS":trend==-1?"LOWER HIGHS / LOWS":"ROTATION / DEVELOPING",text_color=railInk,text_size=size.small)
+        table.cell(panel,0,3,not na(focus)?"ABC #"+str.tostring(focus.id):"ABC",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,3,not na(focus)?f_profile(focus.profile)+" · "+f_state(focus)+" · "+focus.reason:"WAIT RECOGNIZED A/B",text_color=not na(focus) and focus.state==0?watchInk:railInk,text_size=size.small)
+        table.cell(panel,0,4,"CHANNEL",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,4,(showParentChannel?(parentReady?"PARENT ON":"PARENT BUILDING"):"PARENT HIDDEN")+" / "+(showChannel?microStatus:"MICRO HIDDEN"),text_color=railInk,text_size=size.small)
+        table.cell(panel,0,5,"PERMISSION",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,5,permissionMode=="Manual permissions"?(thesisValid?manualBias:"THESIS OFF")+" / "+(continuationValid?continuationSide:"CONT OFF"):permissionMode,text_color=watchInk,text_size=size.small)
+        table.cell(panel,0,6,not na(active)?"OWNED PLAN":"LAST PLAN",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,6,not na(active)?"#"+str.tostring(active.id)+(active.phase==1?" NEXT OPEN":active.beActive?" SHADOW · BE":" SHADOW OPEN"):not na(lastPlan)?"#"+str.tostring(lastPlan.id)+" "+lastPlan.outcome:"NONE",text_color=railInk,text_size=size.small)
+        table.cell(panel,0,7,"SESSION",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,7,str.tostring(lastDay)+" · "+(f_window(displayClosedAt)?"WINDOW OPEN":"SIGNALS PAUSED"),text_color=railInk,text_size=size.small)
+        table.cell(panel,0,8,"RESERVED RISK",text_color=color.gray,text_size=size.small)
+        table.cell(panel,1,8,str.tostring(parentReserved,"#.##")+" parent / "+str.tostring(sessionReserved,"#.##")+" session",text_color=railInk,text_size=size.small)
+    else
+        table.clear(panel,0,0,1,8)
+    if showEvents
+        table.cell(eventsPanel,0,0,"PLAN",text_color=color.gray,text_size=size.tiny)
+        table.cell(eventsPanel,1,0,"EVENT",text_color=color.gray,text_size=size.tiny)
+        table.cell(eventsPanel,2,0,"REASON",text_color=color.gray,text_size=size.tiny)
+        int count=math.min(6,array.size(journal))
+        if count>0
+            for j=0 to count-1
+                Event ev=array.get(journal,array.size(journal)-1-j)
+                table.cell(eventsPanel,0,j+1,str.tostring(ev.id),text_color=railInk,text_size=size.tiny)
+                table.cell(eventsPanel,1,j+1,ev.kind,text_color=watchInk,text_size=size.tiny,tooltip=ev.packet)
+                table.cell(eventsPanel,2,j+1,ev.reason,text_color=railInk,text_size=size.tiny)
+    else
+        table.clear(eventsPanel,0,0,2,6)

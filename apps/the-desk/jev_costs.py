@@ -5,7 +5,7 @@ Completed usage rows and their pricing snapshot are immutable. Legacy responses
 are estimated at today's verified list price and explicitly marked as such.
 """
 from contextlib import contextmanager, nullcontext
-from storage import connect
+from storage import connect, connect_readonly
 from copy import deepcopy
 from decimal import Decimal
 import json
@@ -43,7 +43,7 @@ def _json(v):return json.dumps(v,sort_keys=True,separators=(',',':'))
 class JevCostMeter:
     def __init__(self,path):
         self.path=Path(path);self.lock=threading.RLock();self.cache=None;self.cached_at=0
-        with self.db() as db:
+        with self.db(write=True) as db:
             db.executescript('''
               CREATE TABLE IF NOT EXISTS jev_usage (
                 prediction_id TEXT PRIMARY KEY, run TEXT NOT NULL, symbol TEXT NOT NULL,
@@ -57,8 +57,8 @@ class JevCostMeter:
         self.backfill()
 
     @contextmanager
-    def db(self):
-        db=connect(self.path);db.row_factory=sqlite3.Row
+    def db(self,write=False):
+        db=connect(self.path) if write else connect_readonly(self.path);db.row_factory=sqlite3.Row
         try:
             with db:yield db
         finally:db.close()
@@ -87,7 +87,7 @@ class JevCostMeter:
         if pricing and pricing.get('model')!=model:pricing=deepcopy(RATES.get(model))
         if status=='DISABLED':usage=None
         cost=0 if status=='DISABLED' else estimated_nano(usage,pricing)
-        with self.lock,(nullcontext(db) if db is not None else self.db()) as db:
+        with self.lock,(nullcontext(db) if db is not None else self.db(write=True)) as db:
             db.execute('''INSERT INTO jev_usage VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(prediction_id) DO UPDATE SET status=excluded.status,model=excluded.model,
                 input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,
@@ -103,7 +103,9 @@ class JevCostMeter:
           COALESCE(SUM(status!='DISABLED'),0) requests,
           COALESCE(SUM(status!='DISABLED' AND cost_nano_usd IS NOT NULL),0) priced_requests,
           COALESCE(SUM(status='PENDING'),0) pending_requests,
-          COALESCE(SUM(status NOT IN ('DISABLED','PENDING') AND cost_nano_usd IS NULL),0) unknown_cost_requests,
+          COALESCE(SUM(status NOT IN ('DISABLED','PENDING') AND (cost_nano_usd IS NULL OR EXISTS
+            (SELECT 1 FROM predictions p WHERE p.id=jev_usage.prediction_id
+             AND COALESCE(json_extract(p.response,'$.transport.unpriced_attempts'),0)>0))),0) unknown_cost_requests,
           COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
           COALESCE(SUM(cost_nano_usd),0) cost_nano_usd,
           COALESCE(SUM(status!='DISABLED' AND provenance='legacy_repriced'),0) legacy_repriced_requests,

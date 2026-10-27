@@ -19,7 +19,7 @@ class IBKRHttpTests(unittest.TestCase):
         with socket.socket() as s:s.bind(('127.0.0.1',0));cls.port=s.getsockname()[1]
         cls.base='http://127.0.0.1:'+str(cls.port)
         cls.proc=subprocess.Popen([sys.executable,str(ROOT/'server.py'),'--port',str(cls.port),
-            '--data-dir',cls.temp.name,'--no-workers','--ibkr-mode','demo'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            '--data-dir',cls.temp.name,'--no-workers','--ibkr-mode','demo'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,env={**os.environ,'DESK_STORAGE_MANAGED':'1'})
         try:
             deadline=time.monotonic()+15
             while time.monotonic()<deadline:

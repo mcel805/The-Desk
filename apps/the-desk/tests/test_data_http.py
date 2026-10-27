@@ -12,8 +12,10 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request,urlopen
 import zipfile
+from unittest.mock import patch
+from data_routes import DataRoutes
 from engine import Engine
-from storage import DataVault,sha256
+from storage import DataVault,StorageFault,sha256
 
 ROOT=Path(__file__).resolve().parents[1]
 class DataHTTPTests(unittest.TestCase):
@@ -26,7 +28,7 @@ class DataHTTPTests(unittest.TestCase):
             self.proc.terminate();self.proc.wait(timeout=25);self.proc.stderr.close()
         self.tmp.cleanup()
     def start(self):
-        env={**os.environ,'DESK_JEV_KEYCHAIN':'disabled'}
+        env={**os.environ,'DESK_JEV_KEYCHAIN':'disabled','DESK_STORAGE_MANAGED':'1'}
         for k in ('TYPESAFE_API_KEY','DESK_JOURNAL_DB_PATH'):env.pop(k,None)
         self.proc=subprocess.Popen([sys.executable,'-B','server.py','--port',str(self.port),'--data-dir',str(self.data),'--no-workers'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
         for _ in range(120):
@@ -57,6 +59,17 @@ class DataHTTPTests(unittest.TestCase):
             self.assertIn('manifest.json',z.namelist());self.assertIn('desk.sqlite3',z.namelist());self.assertNotIn('robinhood-profile.key',z.namelist())
         after=self.request('/api/state')
         for key in ('orders','positions','fills','accounts'):self.assertEqual(before[key],after[key])
+
+    def test_download_reserves_zip_allocation_before_staging(self):
+        engine=Engine(self.data/'desk.sqlite3')
+        with engine.db() as db:db.execute("INSERT INTO settings VALUES('workspace','{}')")
+        vault=DataVault(self.data);backup=vault.snapshot()
+        with patch('data_routes.external_guard',side_effect=StorageFault('External storage budget reached')) as guard,patch('data_routes.tempfile.TemporaryFile') as temp:
+            with self.assertRaisesRegex(StorageFault,'budget'):
+                DataRoutes(vault).get(None,'/api/data/download',{'id':[backup['id']]})
+        guard.assert_called_once()
+        self.assertGreater(guard.call_args.args[0],sum(info['bytes'] for info in backup['files'].values()))
+        temp.assert_not_called()
 
     def test_corrupt_source_starts_read_only_recovery_page_and_preserves_original(self):
         engine=Engine(self.data/'desk.sqlite3')

@@ -5,15 +5,15 @@ import { dataDir } from "@/db";
 
 /**
  * Broker credentials at rest are AES-256-GCM encrypted. The key comes from
- * JOURNAL_SECRET when set; otherwise a random key file is generated next to
- * the database — same trust boundary as the data it protects, so a copied
- * data directory keeps working while a leaked database file alone does not.
+ * JOURNAL_SECRET when set; otherwise JOURNAL_SECRET_FILE or a random key file
+ * is used, so managed Journal data can remain encrypted on removable storage
+ * while its decryption key stays local.
  */
 const keyMaterial = (): Buffer => {
   const secret = process.env.JOURNAL_SECRET;
   if (secret && secret.length > 0) return scryptSync(secret, "luxalgo-trade-journal", 32);
   const dir = dataDir();
-  const keyPath = join(dir, ".secret");
+  const keyPath = process.env.JOURNAL_SECRET_FILE?.trim() || join(dir, ".secret");
   if (!existsSync(keyPath)) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(keyPath, randomBytes(32).toString("hex"), { mode: 0o600 });

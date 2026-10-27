@@ -1,0 +1,15 @@
+{
+  "name": "agentic-swing-warning-research",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python3 build.py",
+    "test": "node tests/run-all.mjs",
+    "test:engine": "node --test tests/engine.test.mjs",
+    "test:pine": "node tests/pine-warnings.mjs",
+    "test:legacy": "node tests/legacy-regression.mjs",
+    "test:live": "node tests/pine-live.mjs",
+    "study": "node study-cli.mjs"
+  }
+}

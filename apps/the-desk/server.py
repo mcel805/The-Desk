@@ -168,7 +168,10 @@ class Workers:
 def main():
     def stopping(*args):raise KeyboardInterrupt
     signal.signal(signal.SIGTERM,stopping)
+    signal.signal(signal.SIGINT,stopping)
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=18880);parser.add_argument('--data-dir',default=os.environ.get('DESK_DATA_DIR',str(ROOT/'data')));parser.add_argument('--no-workers',action='store_true');parser.add_argument('--ibkr-mode',choices=('off','demo','gateway'),default='off');args=parser.parse_args()
+    from storage_host import route_if_configured
+    if route_if_configured(args.data_dir,args.port,no_workers=args.no_workers,ibkr_mode=args.ibkr_mode):return
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
     ownership=DirectoryLock(data).acquire()
     vault=DataVault(data,journal=os.environ.get('DESK_JOURNAL_DB_PATH'))
@@ -225,6 +228,8 @@ def main():
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
                 if funding.get(self,parsed.path,q):return
+                if parsed.path=='/api/swing/settings':return self.json(swing_research.settings_state())
+                if parsed.path=='/api/swing/lab':return self.json(swing_research.lab_status())
                 if parsed.path=='/api/swing/status':return self.json(swing_research.status())
                 if parsed.path=='/api/swing/study/archive':return self.json(swing_research.study_archive(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/study':return self.json(swing_research.study_report(value('symbol','hyperliquid:BTC')))
@@ -256,6 +261,7 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
+                if path.startswith(('/api/spider/','/api/swing/')) and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))
@@ -268,7 +274,7 @@ def main():
                 if agents.post(self,path,p):return
                 if robinhood.post(self,path,p):return
                 if funding.post(self,path,p):return
-                if path=='/api/swing/control':return self.json(swing_research.command(p))
+                if path=='/api/swing/control':return self.json(swing_research.command({**p,'compact':True}) if p.get('action')=='start_auto' else swing_research.command(p))
                 if path=='/api/ibkr/demo':
                     if not isinstance(p,dict) or set(p)!={'paused'}:raise ValueError('Expected a demo paused flag.')
                     return self.json(ibkr.pause_demo(p['paused']))

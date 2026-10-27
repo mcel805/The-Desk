@@ -1,0 +1,53 @@
+{
+  "status": "PASS_LOCAL_NATIVE_VERIFICATION_PENDING",
+  "checks": 74,
+  "engineChecks": 25,
+  "pineChecks": 19,
+  "legacyChecks": 30,
+  "sourceSha256": "2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2",
+  "sourceHashes": {
+    "Agentic_Swing_Tracker_v1_3.pine": "2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2",
+    "warnings.pine": "ff4f09d4d9b30b617da9f80a59c01c3d67dda05b1288981b7082a71465023f20",
+    "warning-engine.mjs": "79676f6907f82cfe168f2daa63a520ade03c61334937baa4e01d6084ecba78cb",
+    "reversal-study.mjs": "edfe77cd45ce3e46c14db8c2d5b4e34a1b730976244f3e4c9cc0e5e4b240d0f2",
+    "study-cli.mjs": "e618e60dde7b30df90232efb3a56f5749b4d742b8be3cf30fc792bef873f414f"
+  },
+  "suites": [
+    {
+      "name": "engine",
+      "exitCode": 0
+    },
+    {
+      "name": "pine",
+      "exitCode": 0
+    },
+    {
+      "name": "legacy",
+      "exitCode": 0
+    },
+    {
+      "name": "live",
+      "exitCode": 0
+    }
+  ],
+  "intrabarProbe": {
+    "status": "UNVERIFIED_INTRABAR_ADAPTER",
+    "checks": 5,
+    "details": [
+      "Initial actual Pine live observation emits parseable batched JSON",
+      "No repeated batch inside the same supplied slot",
+      "Partial-volume feature unavailable in forming-bar observations",
+      "Actual alert JSON and embedded closed observation normalize through study consumer",
+      "Intrabar warning snapshots do not mutate committed warning sequence"
+    ],
+    "expectedSlotBatches": 4,
+    "observedSlotBatches": 1,
+    "cadenceVerified": false,
+    "limitation": "Vela/PineTS incremental runs advance timenow but return unavailable realtime bar-state values after the first tick. Native four-slot behavior cannot be established by this adapter. Independent JavaScript observer cadence tests pass.",
+    "scope": "Local Vela/PineTS with controlled clock and synthetic updates; native TradingView scheduling and delivery unverified."
+  },
+  "nativeTradingView": "Not compiled: native app can be read but chart input reports noWindowsAvailable.",
+  "noMistakes": "Not run by this local test command; repository gate and publication evidence are recorded separately.",
+  "data": "Deterministic synthetic OHLC, not the supplied October 26 market replay.",
+  "probability": "Outcome-label and chronological-holdout machinery tested; no MYM-trained model or calibrated MYM probability."
+}

@@ -446,7 +446,9 @@ class GatewayTransport:
         req_id = 100 + list(INTERVALS).index(timeframe)
         self.requests[req_id] = timeframe
         seconds, bar_size = INTERVALS[timeframe]
-        duration = str(max(1, math.ceil(seconds * HISTORY_LIMIT * 1.6 / 86400))) + ' D'
+        days = max(1, math.ceil(seconds * HISTORY_LIMIT * 1.6 / 86400))
+        # IBKR limits day-unit durations to 365 D. Larger daily windows use years.
+        duration = f'{days} D' if days <= 365 else f'{math.ceil(days / 365)} Y'
         self.app.reqHistoricalData(req_id, self.contract, '', duration, bar_size, 'TRADES', 0, 2, True, [])
 
     def bar(self, req_id, bar):

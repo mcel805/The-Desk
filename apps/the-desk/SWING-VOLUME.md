@@ -54,7 +54,12 @@ Every prediction freezes versioned features, source hash, settings, history star
 
 The new liquidity-study campaigns and Jev delivery/response/alignment questions remain intact. Volume is supporting evidence and never grants campaign eligibility or manual side permission.
 
-Jev prompt `swing-observer.4-volume.1` adds one independent Choice question in the existing request. It does not add sampling slots or a second provider call. The larger state and extra answer may cost more; the existing usage ledger measures returned token counts. Existing lean/next-bar questions are told not to count price-derived layers as independent volume confirmation. Typed output is not proof of forecast correctness.
+The volume layer adds one independent Choice question in the existing Jev request;
+the current question-pack revision is maintained in [SWING-TRACKER.md](SWING-TRACKER.md).
+It does not add sampling slots or a second provider call. The larger state and extra
+answer may cost more; the existing usage ledger measures returned token counts.
+Existing lean/next-bar questions are told not to count price-derived layers as
+independent volume confirmation. Typed output is not proof of forecast correctness.
 
 The code hash includes the engine and the two Pine sources. New runs therefore form separate audit cohorts. The original tracker entry, stop, target, risk and management rules remain fixed. The UI exposes the latest raw statistics, per-bar table, symbols, hypotheses and Jev participation label. Older runs display missing evidence as unavailable; no new historical volume labels or model answers are fabricated into the original ledger.
 

@@ -1,6 +1,7 @@
 # Swing Tracker / Jev Decision Lab
 
-The liquidity trading studies, tracker measurement update, Jev `swing-observer.3`
+The liquidity trading studies, tracker measurement update, Jev
+`swing-observer.6-warnings.1`
 and separate RIDER/Spider advisors are documented in [SWING-LIQUIDITY-STUDY.md](SWING-LIQUIDITY-STUDY.md).
 The v1 audit below remains a separate reference.
 
@@ -20,20 +21,19 @@ could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
 2. Set swing timeframe (1, 2, 3, 5, 15 or 30 minutes), fractional research quantity,
    budgets and target source. Defaults use a 5m swing with closed 1m validation.
 3. Click **Enable Jev & start** for model evaluations, or **Start tracker only**
-   for deterministic observations. Starting applies the visible settings. Saving settings ends a run and never rewrites
-   its recorded configuration. Restart is paused; a run ends after 24 hours.
+   for deterministic observations. Both are one-run manual starts. Use **Start automatic lab** only when this market should create new runs after interruptions, restart and 24-hour boundaries. Starting applies the visible settings. Saving settings ends a run and never rewrites its recorded configuration. Pause disables automatic recovery.
 4. Click **Open BTC/ETH 1m chart** to open the selected market with the overlay
    enabled. The Lab is a controls/results page; dots are on the workspace chart. On a 1m chart, each fresh Jev
    evaluation adds a timestamped dot. Green long leans stack below the candle;
    red short and gray neutral leans stack above it. The ordinal slot increases
-   away from the candle: at the default 15s cadence there are four slots.
+   away from the candle; the warning cadence and slot contract are defined in
+   [SWING-WARNINGS.md](SWING-WARNINGS.md).
    Hover/focus a dot for its timestamp, probabilities and service status.
 5. Pause, inspect the decision table and export observations. Completed and
    pending records remain in `data/swing-research.sqlite3` (excluded from Git).
 
-The default cadence is **4 evaluations/minute**. Settings support 1, 2, 4 or 6.
-Sampling targets wall-clock slots; slow providers, sleep or an outage can miss a
-slot. Missing evaluations are never backfilled. Repeated calls in one slot are
+Warning-enabled collection cadence and missed-slot behavior are defined in
+[SWING-WARNINGS.md](SWING-WARNINGS.md). Repeated calls in one slot are
 deduplicated. Dot votes never change after a result is recorded. Their placement
 may move as the host candle completes, to remain outside its high/low.
 
@@ -100,8 +100,7 @@ secrets in subprocess arguments or stdout. Other platforms can use server-side
 precedence over the environment; a legacy session override takes precedence over
 both. `DESK_JEV_KEYCHAIN=disabled` isolates tests from the user's real Keychain.
 
-Research still starts paused after a restart. A retained key does not authorize
-extra calls or orders. Do not put a key in Pine, a query string, Git, chat or a
+Manual research starts paused after restart. Explicit Swing Lab Start persists automatic observation intent until Pause; a retained key alone does not authorize extra calls or orders. Do not put a key in Pine, a query string, Git, chat or a
 screenshot.
 No key is required to run the deterministic tracker and record snapshots.
 Enabling Jev sends only bounded public-market state to TypeSafe. It does not send
@@ -172,7 +171,8 @@ give the challenger a new version and test on a later untouched block.
 
 The chart's Swing Tracker status panel shows estimates for the latest research
 session, current/latest parent group and all stored BTC/ETH runs. Swing Lab has
-a full **Jev usage & running costs** card, 1/2/4/6-check cadence comparisons,
+a full **Jev usage & running costs** card, hypothetical 1/2/4/6-check cost
+comparisons,
 custom session-hours projections and recent run/parent tables. It refreshes with
 status every three seconds and does not make additional model requests.
 
@@ -219,7 +219,7 @@ export also includes usage rows and uncapped market totals. Credentials are
 never part of these outputs.
 
 The adapter uses the documented System One HTTP endpoint, pins `jev-1.14.0`, and
-pins question revision `swing-observer.3`. It validates answer types, all choice
+pins question revision `swing-observer.6-warnings.1`. It validates answer types, all choice
 keys, finite [0,1] probabilities, probability sums and model identity. A 2s request
 timeout, a 3s elapsed budget, a crossed minute, or a changed run withholds the
 judgment from active display. Service errors never fabricate an answer or relax
@@ -320,7 +320,10 @@ first handful of observations.
 All routes inherit the Desk's loopback Host / same-origin JSON checks.
 
 - `GET /api/swing/status`: per-symbol state and recent dot history.
-- `POST /api/swing/control`: `start`, `pause`, or `configure`, exact symbol/config.
+- `POST /api/swing/control`: `start`, `start_auto`, `pause`, or `configure`, exact symbol/config.
+  Both starts retain the selected Learning Lab policy and nested warning settings.
+  `start` starts one manual run; `start_auto` also opts into automatic recovery
+  after a gap or server restart. Only the automatic start enables that intent.
 - `POST /api/swing/key`: exact same-origin JSON commands `{"action":"save","api_key":"…"}`,
   `{"action":"remember"}`, `{"action":"load"}`, or `{"action":"forget"}`. Secret values
   never appear in responses. Legacy `{"api_key":"…"}` remains memory-only for older clients.

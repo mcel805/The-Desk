@@ -1,5 +1,6 @@
 """Actual loopback HTTP checks with isolated SQLite and no market workers."""
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -16,7 +17,7 @@ class AgentsHTTPTests(unittest.TestCase):
         cls.temp=tempfile.TemporaryDirectory();cls.root=Path(__file__).resolve().parents[1]
         with socket.socket() as s:s.bind(('127.0.0.1',0));cls.port=s.getsockname()[1]
         cls.base='http://127.0.0.1:'+str(cls.port)
-        cls.proc=subprocess.Popen([sys.executable,'-B','server.py','--port',str(cls.port),'--data-dir',cls.temp.name,'--no-workers'],cwd=cls.root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        cls.proc=subprocess.Popen([sys.executable,'-B','server.py','--port',str(cls.port),'--data-dir',cls.temp.name,'--no-workers'],cwd=cls.root,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={**os.environ,'DESK_STORAGE_MANAGED':'1'})
         for _ in range(100):
             try:
                 with urlopen(cls.base+'/api/health',timeout=.2):break

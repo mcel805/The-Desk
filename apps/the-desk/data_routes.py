@@ -1,16 +1,20 @@
 """Loopback-only storage diagnostics. Restore tests never replace live files."""
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
 import zipfile
 from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
 from urllib.parse import urlparse,parse_qs
-from storage import StorageFault
+from storage import StorageFault,external_guard
 
 class DataRoutes:
     def __init__(self,vault,research=None):self.vault=vault;self.research=research
     def get(self,h,path,q):
+        if path=='/api/storage/status':
+            state=os.environ.get('DESK_STORAGE_STATE')
+            h.json(json.loads(Path(state).read_text()) if state else {'mode':'UNMANAGED','message':'Storage policy is not configured.'});return True
         if path=='/api/data/status':
             state=self.vault.status()
             if self.research:
@@ -21,7 +25,10 @@ class DataRoutes:
             h.json(state);return True
         if path=='/api/data/download':
             sid=q.get('id',[''])[0];self.vault.verify(sid);m=self.vault.manifest(sid)
-            with tempfile.TemporaryFile() as out:
+            manifest_path=self.vault.root/sid/'manifest.json'
+            allocation=manifest_path.stat().st_size+sum(info['bytes'] for info in m['files'].values())+64*1024*1024
+            external_guard(allocation)
+            with tempfile.TemporaryFile(dir=self.vault.directory) as out:
                 with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
                     z.write(self.vault.root/sid/'manifest.json','manifest.json')
                     for name in m['files']:z.write(self.vault.root/sid/name,name)
@@ -30,6 +37,11 @@ class DataRoutes:
             return True
         return False
     def post(self,h,path,p):
+        if path=='/api/storage/return-external':
+            if not h.headers.get('Origin') or p!={}:h.json({'error':'Same-origin empty JSON required'},403);return True
+            state=os.environ.get('DESK_STORAGE_STATE');request=os.environ.get('DESK_STORAGE_RETURN')
+            if not state or not request or not json.loads(Path(state).read_text()).get('can_return'):raise StorageFault('Connect SAMSUNG USB before switching back.')
+            Path(request).touch();h.json({'switching':True});return True
         fields={'/api/data/backup':set(),'/api/data/verify':{'id'},'/api/data/test-restore':{'id'},'/api/data/mirror':{'path'}}
         if path not in fields:return False
         if not h.headers.get('Origin'):h.json({'error':'Same-origin browser action required'},403);return True
