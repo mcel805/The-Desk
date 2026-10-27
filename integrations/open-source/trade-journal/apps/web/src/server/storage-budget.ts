@@ -8,8 +8,18 @@ export const JOURNAL_WAL_LIMIT_BYTES = 64 * 1024 * 1024;
 const JOURNAL_TOTAL_RESERVE_BYTES = JOURNAL_WRITE_RESERVE_BYTES + JOURNAL_WAL_LIMIT_BYTES;
 const MIN_FREE_BYTES = 512 * 1024 * 1024;
 
-type StoragePolicy = { volume: string; external_root: string; limit_bytes: number; control?: string };
-type StorageState = { external_root: string; limit_bytes: number; used_bytes: number; reserved_bytes?: number };
+type StoragePolicy = {
+  volume: string;
+  external_root: string;
+  limit_bytes: number;
+  control?: string;
+};
+type StorageState = {
+  external_root: string;
+  limit_bytes: number;
+  used_bytes: number;
+  reserved_bytes?: number;
+};
 
 const bytesIn = (root: string): number => {
   let total = 0;
@@ -82,18 +92,28 @@ const stateValue = (configured: StoragePolicy): number | null => {
   if (!path) return null;
   try {
     const state = JSON.parse(readFileSync(path, "utf8")) as StorageState;
-    if (state.external_root !== configured.external_root || state.limit_bytes !== configured.limit_bytes) return null;
-    return Number.isSafeInteger(state.used_bytes) && state.used_bytes >= 0 ? state.used_bytes : null;
+    if (
+      state.external_root !== configured.external_root ||
+      state.limit_bytes !== configured.limit_bytes
+    )
+      return null;
+    return Number.isSafeInteger(state.used_bytes) && state.used_bytes >= 0
+      ? state.used_bytes
+      : null;
   } catch {
     return null;
   }
 };
 
 const ensureLedger = (db: Database.Database, configured: StoragePolicy, initial: number): void => {
-  const row = db.prepare("SELECT external_root, limit_bytes FROM budget_meta WHERE id = 1").get() as
-    | { external_root: string; limit_bytes: number }
-    | undefined;
-  if (!row || row.external_root !== configured.external_root || row.limit_bytes !== configured.limit_bytes) {
+  const row = db
+    .prepare("SELECT external_root, limit_bytes FROM budget_meta WHERE id = 1")
+    .get() as { external_root: string; limit_bytes: number } | undefined;
+  if (
+    !row ||
+    row.external_root !== configured.external_root ||
+    row.limit_bytes !== configured.limit_bytes
+  ) {
     db.prepare("DELETE FROM budget_reservations").run();
     db.prepare("INSERT OR REPLACE INTO budget_meta VALUES(1, ?, ?, ?, 0)").run(
       configured.external_root,
@@ -104,7 +124,10 @@ const ensureLedger = (db: Database.Database, configured: StoragePolicy, initial:
 };
 
 const cleanLedger = (db: Database.Database): void => {
-  const rows = db.prepare("SELECT token, owner_pid FROM budget_reservations").all() as { token: string; owner_pid: number }[];
+  const rows = db.prepare("SELECT token, owner_pid FROM budget_reservations").all() as {
+    token: string;
+    owner_pid: number;
+  }[];
   const remove = db.prepare("DELETE FROM budget_reservations WHERE token = ?");
   for (const row of rows) if (!processAlive(row.owner_pid)) remove.run(row.token);
 };
@@ -135,12 +158,19 @@ const ledgerSnapshot = (configured: StoragePolicy): { used: number; reserved: nu
     const transaction = db.transaction(() => {
       ensureLedger(db, configured, initial!);
       cleanLedger(db);
-      const meta = db.prepare("SELECT base_used, committed_bytes FROM budget_meta WHERE id = 1").get() as {
+      const meta = db
+        .prepare("SELECT base_used, committed_bytes FROM budget_meta WHERE id = 1")
+        .get() as {
         base_used: number;
         committed_bytes: number;
       };
-      const reserved = db.prepare("SELECT COALESCE(SUM(bytes), 0) AS bytes FROM budget_reservations").get() as { bytes: number };
-      return { used: Math.max(0, meta.base_used + meta.committed_bytes), reserved: Math.max(0, reserved.bytes) };
+      const reserved = db
+        .prepare("SELECT COALESCE(SUM(bytes), 0) AS bytes FROM budget_reservations")
+        .get() as { bytes: number };
+      return {
+        used: Math.max(0, meta.base_used + meta.committed_bytes),
+        reserved: Math.max(0, reserved.bytes),
+      };
     });
     return transaction();
   } finally {
@@ -158,15 +188,24 @@ const reserveLedger = (configured: StoragePolicy, bytes: number): string => {
     const transaction = db.transaction(() => {
       ensureLedger(db, configured, initial);
       cleanLedger(db);
-      const meta = db.prepare("SELECT base_used, committed_bytes FROM budget_meta WHERE id = 1").get() as {
+      const meta = db
+        .prepare("SELECT base_used, committed_bytes FROM budget_meta WHERE id = 1")
+        .get() as {
         base_used: number;
         committed_bytes: number;
       };
-      const reserved = db.prepare("SELECT COALESCE(SUM(bytes), 0) AS bytes FROM budget_reservations").get() as { bytes: number };
+      const reserved = db
+        .prepare("SELECT COALESCE(SUM(bytes), 0) AS bytes FROM budget_reservations")
+        .get() as { bytes: number };
       if (!physicalSpaceAvailable(configured, bytes)) throw new JournalStorageBudgetError();
       if (meta.base_used + meta.committed_bytes + reserved.bytes + bytes > configured.limit_bytes)
         throw new JournalStorageBudgetError();
-      db.prepare("INSERT INTO budget_reservations VALUES(?, ?, ?, ?)").run(token, process.pid, bytes, Date.now());
+      db.prepare("INSERT INTO budget_reservations VALUES(?, ?, ?, ?)").run(
+        token,
+        process.pid,
+        bytes,
+        Date.now(),
+      );
     });
     transaction();
     return token;
@@ -183,7 +222,9 @@ const finishLedger = (configured: StoragePolicy, token: string, delta: number): 
     const transaction = db.transaction(() => {
       if (db.prepare("SELECT 1 FROM budget_reservations WHERE token = ?").get(token)) {
         db.prepare("DELETE FROM budget_reservations WHERE token = ?").run(token);
-        db.prepare("UPDATE budget_meta SET committed_bytes = MAX(0, committed_bytes + ?) WHERE id = 1").run(delta);
+        db.prepare(
+          "UPDATE budget_meta SET committed_bytes = MAX(0, committed_bytes + ?) WHERE id = 1",
+        ).run(delta);
       }
     });
     transaction();
@@ -228,7 +269,10 @@ export class JournalBudget {
     } catch {
       /* New database. */
     }
-    return Math.max(JOURNAL_TOTAL_RESERVE_BYTES + dbBytes, 2 * additional + dbBytes + JOURNAL_WAL_LIMIT_BYTES);
+    return Math.max(
+      JOURNAL_TOTAL_RESERVE_BYTES + dbBytes,
+      2 * additional + dbBytes + JOURNAL_WAL_LIMIT_BYTES,
+    );
   }
 
   withReservation<T>(operation: () => T): T {
@@ -263,7 +307,10 @@ export class JournalBudget {
     const tracked = this.tracked();
     if (!tracked) return false;
     const required = this.reservationBytes(additional);
-    return tracked.used + tracked.reserved + required <= this.configured.limit_bytes && physicalSpaceAvailable(this.configured, required);
+    return (
+      tracked.used + tracked.reserved + required <= this.configured.limit_bytes &&
+      physicalSpaceAvailable(this.configured, required)
+    );
   }
 
   assert(additional = 0): void {
@@ -280,7 +327,8 @@ export class JournalBudget {
     const pageSize = Number(sqlite.pragma("page_size", { simple: true }));
     const currentPages = Number(sqlite.pragma("page_count", { simple: true }));
     const ownReservation = this.activeToken ? this.reservationBytes(0) : 0;
-    const remaining = this.configured.limit_bytes - tracked.used - tracked.reserved + ownReservation;
+    const remaining =
+      this.configured.limit_bytes - tracked.used - tracked.reserved + ownReservation;
     const maxPages = Math.max(currentPages, Math.floor(remaining / (2 * pageSize)));
     sqlite.pragma(`max_page_count = ${maxPages}`);
   }

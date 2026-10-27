@@ -1,7 +1,8 @@
 # Swing Lab: liquidity trading studies and advisors
 
-Version `liquidity-swing-study.1`, tracker `desk-swing-v1.2-research.2`, Jev
-question pack `swing-observer.3`. This extends the existing observation Lab;
+Version `liquidity-swing-study.1`, tracker `desk-swing-v1.2-research.2`. The
+current Jev question-pack revision is maintained in [SWING-TRACKER.md](SWING-TRACKER.md).
+This extends the existing observation Lab;
 the v1 completed-swing audit and its frozen outcome rules remain available.
 
 ## Start a study

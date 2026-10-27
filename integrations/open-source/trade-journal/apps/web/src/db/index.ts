@@ -120,7 +120,9 @@ const createDb = () => {
         if (typeof value !== "function") return value;
         if (["run", "get", "all", "iterate"].includes(String(property)))
           return (...parameters: unknown[]) =>
-            cleanup ? value.apply(target, parameters) : budgeted(() => value.apply(target, parameters));
+            cleanup
+              ? value.apply(target, parameters)
+              : budgeted(() => value.apply(target, parameters));
         return value.bind(target);
       },
     });

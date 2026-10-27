@@ -68,7 +68,9 @@ describe("managed Journal storage budget", () => {
       "Journal storage budget reached",
     );
     expect(() => db.delete(settings).where(eq(settings.key, "existing")).run()).not.toThrow();
-    expect(() => db.$client.prepare("DELETE FROM settings WHERE key = ?").run("direct")).not.toThrow();
+    expect(() =>
+      db.$client.prepare("DELETE FROM settings WHERE key = ?").run("direct"),
+    ).not.toThrow();
     expect(() => db.$client.exec("DELETE FROM settings WHERE key = 'exec'")).not.toThrow();
     expect(db.select().from(settings).where(eq(settings.key, "existing")).get()).toBeUndefined();
     expect(db.select().from(settings).where(eq(settings.key, "direct")).get()).toBeUndefined();
@@ -96,11 +98,19 @@ describe("managed Journal storage budget", () => {
     process.env.DESK_STORAGE_MODE = "EXTERNAL";
     writeFileSync(
       policyPath,
-      JSON.stringify({ volume: scratch, external_root: externalRoot, limit_bytes: 256 * 1024 * 1024 }),
+      JSON.stringify({
+        volume: scratch,
+        external_root: externalRoot,
+        limit_bytes: 256 * 1024 * 1024,
+      }),
     );
     writeFileSync(
       statePath,
-      JSON.stringify({ external_root: externalRoot, limit_bytes: 256 * 1024 * 1024, used_bytes: 0 }),
+      JSON.stringify({
+        external_root: externalRoot,
+        limit_bytes: 256 * 1024 * 1024,
+        used_bytes: 0,
+      }),
     );
     const writer = new JournalBudget(join(scratch, "database/journal.db"));
     const contender = new JournalBudget(join(scratch, "database/journal.db"));
@@ -115,11 +125,19 @@ describe("managed Journal storage budget", () => {
     mkdirSync(pageLimitRoot);
     writeFileSync(
       policyPath,
-      JSON.stringify({ volume: scratch, external_root: pageLimitRoot, limit_bytes: 256 * 1024 * 1024 }),
+      JSON.stringify({
+        volume: scratch,
+        external_root: pageLimitRoot,
+        limit_bytes: 256 * 1024 * 1024,
+      }),
     );
     writeFileSync(
       statePath,
-      JSON.stringify({ external_root: pageLimitRoot, limit_bytes: 256 * 1024 * 1024, used_bytes: 0 }),
+      JSON.stringify({
+        external_root: pageLimitRoot,
+        limit_bytes: 256 * 1024 * 1024,
+        used_bytes: 0,
+      }),
     );
     const budget = new JournalBudget(join(scratch, "database/journal.db"));
     const pragmas: string[] = [];
