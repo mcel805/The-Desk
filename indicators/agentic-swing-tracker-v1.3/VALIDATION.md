@@ -8,6 +8,6 @@ Pine SHA-256: `2096a32cff06def89f4dcf9a29754d456b5fa080f455c7daf58a1d542b26d6b2`
 
 The local live probe emitted a valid first batched observation, but only one of four expected slot batches. Incremental realtime flags in Vela/PineTS were unavailable, so this probe does not establish native cadence. The independent observer's four-slot and deduplication tests pass.
 
-Native TradingView compile/replay/alert delivery remains unverified. Native app chart input returned `noWindowsAvailable`; no chart script was replaced. The no-mistakes pipeline could not attach to this non-Git artifact workspace. No push, PR or CI is claimed.
+Native TradingView compile/replay/alert delivery remains unverified. Native app chart input returned `noWindowsAvailable`; no chart script was replaced. This receipt covers local artifact validation only; repository gate, publication and CI status are recorded separately.
 
 These are deterministic synthetic tests. The screenshots were not converted into invented OHLCV. No MYM-trained probability model, profitability result or broker execution is claimed. The full suite is rerunnable with `node tests/run-all.mjs`; reports and run logs are under `tests/`.
