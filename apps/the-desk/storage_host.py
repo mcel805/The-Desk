@@ -379,7 +379,7 @@ class Host:
                             raise ValueError()
                         if any(read_swing_pause(control=host.control,symbol=symbol) for symbol in ('hyperliquid:BTC','hyperliquid:ETH') if symbol!=payload['symbol']):
                             raise ValueError()
-                        persist_swing_pause(payload['symbol'],control=host.control)
+                        persist_swing_pause(symbol=payload['symbol'],control=host.control)
                         return self.send(200,json.dumps({'paused':True,'symbol':payload['symbol']}).encode())
                     except (ValueError,TypeError,json.JSONDecodeError):
                         return self.send(400,b'{"error":"Pause requires a supported Swing symbol."}')

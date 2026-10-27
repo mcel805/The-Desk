@@ -61,7 +61,7 @@ class LearningTests(unittest.TestCase):
             paused=self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
         self.assertFalse(self.service.active)
         self.assertTrue(paused['audit_pending'])
-        self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
+        self.assertEqual(read_swing_pause(data_dir=self.service.data_dir,symbol='hyperliquid:BTC')['reason'],'USER_PAUSED')
         other=SwingResearch(FakeGateway(1770000000000),Path(self.tmp.name),FakeJudge())
         try:
             self.assertFalse(other.recover_auto())
@@ -73,15 +73,27 @@ class LearningTests(unittest.TestCase):
             paused=self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
         self.assertFalse(self.service.active)
         self.assertTrue(paused['audit_pending'])
-        self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
+        self.assertEqual(read_swing_pause(data_dir=self.service.data_dir,symbol='hyperliquid:BTC')['reason'],'USER_PAUSED')
         self.assertFalse(self.service.lab_status()['intent']['enabled'])
+    def test_pause_persists_before_unavailable_intent_validation(self):
+        self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'});self.service.close()
+        other=SwingResearch(FakeGateway(1770000000000),Path(self.tmp.name),FakeJudge())
+        try:
+            with patch.object(other.lab,'intent',side_effect=OSError('external intent unavailable')):
+                paused=other.command({'action':'pause','symbol':'hyperliquid:BTC'})
+            self.assertTrue(paused['audit_pending'])
+            self.assertEqual(read_swing_pause(data_dir=other.data_dir,symbol='hyperliquid:BTC')['reason'],'USER_PAUSED')
+        finally:other.close()
+        fresh=SwingResearch(FakeGateway(1770000000000),Path(self.tmp.name),FakeJudge())
+        try:self.assertFalse(fresh.recover_auto())
+        finally:fresh.close()
     def test_pause_rejects_a_different_active_symbol(self):
         self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
         with self.assertRaisesRegex(ValueError,'active Swing symbol'):
             self.service.command({'action':'pause','symbol':'hyperliquid:ETH'})
         self.assertTrue(self.service.active['hyperliquid:BTC'])
         self.assertTrue(self.service.lab.intent()['enabled'])
-        self.assertIsNone(read_swing_pause(self.service.data_dir,'hyperliquid:ETH'))
+        self.assertIsNone(read_swing_pause(data_dir=self.service.data_dir,symbol='hyperliquid:ETH'))
     def test_readonly_paths_do_not_scan_capacity_and_refuse_writes(self):
         with patch('storage.external_guard',side_effect=AssertionError('capacity scan')):
             db=connect_readonly(self.service.path)

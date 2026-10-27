@@ -79,7 +79,7 @@ def _storage_control_dir(data_dir=None,control=None):
     if data_dir is None:raise StorageFault('Storage control directory is unavailable.')
     return Path(data_dir)/'.storage-control'
 
-def swing_pause_path(data_dir=None,control=None):
+def swing_pause_path(*,data_dir=None,control=None):
     return _storage_control_dir(data_dir,control)/SWING_PAUSE_MARKER
 
 _INVALID_PAUSE_MARKER=object()
@@ -99,13 +99,13 @@ def _pause_records(path):
     except FileNotFoundError:return {}
     except (OSError,ValueError,TypeError, json.JSONDecodeError):return _INVALID_PAUSE_MARKER
 
-def read_swing_pause(data_dir=None,control=None,symbol=None):
-    records=_pause_records(swing_pause_path(data_dir,control))
+def read_swing_pause(*,data_dir=None,control=None,symbol=None):
+    records=_pause_records(swing_pause_path(data_dir=data_dir,control=control))
     if records is _INVALID_PAUSE_MARKER:return {'symbol':None,'reason':'INVALID_MARKER','at':0}
     if symbol is not None:return records.get(symbol)
     return next(iter(records.values())) if len(records)==1 else None
 
-def persist_swing_pause(symbol,reason='USER_PAUSED',data_dir=None,control=None):
+def persist_swing_pause(*,symbol,reason='USER_PAUSED',data_dir=None,control=None):
     if not isinstance(symbol,str) or not symbol or len(symbol)>64 or not isinstance(reason,str) or not reason or len(reason)>128:raise ValueError('Invalid Swing pause marker')
     directory=_storage_control_dir(data_dir,control);directory.mkdir(parents=True,exist_ok=True,mode=0o700);path=directory/SWING_PAUSE_MARKER
     records=_pause_records(path)
@@ -119,8 +119,8 @@ def persist_swing_pause(symbol,reason='USER_PAUSED',data_dir=None,control=None):
     finally:
         if temp.exists():temp.unlink()
 
-def clear_swing_pause(data_dir=None,control=None,symbol=None):
-    path=swing_pause_path(data_dir,control)
+def clear_swing_pause(*,data_dir=None,control=None,symbol=None):
+    path=swing_pause_path(data_dir=data_dir,control=control)
     if symbol is not None:
         records=_pause_records(path)
         if records is _INVALID_PAUSE_MARKER or symbol not in records:return

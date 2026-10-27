@@ -122,34 +122,37 @@ class SwingResearch:
                     'jev_configured':self.judge.configured,'as_of':int(time.time()*1000)}
 
     def effective_lab_intent(self):
-        marker=read_swing_pause(self.data_dir)
+        marker=read_swing_pause(data_dir=self.data_dir)
         try:intent=self.lab.intent()
         except (OSError,sqlite3.Error,StorageFault):
             if marker:return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
             raise
         if marker and (not intent or intent['symbol']==marker['symbol']):return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
         if intent:
-            marker=read_swing_pause(self.data_dir,intent['symbol'])
+            marker=read_swing_pause(data_dir=self.data_dir,symbol=intent['symbol'])
             if marker:return {**intent,'enabled':False,'paused_by_marker':True}
         return intent
 
     def lab_status(self):
-        result=self.lab.status();result['intent']=self.effective_lab_intent();result['swing_pause']=read_swing_pause(self.data_dir)
+        marker=read_swing_pause(data_dir=self.data_dir)
+        try:result=self.lab.status()
+        except (OSError,sqlite3.Error,StorageFault):
+            if not marker:raise
+            return {'intent':{'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True},'swing_pause':marker}
+        result['intent']=self.effective_lab_intent();result['swing_pause']=read_swing_pause(data_dir=self.data_dir,symbol=result['intent']['symbol'] if result['intent'] else None)
         return result
 
     def paused_compact(self,symbol,detail,audit_pending=False):
         result=self.settings_state();entry=result['symbols'][symbol]
         entry.update({'status':'PAUSED','running':False,'detail':detail,'audit_pending':audit_pending})
-        result.update({'audit_pending':audit_pending,'lab_intent':{'symbol':symbol,'enabled':False,'paused_by_marker':True},'swing_pause':read_swing_pause(self.data_dir,symbol)})
+        result.update({'audit_pending':audit_pending,'lab_intent':{'symbol':symbol,'enabled':False,'paused_by_marker':True},'swing_pause':read_swing_pause(data_dir=self.data_dir,symbol=symbol)})
         return result
 
     def pause_target(self,symbol):
         if self.active:
             if symbol not in self.active:raise ValueError('Pause the active Swing symbol before pausing '+symbol+'.')
             return True
-        intent=self.lab.intent()
-        if intent and intent['enabled'] and intent['symbol']!=symbol:raise ValueError('Pause the automatic Swing symbol '+intent['symbol']+' instead.')
-        return bool(intent and intent['enabled'] and intent['symbol']==symbol)
+        return False
 
     def pause_result(self,symbol,compact=False,audit_error=None):
         if audit_error:
@@ -283,7 +286,7 @@ class SwingResearch:
                 self.command({'action':'configure','symbol':symbol,'config':{k:v for k,v in cfg.items() if k!='study_levels'},'compact':True})
                 result=self._start_run(symbol,compact=bool(p.get('compact')))
                 self.lab.intent(symbol,action=='start_auto')
-                if clear_pause:clear_swing_pause(self.data_dir,symbol=symbol)
+                if clear_pause:clear_swing_pause(data_dir=self.data_dir,symbol=symbol)
                 return result
             if action in ('level_add','level_remove'):
                 cfg=deepcopy(self.configs[symbol])
@@ -317,10 +320,15 @@ class SwingResearch:
                 self.configs[symbol]=cfg
             elif action=='pause':
                 intent_target=self.pause_target(symbol)
-                persist_swing_pause(symbol,'USER_PAUSED',data_dir=self.data_dir)
+                persist_swing_pause(symbol=symbol,reason='USER_PAUSED',data_dir=self.data_dir)
                 audit_error=None
                 try:self.pause(symbol,'USER_PAUSED')
                 except (OSError,sqlite3.Error,StorageFault) as error:audit_error=error
+                if not intent_target:
+                    try:
+                        intent=self.lab.intent()
+                        intent_target=bool(intent and intent['enabled'] and intent['symbol']==symbol)
+                    except (OSError,sqlite3.Error,StorageFault) as error:audit_error=error
                 if intent_target:
                     try:self.lab.disable_intent(symbol)
                     except (OSError,sqlite3.Error,StorageFault) as error:audit_error=audit_error or error
@@ -345,7 +353,7 @@ class SwingResearch:
     def recover_auto(self):
         with self.lock:
             intent=self.lab.intent()
-            if intent and intent['enabled'] and not read_swing_pause(self.data_dir,intent['symbol']):
+            if intent and intent['enabled'] and not read_swing_pause(data_dir=self.data_dir,symbol=intent['symbol']):
                 self.command({'action':'start_auto','symbol':intent['symbol']},clear_pause=False)
                 return True
             return False
@@ -650,7 +658,7 @@ class SwingResearch:
 
     def status(self):
         with self.lock:
-            now=int(time.time()*1000);result={};lab_intent=self.effective_lab_intent();pause_marker=read_swing_pause(self.data_dir,lab_intent.get('symbol') if lab_intent else None)
+            now=int(time.time()*1000);result={};lab_intent=self.effective_lab_intent();pause_marker=read_swing_pause(data_dir=self.data_dir,symbol=lab_intent.get('symbol') if lab_intent else None)
             for symbol in SYMBOLS:
                 s=deepcopy(self.last[symbol]);s['running']=symbol in self.active;s['config']=deepcopy(self.configs[symbol])
                 with self.read_db() as db:
