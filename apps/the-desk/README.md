@@ -22,7 +22,7 @@ Python 3.9+ and Node 22 are available on this machine. The checked-in Vela brows
 | Area | Delivered behavior |
 |---|---|
 | Chart workspace | Vela native canvas chart, interval/style menus, crosshair/zoom, drawings and object tree, indicator catalog/settings, screenshot download, multi-chart grid and synchronization controls |
-| Workspace state | Local SQLite persistence for chart/layout/indicator/drawing state, complete named templates, light/dark theme; browser remembers the chosen account |
+| Workspace state | Local SQLite persistence for chart/layout/indicator/drawing state, complete named templates, light/dark theme, and browser recovery of the complete workspace; browser remembers the chosen account. See [chart and indicator recovery](docs/data-durability.md) |
 | Markets | BTC, ETH and SOL on Coinbase spot and Hyperliquid perpetuals; qualified source identity, server quote age and visible stale/unavailable states |
 | Watchlist and DOM | Six market rows, streaming price/size/cumulative-total book, red/green depth bars and change highlights, source switching, click-to-stage limits, adjacent paper ticket |
 | Ticket | Buy/sell, market/limit/stop market/stop limit, units/USD notional/percentage/risk sizing, commission/risk/reward estimates, optional SL/TP, GTC or timed expiry |
@@ -81,6 +81,7 @@ Open **Indicators → Create Pine Script indicator**, paste native Pine v5/v6 so
 python3 launch.py --qa --port 18881 --journal-port 3102 --detach
 DESK_QA_HTTP=1 QA_JOURNAL_PORT=3102 python3 -m unittest discover -s tests -v
 node --test tests/test_sma.mjs
+node --test tests/test_durable_settings.mjs tests/test_workspace_mirror.mjs
 node --check web/app.js
 python3 launch.py --qa --stop
 ```
