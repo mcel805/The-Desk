@@ -11,6 +11,7 @@ import sqlite3
 import signal
 import threading
 import time
+from chart_chat import ChartChat
 from spider_service import Spider
 from spider_markets import binance_bars
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -196,6 +197,7 @@ def main():
     if not args.no_workers:agents.start()
     if not args.no_workers:workers.start()
     spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
+    chart_chat=ChartChat(engine)
     vault.preflight()
     try:vault.snapshot('startup')
     except Exception:pass
@@ -224,6 +226,7 @@ def main():
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
                 if data_routes.get(self,parsed.path,q):return
+                if chart_chat.get(self,parsed.path,q):return
                 if spider.get(self,parsed.path,q):return
                 if agents.get(self,parsed.path,q):return
                 if robinhood.get(self,parsed.path,q):return
@@ -261,10 +264,11 @@ def main():
                 length=int(self.headers.get('Content-Length',0))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
-                if path.startswith(('/api/spider/','/api/swing/')) and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
+                if path.startswith(('/api/spider/','/api/swing/','/api/chart-chat/')) and path!='/api/chart-chat/stop' and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))
+                if chart_chat.post(self,path,p):return
                 if data_routes.post(self,path,p):return
                 if spider.post(self,path,p):return
                 if path=='/api/swing/key':
@@ -312,7 +316,7 @@ def main():
     try:httpd.serve_forever()
     finally:
         httpd.server_close()
-        for close in (swing_advisors.close,swing_research.close,spider.close,agent_signals.close,agents.stop.set,ibkr.close,workers.stop.set,vault.close):
+        for close in (chart_chat.close,swing_advisors.close,swing_research.close,spider.close,agent_signals.close,agents.stop.set,ibkr.close,workers.stop.set,vault.close):
             try:close()
             except Exception:pass
         try:vault.snapshot('shutdown')

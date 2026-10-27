@@ -150,3 +150,9 @@ orders are routed. See
 [SWING-TRACKER.md](SWING-TRACKER.md) for the existing tracker contract and
 [SWING-WARNINGS.md](SWING-WARNINGS.md) for the warning collection cadence,
 settings, provenance and calibration boundaries.
+
+## Trading chart chat
+
+The left-side Chart chat adds bounded chart tools, RIDER / Spider evidence reviews,
+optional web research and native source-scoped drawings. See [CHART-CHAT.md](CHART-CHAT.md)
+for supported prompts, methods, limits and acceptance checks.
