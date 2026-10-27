@@ -56,7 +56,8 @@ export class WarningEngine{
   constructor(config={}){this.config={...DEFAULTS,...config,weights:[...(config.weights??DEFAULTS.weights)]};validateConfig(this.config);Object.freeze(this.config.weights);Object.freeze(this.config);this.rows=[];this.events=[];this.active=Array(8).fill(null);this.liveEpisodes=Array(8).fill(null);this.liveSequence=0;this.sequence=0;this.swing=0;this.side=0;this.anchor=null;this.lastClosed=null;this.lastSlot=null;this.lastObserved=null;this.protected=null;this.extremePivot=null;this.broken=null;this.stage=0;this.levels=[];this.levelContact=null;this.lastSnapshot=null;this.snapshots=0;this.resetReason=null;}
   setLevels(levels,observedAt){
     if(!Number.isSafeInteger(observedAt))throw Error('Level receipt clock required');
-    this.levels=levels.map(x=>{if(!x||!['upper','lower'].includes(x.side)||!finite(x.price)||x.price<=0||!Number.isSafeInteger(x.knownAt)||x.knownAt>observedAt||!x.id)throw Error('Invalid level provenance');return {...x,availableAt:observedAt};});
+    const previous=new Map(this.levels.map(x=>[x.id,x]));
+    this.levels=levels.map(x=>{if(!x||!['upper','lower'].includes(x.side)||!finite(x.price)||x.price<=0||!Number.isSafeInteger(x.knownAt)||x.knownAt>observedAt||!x.id)throw Error('Invalid level provenance');const old=previous.get(x.id);const availableAt=old&&['price','side','knownAt'].every(k=>old[k]===x[k])?old.availableAt:observedAt;return {...x,availableAt};});
   }
   emit(kind,at,data={}){const event={revision:REVISION,seq:++this.sequence,swing:this.swing,kind,at,...structuredClone(data)};this.events.push(event);if(this.events.length>this.config.maxEvents)this.events.shift();return event;}
   clear(at,reason){for(let i=0;i<8;i++)if(this.active[i]){this.emit('CLEARED',at,{feature:FEATURES[i],episode:this.active[i].id,reason});this.active[i]=null;}}

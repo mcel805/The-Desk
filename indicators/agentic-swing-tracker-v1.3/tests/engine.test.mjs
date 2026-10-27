@@ -49,6 +49,13 @@ test('known-level availability never backfills future declarations',()=>{
   const b={...bars[40],open:53045,close:53045,high:53060,low:53040};const after=e.feed(b);assert.equal(after.severity[4],2);
   assert.throws(()=>e.setLevels([{id:'bad',side:'upper',price:53000,knownAt:START+999999}],START));
 });
+test('unchanged references preserve first receipt while changed references get a new receipt',()=>{
+  const e=new WarningEngine({side:1}),level={id:'upper',side:'upper',price:53050,knownAt:START};
+  e.setLevels([level],START);e.setLevels([level],START+15000);
+  assert.equal(e.levels[0].availableAt,START);
+  e.setLevels([{...level,price:53051}],START+30000);
+  assert.equal(e.levels[0].availableAt,START+30000);
+});
 test('zero or missing volume is unavailable and cannot create EFFORT',()=>{
   const e=new WarningEngine({side:1,volumeEnabled:true});const s=feed(e,trend().map(b=>({...b,volume:0}))).at(-1);assert.equal(s.severity[6],null);assert.ok(!e.events.some(x=>x.kind==='START'&&x.feature==='EFFORT'));
 });
