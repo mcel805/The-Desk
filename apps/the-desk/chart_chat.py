@@ -25,6 +25,16 @@ REVIEW = obj({'summary':STRING,'evidenceIds':{'type':'array','items':STRING},'li
 ANSWER = obj({'answer':STRING,'followups':{'type':'array','items':STRING}})
 def encoded(value):return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
 def finite(v):return type(v) in (int,float) and math.isfinite(v)
+def web_research_complete(searches):
+    searched=False
+    for item in searches:
+        action=item.get('action') or {}
+        if action.get('type')=='search':
+            searched=True
+        if searched and action.get('type')=='open':
+            urls=[action.get('url')]+[x.get('url') for x in item.get('sources',[]) if isinstance(x,dict)]
+            if any(public_url(url) for url in urls):return True
+    return False
 
 def snapshot(raw):
     if not isinstance(raw,dict):raise ValueError('Chart context is required.')
@@ -211,9 +221,10 @@ class ChartChat:
                 self.event(r,agent,'Repairing an invalid structured reply…')
                 value,repair_searches=session.run('The application rejected your JSON: '+str(error)+'. Return only these exact fields with their declared types: '+encoded(schema)+'. This bounded application response contract overrides any report format in the strategy rulebook. Prior response: '+encoded(value)[:12000],schema,timeout=240,cancel=cancel)
                 searches+=repair_searches;validate_shape(value,schema)
-            if web and not searches:
-                value,searches=session.run('Live web research was requested but no search occurred. Search now and open a primary source, then return the complete same-schema review of the retained facts.',schema,timeout=240,cancel=cancel);validate_shape(value,schema)
-                if not searches:raise ValueError('Web research did not run. Disable Web research or retry; no research will be claimed.')
+            if web and not web_research_complete(searches):
+                value,repair_searches=session.run('Live web research was requested but the required search and public source open were not both observed. Search now and open a primary source, then return the complete same-schema review of the retained facts.',schema,timeout=240,cancel=cancel);validate_shape(value,schema)
+                searches+=repair_searches
+                if not web_research_complete(searches):raise ValueError('Web research did not complete a search and public source open. Disable Web research or retry; no research will be claimed.')
             if cancel.is_set():raise ValueError('Stopped by you.')
             for item in searches:
                 action=item.get('action') or {}

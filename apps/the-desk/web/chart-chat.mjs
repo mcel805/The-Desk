@@ -48,7 +48,7 @@ export function setupChartChat({workspace,toast}){
   if(runEpoch!==epoch)return;
   const existing=applications.get(r.id);if(existing){render(await api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome:existing}));return;}
   const cell=ws.cells().find(c=>c.id===r.snapshot.cellId);
-  let outcome='Analysis complete · no chart changes';
+  let outcome='Analysis complete · no chart changes',change=null,priorUndo=undo,priorHidden=hidden;
   if(r.result?.drawings.length||r.result?.action==='clear'){
    if(contextChanged||!cell||!sameScope(r.snapshot,chartScope(ws,cell))||!sameScope(scope,chartScope(ws))){outcome='Not applied · chart context changed';}
    else{
@@ -56,11 +56,23 @@ export function setupChartChat({workspace,toast}){
     // Never apply after a provider correction or history replacement at the same symbol.
     const unchanged=r.snapshot.bars.every(b=>{const x=byTime.get(b.time);return x&&['open','high','low','close','volume'].every(k=>x[k]===b[k]);});
     if(!unchanged)outcome='Not applied · source candles changed';
-    else{const change=applyMarkup(cell.chart,r.result);undo={cell,change,scope:chartScope(ws,cell)};hidden=false;$('ccHide').textContent='◉ Hide AI';outcome=r.result.action==='clear'?'AI drawings cleared':`${change.ids.length} drawings applied to ${r.snapshot.timeframe}`;}
+    else{
+     change=applyMarkup(cell.chart,r.result);
+     if(runEpoch!==epoch||running!==r.id){restoreMarkup(cell.chart,change);syncMarkup();return;}
+     if(contextChanged){restoreMarkup(cell.chart,change);change=null;syncMarkup();outcome='Not applied · chart context changed';}
+     else outcome=r.result.action==='clear'?'AI drawings cleared':`${change.ids.length} drawings applied to ${r.snapshot.timeframe}`;
+    }
    }
   }
-  syncMarkup();applications.set(r.id,outcome);
-  const done=await api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome});render(done);controls();
+  try{
+   const done=await api('applied',{id:r.id,sha256:r.snapshot.sha256,outcome});
+   if(change){undo={cell,change,scope:chartScope(ws,cell)};hidden=false;$('ccHide').textContent='◉ Hide AI';syncMarkup();}
+   applications.set(r.id,outcome);render(done);controls();
+  }catch(e){
+   if(change){restoreMarkup(cell.chart,change);undo=priorUndo;hidden=priorHidden;$('ccHide').textContent=hidden?'◉ Show AI':'◉ Hide AI';syncMarkup();}
+   if(runEpoch!==epoch||running!==r.id)return;
+   throw e;
+  }
  }
  async function poll(){
   if(polling||!running)return;polling=true;const id=running,runEpoch=epoch;

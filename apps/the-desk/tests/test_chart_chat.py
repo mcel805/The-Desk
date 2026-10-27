@@ -24,8 +24,8 @@ class FakeSession:
         self.calls.append((self.instructions,prompt,self.kw))
         if schema==PLAN:return {'action':'liquidity','reason':'fixture route'},[]
         if schema==REVIEW:
-            searches=[{'type':'webSearch','action':{'type':'open','url':'https://example.com/fixture'}}] if self.kw.get('web_search')=='live' else []
-            if searches:self.kw['on_event']('search',{'action':searches[0]['action']})
+            searches=[{'type':'webSearch','action':{'type':'search','query':'fixture'}},{'type':'webSearch','action':{'type':'open','url':'https://example.com/fixture'}}] if self.kw.get('web_search')=='live' else []
+            for item in searches:self.kw['on_event']('search',{'action':item['action']})
             return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},searches
         return {'answer':'Synthetic final analysis','followups':['Explain the strongest pool']},[]
     def close(self):pass
@@ -130,7 +130,22 @@ class ChatTests(unittest.TestCase):
                 r=s.read(r['id'])
                 if r['status']!='running':break
                 time.sleep(.01)
-            self.assertEqual(r['status'],'failed');self.assertIn('Web research did not run',r['error']);s.close()
+            self.assertEqual(r['status'],'failed');self.assertIn('Web research did not complete',r['error']);s.close()
+    def test_search_only_web_research_fails_without_ready_markup(self):
+        class SearchOnly(FakeSession):
+            def run(self,prompt,schema,**kw):
+                result,_=super().run(prompt,schema,**kw)
+                if schema==REVIEW and self.kw.get('web_search')=='live':
+                    return result,[{'type':'webSearch','action':{'type':'search','query':'fixture'}}]
+                return result,[]
+        with tempfile.TemporaryDirectory() as tmp:
+            s=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),SearchOnly)
+            r=s.begin({'text':'Rank liquidity','snapshot':chart(),'web':True})
+            for _ in range(100):
+                r=s.read(r['id'])
+                if r['status']!='running':break
+                time.sleep(.01)
+            self.assertEqual(r['status'],'failed');self.assertIn('search and public source open',r['error']);s.close()
     def test_stop_interrupts_in_memory_even_when_storage_is_unavailable(self):
         from unittest.mock import patch
         entered=threading.Event();release=threading.Event()
