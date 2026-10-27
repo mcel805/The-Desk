@@ -320,7 +320,10 @@ first handful of observations.
 All routes inherit the Desk's loopback Host / same-origin JSON checks.
 
 - `GET /api/swing/status`: per-symbol state and recent dot history.
-- `POST /api/swing/control`: `start`, `pause`, or `configure`, exact symbol/config.
+- `POST /api/swing/control`: `start`, `start_auto`, `pause`, or `configure`, exact symbol/config.
+  Both starts retain the selected Learning Lab policy and nested warning settings.
+  `start` starts one manual run; `start_auto` also opts into automatic recovery
+  after a gap or server restart. Only the automatic start enables that intent.
 - `POST /api/swing/key`: exact same-origin JSON commands `{"action":"save","api_key":"…"}`,
   `{"action":"remember"}`, `{"action":"load"}`, or `{"action":"forget"}`. Secret values
   never appear in responses. Legacy `{"api_key":"…"}` remains memory-only for older clients.

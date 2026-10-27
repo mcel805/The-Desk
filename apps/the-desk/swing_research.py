@@ -218,7 +218,7 @@ class SwingResearch:
         with self.lock:
             if action in ('start','start_auto'):
                 if symbol in self.active:return self.settings_state() if p.get('compact') else self.status()
-                if self.active:raise ValueError('Pause the current market before starting another')
+                if self.active:raise ValueError('One observation run at a time. Pause '+next(iter(self.active))+' before starting '+symbol+'.')
                 if p.get('expected_revision') and p['expected_revision']!=digest(self.configs[symbol]):
                     raise ValueError('Settings changed in another tab. Reload settings and start again.')
                 patch=p.get('config',{})

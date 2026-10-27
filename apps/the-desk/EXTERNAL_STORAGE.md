@@ -86,3 +86,10 @@ page limit that reserves room for a full rollback copy, plus 128 MiB of headroom
 The database can therefore use less than half the remaining shared budget. Inserts,
 updates, deletes, migrations and attachments check capacity, and child logs retain
 only their latest 8 MiB. Isolated QA/test workspaces remain explicitly supported.
+
+Desk and Journal writers share durable capacity reservations. Routine Desk writes
+check the reservation ledger and physical free space without recursively scanning
+the external tree; the supervisor reconciles actual usage. Reservation admission
+is serialized, completed or rolled-back Desk database contexts release their
+reservation, and reservations from exited processes are reclaimed. This keeps
+capacity checks active while avoiding a directory scan on every Swing write.

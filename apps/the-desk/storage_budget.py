@@ -30,7 +30,8 @@ def _db(path):
 
 def _alive(pid):
     try:os.kill(pid,0);return True
-    except (ProcessLookupError,PermissionError):return True
+    except ProcessLookupError:return False
+    except PermissionError:return True
     except OSError:return False
 
 def _clean(db):
@@ -85,6 +86,7 @@ def reserve(policy,requested):
     db=_db(path_for(policy));token=uuid.uuid4().hex
     try:
         with db:
+            db.execute('BEGIN IMMEDIATE')
             _ensure(db,policy,0);_clean(db)
             meta=db.execute('SELECT base_used,committed_bytes FROM budget_meta WHERE id=1').fetchone()
             current=db.execute('SELECT COALESCE(SUM(bytes),0) FROM budget_reservations').fetchone()[0]

@@ -71,6 +71,10 @@ def connect(path):
         from storage_budget import reserve
         lease=reserve(json.loads(Path(policy_path).read_text()),64*1024*1024)
     class Guarded(sqlite3.Connection):
+        def __exit__(self,*args):
+            try:return super().__exit__(*args)
+            finally:
+                if lease:self.close()
         def close(self):
             try:return super().close()
             finally:
