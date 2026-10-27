@@ -44,7 +44,11 @@ overwriting a newer layout. Acknowledgement follows the server transaction commi
 While the server is unavailable, the tab retains a local draft and retries with
 backoff. Reload can recover that draft; an already-saved identical draft is cleared.
 Conflicting drafts remain visible for review. **Save layout** explicitly saves the
-reviewed current tab, including drawings and indicator settings. Browser drafts
+reviewed current tab, including drawings and indicator settings. A browser workspace
+mirror also retains the complete serialized chart layout, including Pine indicator
+identity and settings. On reload, an in-flight tab queue remains authoritative; when
+the server is empty after a new build, the mirror seeds it at revision zero. If the
+server has a newer revision, it wins and replaces the stale mirror. Browser drafts
 are a recovery aid, not a replacement for the server database or verified backups.
 
 ## Verified snapshots
@@ -118,7 +122,8 @@ python3 -B -m unittest discover -s tests -p test_storage.py
 python3 -B -m unittest discover -s tests -p 'test_swing*.py'
 python3 -B -m unittest discover -s tests -p test_jev_costs.py
 python3 -B -m unittest discover -s tests -p test_engine.py
-node --test tests/test_durable_settings.mjs tests/test_swing_evidence.mjs
+node --test tests/test_durable_settings.mjs tests/test_workspace_mirror.mjs tests/test_swing_evidence.mjs
+DESK_LAYOUT_BROWSER=1 node --test tests/test_chart_persistence_browser.mjs
 ```
 
 Fault tests cover interrupted transactions, no billing before durable reservation,

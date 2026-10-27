@@ -14,7 +14,7 @@ function close(){if(!testing){dialog.close();generation++;}}
 dialog.addEventListener('cancel',e=>{if(testing)e.preventDefault();});
 function message(text,error=false){const el=dialog.querySelector('#pineFeedback');if(el){el.textContent=text;el.classList.toggle('error',error);}}
 function current(){return context?.chart;}
-function studyName(h){return getEngine().records.get(h.id)?.model.title||(h.source?.match(/^\s*indicator\s*\(\s*(?:title\s*=\s*)?["']([^"']+)/m)?.[1])||h.title;}
+function studyName(h){const source=savedSource(h),declared=source?.match(/^\s*(?:indicator|strategy)\s*\(\s*(?:title\s*=\s*)?(?:"([^"\n]+)"|'([^'\n]+)')/m);return declared?.[1]||declared?.[2]||getEngine().records.get(h.id)?.model.title||h.title;}
 function savedSource(h){const source=getEngine().records.get(h.id)?.source;return isABCSource(h.source)&&source?.includes('Desk visual anchors v2')?source:h.source;}
 function hideOtherDialogs(){current()?.renderer.closeDialogs();}
 export function createPineEngine(){const engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event)});engines.add(engine);return engine;}

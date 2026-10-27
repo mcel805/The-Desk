@@ -1,6 +1,6 @@
 # Pine indicators in The Desk
 
-Indicators → **Create Pine Script indicator** accepts self-contained native Pine v5/v6 source. Paste source or load the supplied **Market Gravity [YinYangAlgorithms]** example, select **Compile & test**, then **Add to chart** and/or **Save indicator**. Saved sources appear under **My Pine indicators** and can be exported, edited and retested, or deleted. Built-in studies remain available in the same menu. Settings, visibility, removal, layout persistence and templates work through Vela's existing indicator handles.
+Indicators → **Create Pine Script indicator** accepts self-contained native Pine v5/v6 source. Paste source or load the supplied **Market Gravity [YinYangAlgorithms]** example, select **Compile & test**, then **Add to chart** and/or **Save indicator**. Saved sources appear under **My Pine indicators** and can be exported, edited and retested, or deleted. Built-in studies remain available in the same menu. Settings, visibility, removal, layout persistence and templates use Vela's indicator handles and The Desk's durable workspace save/recovery path, which preserves indicator identity and settings across reloads.
 
 ## Execution and conversion
 
