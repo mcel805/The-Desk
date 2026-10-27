@@ -181,6 +181,12 @@ class OfficialCallbackTests(unittest.TestCase):
         self.transport.app.historicalDataUpdate(100,bar(close=40007))
         self.assertEqual(self.feed.bars(self.feed.instrument,'1m')['bars'][-1]['close'],40007)
         self.transport.close();self.assertIn(('cancel_history',100),self.transport.app.calls)
+    def test_daily_history_uses_supported_duration_units(self):
+        self.transport.request_history('1d')
+        request = next(c[1] for c in self.transport.app.calls if c[0] == 'history')
+        self.assertEqual(request[3:5], ('3 Y', '1 day'))
+        self.assertEqual(request[5:9], ('TRADES', 0, 2, True))
+
     def test_closed_transport_callbacks_cannot_revive_or_relabel_data(self):
         app=self.transport.app;self.transport.close()
         app.marketDataType(2,1);app.tickPrice(2,1,99999,None)
