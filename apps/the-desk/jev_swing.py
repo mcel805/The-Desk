@@ -14,7 +14,7 @@ from jev_costs import safe_usage
 from jev_keychain import MacKeychain, KeychainError
 
 MODEL='jev-1.14.0'
-PROMPT_VERSION='swing-observer.5-reliability.1'
+PROMPT_VERSION='swing-observer.6-warnings.1'
 QUESTIONS={
     'directional_lean':{'type':'choice','instructions':'Classify the currently supported directional thesis from this timestamped swing snapshot. This is a contextual LONG / SHORT / NEUTRAL lean, not a trade command and not the next candle direction. Use only recognized structure and observed price action; incomplete evidence, conflicting signals, or price between useful locations can justify neutral.','criteria':{'long':'The observed swing and local response coherently support an upward thesis over a downward one.','short':'The observed swing and local response coherently support a downward thesis over an upward one.','neutral':'Neither direction is sufficiently distinguished: evidence is incomplete, conflicting, or lacks a useful response at recognized structure.'}},
     'next_bar':{'type':'choice','instructions':'Using only the timestamped swing state and price evidence, estimate the direction of the NEXT full 1-minute candle, whose start is prediction_bar. Compare its closing price with its opening price. This is a forecast, not a statement about the forming candle. No outcome or future data is provided.','criteria':{'up':'Next full candle closes at least one tick above its open.','down':'Next full candle closes at least one tick below its open.','flat':'Next full candle closes less than one tick from its open.'}},
@@ -62,6 +62,13 @@ for _name in tuple(k for k in QUESTIONS if k!='volume_pattern'):
 
 REQUEST_BUDGET_SECONDS=2.7
 MAX_REQUEST_BYTES=63_000  # Conservative UTF-8 bounds for the two independent token limits.
+QUESTIONS['swing_warning_response']={'type':'choice',
+    'instructions':'Classify whether the supplied `swing_warnings` show a developing reversal in the observed delivery direction. Use closed state for confirmation and mark provisional state as tentative. Correlated SLOW, CHOP and DIVERGENCE share a family cap. Repaired or cleared episodes stop contributing. Compare deliverySupport and recognized protected-pivot breaks with the warnings. Pressure is not a calibrated probability, and warning counts, model probabilities and entry permissions are separate. Choose insufficient when this evidence is absent or unavailable.',
+    'criteria':{'building':'Warnings remain active but a protected-pivot break and local-turn confirmation are still absent.',
+                'repaired_or_tracking':'Price repairs warnings or continues delivery without an active reversal case.',
+                'confirmed_local_turn':'The CLOSED warning state confirms a local turn after protected-pivot failure and failed reclaim or opposite departure.',
+                'insufficient':'Warning evidence is missing, unavailable, or contradictory enough to withhold a classification.'}}
+
 MAX_QUESTION_BYTES=32_000
 RETRY_STATUSES=frozenset({429,500,502,503,504,529})
 
@@ -102,6 +109,17 @@ def prepare_state(state):
     if isinstance(synth,dict):
         recent=synth.get('recent',[]);synth['recent']=recent[-3:]
         synth['recent_omitted']=max(0,len(recent)-3)
+    warnings=result.get('swing_warnings')
+    if isinstance(warnings,dict):
+        # Keep complete episodes and raw configuration locally. The model needs
+        # measured values, active severity, support and the last event changes.
+        for key in ('closed','provisional'):
+            sample=warnings.get(key)
+            if isinstance(sample,dict):
+                for field in ('featureConfig','episodes','liveEpisodes'):sample.pop(field,None)
+        events=warnings.get('events',[])
+        warnings['events']=events[-8:]
+        warnings['events_omitted']=max(0,len(events)-8)
     return result
 
 class JevRequestError(ValueError):

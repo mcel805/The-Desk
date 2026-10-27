@@ -1,3 +1,4 @@
+import {projectWarningTags} from './swing-warnings.mjs';
 import {projectEvaluationDots} from './swing-dot-model.mjs';
 import {marketIdentity} from './trading-model.mjs';
 import {eligibleSwingCharts,selectSwingChart} from './swing-view-model.mjs';
@@ -34,7 +35,8 @@ export function setupSwingTracker({workspace}){
   if(!s?.snapshot||!['OBSERVING','PAUSED'].includes(s.status)||(s.status==='OBSERVING'&&Date.now()-(s.observed_at||0)>75000)||!pane){svg.innerHTML='';view.markup=null;return;}
   const now=s.snapshot.cutoff,x=t=>native.coords.timeToX(t),y=p=>native.coords.priceToY(p,pane.scale,pane.bounds);
   const dots=projectEvaluationDots(s.dots||[],{timeToX:x,priceToY:y,width:native.coords.width,top:pane.bounds.top,height:pane.bounds.height,timeframe:cell.chart.market.timeframe,barWidth:Math.abs(x(now+60000)-x(now))});
-  const markup=dots.map(d=>`<circle class="swing-evaluation-dot" data-evaluation-id="${esc(d.id)}" cx="${d.cx}" cy="${d.cy}" r="${d.radius}" fill="${d.hollow?'#131722':d.color}" stroke="${d.color}" stroke-width=".8" tabindex="0" role="img" aria-label="${esc(d.label)}"><title>${esc(d.label)}</title></circle>`).join('');
+  const tags=projectWarningTags(s.snapshot.warnings,{timeToX:x,priceToY:y,width:native.coords.width,top:pane.bounds.top,height:pane.bounds.height,timeframe:cell.chart.market.timeframe});
+  const markup=dots.map(d=>`<circle class="swing-evaluation-dot" data-evaluation-id="${esc(d.id)}" cx="${d.cx}" cy="${d.cy}" r="${d.radius}" fill="${d.hollow?'#131722':d.color}" stroke="${d.color}" stroke-width=".8" tabindex="0" role="img" aria-label="${esc(d.label)}"><title>${esc(d.label)}</title></circle>`).join('')+tags.map(t=>`<g class="swing-warning-tag" data-warning-id="${esc(t.id)}" tabindex="0" role="img" aria-label="${esc(t.label+' '+t.detail)}"><title>${esc(t.detail)}</title><text x="${t.cx}" y="${t.cy}" fill="${t.color}" text-anchor="middle" paint-order="stroke" stroke="#131722" stroke-width="3" font-size="9">${esc(t.label)}</text></g>`).join('');
   if(view.markup!==markup){svg.innerHTML=markup;view.markup=markup;}
  }
  poll();const timer=setInterval(poll,3000),render=setInterval(paint,200);

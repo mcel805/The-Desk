@@ -1,0 +1,16 @@
+{
+  "status": "UNVERIFIED_INTRABAR_ADAPTER",
+  "checks": 5,
+  "details": [
+    "Initial actual Pine live observation emits parseable batched JSON",
+    "No repeated batch inside the same supplied slot",
+    "Partial-volume feature unavailable in forming-bar observations",
+    "Actual alert JSON and embedded closed observation normalize through study consumer",
+    "Intrabar warning snapshots do not mutate committed warning sequence"
+  ],
+  "expectedSlotBatches": 4,
+  "observedSlotBatches": 1,
+  "cadenceVerified": false,
+  "limitation": "Vela/PineTS incremental runs advance timenow but return unavailable realtime bar-state values after the first tick. Native four-slot behavior cannot be established by this adapter. Independent JavaScript observer cadence tests pass.",
+  "scope": "Local Vela/PineTS with controlled clock and synthetic updates; native TradingView scheduling and delivery unverified."
+}

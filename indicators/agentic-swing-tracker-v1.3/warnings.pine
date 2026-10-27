@@ -1,0 +1,469 @@
+// Advisory warning module. Calculations do not authorize or alter an entry/stop.
+string W="09 · Swing warning evidence"
+bool wEnabled=input.bool(true,"Calculate swing warnings",group=W)
+string wDirectionMode=input.string("Automatic","Observed delivery",options=["Automatic","Track UP","Track DOWN"],group=W)
+int wWindow=input.int(5,"Equal comparison windows · bars",minval=2,maxval=30,group=W)
+int wAtrLength=input.int(14,"Range normalization · bars",minval=2,maxval=100,group=W)
+int wPivotBars=input.int(2,"Warning structure pivot bars each side",minval=1,maxval=8,group=W)
+float wSlowRatio=input.float(0.70,"Slow: recent / preceding directional speed",minval=0.05,maxval=0.95,step=0.05,group=W)
+float wEfficiencyLimit=input.float(0.45,"Chop: maximum travel efficiency",minval=0.05,maxval=0.95,step=0.05,group=W)
+float wOverlapLimit=input.float(0.55,"Chop: minimum candle overlap",minval=0.05,maxval=0.95,step=0.05,group=W)
+float wWickLimit=input.float(0.45,"Rejection: minimum opposing wick fraction",minval=0.05,maxval=0.95,step=0.05,group=W)
+float wExtensionLimit=input.float(3.0,"Extension: distance from base / mean true range",minval=0.25,maxval=20,step=0.25,group=W)
+int wHoldBars=input.int(3,"Level rejection retention · bars",minval=1,maxval=10,group=W)
+bool wMomentumEnabled=input.bool(true,"Calculate momentum divergence",group=W)
+int wMomentumLength=input.int(14,"Momentum balance window · bars",minval=2,maxval=100,group=W)
+float wMomentumDelta=input.float(5,"Momentum divergence · balance points",minval=0.5,maxval=50,group=W)
+bool wVolumeEnabled=input.bool(false,"Calculate effort / result from volume",group=W)
+int wDeliveryWeight=input.int(2,"Weight: delivery / momentum family",minval=0,maxval=5,group=W)
+int wRejectionWeight=input.int(2,"Weight: rejection family",minval=0,maxval=5,group=W)
+int wExtensionWeight=input.int(1,"Weight: extension family",minval=0,maxval=5,group=W)
+int wLocationWeight=input.int(2,"Weight: known-level family",minval=0,maxval=5,group=W)
+int wVolumeWeight=input.int(1,"Weight: effort family",minval=0,maxval=5,group=W)
+int wStructureWeight=input.int(3,"Weight: structure family",minval=0,maxval=5,group=W)
+int wVolumeLength=input.int(20,"Prior full-bar volume baseline",minval=2,maxval=100,group=W)
+float wRelativeVolume=input.float(1.5,"Effort: relative volume minimum",minval=0.1,maxval=10,step=0.1,group=W)
+float wEffortBody=input.float(0.35,"Effort: maximum body / candle range",minval=0.05,maxval=0.95,step=0.05,group=W)
+bool wUseLinkedLevels=input.bool(false,"Use selected prior-bar Liquidity price plots",group=W)
+float wManualUpper=input.price(0,"Known upper reference · 0 unavailable",group=W)
+float wManualLower=input.price(0,"Known lower reference · 0 unavailable",group=W)
+int wManualKnownAt=input.time(0,"Manual reference declared at · required",group=W)
+bool wShowTags=input.bool(true,"Tag starts, severity changes and clearing",group=W)
+bool wShowCleared=input.bool(true,"Retain gray cleared events",group=W)
+int wTagLimit=input.int(40,"Warning labels shown",minval=8,maxval=90,group=W)
+bool wShowPanel=input.bool(true,"Warning evidence panel · bottom left",group=W)
+bool wWarningStream=input.bool(false,"Emit batched warning observation JSON",group=W,tooltip="Create Any alert() function call. At most one warning batch per live 15-second slot. When enabled, do not also enable legacy closed-bar event JSON; warning observations contain their own warning event history.")
+bool wIntrabar=input.bool(true,"Live provisional assessment · 15-second slots",group=W,tooltip="Runs on the first incoming market update in each slot. No timer is guaranteed without ticks. Historical candles have only closed-bar observations. Partial-bar volume is excluded.")
+// WARNING_ENGINE_BODY
+
+type WarningRecord
+    int id
+    int swing
+    int feature
+    string phase
+    int severity
+    int originBar
+    int originAt
+    int knownAt
+    int side
+    float price
+    string reason
+    string packet
+
+var array<WarningRecord> wLedger=array.new<WarningRecord>()
+var array<int> wSequence=array.new<int>(1,0)
+var array<int> wEpisodeIds=array.new<int>(8,0)
+var array<int> wFirstAt=array.new<int>(8,0)
+var array<int> wFirstBar=array.new<int>(8,0)
+var array<int> wFirstOrigin=array.new<int>(8,0)
+var array<int> wReferenceKnown=array.new<int>(8,na)
+var array<string> wReferenceRole=array.new<string>(8,"not_applicable")
+var array<int> wCommitted=array.new<int>(8,na)
+var array<int> wWeights=array.from(wDeliveryWeight,wRejectionWeight,wExtensionWeight,wLocationWeight,wVolumeWeight,wStructureWeight)
+var array<label> wLabels=array.new<label>()
+var table wPanel=table.new(position.bottom_left,2,13,bgcolor=color.new(color.rgb(14,20,30),5))
+var int wSide=0
+var int wSwing=0
+var int wParentKnown=na
+var float wAnchor=na
+var float wProtected=na
+var int wProtectedKnown=na
+var float wExtremePivot=na
+var float wExtremeMomentum=na
+var int wExtremeKnown=na
+var float wBroken=na
+var int wBrokenAt=na
+var int wStage=0
+var bool wProtectedBroken=false
+var float wContactLevel=na
+var int wContactBar=na
+var int wLastRejectBar=na
+var int wLastClosedAt=na
+var int wContiguous=0
+var float wClosedPrice=na
+var float wClosedAtr=na
+var int wClosedSide=0
+var int wClosedSwing=0
+var string wClosedCoverage="000000"
+var float wClosedLevel=na
+var int wClosedLevelKnown=na
+var float wClosedPressure=na
+var int wClosedFamilies=0
+var int wClosedAvailable=0
+var int wClosedBull=0
+var int wClosedState=0
+varip int wLastLiveSlot=na
+varip int wLiveObservedAt=na
+varip float wLivePressure=na
+varip int wLiveFamilies=0
+varip int wLiveBull=0
+varip array<int> wLiveFirstSeen=array.new<int>(8,0)
+varip array<int> wLiveIds=array.new<int>(8,0)
+varip array<int> wLiveSeverity=array.new<int>(8,na)
+varip int wLiveSequence=0
+var label wProvisionalLabel=na
+
+f_wCode(int i)=>i==0?"SLOW":i==1?"CHOP":i==2?"REJECT":i==3?"EXTENDED":i==4?"LEVEL":i==5?"DIVERGENCE":i==6?"EFFORT":"STRUCTURE"
+f_wFamily(int i)=>i==0 or i==1 or i==5?0:i==2?1:i==3?2:i==4?3:i==6?4:5
+f_wReason(int i)=>i==0?"Up/down delivery lost speed versus the preceding equal window":i==1?"Low net progress with overlapping candle ranges":i==2?"Opposing wick and weak close near the recent extreme":i==3?"Observed delivery stretched from its base":i==4?"Known reference contacted and rejected; no unseen orders inferred":i==5?"New price extreme lacks rolling momentum balance confirmation":i==6?"Above-baseline full-bar volume with little body progress; absorption unproven":"Micro support/resistance failure; larger swing tracked separately"
+f_wState(int stage,int count)=>stage>=3?"CONFIRMED LOCAL TURN":stage==2?"PROTECTED LEVEL BROKEN":stage==1?"LOCAL TURN":count>0?"CAUTION":"TRACKING"
+f_wColor(int i)=>i==7?bearInk:watchInk
+
+f_wPacket(int id,int swing,int feature,string phase,int severity,int originBar,int originAt,int firstAt,float value,float baseline,float threshold,string reason)=>
+    "{\"id\":"+str.tostring(id)+",\"swing\":"+str.tostring(swing)+",\"feature\":\""+f_wCode(feature)+"\",\"phase\":\""+phase+"\",\"severity\":"+f_num(severity)+",\"origin_bar\":"+str.tostring(originBar)+",\"origin_at\":"+str.tostring(originAt)+",\"known_at\":"+str.tostring(time_close)+",\"first_confirmed_at\":"+str.tostring(firstAt)+",\"value\":"+f_num(value)+",\"baseline\":"+f_num(baseline)+",\"threshold\":"+f_num(threshold)+",\"reason\":\""+f_safe(reason)+"\"}"
+f_wEvent(int swing,int feature,string phase,int severity,int originBar,int originAt,int firstAt,float value,float baseline,float threshold,string reason)=>
+    int next=array.get(wSequence,0)+1
+    array.set(wSequence,0,next)
+    int episode=array.get(wEpisodeIds,feature)
+    if phase=="START"
+        episode:=next
+        array.set(wEpisodeIds,feature,episode)
+    string packet=f_wPacket(episode,swing,feature,phase,severity,originBar,originAt,firstAt,value,baseline,threshold,reason)
+    int firstObserved=array.get(wLiveFirstSeen,feature)>0?math.min(time_close,array.get(wLiveFirstSeen,feature)):firstAt
+    packet:=str.substring(packet,0,str.length(packet)-1)+",\"sequence\":"+str.tostring(next)+",\"first_observed_at\":"+str.tostring(firstObserved)+",\"reference_known_at\":"+f_num(array.get(wReferenceKnown,feature))+",\"reference_clock_role\":\""+array.get(wReferenceRole,feature)+"\",\"external_producer_known_at\":null}"
+    array.push(wLedger,WarningRecord.new(episode,swing,feature,phase,severity,bar_index,time,time_close,wSide,close,reason,packet))
+    if array.size(wLedger)>180
+        array.shift(wLedger)
+    if phase=="CLEARED" or phase=="UNAVAILABLE"
+        array.set(wEpisodeIds,feature,0)
+    true
+
+// All rolling calculations are prefix-only. Comparisons use prior closed anchors.
+float wTravel=0.0
+float wOverlap=0.0
+float wMeanTr=0.0
+float wMomentumUp=0.0
+float wMomentumDown=0.0
+float wVolumeBase=0.0
+int wVolumeCount=0
+for j=0 to wWindow-1
+    wTravel+=math.abs(close[j]-close[j+1])
+    float intersect=math.min(high[j],high[j+1])-math.max(low[j],low[j+1])
+    wOverlap+=math.max(0.0,math.min(1.0,intersect/math.max(tick,math.min(high[j]-low[j],high[j+1]-low[j+1]))))
+wOverlap:=wOverlap/wWindow
+for j=0 to wAtrLength-1
+    wMeanTr+=math.max(high[j]-low[j],math.max(math.abs(high[j]-close[j+1]),math.abs(low[j]-close[j+1])))
+wMeanTr:=wMeanTr/wAtrLength
+for j=0 to wMomentumLength-1
+    float delta=close[j]-close[j+1]
+    wMomentumUp+=math.max(0.0,delta)
+    wMomentumDown+=math.max(0.0,-delta)
+float wMomentum=na(close[wMomentumLength])?na:wMomentumUp+wMomentumDown==0?50:100*wMomentumUp/(wMomentumUp+wMomentumDown)
+for j=1 to wVolumeLength
+    if not na(volume[j]) and volume[j]>0
+        wVolumeBase+=volume[j]
+        wVolumeCount+=1
+wVolumeBase:=wVolumeBase/wVolumeLength
+bool wGap=not na(time[1]) and time!=time_close[1]
+int wCurrentContiguous=wGap?1:wContiguous+1
+bool wReady=wEnabled and entryChart and wCurrentContiguous>math.max(wWindow*2,wAtrLength) and not na(close[math.max(wWindow*2,wAtrLength)]) and wMeanTr>tick/100
+float wWarningHighPivot=ta.pivothigh(high,wPivotBars,wPivotBars)
+float wWarningLowPivot=ta.pivotlow(low,wPivotBars,wPivotBars)
+float wRecentHigh=ta.highest(high,wWindow+1)
+float wRecentLow=ta.lowest(low,wWindow+1)
+float wInitialLow=ta.lowest(low,wWindow*2+1)
+float wInitialHigh=ta.highest(high,wWindow*2+1)
+float wMinorLow=ta.lowest(low[1],3)
+float wMinorHigh=ta.highest(high[1],3)
+// Warning delivery is chart-local, separate from the slower selected parent TF.
+// An automatic flip waits for the prior committed local confirmation, then starts
+// a fresh campaign on the NEXT closed bar. It is never backdated to the high/low.
+int wWanted=wDirectionMode=="Track UP"?1:wDirectionMode=="Track DOWN"?-1:wSide!=0 and wStage>=3?-wSide:close>close[wWindow]?1:close<close[wWindow]?-1:0
+bool wParentChanged=not na(parentLast) and (na(wParentKnown) or parentLast.known!=wParentKnown)
+bool wReset=wEnabled and entryChart and (wGap or (wReady and wWanted!=0 and (wSide==0 or (wDirectionMode=="Automatic" and wStage>=3))))
+if barstate.isconfirmed and wReset
+    for i=0 to 7
+        int old=array.get(wCommitted,i)
+        if not na(old) and old>0
+            f_wEvent(wSwing,i,"CLEARED",0,array.get(wFirstBar,i),array.get(wFirstOrigin,i),array.get(wFirstAt,i),na,na,na,wGap?"DATA_GAP":"SWING_CHANGED")
+        array.set(wCommitted,i,na)
+        array.set(wEpisodeIds,i,0)
+        array.set(wLiveFirstSeen,i,0)
+        array.set(wLiveIds,i,0)
+        array.set(wLiveSeverity,i,na)
+    wSide:=wGap?0:wWanted
+    wSwing+=1
+    wAnchor:=wSide==1?wInitialLow:wInitialHigh
+    wProtected:=na
+    wProtectedKnown:=na
+    wExtremePivot:=na
+    wExtremeMomentum:=na
+    wExtremeKnown:=na
+    wBroken:=na
+    wBrokenAt:=na
+    wProtectedBroken:=false
+    wStage:=0
+    wContactLevel:=na
+    wContactBar:=na
+    wLastRejectBar:=na
+
+float wSpeed=wSide*(close-close[wWindow])/wWindow
+float wPriorSpeed=wSide*(close[wWindow]-close[wWindow*2])/wWindow
+float wSpeedRatio=wPriorSpeed>=tick/wWindow?math.max(0.0,wSpeed)/wPriorSpeed:na
+float wEfficiency=wTravel>0?math.abs(close-close[wWindow])/wTravel:0
+float wRange=math.max(tick,high-low)
+float wPeak=wSide==1?wRecentHigh:wRecentLow
+bool wNear=wSide*(wPeak-(wSide==1?high:low))<=wMeanTr*0.5
+float wRejectFraction=wSide==1?(high-math.max(open,close))/wRange:(math.min(open,close)-low)/wRange
+float wCloseLocation=wSide==1?(close-low)/wRange:(high-close)/wRange
+float wExtension=wSide*((wSide==1?high:low)-wAnchor)/wMeanTr
+bool wRejected=wNear and wRejectFraction>=wWickLimit and wCloseLocation<=0.5
+bool wDivergence=wMomentumEnabled and not na(wExtremeMomentum) and not na(wMomentum) and wNear and (wSide==1?wPeak>wExtremePivot+tick and wMomentum<wExtremeMomentum-wMomentumDelta:wPeak<wExtremePivot-tick and wMomentum>wExtremeMomentum+wMomentumDelta)
+bool wVolumeAvailable=wVolumeEnabled and wVolumeCount==wVolumeLength and wVolumeBase>0 and not na(volume) and volume>0 and barstate.isconfirmed
+float wRelVolume=wVolumeAvailable?volume/wVolumeBase:na
+float wBodyFraction=math.abs(close-open)/wRange
+bool wManualAvailable=wManualKnownAt>0 and wManualKnownAt<=time and (wSide==1?wManualUpper>0:wManualLower>0)
+bool wLinkedAvailable=wUseLinkedLevels and linkedPricesOK[1]
+float wLevel=wManualAvailable?(wSide==1?wManualUpper:wManualLower):wLinkedAvailable?(wSide==1?resistanceFeed[1]:supportFeed[1]):na
+int wLevelKnown=wManualAvailable?wManualKnownAt:wLinkedAvailable?time_close[1]:na
+array.set(wReferenceKnown,4,wLevelKnown)
+array.set(wReferenceRole,4,wManualAvailable?"manual_declared":wLinkedAvailable?"prior_plot_sample":"unavailable")
+bool wLevelContact=not na(wLevel) and wSide*((wSide==1?high:low)-wLevel)>=0
+bool wSameLevel=not na(wContactLevel) and not na(wLevel) and math.abs(wContactLevel-wLevel)<tick/2
+int wObservedContact=wLevelContact?bar_index:wSameLevel?wContactBar:na
+bool wLevelRejected=not na(wObservedContact) and bar_index-wObservedContact<wHoldBars and wSide*(close-wLevel)<=0
+float wMinor=wSide==1?wMinorLow:wMinorHigh
+int wNextStage=wStage
+float wNextBroken=wBroken
+int wNextBrokenAt=wBrokenAt
+bool wNextProtected=wProtectedBroken
+bool wMicroBreak=wSide*(close-wMinor)<-tick/2
+bool wMajorBreak=not na(wProtected) and wProtectedKnown<=time and wSide*(close-wProtected)<-tick/2
+if not na(wNextBroken) and wSide*(close-wNextBroken)>tick
+    wNextStage:=0
+    wNextBroken:=na
+    wNextBrokenAt:=na
+    wNextProtected:=false
+if wMajorBreak
+    wNextStage:=math.max(wNextStage,2)
+    if na(wNextBroken) or not wNextProtected
+        wNextBroken:=wProtected
+        wNextBrokenAt:=time_close
+        wNextProtected:=true
+else if wMicroBreak and wNextStage==0
+    wNextStage:=1
+    wNextBroken:=wMinor
+    wNextBrokenAt:=time_close
+    wNextProtected:=false
+if not na(wNextBroken) and time_close>wNextBrokenAt and wSide*((wSide==1?high:low)-wNextBroken)>=0 and wSide*(close-wNextBroken)<0
+    wNextStage:=wNextProtected?3:math.max(wNextStage,1)
+if wNextProtected and wNextStage>=2 and time_close-wNextBrokenAt>=wPivotBars*60000 and wSide*(close-wNextBroken)<0 and wSpeed<0
+    wNextStage:=3
+
+array<int> wNow=array.from(not na(wSpeedRatio)?wSpeedRatio<wSlowRatio?(wSpeed<=0?2:1):0:na,wEfficiency<wEfficiencyLimit and wOverlap>=wOverlapLimit?1:0,wRejected?1:0,not na(wExtension)?wExtension>=wExtensionLimit?1:0:na,na(wLevel)?na:wLevelRejected?2:0,wMomentumEnabled and not na(wExtremeMomentum) and not na(wMomentum)?wDivergence?1:0:na,wVolumeAvailable?wNear and wRelVolume>=wRelativeVolume and wBodyFraction<wEffortBody?1:0:na,wNextStage)
+array<float> wValues=array.from(wSpeedRatio,wEfficiency,wRejectFraction,wExtension,wLevel,wMomentum,wRelVolume,wProtected)
+array<float> wBaselines=array.from(wPriorSpeed,wOverlap,wCloseLocation,wAnchor,wLevel,wExtremeMomentum,wVolumeBase,wMinor)
+array<float> wThresholds=array.from(wSlowRatio,wEfficiencyLimit,wWickLimit,wExtensionLimit,wLevel,wMomentumDelta,wRelativeVolume,wProtected)
+array<int> wGroups=array.new<int>(6,na)
+int wFeatures=0
+int wAvailable=0
+int wFamilies=0
+float wWeighted=0.0
+float wCapacity=0.0
+string wCoverage=""
+if wReady and wSide!=0
+    for i=0 to 7
+        int severity=array.get(wNow,i)
+        if not na(severity)
+            int family=f_wFamily(i)
+            int old=array.get(wGroups,family)
+            array.set(wGroups,family,math.max(na(old)?0:old,math.min(2,severity)))
+            if severity>0
+                wFeatures+=1
+    for i=0 to 5
+        int severity=array.get(wGroups,i)
+        wCoverage+=na(severity)?"0":"1"
+        if not na(severity)
+            wAvailable+=1
+            wCapacity+=2*array.get(wWeights,i)
+            wWeighted+=severity*array.get(wWeights,i)
+            if severity>0
+                wFamilies+=1
+float wPressure=wReady and wCapacity>0?100*wWeighted/wCapacity:na
+int wBull=(wSpeed>0 and wEfficiency>=0.6?1:0)+(wCloseLocation>=0.7 and wSide*(close-open)>0?1:0)+(not na(wProtected) and wSide*((wSide==1?low:high)-wProtected)>=0?1:0)+(not na(wBroken) and wSide*(close-wBroken)>tick?1:0)
+
+if barstate.isconfirmed
+    wContiguous:=wCurrentContiguous
+    if not na(parentLast)
+        wParentKnown:=parentLast.known
+    wLastClosedAt:=time_close
+    if wReady and wSide!=0
+        for i=0 to 7
+            int old=array.get(wCommitted,i)
+            int now=array.get(wNow,i)
+            bool was=not na(old) and old>0
+            bool present=not na(now) and now>0
+            if present and not was
+                array.set(wFirstAt,i,time_close)
+                array.set(wFirstBar,i,bar_index)
+                array.set(wFirstOrigin,i,time)
+                f_wEvent(wSwing,i,"START",now,bar_index,time,time_close,array.get(wValues,i),array.get(wBaselines,i),array.get(wThresholds,i),f_wReason(i))
+            else if present and was and now!=old
+                f_wEvent(wSwing,i,"UPDATE",now,array.get(wFirstBar,i),array.get(wFirstOrigin,i),array.get(wFirstAt,i),array.get(wValues,i),array.get(wBaselines,i),array.get(wThresholds,i),"Severity changed; same warning episode")
+            else if was and not present
+                f_wEvent(wSwing,i,na(now)?"UNAVAILABLE":"CLEARED",0,array.get(wFirstBar,i),array.get(wFirstOrigin,i),array.get(wFirstAt,i),array.get(wValues,i),array.get(wBaselines,i),array.get(wThresholds,i),na(now)?"Required input unavailable":"Evidence repaired or episode expired")
+            array.set(wCommitted,i,now)
+        wStage:=wNextStage
+        wBroken:=wNextBroken
+        wBrokenAt:=wNextBrokenAt
+        wProtectedBroken:=wNextProtected
+        if wLevelContact
+            wContactLevel:=wLevel
+            wContactBar:=bar_index
+        if not wSameLevel and not wLevelContact
+            wContactLevel:=na
+            wContactBar:=na
+        wClosedPressure:=wPressure
+        wClosedFamilies:=wFamilies
+        wClosedAvailable:=wAvailable
+        wClosedBull:=wBull
+        wClosedState:=wStage
+        wClosedPrice:=close
+        wClosedAtr:=wMeanTr
+        wClosedSide:=wSide
+        wClosedSwing:=wSwing
+        wClosedCoverage:=wCoverage
+        wClosedLevel:=wLevel
+        wClosedLevelKnown:=wLevelKnown
+        // Recognize anchors AFTER the bar's decisions, never backdate a warning.
+        bool unique=(not na(wWarningHighPivot))!=(not na(wWarningLowPivot))
+        if unique
+            int pivotSide=not na(wWarningHighPivot)?1:-1
+            float pivotPrice=pivotSide==1?wWarningHighPivot:wWarningLowPivot
+            if pivotSide==wSide
+                wExtremePivot:=pivotPrice
+                wExtremeMomentum:=wMomentum[wPivotBars]
+                wExtremeKnown:=time_close
+            else if na(wProtected) or wSide*(pivotPrice-wProtected)>0
+                wProtected:=pivotPrice
+                wProtectedKnown:=time_close
+    else
+        wClosedPressure:=na
+        wClosedFamilies:=0
+        wClosedAvailable:=0
+        wClosedBull:=0
+        wClosedState:=0
+
+// This live layer never mutates committed episodes, swing anchors or base entries.
+// varip retains a slot receipt across realtime rollback. Missing slots are not invented.
+int wSlot=int(math.floor(timenow/15000))
+bool wFreshLive=barstate.isrealtime and timenow>=time and timenow<=time_close+1000
+bool wNewLiveSlot=wFreshLive and (na(wLastLiveSlot) or wSlot!=wLastLiveSlot)
+bool wSample=wEnabled and entryChart and (wIntrabar?wNewLiveSlot:wFreshLive and barstate.isconfirmed and (na(wLastLiveSlot) or wSlot!=wLastLiveSlot))
+if wSample
+    wLastLiveSlot:=wSlot
+    wLiveObservedAt:=timenow
+    wLivePressure:=wPressure
+    wLiveFamilies:=wFamilies
+    wLiveBull:=wBull
+    for i=0 to 7
+        int severity=wReady?array.get(wNow,i):na
+        if not na(severity) and severity>0
+            if array.get(wLiveFirstSeen,i)==0
+                wLiveSequence+=1
+                array.set(wLiveFirstSeen,i,timenow)
+                array.set(wLiveIds,i,wLiveSequence)
+        else
+            array.set(wLiveFirstSeen,i,0)
+            array.set(wLiveIds,i,0)
+        array.set(wLiveSeverity,i,severity)
+    if wWarningStream and wReady and wSide!=0 and not na(wClosedPressure)
+        string featureJson="["
+        for i=0 to 7
+            featureJson+=(i>0?",":"")+f_num(array.get(wNow,i))
+        featureJson+="]"
+        string liveEpisodes="["
+        for i=0 to 7
+            liveEpisodes+=(i>0?",":"")+"{\"feature\":\""+f_wCode(i)+"\",\"live_id\":"+str.tostring(array.get(wLiveIds,i))+",\"first_observed_at\":"+str.tostring(array.get(wLiveFirstSeen,i))+"}"
+        liveEpisodes+="]"
+        string eventJson="["
+        int count=array.size(wLedger)
+        if count>0
+            for j=math.max(0,count-24) to count-1
+                eventJson+=(j>math.max(0,count-24)?",":"")+array.get(wLedger,j).packet
+        eventJson+="]"
+        string config=str.tostring(wWindow)+"|"+str.tostring(wAtrLength)+"|"+str.tostring(wPivotBars)+"|"+str.tostring(wSlowRatio)+"|"+str.tostring(wEfficiencyLimit)+"|"+str.tostring(wOverlapLimit)+"|"+str.tostring(wWickLimit)+"|"+str.tostring(wExtensionLimit)+"|"+str.tostring(wHoldBars)+"|"+str.tostring(wMomentumEnabled)+"|"+str.tostring(wMomentumLength)+"|"+str.tostring(wMomentumDelta)+"|"+str.tostring(wVolumeEnabled)+"|"+str.tostring(wVolumeLength)+"|"+str.tostring(wRelativeVolume)+"|"+str.tostring(wEffortBody)+"|"+wDirectionMode+"|"+str.tostring(tick)+"|"+str.tostring(wUseLinkedLevels)+"|"+str.tostring(wManualUpper>0)+"|"+str.tostring(wManualLower>0)+"|"+str.tostring(wManualKnownAt>0)
+        config+="|"+str.tostring(wDeliveryWeight)+"|"+str.tostring(wRejectionWeight)+"|"+str.tostring(wExtensionWeight)+"|"+str.tostring(wLocationWeight)+"|"+str.tostring(wVolumeWeight)+"|"+str.tostring(wStructureWeight)
+        string identity="\"schema\":\"agentic.swing.warnings.v1\",\"revision\":\"swing-warnings-1.3.0\",\"symbol\":\""+f_safe(syminfo.tickerid)+"\",\"feature_config\":\""+f_safe(config)+"\""
+        string closed="{"+identity+",\"observed_at\":"+str.tostring(timenow)+",\"closed_cutoff\":"+f_num(wLastClosedAt)+",\"provisional\":false,\"swing\":"+str.tostring(wClosedSwing)+",\"side\":"+str.tostring(wClosedSide)+",\"coverage\":\""+wClosedCoverage+"\",\"pressure\":"+f_num(wClosedPressure)+",\"stage\":"+str.tostring(wClosedState)+",\"close\":"+f_num(wClosedPrice)+",\"atr\":"+f_num(wClosedAtr)+",\"level_price\":"+f_num(wClosedLevel)+",\"level_known_at\":"+f_num(wClosedLevelKnown)+"}"
+        string observation="{"+identity+",\"timeframe\":\""+timeframe.period+"\",\"bar_open\":"+str.tostring(time)+",\"observed_at\":"+str.tostring(timenow)+",\"closed_cutoff\":"+f_num(wLastClosedAt)+",\"provisional\":"+(barstate.isconfirmed?"false":"true")+",\"swing\":"+str.tostring(wSwing)+",\"side\":"+str.tostring(wSide)+",\"coverage\":\""+wCoverage+"\",\"pressure\":"+f_num(wPressure)+",\"closed_pressure\":"+f_num(wClosedPressure)+",\"active_families\":"+str.tostring(wFamilies)+",\"available_families\":"+str.tostring(wAvailable)+",\"delivery_support\":"+str.tostring(wBull)+",\"stage\":"+str.tostring(wNextStage)+",\"probability\":null,\"probability_status\":\"UNCALIBRATED\",\"severity\":"+featureJson+",\"open\":"+str.tostring(open)+",\"high\":"+str.tostring(high)+",\"low\":"+str.tostring(low)+",\"close\":"+str.tostring(close)+",\"volume\":"+f_num(volume)+",\"atr\":"+f_num(wMeanTr)+",\"speed_ratio\":"+f_num(wSpeedRatio)+",\"efficiency\":"+f_num(wEfficiency)+",\"overlap\":"+f_num(wOverlap)+",\"protected_level\":"+f_num(wProtected)+",\"sequence\":"+str.tostring(array.get(wSequence,0))+",\"closed_observation\":"+closed+",\"events\":"+eventJson+"}"
+        observation:=str.substring(observation,0,str.length(observation)-1)+",\"live_episodes\":"+liveEpisodes+"}"
+        alert(observation,alert.freq_all)
+
+plot(wClosedPressure,"Warnings · closed pressure 0–100 NOT probability",display=display.data_window)
+plot(wClosedFamilies,"Warnings · active distinct families",display=display.data_window)
+plot(wClosedAvailable,"Warnings · available families",display=display.data_window)
+plot(wClosedBull,"Warnings · delivery support count",display=display.data_window)
+plot(wClosedState,"Warnings · turn stage 0 track 1 micro 2 protected 3 confirmed",display=display.data_window)
+plot(wSide,"Warnings · observed delivery side",display=display.data_window)
+plot(wProtected,"Warnings · recognized protected level",display=display.data_window)
+plot(array.get(wSequence,0),"Warnings · event sequence",display=display.data_window)
+plot(wSpeedRatio,"Warnings · speed ratio",display=display.data_window)
+plot(wEfficiency,"Warnings · efficiency",display=display.data_window)
+plot(wOverlap,"Warnings · overlap",display=display.data_window)
+plot(wRejectFraction,"Warnings · opposing wick fraction",display=display.data_window)
+plot(wMomentum,"Warnings · rolling momentum balance",display=display.data_window)
+
+if barstate.islastconfirmedhistory or barstate.islast
+    for item in wLabels
+        label.delete(item)
+    array.clear(wLabels)
+    if wShowTags and wEnabled
+        int count=array.size(wLedger)
+        int shown=0
+        if count>0
+            for j=0 to count-1
+                WarningRecord item=array.get(wLedger,count-j-1)
+                bool cleared=item.phase=="CLEARED" or item.phase=="UNAVAILABLE"
+                bool stillActive=item.swing==wSwing and array.get(wEpisodeIds,item.feature)==item.id
+                if shown<wTagLimit and item.originBar>=bar_index-500 and (wShowCleared or (not cleared and stillActive))
+                    color ink=cleared or not stillActive?color.gray:f_wColor(item.feature)
+                    string caption=f_wCode(item.feature)+(cleared?" · CLEAR":item.phase=="UPDATE"?" · UPDATE":"")+" #"+str.tostring(item.id)
+                    string tip=item.reason+"\n"+item.packet+"\nResearch warning, not an entry or calibrated probability."
+                    int lane=item.feature%4
+                    float offset=(lane+1)*math.max(tick*4,nz(wMeanTr,tick*8)*0.35)
+                    array.push(wLabels,label.new(item.originBar,item.price+(item.side==1?offset:-offset),caption,xloc=xloc.bar_index,style=label.style_none,textcolor=ink,size=size.tiny,tooltip=tip))
+                    shown+=1
+    string liveCodes=""
+    string closedCodes=""
+    for i=0 to 7
+        int liveSeverity=array.get(wLiveSeverity,i)
+        int closedSeverity=array.get(wCommitted,i)
+        if not na(liveSeverity) and liveSeverity>0
+            liveCodes+=(str.length(liveCodes)>0?" · ":"")+f_wCode(i)
+        if not na(closedSeverity) and closedSeverity>0
+            closedCodes+=(str.length(closedCodes)>0?" · ":"")+f_wCode(i)
+    if not na(wProvisionalLabel)
+        label.delete(wProvisionalLabel)
+    if wShowTags and wIntrabar and barstate.isrealtime and not barstate.isconfirmed and str.length(liveCodes)>0
+        wProvisionalLabel:=label.new(bar_index,high+nz(wMeanTr,tick*8)*2,"PROVISIONAL · "+liveCodes,xloc=xloc.bar_index,style=label.style_none,textcolor=watchInk,size=size.tiny,tooltip="Sampled on first incoming tick in a 15-second slot. Can clear before close. Not a confirmed warning or entry.")
+    if wShowPanel and wEnabled
+        string side=wSide==1?"UP":wSide==-1?"DOWN":"WARMING"
+        table.cell(wPanel,0,0,"SWING WARNINGS 1.3",text_color=color.white,text_size=size.small)
+        table.cell(wPanel,1,0,side+" / "+f_wState(wClosedState,wClosedFamilies),text_color=watchInk,text_size=size.small)
+        table.cell(wPanel,0,1,"Closed pressure",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,1,na(wClosedPressure)?"UNAVAILABLE":str.tostring(wClosedPressure,"#.0")+" / 100 · NOT probability",text_color=watchInk,text_size=size.small)
+        table.cell(wPanel,0,2,"Families / coverage",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,2,str.tostring(wClosedFamilies)+" active / "+str.tostring(wClosedAvailable)+" available of 6",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,0,3,"Delivery support",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,3,str.tostring(wClosedBull)+" / 4 · delivery-relative",text_color=bullInk,text_size=size.small)
+        table.cell(wPanel,0,4,"Live provisional",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,4,not wIntrabar?"OFF":not barstate.isrealtime?"LIVE ONLY · no historical slots":na(wLiveObservedAt)?"WAIT INCOMING TICK":str.tostring(wLivePressure,"#.0")+" · sampled "+str.tostring(wLiveObservedAt),text_color=watchInk,text_size=size.small)
+        table.cell(wPanel,0,5,"Protected level",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,5,f_price(wProtected),text_color=railInk,text_size=size.small)
+        table.cell(wPanel,0,6,"Reversal probability",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,6,"UNCALIBRATED · no percentage",text_color=watchInk,text_size=size.small)
+        table.cell(wPanel,0,7,"Momentum / volume",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,7,(wMomentumEnabled?"ON":"OFF")+" / "+(wVolumeEnabled?(wVolumeAvailable?"AVAILABLE":"UNAVAILABLE") :"OFF"),text_color=railInk,text_size=size.small)
+        table.cell(wPanel,0,8,"Known level",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,8,na(wLevel)?"UNAVAILABLE":f_price(wLevel)+(wManualAvailable?" MANUAL":" PRIOR SAMPLE"),text_color=railInk,text_size=size.small)
+        table.cell(wPanel,0,9,"Warning events",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,9,str.tostring(array.get(wSequence,0))+" · entries remain separately gated",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,0,10,"Active closed tags",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,10,str.length(closedCodes)>0?closedCodes:"NONE",text_color=watchInk,text_size=size.tiny)
+        table.cell(wPanel,0,11,"Provisional tags",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,11,barstate.isrealtime and str.length(liveCodes)>0?liveCodes:"NONE / LIVE ONLY",text_color=watchInk,text_size=size.tiny)
+        table.cell(wPanel,0,12,"Live sample freshness",text_color=railInk,text_size=size.small)
+        table.cell(wPanel,1,12,na(wLiveObservedAt)?"NO LIVE RECEIPT":timenow-wLiveObservedAt>30000?"STALE · no new receipt":str.tostring(int((timenow-wLiveObservedAt)/1000))+" seconds · tick clock",text_color=railInk,text_size=size.small)
+    else
+        table.clear(wPanel,0,0,1,12)
