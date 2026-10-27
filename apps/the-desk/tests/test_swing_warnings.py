@@ -6,7 +6,7 @@ import subprocess, tempfile, unittest
 from unittest.mock import patch
 from swing_warnings import WarningEngine, validate_config
 from swing_research import SwingResearch
-from jev_swing import prepare_state, PROMPT_VERSION
+from jev_swing import Jev, QUESTIONS, prepare_state, PROMPT_VERSION
 from test_swing_tracker import BASE, bar, FakeJudge, response
 from test_swing_study_service import Gateway, context, SYMBOL, BASE as SERVICE_BASE
 
@@ -179,7 +179,19 @@ class WarningServiceTests(unittest.TestCase):
         for key in ('closed','provisional'):
             for field in ('observedAt','closedCutoff','severity','values','pressure','coverage','probability'):self.assertEqual(projected['swing_warnings'][key][field],source['swing_warnings'][key][field])
             self.assertNotIn('episodes',projected['swing_warnings'][key])
-        self.assertLessEqual(len(projected['swing_warnings']['events']),8);self.assertIn('warnings',PROMPT_VERSION)
+        self.assertLessEqual(len(projected['swing_warnings']['events']),8)
+        sent=[]
+        class Reply:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def read(self,*args):return json.dumps(response()).encode()
+        judge=Jev(store=False);judge.set_session_key('test-only-session-token')
+        with patch('jev_swing.time.time',return_value=source['observed_at']/1000),patch('jev_swing.urlopen',side_effect=lambda request,**kwargs:(sent.append(json.loads(request.data)) or Reply())):
+            judge.judge(source)
+        self.assertEqual(len(sent),1)
+        self.assertEqual(sent[0]['state']['swing_warnings'],projected['swing_warnings'])
+        self.assertEqual(sent[0]['questions']['swing_warning_response'],QUESTIONS['swing_warning_response'])
+        self.assertIn('warnings',PROMPT_VERSION)
 
     def test_atomic_settings_start_freezes_warning_rules_and_rejects_stale_tabs(self):
         current=self.service.settings_state()['symbols'][SYMBOL]['revision']
