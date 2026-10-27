@@ -214,6 +214,8 @@ class SwingResearch:
                 if not isinstance(cfg,dict) or set(cfg)-set(self.configs[symbol]):raise ValueError('Invalid research configuration')
                 if 'study_levels' in cfg:raise ValueError('Use timestamped level_add or level_remove for manual references')
                 cfg={**self.configs[symbol],**cfg}
+                if isinstance(cfg.get('warning_settings'),dict):
+                    cfg['warning_settings']={**deepcopy(self.configs[symbol].get('warning_settings',{})),**cfg['warning_settings']}
                 validate_settings(cfg)
                 cfg['warning_settings']=validate_warning_config(cfg.get('warning_settings'))
                 if type(cfg['cadence_seconds']) is not int or cfg['cadence_seconds']!=WARNING_CADENCE_SECONDS:raise ValueError('Swing warning collection requires a 15-second cadence')

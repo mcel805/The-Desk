@@ -170,7 +170,7 @@ class WarningServiceTests(unittest.TestCase):
     def test_rule_change_ends_run_and_changes_recipe(self):
         self.command('start');self.sample();run=self.service.last[SYMBOL]['run'];recipe=self.service.recipe_id(SYMBOL,self.service.configs[SYMBOL])
         self.command('configure',config={'warning_settings':{'slowRatio':.6}})
-        self.assertNotIn(SYMBOL,self.service.active);self.assertNotEqual(recipe,self.service.recipe_id(SYMBOL,self.service.configs[SYMBOL]));self.command('start');self.assertNotEqual(run,self.service.last[SYMBOL]['run'])
+        self.assertNotIn(SYMBOL,self.service.active);self.assertEqual(self.service.configs[SYMBOL]['warning_settings']['weights'],[2,2,1,2,1,3]);self.assertNotEqual(recipe,self.service.recipe_id(SYMBOL,self.service.configs[SYMBOL]));self.command('start');self.assertNotEqual(run,self.service.last[SYMBOL]['run'])
         with self.assertRaises(ValueError):self.command('configure',config={'warning_settings':{'weights':[9]*6}})
 
     def test_jev_projection_preserves_features_and_clocks_without_full_history(self):
