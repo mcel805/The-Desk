@@ -58,8 +58,9 @@ class LearningTests(unittest.TestCase):
     def test_pause_marker_survives_failed_run_end_and_blocks_restart(self):
         self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
         with patch.object(self.service,'append',side_effect=OSError('external RUN_END failed')):
-            with self.assertRaises(OSError):self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
+            paused=self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
         self.assertFalse(self.service.active)
+        self.assertTrue(paused['audit_pending'])
         self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
         other=SwingResearch(FakeGateway(1770000000000),Path(self.tmp.name),FakeJudge())
         try:
@@ -69,8 +70,9 @@ class LearningTests(unittest.TestCase):
     def test_pause_marker_survives_failed_lab_intent_write(self):
         self.service.command({'action':'start_auto','symbol':'hyperliquid:BTC'})
         with patch.object(self.service.lab,'intent',side_effect=OSError('external intent failed')):
-            with self.assertRaises(OSError):self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
+            paused=self.service.command({'action':'pause','symbol':'hyperliquid:BTC'})
         self.assertFalse(self.service.active)
+        self.assertTrue(paused['audit_pending'])
         self.assertEqual(read_swing_pause(self.service.data_dir)['reason'],'USER_PAUSED')
         self.assertFalse(self.service.lab_status()['intent']['enabled'])
     def test_readonly_paths_do_not_scan_capacity_and_refuse_writes(self):

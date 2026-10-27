@@ -122,14 +122,32 @@ class SwingResearch:
                     'jev_configured':self.judge.configured,'as_of':int(time.time()*1000)}
 
     def effective_lab_intent(self):
-        intent=self.lab.intent();marker=read_swing_pause(self.data_dir)
-        if not marker:return intent
-        if intent:return {**intent,'enabled':False,'paused_by_marker':True}
-        return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
+        marker=read_swing_pause(self.data_dir)
+        if marker:return {'symbol':marker['symbol'],'enabled':False,'paused_by_marker':True}
+        intent=self.lab.intent()
+        return intent
 
     def lab_status(self):
         result=self.lab.status();result['intent']=self.effective_lab_intent();result['swing_pause']=read_swing_pause(self.data_dir)
         return result
+
+    def paused_compact(self,symbol,detail,audit_pending=False):
+        result=self.settings_state();entry=result['symbols'][symbol]
+        entry.update({'status':'PAUSED','running':False,'detail':detail,'audit_pending':audit_pending})
+        result.update({'audit_pending':audit_pending,'lab_intent':{'symbol':symbol,'enabled':False,'paused_by_marker':True},'swing_pause':read_swing_pause(self.data_dir)})
+        return result
+
+    def pause_result(self,symbol,compact=False,audit_error=None):
+        if audit_error:
+            detail='USER_PAUSED · audit pending: '+type(audit_error).__name__
+            self.last[symbol]={**self.last[symbol],'detail':detail,'audit_pending':True,'storage_error':type(audit_error).__name__}
+            return self.paused_compact(symbol,detail,True)
+        try:
+            return self.settings_state() if compact else self.status()
+        except (OSError,sqlite3.Error,StorageFault) as error:
+            detail='USER_PAUSED · status pending: '+type(error).__name__
+            self.last[symbol]={**self.last[symbol],'detail':detail,'storage_error':type(error).__name__}
+            return self.paused_compact(symbol,detail)
 
     def append(self,run,symbol,kind,at,payload,db=None):
         with (nullcontext(db) if db is not None else self.db()) as db:db.execute('INSERT INTO ledger(run,symbol,kind,at,payload) VALUES(?,?,?,?,?)',(run,symbol,kind,at,encode(payload)))
@@ -284,16 +302,19 @@ class SwingResearch:
                 with self.db() as db:db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(symbol) DO UPDATE SET value=excluded.value',(symbol,encode(cfg)))
                 self.configs[symbol]=cfg
             elif action=='pause':
-                self.pause(symbol,'USER_PAUSED')
-                intent=self.lab.intent()
-                if intent and intent['symbol']==symbol:self.lab.intent(symbol,False)
+                persist_swing_pause(symbol,'USER_PAUSED',data_dir=self.data_dir)
+                audit_error=None
+                try:self.pause(symbol,'USER_PAUSED')
+                except (OSError,sqlite3.Error,StorageFault) as error:audit_error=error
+                try:self.lab.intent(symbol,False)
+                except (OSError,sqlite3.Error,StorageFault) as error:audit_error=audit_error or error
+                return self.pause_result(symbol,bool(p.get('compact')),audit_error)
             else:raise ValueError('Unknown research action')
             return self.settings_state() if p.get('compact') else self.status()
 
     def pause(self,symbol,reason):
         a=self.active.pop(symbol,None)
         self.last[symbol]={**self.last[symbol],'status':'PAUSED','detail':reason,'run':a['run'] if a else self.last[symbol].get('run')}
-        if reason=='USER_PAUSED':persist_swing_pause(symbol,reason,data_dir=self.data_dir)
         if a and a['tracker']:
             a['tracker'].terminate(reason,int(time.time()*1000))
             previous_warnings=self.last[symbol].get('snapshot',{}).get('warnings')
