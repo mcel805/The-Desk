@@ -41,25 +41,27 @@ class ChatTests(unittest.TestCase):
         self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'findInPage','url':'https://example.com/source'}}]))
         self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'openPage','url':'file:///private/source'}}]))
 
-    def test_completed_callback_events_require_the_same_ordered_explicit_open(self):
-        class CallbackOnly(FakeSession):
+    def test_returned_and_callback_events_require_the_same_ordered_explicit_open(self):
+        class EvidenceChannels(FakeSession):
             def __init__(self,mode,**kw):
                 super().__init__(**kw);self.mode=mode
             def run(self,prompt,schema,**kw):
                 if schema==REVIEW and self.kw.get('web_search')=='live':
                     search={'type':'webSearch','action':{'type':'search','query':'fixture'}}
                     opened={'type':'webSearch','action':{'type':'openPage','url':'https://example.com/fixture'}}
-                    if self.mode=='reversed':events=[opened,search]
-                    elif self.mode=='sources':events=[search,{'type':'webSearch','sources':[{'url':'https://example.com/fixture'}]}]
+                    if self.mode=='sources':events=[search,{'type':'webSearch','sources':[{'url':'https://example.com/fixture'}]}]
                     elif self.mode=='find':events=[search,{'type':'webSearch','action':{'type':'findInPage','url':'https://example.com/fixture'}}]
                     else:events=[search,opened]
-                    for item in events:self.kw['on_event']('search',{**item,'status':'completed'})
-                    return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},[]
+                    if self.mode!='returned-only':
+                        callback_events=list(reversed(events)) if self.mode=='reversed-callback' else events
+                        for item in callback_events:self.kw['on_event']('search',{**item,'status':'completed'})
+                    returned=[] if self.mode=='callback-only' else events
+                    return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},returned
                 return super().run(prompt,schema,**kw)
 
-        for mode,expected in (('ordered','ready'),('reversed','failed'),('sources','failed'),('find','failed')):
+        for mode,expected in (('ordered','ready'),('returned-only','failed'),('callback-only','failed'),('reversed-callback','failed'),('sources','failed'),('find','failed')):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as tmp:
-                factory=lambda mode=mode,**kw:CallbackOnly(mode,**kw)
+                factory=lambda mode=mode,**kw:EvidenceChannels(mode,**kw)
                 service=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),factory)
                 run=service.begin({'text':'Rank liquidity','snapshot':chart(),'web':True})
                 for _ in range(100):

@@ -260,7 +260,7 @@ class ChartChat:
                 self.event(r,agent,'Repairing an invalid structured reply…')
                 value,repair_searches=run_turn('The application rejected your JSON: '+str(error)+'. Return only these exact fields with their declared types: '+encoded(schema)+'. This bounded application response contract overrides any report format in the strategy rulebook. Prior response: '+encoded(value)[:12000],schema,timeout=240,cancel=cancel)
                 searches+=repair_searches;validate_shape(value,schema)
-            complete=lambda: any(web_research_complete(returned) or web_research_complete(callbacks) for returned,callbacks in batches)
+            complete=lambda: any(web_research_complete(returned) and web_research_complete(callbacks) for returned,callbacks in batches)
             if web and not complete():
                 value,repair_searches=run_turn('Live web research was requested but the required search and public source open were not both observed. Search now and open a primary source, then return the complete same-schema review of the retained facts.',schema,timeout=240,cancel=cancel);validate_shape(value,schema)
                 searches+=repair_searches
