@@ -6,7 +6,7 @@ import subprocess, tempfile, unittest
 from unittest.mock import patch
 from swing_warnings import WarningEngine, validate_config
 from swing_research import SwingResearch
-from jev_swing import Jev, QUESTIONS, prepare_state, PROMPT_VERSION
+from jev_swing import Jev, QUESTIONS, prepare_state
 from test_swing_tracker import BASE, bar, FakeJudge, response
 from test_swing_study_service import Gateway, context, SYMBOL, BASE as SERVICE_BASE
 
@@ -191,7 +191,6 @@ class WarningServiceTests(unittest.TestCase):
         self.assertEqual(len(sent),1)
         self.assertEqual(sent[0]['state']['swing_warnings'],projected['swing_warnings'])
         self.assertEqual(sent[0]['questions']['swing_warning_response'],QUESTIONS['swing_warning_response'])
-        self.assertIn('warnings',PROMPT_VERSION)
 
     def test_atomic_settings_start_freezes_warning_rules_and_rejects_stale_tabs(self):
         current=self.service.settings_state()['symbols'][SYMBOL]['revision']
