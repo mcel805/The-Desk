@@ -20,8 +20,7 @@ could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
 2. Set swing timeframe (1, 2, 3, 5, 15 or 30 minutes), fractional research quantity,
    budgets and target source. Defaults use a 5m swing with closed 1m validation.
 3. Click **Enable Jev & start** for model evaluations, or **Start tracker only**
-   for deterministic observations. Starting applies the visible settings. Saving settings ends a run and never rewrites
-   its recorded configuration. Manual runs start paused; Swing Lab Start opts into automatic new runs after interruptions, restart and 24-hour boundaries. Pause disables that intent.
+   for deterministic observations. Both are one-run manual starts. Use **Start automatic lab** only when this market should create new runs after interruptions, restart and 24-hour boundaries. Starting applies the visible settings. Saving settings ends a run and never rewrites its recorded configuration. Pause disables automatic recovery.
 4. Click **Open BTC/ETH 1m chart** to open the selected market with the overlay
    enabled. The Lab is a controls/results page; dots are on the workspace chart. On a 1m chart, each fresh Jev
    evaluation adds a timestamped dot. Green long leans stack below the candle;

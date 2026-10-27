@@ -178,11 +178,14 @@ BTC/ETH behavior cannot establish MYM transfer or TradingView numerical parity.
 `GET /api/swing/settings` returns the complete saved configuration and its revision
 without reading forecasts, costs or the archive. The form synchronizes independently;
 last-known browser values are a display cache only. Start waits for a successful
-server sync, preserves manual edits and submits one atomic `start_auto` command.
+server sync, preserves manual edits and submits one atomic `start` command. The
+separate **Start automatic lab** control submits `start_auto` when recovery is
+explicitly desired.
 A stale tab cannot overwrite a newer settings revision. Reload saved settings discards
 unsaved form edits. Optional unknown costs remain explicitly unset.
 
-Starting from Swing Lab opts the selected market into continuing local observation.
+Starting from Swing Lab manually runs one observation; **Start automatic lab** opts
+the selected market into continuing local observation.
 The server retains this intent across restart and starts a **new run** after a gap,
 revised candle, or 24-hour boundary; it never fills the missing interval as forward
 observations. Retries back off for 30 seconds. Pause, manual settings saves and manual

@@ -27,11 +27,11 @@ export function settingsController({form,market,request,onState,onMessage,storag
   }catch(e){ready=false;onMessage('Settings sync failed · '+e.message+'. Press Start to retry; blank values will never be submitted.');throw e;}
   finally{pending=null;}})();return pending;
  }
- async function start(enable=false){await load();if(!ready||boundMarket!==market())throw Error('Settings still syncing. Try again.');
+ async function submitStart(action,enable=false){await load();if(!ready||boundMarket!==market())throw Error('Settings still syncing. Try again.');
   if(!form.reportValidity())throw Error('Check the highlighted setting.');
   const config=values();if(enable)config.jev_enabled=true;
-  const result=await request('/api/swing/control',{action:'start_auto',symbol:market(),config,expected_revision:revision});dirty=false;return result;
+  const result=await request('/api/swing/control',{action,symbol:market(),config,expected_revision:revision});dirty=false;return result;
  }
  form.addEventListener('input',()=>{if(ready)dirty=true;});form.addEventListener('change',()=>{if(ready)dirty=true;});
- preview();return {load,start,values,preview,markDirty:()=>{if(ready)dirty=true;},get ready(){return ready;},get dirty(){return dirty;}};
+ preview();return {load,start:enable=>submitStart('start',enable),startAutomatic:enable=>submitStart('start_auto',enable),values,preview,markDirty:()=>{if(ready)dirty=true;},get ready(){return ready;},get dirty(){return dirty;}};
 }

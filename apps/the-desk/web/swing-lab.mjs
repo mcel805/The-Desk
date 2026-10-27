@@ -14,7 +14,7 @@ function table(headers,rows,empty='No observations yet. Start a run to collect e
 function symbol(){return $('#symbol').value;}
 const settings=settingsController({form:$('#config'),market:symbol,request:api,
  onMessage:text=>{$('#settingsSync').textContent=text;$('#saveConfig').disabled=$('#config [name=quantity]').disabled;},
- onState:data=>{const s=data.symbols[symbol()];$('#start').disabled=commandBusy||s.running;$('#pause').disabled=commandBusy||!s.running;
+ onState:data=>{const s=data.symbols[symbol()];$('#start').disabled=commandBusy||s.running;$('#startAutomatic').disabled=commandBusy||s.running;$('#pause').disabled=commandBusy||!s.running;
  document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;}});
 
 async function refresh(){if(busy)return;busy=true;try{const market=symbol();const [raw,history]=await Promise.all([api('/api/swing/status'),api('/api/swing/history?symbol='+encodeURIComponent(market))]);const data=await withJevCosts(raw);if(market!==symbol())return;const s=data.symbols[market],snap=s.snapshot,otherRunning=Object.keys(data.symbols).find(k=>k!==market&&data.symbols[k].running);
@@ -27,7 +27,7 @@ if(!storage)$('#jevKeyState').textContent='Secure Keychain storage is ready to i
 $('#jevApiKey').disabled=!storage?.available;
 $('#clearJevKey').disabled=commandBusy||!storage?.available;$('#loadJevKey').disabled=commandBusy||!storage?.available;
 $('#rememberJevKey').hidden=!data.jev_configured||data.jev_key_source==='macos_keychain';$('#rememberJevKey').disabled=commandBusy||!storage?.available;$('#saveJevKey').disabled=commandBusy||!storage?.available;
-document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=commandBusy||s.running||!!otherRunning;$('#pause').disabled=commandBusy||!s.running;
+document.querySelector('[name=jev_enabled]').disabled=!data.jev_configured;$('#start').disabled=commandBusy||s.running||!!otherRunning;$('#startAutomatic').disabled=commandBusy||s.running||!!otherRunning;$('#pause').disabled=commandBusy||!s.running;
 $('#enableJev').hidden=!data.jev_configured||s.config.jev_enabled;$('#enableJev').disabled=commandBusy||s.running||!!otherRunning;
 $('#evaluationState').textContent=!data.jev_configured?'Step 1: save a TypeSafe key to enable Jev.':!s.config.jev_enabled?'Key saved · Jev is OFF. Enable Jev & start to collect directional dots.':s.running?'Jev enabled · collecting evaluations for '+market.split(':')[1]+'.':'Jev enabled · paused. Start observations to collect fresh dots.';
 $('#jevReliability').textContent=reliabilityText(history.reliability);
@@ -50,10 +50,10 @@ $('#inspect').textContent=JSON.stringify(history.predictions[0]||{message:'Start
 }catch(e){$('#connection').textContent='Disconnected · '+e.message;$('#status').textContent='UNAVAILABLE';renderSwingWarnings(null,{status:'UNAVAILABLE'});$('#jev').innerHTML='<div class="empty">Service unavailable. Previous judgments withheld.</div>';renderSwingVolume(null);markJevCostsUnavailable();}finally{busy=false;}}
 async function command(action,config){if(commandBusy)return;commandBusy=true;$('#error').textContent='';$('#runError').textContent='';try{await api('/api/swing/control',{action,symbol:symbol(),...(config?{config}:{})});loaded=null;settings.preview();}catch(e){$('#error').textContent=e.message;$('#runError').textContent=e.message;}finally{commandBusy=false;void settings.load().catch(()=>{});void refresh();}}
 function formConfig(){return settings.values();}
-async function startObservations(enable=false){if(commandBusy)return;commandBusy=true;$('#runError').textContent='';$('#start').disabled=true;$('#enableJev').disabled=true;
- try{await settings.start(enable);await settings.load();}
+async function startObservations(enable=false,automatic=false){if(commandBusy)return;commandBusy=true;$('#runError').textContent='';$('#start').disabled=true;$('#startAutomatic').disabled=true;$('#enableJev').disabled=true;
+ try{await (automatic?settings.startAutomatic:settings.start)(enable);await settings.load();}
  catch(e){$('#runError').textContent=e.message;}
- finally{commandBusy=false;$('#start').disabled=false;void settings.load().catch(()=>{});void refresh();}}
+ finally{commandBusy=false;$('#start').disabled=false;$('#startAutomatic').disabled=false;void settings.load().catch(()=>{});void refresh();}}
 
 async function configureKey(action='save'){
  if(commandBusy)return;commandBusy=true;
@@ -67,7 +67,7 @@ $('#jevKeyForm').onsubmit=e=>{e.preventDefault();void configureKey();};$('#clear
 $('#rememberJevKey').onclick=()=>configureKey('remember');$('#loadJevKey').onclick=()=>configureKey('load');
 document.querySelector('[name=jev_enabled]').onchange=e=>{settings.markDirty();$('#start').textContent=e.target.checked?'Start Jev observations':'Start tracker only';};
 $('#reloadConfig').onclick=()=>{settings.preview();void settings.load().catch(()=>{});};
-$('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{settings.preview();void settings.load().catch(()=>{});refresh();};void settings.load().catch(()=>{});refresh();setInterval(refresh,5000);setInterval(()=>{if(!settings.dirty)void settings.load().catch(()=>{});},15000);
+$('#config').onsubmit=e=>{e.preventDefault();command('configure',formConfig());};$('#start').onclick=()=>startObservations();$('#startAutomatic').onclick=()=>startObservations(false,true);$('#enableJev').onclick=()=>startObservations(true);$('#pause').onclick=()=>command('pause');$('#symbol').onchange=()=>{settings.preview();void settings.load().catch(()=>{});refresh();};void settings.load().catch(()=>{});refresh();setInterval(refresh,5000);setInterval(()=>{if(!settings.dirty)void settings.load().catch(()=>{});},15000);
 setupSwingEvidence();
 setupJevCostPanel();
 

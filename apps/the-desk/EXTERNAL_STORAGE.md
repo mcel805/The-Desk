@@ -20,7 +20,7 @@ python3 -B '/Users/markceleste/Documents/ChatGPT/The Trader - a trading company/
 
 When the USB is missing, the Desk stops its database services and shows a connection
 error. Choose **Continue with temporary local storage** to use a separate workspace.
-External history is unavailable in that workspace. Agents and manually started research do not resume automatically. Swing Lab Start can explicitly opt its single observation market into automatic new runs after restart; Pause disables that intent.
+External history is unavailable in that workspace. Agents and manually started research do not resume automatically. Swing Lab **Start automatic lab** can explicitly opt its single observation market into automatic new runs after restart; **Start observing** and **Enable Jev & start** remain manual, and Pause disables automatic recovery.
 
 After reconnecting, choose **Save temporary work & return to USB** in the storage
 banner. The temporary dataset is copied and hash-verified under

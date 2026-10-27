@@ -2,23 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {settingsController} from '../web/swing-settings.mjs';
 function harness(request){
- const fields=[{name:'quantity',type:'number',value:''},{name:'study_window',type:'number',value:''},{name:'jev_enabled',type:'checkbox',checked:false}];
+ const fields=[{name:'quantity',type:'number',value:''},{name:'study_window',type:'number',value:''},{name:'jev_enabled',type:'checkbox',checked:false},{name:'warning_settings.window',type:'number',value:''},{name:'warning_settings.weights.0',type:'number',value:''}];
  const listeners={};let market='hyperliquid:BTC',messages=[];
  const form={elements:fields,addEventListener:(n,f)=>listeners[n]=f,reportValidity:()=>true};
  const c=settingsController({form,market:()=>market,request,onState:()=>{},onMessage:m=>messages.push(m),storage:null});
  return {c,fields,listeners,messages,setMarket:v=>market=v};
 }
-const state=(quantity=.001,revision='r1')=>({symbols:{'hyperliquid:BTC':{revision,config:{quantity,study_window:5,jev_enabled:true}},'hyperliquid:ETH':{revision:'e1',config:{quantity:.01,study_window:8,jev_enabled:false}}}});
+const state=(quantity=.001,revision='r1')=>({symbols:{'hyperliquid:BTC':{revision,config:{quantity,study_window:5,jev_enabled:true,warning_settings:{window:5,weights:[1,2]}}},'hyperliquid:ETH':{revision:'e1',config:{quantity:.01,study_window:8,jev_enabled:false,warning_settings:{window:8,weights:[3,4]}}}}});
 test('one click waits for complete settings even before history exists',async()=>{
  let resolve;const gate=new Promise(r=>resolve=r);const writes=[];
  const h=harness(async(path,body)=>{if(body){writes.push(body);return {};}return gate;});
  assert.equal(h.fields[0].disabled,true);const started=h.c.start();await Promise.resolve();assert.equal(writes.length,0);
- resolve(state());await started;assert.equal(writes.length,1);assert.equal(writes[0].config.quantity,.001);assert.equal(writes[0].expected_revision,'r1');assert.equal(writes[0].action,'start_auto');
+ resolve(state());await started;assert.equal(writes.length,1);assert.equal(writes[0].config.quantity,.001);assert.deepEqual(writes[0].config.warning_settings,{window:5,weights:[1,2]});assert.equal(writes[0].expected_revision,'r1');assert.equal(writes[0].action,'start');
+});
+test('explicit automatic start opts into recovery with nested settings',async()=>{
+ let sent;const h=harness(async(p,b)=>b?(sent=b):state());await h.c.startAutomatic();
+ assert.equal(sent.action,'start_auto');assert.deepEqual(sent.config.warning_settings,{window:5,weights:[1,2]});assert.equal(sent.expected_revision,'r1');
 });
 test('manual edits survive refresh and stale revision is preserved',async()=>{
  let data=state();let sent;const h=harness(async(p,b)=>b?(sent=b):data);await h.c.load();
  h.fields[0].value='.002';h.listeners.input();data=state(.003,'r2');await h.c.start();
- assert.equal(sent.config.quantity,.002);assert.equal(sent.expected_revision,'r1');
+ assert.equal(sent.config.quantity,.002);assert.equal(sent.config.warning_settings.window,5);assert.equal(sent.expected_revision,'r1');assert.equal(sent.action,'start');
 });
 test('failed settings never submit empty numeric fields',async()=>{
  let writes=0;const h=harness(async(p,b)=>{if(b)writes++;throw Error('offline');});
