@@ -26,14 +26,14 @@ could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
    enabled. The Lab is a controls/results page; dots are on the workspace chart. On a 1m chart, each fresh Jev
    evaluation adds a timestamped dot. Green long leans stack below the candle;
    red short and gray neutral leans stack above it. The ordinal slot increases
-   away from the candle: at the default 15s cadence there are four slots.
+   away from the candle; the warning cadence and slot contract are defined in
+   [SWING-WARNINGS.md](SWING-WARNINGS.md).
    Hover/focus a dot for its timestamp, probabilities and service status.
 5. Pause, inspect the decision table and export observations. Completed and
    pending records remain in `data/swing-research.sqlite3` (excluded from Git).
 
-The default cadence is **4 evaluations/minute**. Settings support 1, 2, 4 or 6.
-Sampling targets wall-clock slots; slow providers, sleep or an outage can miss a
-slot. Missing evaluations are never backfilled. Repeated calls in one slot are
+Warning-enabled collection cadence and missed-slot behavior are defined in
+[SWING-WARNINGS.md](SWING-WARNINGS.md). Repeated calls in one slot are
 deduplicated. Dot votes never change after a result is recorded. Their placement
 may move as the host candle completes, to remain outside its high/low.
 
@@ -171,7 +171,8 @@ give the challenger a new version and test on a later untouched block.
 
 The chart's Swing Tracker status panel shows estimates for the latest research
 session, current/latest parent group and all stored BTC/ETH runs. Swing Lab has
-a full **Jev usage & running costs** card, 1/2/4/6-check cadence comparisons,
+a full **Jev usage & running costs** card, hypothetical 1/2/4/6-check cost
+comparisons,
 custom session-hours projections and recent run/parent tables. It refreshes with
 status every three seconds and does not make additional model requests.
 

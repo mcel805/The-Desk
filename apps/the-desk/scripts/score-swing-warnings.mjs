@@ -2,10 +2,10 @@
 import fs from 'node:fs/promises';import {fileURLToPath} from 'node:url';import path from 'node:path';import {createHash} from 'node:crypto';
 import {normalize,label,fit} from '../../../indicators/agentic-swing-tracker-v1.3/reversal-study.mjs';
 export function auditWarningExport(data){
- const runs=new Map((data.runs||[]).map(r=>[r.id,r])),seen=new Set(),groups=new Map(),skipped={unavailable:0,duplicates:0,missingRun:0};
+ const runs=new Map((data.runs||[]).map(r=>[r.id,r])),seen=new Set(),groups=new Map(),skipped={unavailable:0,duplicates:0,missingRun:0,warmup:0};
  const predictions=(data.predictions||[]).map(r=>({...r,state:typeof r.state==='string'?JSON.parse(r.state):r.state})).sort((a,b)=>a.at-b.at);
  const sourceBars=new Map();
- for(const r of data.run_bars||[]){const b=typeof r.payload==='string'?JSON.parse(r.payload):r.payload;const rows=sourceBars.get(r.run)||[];rows.push(b);sourceBars.set(r.run,rows);}
+ for(const r of data.run_bars||[]){const b=typeof r.payload==='string'?JSON.parse(r.payload):r.payload;const rows=sourceBars.get(r.run)||[];rows.push({...b,warmup:r.warmup===1||r.warmup===true});sourceBars.set(r.run,rows);}
  for(const rows of sourceBars.values())rows.sort((a,b)=>a.time-b.time);
  for(const row of predictions){
   const raw=row.state?.swing_warnings?.closed;
@@ -13,6 +13,7 @@ export function auditWarningExport(data){
   const run=runs.get(row.run);if(!run||raw.symbol!==row.symbol||run.symbol!==row.symbol){skipped.missingRun++;continue;}
   let o;try{o=normalize(raw);}catch{skipped.unavailable++;continue;}
   if(o.provisional||o.observedAt>row.at||o.closedCutoff>row.at){skipped.unavailable++;continue;}
+  if((sourceBars.get(row.run)||[]).some(b=>b.time+60000===o.closedCutoff&&b.warmup)){skipped.warmup++;continue;}
   // Deduplicate the closed cutoff across sampling slots. Keep the FIRST receipt.
   const key=[o.symbol,o.featureConfig,o.closedCutoff].join('|');
   if(seen.has(key)){skipped.duplicates++;continue;}seen.add(key);

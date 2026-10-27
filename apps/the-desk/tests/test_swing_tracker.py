@@ -212,7 +212,7 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(state['archived']);self.assertEqual(state['snapshot'],snap)
         self.assertEqual(state['collection']['saved_candles'],70);self.assertEqual(state['collection']['source_bar_gaps'],0)
     def test_restart_paused_config_boundary_and_no_order_engine(self):
-        self.command('start');old=self.service.active['hyperliquid:BTC']['run'];self.command('configure',config={'cadence_seconds':10})
+        self.command('start');old=self.service.active['hyperliquid:BTC']['run'];self.command('configure',config={'warning_settings':{'slowRatio':.6}})
         self.assertNotIn('hyperliquid:BTC',self.service.active);self.command('start');self.assertNotEqual(old,self.service.active['hyperliquid:BTC']['run'])
         second=SwingResearch(self.gateway,Path(self.tmp.name),Jev(store=False));self.assertEqual(second.active,{});self.assertFalse(hasattr(second,'engine'))
     def test_closed_bar_forward_labels_and_intrabar_not_extra_primary(self):
