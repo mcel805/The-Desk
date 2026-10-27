@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 from engine import Engine
-from chart_chat import ChartChat,snapshot,tools,PLAN,REVIEW,ANSWER
+from chart_chat import ChartChat,snapshot,tools,PLAN,REVIEW,ANSWER,web_research_complete
 
 def chart(n=180,tf='1m'):
     ms=60000 if tf=='1m' else 1800000;end=int(time.time()*1000)//ms*ms
@@ -24,13 +24,21 @@ class FakeSession:
         self.calls.append((self.instructions,prompt,self.kw))
         if schema==PLAN:return {'action':'liquidity','reason':'fixture route'},[]
         if schema==REVIEW:
-            searches=[{'type':'webSearch','action':{'type':'search','query':'fixture'}},{'type':'webSearch','action':{'type':'open','url':'https://example.com/fixture'}}] if self.kw.get('web_search')=='live' else []
-            for item in searches:self.kw['on_event']('search',{'action':item['action']})
+            searches=[{'type':'webSearch','action':{'type':'search','query':'fixture'}},{'type':'webSearch','action':{'type':'openPage','url':'https://example.com/fixture'}}] if self.kw.get('web_search')=='live' else []
+            for item in searches:self.kw['on_event']('search',{'action':item['action'],'status':'completed'})
             return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},searches
         return {'answer':'Synthetic final analysis','followups':['Explain the strongest pool']},[]
     def close(self):pass
 
 class ChatTests(unittest.TestCase):
+    def test_web_research_requires_ordered_search_then_explicit_public_open(self):
+        search={'type':'webSearch','action':{'type':'search','query':'liquidity'}}
+        opened={'type':'webSearch','action':{'type':'openPage','url':'https://example.com/source'}}
+        self.assertTrue(web_research_complete([search,opened]))
+        self.assertFalse(web_research_complete([opened,search]))
+        self.assertFalse(web_research_complete([search,{'type':'webSearch','sources':[{'url':'https://example.com/source'}]}]))
+        self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'findInPage','url':'https://example.com/source'}}]))
+        self.assertFalse(web_research_complete([search,{'type':'webSearch','action':{'type':'openPage','url':'file:///private/source'}}]))
     def test_shared_rider_rulebook_is_loaded_for_both_consumers(self):
         from swing_advisors import instructions
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,6 +102,9 @@ class ChatTests(unittest.TestCase):
             self.assertEqual([x['agent'] for x in saved['reviews']],['RIDER','Spider'])
             self.assertTrue(any(x[2]['web_search']=='live' for x in FakeSession.calls))
             self.assertEqual(len(FakeSession.calls),4)
+            self.assertIn('lead trader',FakeSession.calls[2][0].lower())
+            self.assertIn('RIDER SUPPORTING REVIEW',FakeSession.calls[2][1])
+            self.assertIn('Spider lead',FakeSession.calls[3][0])
             with self.assertRaisesRegex(ValueError,'mismatch'):service.applied({'id':r['id'],'sha256':'bad'})
             done=service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'outcome':'18 drawings applied'})
             self.assertEqual(done['status'],'complete')
@@ -157,7 +168,23 @@ class ChatTests(unittest.TestCase):
                 r=s.read(r['id'])
                 if r['status']!='running':break
                 time.sleep(.01)
-            self.assertEqual(r['status'],'failed');self.assertIn('search and public source open',r['error']);s.close()
+            self.assertEqual(r['status'],'failed');self.assertIn('search followed by an explicit public source open',r['error']);s.close()
+    def test_support_then_spider_lead_reviews_volume_profile_requests(self):
+        class VolumePlan(FakeSession):
+            def run(self,prompt,schema,**kw):
+                if schema==PLAN:return {'action':'volume_profile','reason':'fixture route'},[]
+                return super().run(prompt,schema,**kw)
+        with tempfile.TemporaryDirectory() as tmp:
+            s=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),VolumePlan)
+            r=s.begin({'text':'Profile each swing','snapshot':chart(tf='1m')})
+            for _ in range(100):
+                r=s.read(r['id'])
+                if r['status']!='running':break
+                time.sleep(.01)
+            self.assertEqual(r['status'],'ready',r.get('error'))
+            self.assertEqual([x['agent'] for x in r['reviews']],['RIDER','Spider'])
+            self.assertEqual(r['result']['action'],'volume_profile')
+            s.close()
     def test_stop_interrupts_in_memory_even_when_storage_is_unavailable(self):
         from unittest.mock import patch
         entered=threading.Event();release=threading.Event()

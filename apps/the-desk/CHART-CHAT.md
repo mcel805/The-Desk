@@ -23,7 +23,7 @@ model parity. No proprietary Quant code or prompts are used.
 2. “On the 30-minute chart, draw liquidity levels and explain which have the
    strongest evidence on each side and why.”
 3. Enable **Web research** to require live research during the specialist review.
-4. Inspect RIDER / Spider reviews, Source & method, the ranked levels and chart.
+4. Inspect RIDER's supporting review, Spider's lead-trader assessment, Source & method, the ranked levels and chart.
 5. Use Hide AI, Clear AI drawings, or Undo markup. Clear affects only the active
    symbol/timeframe, preserving hidden AI drawings for other scopes. Manual drawings and the
    separate Spider report drawings are preserved.
@@ -38,9 +38,11 @@ cannot establish a missing stock/futures feed by researching a website.
 
 The server uses the existing `spider_codex.CodexSession` transport and local Codex
 sign-in. Credentials stay server-side. Each analysis request runs an actual
-coordinator and RIDER review; liquidity / block requests also run an actual
-Spider review. Explicit clear requests skip specialist review because they only
-remove this chat's drawings. These are application analyst sessions, separate
+coordinator, RIDER supporting review, and Spider lead-trader review in that
+order; Spider receives RIDER's evidence as supporting context and owns the lead
+assessment for every trading-analysis action. Explicit clear requests skip
+specialist review because they only remove this chat's drawings. These are
+application analyst sessions, separate
 from the independent paper agent fleet. They do not arm a worker, submit a paper
 order or control a broker.
 

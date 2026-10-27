@@ -38,12 +38,16 @@ def web_urls(item):
     return [url for url in urls if isinstance(url,str)]
 
 def web_kind(item):
+    if not isinstance(item,dict):return ''
     action=web_action(item);action_type=str(action.get('type') or '').lower()
-    item_type=str(item.get('type') or '').lower() if isinstance(item,dict) else ''
+    item_type=str(item.get('type') or '').lower()
+    # A result URL, source list, or find operation does not prove that the
+    # analyst explicitly opened a public page. Codex's current protocol names
+    # this action openPage; retain documented legacy open variants as well.
+    if action_type in ('open','open_page','open_url','openpage') or item_type in ('open','open_page','open_url','openpage'):
+        return 'open'
     if action_type in ('search','web_search','websearch','search_query') or action.get('query') or item.get('query'):
         return 'search'
-    if action_type in ('open','open_page','open_url','openpage') or item_type in ('open','open_page','open_url','openpage') or web_urls(item):
-        return 'open'
     return ''
 
 def web_research_complete(searches):
@@ -224,15 +228,12 @@ class ChartChat:
     def ask(self,r,cancel,agent,instructions,prompt,schema,web=False):
         if cancel.is_set():raise ValueError('Stopped by you.')
         self.event(r,agent,'Researching the web and chart evidence…' if web else 'Reading the frozen chart evidence…')
-        observed={'search':False,'open':False}
         def event(kind,data):
             if kind=='search':
                 action=data.get('action') or {};self.event(r,agent,'Web · '+str(action.get('query') or action.get('url') or action.get('type') or 'source search')[:240])
-                if data.get('status')!='completed':return
-                if action.get('query') or action.get('type') in ('search','web_search','webSearch','search_query'):observed['search']=True
-                for url in web_urls({'action':action}):
-                    if public_url(url):observed['open']=True
-                    if public_url(url) and url not in r['sources']:r['sources'].append(url)
+                if data.get('status')=='completed' and web_kind({'action':action})=='open':
+                    for url in web_urls({'action':action}):
+                        if public_url(url) and url not in r['sources']:r['sources'].append(url)
         session=self.factory(cwd=Path(__file__).parent,on_event=event,web_search='live' if web else 'disabled',service_name='the-desk-chart-chat')
         with self.lock:self.sessions.add(session)
         try:
@@ -247,12 +248,13 @@ class ChartChat:
                 self.event(r,agent,'Repairing an invalid structured reply…')
                 value,repair_searches=session.run('The application rejected your JSON: '+str(error)+'. Return only these exact fields with their declared types: '+encoded(schema)+'. This bounded application response contract overrides any report format in the strategy rulebook. Prior response: '+encoded(value)[:12000],schema,timeout=240,cancel=cancel)
                 searches+=repair_searches;validate_shape(value,schema)
-            if web and not (web_research_complete(searches) or observed['search'] and observed['open']):
+            if web and not web_research_complete(searches):
                 value,repair_searches=session.run('Live web research was requested but the required search and public source open were not both observed. Search now and open a primary source, then return the complete same-schema review of the retained facts.',schema,timeout=240,cancel=cancel);validate_shape(value,schema)
                 searches+=repair_searches
-                if not (web_research_complete(searches) or observed['search'] and observed['open']):raise ValueError('Web research did not complete a search and public source open. Disable Web research or retry; no research will be claimed.')
+                if not web_research_complete(searches):raise ValueError('Web research did not complete a search followed by an explicit public source open. Disable Web research or retry; no research will be claimed.')
             if cancel.is_set():raise ValueError('Stopped by you.')
             for item in searches:
+                if web_kind(item)!='open':continue
                 for url in web_urls(item):
                     if public_url(url) and url not in r['sources']:r['sources'].append(url)
             return value
@@ -268,16 +270,20 @@ class ChartChat:
             self.event(r,'Chart tools','Calculating '+plan['action'].replace('_',' ')+' on completed candles…')
             result=tools(plan['action'],s);r['result']=result
             facts=encoded({'request':r['text'],'chart':compact,'toolResult':{k:v for k,v in result.items() if k!='drawings'},'history':previous,'recentBars':s['bars'][-60:],'webResearchRequested':r['web']})
-            agents=['RIDER','Spider'] if plan['action'] in ('liquidity','blocks') else ['RIDER']
-            if plan['action']=='clear':agents=[]
+            # RIDER supplies a supporting lens first. Spider is the lead trader
+            # and owns the final specialist read across every trading analysis.
+            agents=[] if plan['action']=='clear' else ['RIDER','Spider']
             for agent in agents:
                 rules=('Read parent location before execution, separate manual bias, delivery swing and local ABC, rank evidence and room rather than invented probability. Missing higher frames stay missing. No paper entry without frozen risk and actual trigger.' if agent=='RIDER' else
-                       'Trace pool formation, respect/departure, sweep and rebuilding. A block or BOS alone is not a qualified trap. Separate original block, secondary pool and objective. Existing-block and confirmation families need their own actual sequence. High probability is qualitative, never calibrated odds.')
-                review=self.ask(r,cancel,agent,rules+' Audit the supplied deterministic tool evidence. Cite only evidenceIds that exist; keep summary <=900 characters and limitations <=500. Explain any disagreement. Do not claim the tools establish a fully qualified strategy setup.',facts,REVIEW,web=r['web'] and agent==agents[-1])
+                       'You are the lead trader. Audit the supplied deterministic tool evidence and incorporate RIDER\'s supporting review below. Own the final Spider assessment; explain any disagreement without deferring leadership. Trace pool formation, respect/departure, sweep and rebuilding. A block or BOS alone is not a qualified trap. Separate original block, secondary pool and objective. Existing-block and confirmation families need their own actual sequence. High probability is qualitative, never calibrated odds.')
+                specialist_facts=facts
+                if agent=='Spider' and r['reviews']:
+                    specialist_facts+='\nRIDER SUPPORTING REVIEW (context, not the lead conclusion): '+encoded(r['reviews'][0])
+                review=self.ask(r,cancel,agent,rules+' Cite only evidenceIds that exist; keep summary <=900 characters and limitations <=500. Do not claim the tools establish a fully qualified strategy setup.',specialist_facts,REVIEW,web=r['web'] and agent=='Spider')
                 known={e['id'] for e in result['evidence']}
                 if any(x not in known for x in review['evidenceIds']):raise ValueError(agent+' cited an unsupported chart evidence ID. Retry.')
                 r['reviews'].append({'agent':agent,**review});self.event(r,agent,'Evidence review complete.')
-            response=self.ask(r,cancel,'Desk','Write a concise trading-only answer (<=1800 characters) using the tool result and real specialist reviews. Geometry is staged for the browser; say prepared rather than drawn. Include source/timeframe/completed cutoff, limitations and what to watch next. For liquidity explain the strongest ranked candidates on BOTH sides, their exact prices and why; no numeric win probability. For volume explain scope and estimated candle volume. Do not speculate about renderer status or say drawing completion is unconfirmed; the app adds its own application receipt after rendering. For non-trading or unsupported requests explain the limit without claiming a completed tool. Offer 2 brief supported follow-up prompts.',facts+'\nREVIEWS '+encoded(r['reviews'])+'\nACTUAL_RESEARCH '+encoded({'requested':r['web'],'sources':r['sources'],'searchEvents':[e for e in r['events'] if e['message'].startswith('Web · ')]}),ANSWER)
+            response=self.ask(r,cancel,'Spider lead','As lead trader, write a concise trading-only answer (<=1800 characters) from your own specialist read, informed by RIDER as support. Resolve disagreements explicitly while retaining Spider\'s lead role. Geometry is staged for the browser; say prepared rather than drawn. Include source/timeframe/completed cutoff, limitations and what to watch next. For liquidity explain the strongest ranked candidates on BOTH sides, their exact prices and why; no numeric win probability. For volume explain scope and estimated candle volume. Do not speculate about renderer status or say drawing completion is unconfirmed; the app adds its own application receipt after rendering. For non-trading or unsupported requests explain the limit without claiming a completed tool. Offer 2 brief supported follow-up prompts.',facts+'\nREVIEWS (RIDER SUPPORT, THEN SPIDER LEAD) '+encoded(r['reviews'])+'\nACTUAL_RESEARCH '+encoded({'requested':r['web'],'sources':r['sources'],'searchEvents':[e for e in r['events'] if e['message'].startswith('Web · ')]}),ANSWER)
             with self.lock:
                 if cancel.is_set():raise ValueError('Stopped by you.')
                 r.update(status='ready',answer=response['answer'],followups=response['followups'][:3],completedAt=time.time());self.save(r)

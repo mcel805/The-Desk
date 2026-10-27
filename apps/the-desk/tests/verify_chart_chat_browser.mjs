@@ -28,6 +28,9 @@ try{
  await until(()=>!document.querySelector('#ccSend').disabled,'30m agent run');
  const liquidity=await latest();assert.equal(liquidity.status,'complete',liquidity.error||liquidity.application);assert.equal(liquidity.snapshot.timeframe,'30m');
  assert.equal(liquidity.result.action,'liquidity');assert.deepEqual(liquidity.reviews.map(x=>x.agent),['RIDER','Spider']);
+ assert.ok(await evaluate(()=>document.querySelector('.cc-assistant .cc-message-label').textContent.includes('SPIDER · LEAD TRADER')));
+ assert.ok(await evaluate(()=>[...document.querySelectorAll('.cc-assistant .cc-review summary')].some(x=>x.textContent.includes('Spider')&&x.textContent.includes('Lead trader'))));
+ assert.ok(await evaluate(()=>[...document.querySelectorAll('.cc-assistant .cc-review summary')].some(x=>x.textContent.includes('RIDER')&&x.textContent.includes('Supporting analyst'))));
  assert.ok(liquidity.events.some(e=>e.message.startsWith('Web · ')),'Real web research must be observed');
  assert.ok(liquidity.result.evidence.some(e=>e.side==='high'));assert.ok(liquidity.result.evidence.some(e=>e.side==='low'));
  const poolCount=await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.text?.value?.startsWith('Desk AI · liquidity ·')).length);
@@ -36,7 +39,7 @@ try{
  await evaluate(()=>{document.querySelector('#ccWeb').checked=false;document.querySelector('#ccInput').value='On the one-minute chart, draw me a volume profile for every completed swing.';document.querySelector('#ccForm').requestSubmit();return true;});
  await until(()=>!document.querySelector('#ccSend').disabled,'1m volume profiles');const volume=await latest();assert.equal(volume.status,'complete',volume.error||volume.application);assert.equal(volume.snapshot.timeframe,'1m');assert.equal(volume.result.action,'volume_profile');assert.ok(volume.result.drawings.length>1);
  const native=await evaluate(()=>({profiles:__chatQA.chart.drawings.all().filter(d=>d.visible&&d.type==='fixedrangevp').length,visibleLiquidity:__chatQA.chart.drawings.all().filter(d=>d.visible&&d.text?.value?.startsWith('Desk AI · liquidity ·')).length}));
- assert.equal(native.profiles,volume.result.drawings.length);assert.equal(native.visibleLiquidity,0);report.checks.push({scenario:'1-minute profiles on confirmed swings',runId:volume.id,...native,sha256:volume.snapshot.sha256,completedCutoff:volume.snapshot.completedCutoff});await shot('volume-1m-final');console.log('PASS: 1m native swing profiles; 30m drawings hidden');
+ assert.equal(native.profiles,volume.result.drawings.length);assert.equal(native.visibleLiquidity,0);assert.deepEqual(volume.reviews.map(x=>x.agent),['RIDER','Spider']);report.checks.push({scenario:'1-minute profiles on confirmed swings, RIDER support then Spider lead',runId:volume.id,...native,sha256:volume.snapshot.sha256,completedCutoff:volume.snapshot.completedCutoff});await shot('volume-1m-final');console.log('PASS: 1m native swing profiles; 30m drawings hidden');
  await evaluate(()=>{document.querySelector('#ccHide').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.text?.value?.startsWith('Desk AI · ')).length),0);
  await evaluate(()=>{document.querySelector('#ccHide').click();return true;});assert.equal(await evaluate(()=>__chatQA.chart.drawings.all().filter(d=>d.visible&&d.type==='fixedrangevp').length),native.profiles);
  const manual=await evaluate(()=>{const c=__chatQA.chart,b=c.renderer.renderer.scene.bars.at(-5);return c.drawings.add('hline',{anchors:[{time:b.time,price:b.close}],text:{value:'QA manual drawing',size:'small',hAlign:'right',vAlign:'top'}}).id;});
