@@ -117,9 +117,10 @@ request an improved response; they do not train a model.
 
 ## Persistence and verification
 
-Conversations, runs, evidence, research and application receipts use new tables
-inside `desk.sqlite3`, covered by the existing database backup path. Native
-drawings persist with the existing layout. Opening old chat history does not
+Conversations and runs use two new tables inside `desk.sqlite3`, covered by the
+existing database backup path. Evidence, research and application receipts are
+stored in each run's JSON payload. Native drawings persist with the existing
+layout. Opening old chat history does not
 silently replay its chart mutations. Ratings, panel width, visibility and last
 conversation ID are browser preferences. Stop prevents pending application;
 restarting the server marks interrupted runs failed.
