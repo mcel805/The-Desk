@@ -38,6 +38,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_swing*.py' -v
           python -m unittest discover -s tests -p test_house_abc.py -v
           python -m unittest discover -s tests -p 'test_storage*.py' -v
+          python -m unittest discover -s tests -p test_startup_integrity.py -v
           python -m unittest discover -s tests -p test_data_http.py -v
           python -m unittest discover -s tests -p test_jev_costs.py -v
           python -m unittest discover -s tests -p test_jev_reliability.py -v

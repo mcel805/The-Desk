@@ -92,6 +92,10 @@ Inspection copy deadlines scale from 120 to 600 seconds. The final startup
 inspection completes before Swing collection/learning, IBKR, market, agent and
 journal workers start, keeping their USB traffic out of the integrity gate.
 A failed final inspection serves recovery diagnostics without starting workers.
+Swing publishes its retained control state before auto-resume begins. While
+warmup holds the control lock, status retains that timestamp and marks the
+control refresh pending; unknown evidence and costs remain unknown. Automatic
+resume uses a compact response instead of reading display history under the lock.
 
 Scope: `desk.sqlite3` (layouts, indicators, settings, paper ledger and agent records),
 `swing-research.sqlite3` (source candles, observations, runs, usage and checkpoints),
