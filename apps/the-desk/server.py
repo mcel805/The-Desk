@@ -189,8 +189,8 @@ def main():
         except Exception:pass # Existing verified snapshots remain available; status shows the error.
     engine=Engine(data/'desk.sqlite3');settings_store=SettingsStore(engine);gateway=Gateway();funding=FundingRoutes(args.port,data)
     robinhood=RobinhoodWorkspace(funding.broker,data)
-    ibkr=IBKRData(args.ibkr_mode);ibkr.start()
-    swing_research=SwingResearch(gateway,data);swing_research.storage_guard=vault.writable;swing_research.start()
+    ibkr=IBKRData(args.ibkr_mode)
+    swing_research=SwingResearch(gateway,data);swing_research.storage_guard=vault.writable
     swing_advisors=SwingAdvisors(swing_research)
     data_routes=DataRoutes(vault,swing_research)
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
@@ -198,12 +198,18 @@ def main():
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
     agents=Agents(engine);agents.journal_url=workers.journal_url
     agent_signals=AgentSignals(agents,gateway);agents.signal_service=agent_signals
-    if not args.no_workers:agent_signals.start()
-    if not args.no_workers:agents.start()
-    if not args.no_workers:workers.start()
     spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
     chart_chat=ChartChat(engine)
-    vault.preflight()
+    # Check constructor/migration writes before starting collection, learning,
+    # journal delivery or market workers. Concurrent USB work can otherwise
+    # make this gate time out and strand an already-running observer.
+    if not vault.preflight():
+        try:return serve_recovery(vault,args.port,ROOT/'web')
+        finally:
+            swing_research.close();ibkr.close();vault.close();ownership.close()
+    ibkr.start();swing_research.start()
+    if not args.no_workers:
+        agent_signals.start();agents.start();workers.start()
     # The integrity gates have already run. Let the UI connect before refreshing
     # its verified startup snapshot on the removable drive.
     if vault.catalog():vault.start(initial_reason='startup')

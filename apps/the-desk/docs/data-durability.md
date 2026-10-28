@@ -88,6 +88,10 @@ workspace to connect first. Integrity inspection uses a consistent in-memory
 SQLite snapshot for databases up to 512 MiB, avoiding repeated random USB reads;
 larger databases are checked directly. Backup copy deadlines scale from 60 to
 600 seconds with database size. Prior verified snapshots survive a timeout.
+Inspection copy deadlines scale from 120 to 600 seconds. The final startup
+inspection completes before Swing collection/learning, IBKR, market, agent and
+journal workers start, keeping their USB traffic out of the integrity gate.
+A failed final inspection serves recovery diagnostics without starting workers.
 
 Scope: `desk.sqlite3` (layouts, indicators, settings, paper ledger and agent records),
 `swing-research.sqlite3` (source candles, observations, runs, usage and checkpoints),

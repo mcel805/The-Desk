@@ -55,6 +55,25 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(m['files']['desk.sqlite3']['rows']['settings'],1)
         self.assertEqual(inspect_database(path)['rows']['settings'],2)
 
+    def test_inspection_allows_large_removable_database_more_than_two_minutes(self):
+        path=self.root/'large.sqlite3'
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE retained(payload BLOB)')
+            db.execute('INSERT INTO retained VALUES(zeroblob(73400320))')
+        # A real multi-step SQLite copy, with a simulated slow removable disk.
+        with patch('storage.time.monotonic',side_effect=[0]+[130]*1000):
+            checked=inspect_database(path)
+        self.assertEqual(checked['integrity'],'ok')
+        self.assertEqual(checked['rows']['retained'],1)
+
+    def test_inspection_still_bounds_a_stalled_copy_and_preserves_source(self):
+        path=self.root/'desk.sqlite3';before=sha256(path)
+        with patch('storage.time.monotonic',side_effect=[0,601]):
+            with self.assertRaisesRegex(StorageFault,'inspection snapshot timed out'):
+                inspect_database(path)
+        self.assertEqual(sha256(path),before)
+        self.assertEqual(inspect_database(path)['integrity'],'ok')
+
     def test_snapshot_captures_committed_wal_and_restores_exact_rows_and_reports(self):
         writer=sqlite3.connect(self.root/'desk.sqlite3');writer.execute('INSERT INTO settings VALUES(?,?)',('pineLibrary','[{"name":"saved indicator"}]'));writer.commit()
         try:

@@ -227,8 +227,9 @@ def inspect_database(path):
         if pages*page_size<=512*1024*1024:
             db=sqlite3.connect(':memory:')
             started=time.monotonic()
+            deadline=max(120,min(600,2*pages*page_size/(1024*1024)))
             def progress(*args):
-                if time.monotonic()-started>120:raise StorageFault('Database inspection snapshot timed out')
+                if time.monotonic()-started>deadline:raise StorageFault('Database inspection snapshot timed out')
             source.backup(db,pages=256,sleep=.01,progress=progress)
         result=[r[0] for r in db.execute('PRAGMA integrity_check')]
         if result!=['ok']:raise StorageFault('SQLite integrity check failed: '+path.name)
