@@ -14,7 +14,7 @@ from jev_costs import safe_usage
 from jev_keychain import MacKeychain, KeychainError
 
 MODEL='jev-1.14.0'
-PROMPT_VERSION='swing-observer.6-warnings.1'
+PROMPT_VERSION='swing-observer.7-house-abc.1'
 QUESTIONS={
     'directional_lean':{'type':'choice','instructions':'Classify the currently supported directional thesis from this timestamped swing snapshot. This is a contextual LONG / SHORT / NEUTRAL lean, not a trade command and not the next candle direction. Use only recognized structure and observed price action; incomplete evidence, conflicting signals, or price between useful locations can justify neutral.','criteria':{'long':'The observed swing and local response coherently support an upward thesis over a downward one.','short':'The observed swing and local response coherently support a downward thesis over an upward one.','neutral':'Neither direction is sufficiently distinguished: evidence is incomplete, conflicting, or lacks a useful response at recognized structure.'}},
     'next_bar':{'type':'choice','instructions':'Using only the timestamped swing state and price evidence, estimate the direction of the NEXT full 1-minute candle, whose start is prediction_bar. Compare its closing price with its opening price. This is a forecast, not a statement about the forming candle. No outcome or future data is provided.','criteria':{'up':'Next full candle closes at least one tick above its open.','down':'Next full candle closes at least one tick below its open.','flat':'Next full candle closes less than one tick from its open.'}},
@@ -68,6 +68,11 @@ QUESTIONS['swing_warning_response']={'type':'choice',
                 'repaired_or_tracking':'Price repairs warnings or continues delivery without an active reversal case.',
                 'confirmed_local_turn':'The CLOSED warning state confirms a local turn after protected-pivot failure and failed reclaim or opposite departure.',
                 'insufficient':'Warning evidence is missing, unavailable, or contradictory enough to withhold a classification.'}}
+
+# The house ABC result is computed from completed bars by the 1.7 Pine study.
+# It is contextual evidence in the existing request, not another paid call.
+QUESTIONS['directional_lean']['instructions'] += (' If `house_abc.status` is AVAILABLE, use its separately timestamped house O-A-B-C stage and uncalibrated exhaustion contributions as contextual evidence. Developing points can move; do not assert confirmation before the recorded known time. A different exhaustion root describes a different delivery. If unavailable, do not infer it.')
+QUESTIONS['swing_warning_response']['instructions'] += (' When `house_abc.status` is AVAILABLE, consider the separate 1.7 exhaustion score and coverage alongside, not added to, the existing warning score. Both are uncalibrated and may refer to different roots. Do not infer missing evidence or entry permission.')
 
 MAX_QUESTION_BYTES=32_000
 RETRY_STATUSES=frozenset({429,500,502,503,504,529})

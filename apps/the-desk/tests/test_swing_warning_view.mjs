@@ -1,10 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {warningPanelHTML,projectWarningTags} from '../web/swing-warnings.mjs';
+import {warningPanelHTML,projectWarningTags,warningGlyph} from '../web/swing-warnings.mjs';
 import {settingsController} from '../web/swing-settings.mjs';
 const at=Date.UTC(2026,9,26,14,30),closed={side:1,state:'CAUTION',observedAt:at,closedCutoff:at,pressure:50,coverage:'111101',activeFamilies:3,availableFamilies:5,deliverySupport:2,stage:1,severity:[1,1,1,0,null,0,null,1],values:{speedRatio:.4,efficiency:.3},episodes:[{id:1},null,{id:2}]};
 const evidence={closed,provisional:{...closed,observedAt:at+1000,provisional:true},events:[{seq:1,kind:'START',feature:'SLOW',severity:1,side:-1,price:100,at,knownAt:at,firstObserved:at-15000,originAt:at-60000,scope:'FORWARD'},{seq:2,kind:'START',feature:'REJECT',severity:1,side:-1,price:100,at,knownAt:at,firstObserved:at,originAt:at-60000,scope:'FORWARD'},{seq:3,kind:'CLEARED',feature:'SLOW',episode:1,at:at+1000}]};
 const coords={timeToX:t=>(t-at)/60000+100,priceToY:p=>p,width:500,top:0,height:500,now:at+2000};
-test('warning tags retain recognition time, clearing and grouped bar evidence',()=>{const tags=projectWarningTags(evidence,coords);assert.equal(tags.length,1);assert.equal(tags[0].cx,100);assert.equal(tags[0].label,'SLOW ✓ · REJECT');assert.match(tags[0].detail,/first seen/);assert.match(tags[0].detail,/Opposing wick/);});
+test('warning tags retain recognition time, clearing and grouped bar evidence',()=>{const tags=projectWarningTags(evidence,coords);assert.equal(tags.length,1);assert.equal(tags[0].cx,100);assert.equal(tags[0].label,'SLOW ✓ · REJECT');assert.deepEqual(tags[0].features,['SLOW','REJECT']);assert.equal(tags[0].anchorY,100);assert.match(tags[0].detail,/first seen/);assert.match(tags[0].detail,/Opposing wick/);});
 test('future, offscreen and higher timeframe evidence cannot create tags',()=>{assert.deepEqual(projectWarningTags(evidence,{...coords,now:at-1}),[]);assert.deepEqual(projectWarningTags(evidence,{...coords,timeframe:'5'}),[]);assert.deepEqual(projectWarningTags(evidence,{...coords,timeToX:()=>-1}),[]);});
 test('panel shows eight measured statuses, fresh provisional evidence and no probability claim',()=>{const html=warningPanelHTML(evidence,{status:'OBSERVING',now:at+2000});for(const code of ['SLOW','CHOP','REJECT','EXTENDED','LEVEL','DIVERGENCE','EFFORT','STRUCTURE'])assert.ok(html.includes('<td>'+code+'</td>'));assert.match(html,/Provisional receipt/);assert.match(html,/not mean a 70%/);assert.match(html,/Active warning episodes/);});
 test('paused, stale and unavailable observations cannot show fresh model or forming result',()=>{for(const options of [{status:'PAUSED',now:at+2000},{status:'OBSERVING',now:at+60000}])assert.match(warningPanelHTML(evidence,options),/No fresh forming/);assert.match(warningPanelHTML(null),/No warning evidence/);});
@@ -23,4 +23,11 @@ test('warmup-derived closed warnings are excluded before slot deduplication',()=
  const o={schema:'agentic.swing.warnings.v1',symbol:'hyperliquid:BTC',side:1,observedAt:at,closedCutoff:at,provisional:false,featureConfig:'{"engine":"test"}',coverage:'111101',pressure:50,stage:1,swing:1,values:{close:100,atr:2}};
  const data={runs:[{id:'warm',symbol:o.symbol},{id:'forward',symbol:o.symbol}],predictions:[{run:'warm',symbol:o.symbol,at:at+1000,state:{swing_warnings:{closed:o}}},{run:'forward',symbol:o.symbol,at:at+16000,state:{swing_warnings:{closed:o}}}],run_bars:[{run:'warm',warmup:1,payload:{time:at-60000,open:100,high:101,low:99,close:100,volume:10}},...Array.from({length:12},(_,i)=>({run:'forward',warmup:0,payload:{time:at+(i-1)*60000,open:100,high:100.5,low:99.5,close:100,volume:10}}))]};
  const r=auditWarningExport(data);assert.equal(r.skipped.warmup,1);assert.equal(r.skipped.duplicates,0);assert.equal(r.cohorts[0].observations.length,1);assert.equal(r.cohorts[0].observations[0].run,'forward');assert.equal(r.cohorts[0].observations[0].observedAt,at+16000);
+});
+
+test('each warning family has a distinct small glyph centered on the recognition bar',()=>{
+ const names=['SLOW','CHOP','REJECT','EXTENDED','LEVEL','DIVERGENCE','EFFORT','STRUCTURE'];
+ const paths=names.map(feature=>warningGlyph({feature,cx:100,cy:200}));
+ assert.equal(new Set(paths).size,8);
+ for(const path of paths){const coords=[...path.matchAll(/[ML](-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g)];assert.ok(coords.length);for(const [,x,y] of coords){assert.ok(Math.abs(Number(x)-100)<=3);assert.ok(Math.abs(Number(y)-200)<=3);}}
 });

@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from swing_tracker import Config, SwingTracker, REVISION, valid_bar
+from house_abc import HouseABC
 from jev_swing import Jev, MODEL, PROMPT_VERSION, QUESTIONS, JevRequestError, JevResponseError
 from swing_volume import SwingVolume, VERSION as VOLUME_VERSION
 from swing_warnings import WarningEngine, REVISION as WARNING_VERSION, DEFAULTS as WARNING_DEFAULTS, validate_config as validate_warning_config
@@ -25,7 +26,7 @@ from storage import clear_swing_pause, connect, connect_readonly, persist_swing_
 
 SYMBOLS=('hyperliquid:BTC','hyperliquid:ETH')
 WARNING_CADENCE_SECONDS=15
-CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_warnings.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine'))).hexdigest()
+CODE_HASH=hashlib.sha256(b''.join((Path(__file__).parent/name).read_bytes() for name in ('swing_tracker.py','swing_research.py','swing_warnings.py','swing_volume.py','jev_swing.py','jev_costs.py','swing_liquidity.py','storage.py','web/pine-examples/market-cipher-a.pine','web/pine-examples/market-cipher-b.pine','house_abc.py','swing_abc_runner.mjs','web/pine-examples/swing-tracker-1.7.pine'))).hexdigest()
 def encode(v):return json.dumps(v,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(v):return hashlib.sha256(encode(v).encode()).hexdigest()
 
@@ -188,6 +189,7 @@ class SwingResearch:
     def storage_failure(self,symbol,a,error):
         with self.lock:
             if self.active.get(symbol) is a:self.active.pop(symbol,None)
+            if a.get('house_abc'):a['house_abc'].close()
             self.last[symbol]={**self.last.get(symbol,{}),'status':'STORAGE_ERROR','run':a['run'],
                 'detail':'Durable write failed. Collection paused; no further model requests. Open Data & Backups.',
                 'storage_error':type(error).__name__}
@@ -342,9 +344,12 @@ class SwingResearch:
         if a and a['tracker']:
             a['tracker'].terminate(reason,int(time.time()*1000))
             previous_warnings=self.last[symbol].get('snapshot',{}).get('warnings')
+            previous_house=self.last[symbol].get('snapshot',{}).get('house_abc')
             self.last[symbol]['snapshot']=a['tracker'].snapshot()
             if previous_warnings:self.last[symbol]['snapshot']['warnings']=previous_warnings
+            if previous_house:self.last[symbol]['snapshot']['house_abc']=previous_house
             if a.get('volume_engine'):self.last[symbol]['snapshot']['market_synth']=a['volume_engine'].snapshot(a['tracker'].candidates)
+        if a and a.get('house_abc'):a['house_abc'].close()
         if a and a.get('study'):
             a['study'].end(reason,int(time.time()*1000));self.persist_study(symbol,a,int(time.time()*1000))
             self.last[symbol]['study']=self.study_brief(a['study'].snapshot())
@@ -431,6 +436,7 @@ class SwingResearch:
             if warming:
                 a['tracker']=SwingTracker(Config(**{k:v for k,v in a['config'].items() if k not in ('cadence_seconds','jev_enabled','warning_settings') and k not in STUDY_DEFAULTS}),tick)
                 a['volume_engine']=SwingVolume(symbol,tick)
+                a['house_abc']=HouseABC()
                 a['warnings']=WarningEngine({**a['config'].get('warning_settings',{}),'tick':tick})
                 a['warning_persisted_seq']=0
                 a['warning_warmup_seq']=0
@@ -495,12 +501,15 @@ class SwingResearch:
             for ev in warnings.events:
                 if not warming and ev['seq']>a['warning_persisted_seq']:pending_events.append(('WARNING_EVENT',ev))
             snap=tracker.snapshot();snap['warnings']=warning_state;prediction_bar=(now//60000+1)*60000
+            house=a['house_abc'].observe(tracker.bars,symbol,tick,a['config']['swing_minutes'],now)
+            snap['house_abc']=house
             snap['market_synth']=a['volume_engine'].snapshot(snap['candidates'])
             primary=a['last_bucket']!=now//60000
             # Independent evaluations are grouped by source minute. Secondary intrabar samples are diagnostic.
             state={'symbol':symbol,'provider':'Hyperliquid public REST','observed_at':now,'quote_at':source,'candles_as_of':as_of,'bid':float(bid),'ask':float(ask),'tick':tick,'closed_cutoff':snap['cutoff'],'forming':forming,'forming_is_confirmed':False,'prediction_bar':prediction_bar,'definition':'next full 1m close vs its open; >= one tick','evaluation_bar':now//60000*60000,'evaluation_slot':now%60000//(a['config']['cadence_seconds']*1000)+1,'cadence_seconds':a['config']['cadence_seconds'],'revision':REVISION,'code_hash':CODE_HASH,'parent_id':snap['parent_id'],'trend':snap['trend'],'pivots':snap['pivots'][-10:],'candidates':snap['candidates'][-4:],'closed_bars':closed[-max(24,a['config'].get('study_window',5)*2+1):]}
             if a.get('study'):state['liquidity_study']=self.study_brief(a['study'].snapshot(),include_evidence=True)
             state['swing_warnings']=deepcopy(warning_state)
+            state['house_abc']=deepcopy({k:v for k,v in house.items() if k!='events'})
             state['market_synth']={**snap['market_synth'],'recent':snap['market_synth']['recent'][-12:]}
             pid=uuid.uuid5(uuid.NAMESPACE_URL,a['run']+':'+str(slot)).hex
             pricing=deepcopy(RATES.get(MODEL))

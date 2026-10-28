@@ -1,0 +1,817 @@
+//@version=6
+// House swing ABC: O = confirmed parent origin; O-A = delivery; A-B = retracement; B-C = continuation.
+// Origins are retrospective pivots. Recognition, warnings and C confirmation are stamped when known.
+// Developing endpoints evolve. Confirmed B and terminal attempts are frozen. No orders or simulated fills.
+indicator("Agentic - Swing Tracker 1.7", "AG Swing 1.7", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=40, max_bars_back=5000)
+
+string SG="01 · Swing ABC"
+string swingTf=input.timeframe("5","Parent swing timeframe",options=["1","2","3","5","15","30"],group=SG)
+int parentLen=input.int(4,"Parent pivot bars each side",minval=1,maxval=20,group=SG)
+int localLen=input.int(2,"B turn pivot bars each side · chart bars",minval=1,maxval=10,group=SG)
+float minDriveAtr=input.float(1.0,"Minimum O-A delivery · ATR at origin recognition",minval=0.1,step=0.1,group=SG)
+int minDriveTicks=input.int(12,"Minimum O-A delivery · ticks",minval=1,group=SG)
+float bMin=input.float(0.25,"Minimum B retracement of O-A",minval=0.05,maxval=0.9,step=0.05,group=SG)
+float bMax=input.float(0.95,"Maximum B retracement of O-A",minval=0.1,maxval=1.0,step=0.05,group=SG)
+int breakLen=input.int(3,"C confirmation · close through prior chart bars",minval=1,maxval=10,group=SG)
+int expiryBars=input.int(600,"ABC observation lifetime · chart bars",minval=30,maxval=2500,group=SG)
+int retryLimit=input.int(3,"Fresh B attempts per fixed O-A",minval=1,maxval=5,group=SG)
+
+string PG="02 · Points of interest · optional alignment"
+bool useManual=input.bool(false,"Use manual levels declared before contact",group=PG)
+float manualUpper=input.price(0,"Upper reference · 0 unavailable",group=PG)
+float manualLower=input.price(0,"Lower reference · 0 unavailable",group=PG)
+int manualAt=input.time(0,"Manual levels known from",group=PG)
+bool useLinked=input.bool(false,"I selected upstream upper / lower price plots",group=PG)
+float upperFeed=input.source(close,"Upper price plot",group=PG)
+float lowerFeed=input.source(close,"Lower price plot",group=PG)
+int poiTicks=input.int(3,"POI contact tolerance · ticks",minval=0,maxval=50,group=PG)
+
+string WG="03 · Swing warning evidence"
+bool warningsOn=input.bool(true,"Calculate warnings",group=WG)
+string volumeTrend=input.string("Swing","Volume exhaustion direction",options=["Swing","EMA 50","Swing + EMA 50"],group=WG)
+int volumeLen=input.int(20,"Prior full-bar volume average",minval=2,maxval=100,group=WG)
+float volumeMultiple=input.float(2.0,"Exhaustion volume / prior average",minval=0.5,step=0.1,group=WG)
+float wickMin=input.float(0.40,"Opposing wick / candle range",minval=0.1,maxval=0.9,step=0.05,group=WG)
+float stalledAtr=input.float(0.80,"Heavy-volume stalled true range / prior ATR",minval=0.1,maxval=2,step=0.05,group=WG)
+int fastLen=input.int(8,"Fast EMA",minval=2,maxval=100,group=WG)
+int slowLen=input.int(20,"Slow EMA",minval=3,maxval=200,group=WG)
+int trendLen=input.int(50,"Volume example trend EMA",minval=5,maxval=300,group=WG)
+float emaShrink=input.float(0.70,"EMA contraction / preceding spread",minval=0.1,maxval=0.95,step=0.05,group=WG)
+float sarStart=input.float(0.02,"SAR start",minval=0.001,step=0.001,group=WG)
+float sarStep=input.float(0.02,"SAR increment",minval=0.001,step=0.001,group=WG)
+float sarMax=input.float(0.20,"SAR maximum",minval=0.01,step=0.01,group=WG)
+float dojiPart=input.float(0.10,"Doji body / candle range",minval=0.01,maxval=0.4,step=0.01,group=WG)
+int warningWindow=input.int(5,"Delivery comparison window",minval=2,maxval=30,group=WG)
+float slowRatio=input.float(0.70,"Recent / preceding delivery speed",minval=0.1,maxval=0.95,step=0.05,group=WG)
+float chopLimit=input.float(0.35,"Chop travel efficiency",minval=0.05,maxval=0.9,step=0.05,group=WG)
+int geometryBars=input.int(180,"Prior swing-envelope audit · chart bars",minval=20,maxval=500,group=WG)
+int warningCooldown=input.int(5,"Evidence event minimum spacing · bars",minval=1,maxval=60,group=WG)
+int evidenceHold=input.int(3,"Event warning retention · completed bars",minval=1,maxval=10,group=WG)
+
+string VG="04 · Chart display"
+int keepSwings=input.int(6,"Completed swing legs retained",minval=2,maxval=15,group=VG)
+int keepWarnings=input.int(20,"Historical warning-level markers retained",minval=5,maxval=60,group=VG)
+int reviewBack=input.int(0,"Review older ABC · 0 automatic",minval=0,maxval=15,group=VG)
+bool showAbc=input.bool(true,"Draw ABC legs",group=VG)
+bool showHistory=input.bool(true,"Draw previous completed ABCs",group=VG)
+bool showScoreHistory=input.bool(false,"Show historical warning-level changes",group=VG)
+bool showWarningMarks=input.bool(true,"Show colored X on warning bars",group=VG)
+bool showChannel=input.bool(true,"Current parent envelope",group=VG)
+bool showRange=input.bool(true,"Current completed parent range",group=VG)
+bool showEma=input.bool(false,"Show 8 / 20 / trend EMA curves",group=VG)
+bool showSar=input.bool(false,"Show SAR dots",group=VG)
+bool eventAlerts=input.bool(false,"Emit closed-bar analysis JSON",group=VG)
+color upInk=input.color(color.rgb(0,196,159),"Up swing",group=VG)
+color downInk=input.color(color.rgb(244,70,94),"Down swing",group=VG)
+color aInk=input.color(color.rgb(0,195,255),"A delivery",group=VG)
+color bInk=input.color(color.rgb(255,196,30),"B retracement",group=VG)
+color cInk=input.color(color.rgb(185,125,255),"C continuation",group=VG)
+
+float tick=syminfo.mintick
+float atr=ta.atr(14)
+float chartPH=ta.pivothigh(high,parentLen,parentLen)
+float chartPL=ta.pivotlow(low,parentLen,parentLen)
+float localPH=ta.pivothigh(high,localLen,localLen)
+float localPL=ta.pivotlow(low,localLen,localLen)
+f_parentData()=>
+    float ph=ta.pivothigh(high,parentLen,parentLen)
+    float pl=ta.pivotlow(low,parentLen,parentLen)
+    [ph[1],pl[1],time[parentLen+1],time_close[1]]
+[htfPH,htfPL,htfOrigin,htfKnown]=request.security(syminfo.tickerid,swingTf,f_parentData(),gaps=barmerge.gaps_on,lookahead=barmerge.lookahead_on)
+int sourceSeconds=timeframe.in_seconds(swingTf)
+int chartSeconds=timeframe.in_seconds()
+bool sameTf=sourceSeconds==chartSeconds
+float parentPH=sameTf?chartPH:htfPH
+float parentPL=sameTf?chartPL:htfPL
+int parentOrigin=sameTf?time[parentLen]:htfOrigin
+int parentKnown=sameTf?time_close:htfKnown
+if barstate.isfirst and (not chart.is_standard or not timeframe.isintraday or chartSeconds<60 or sourceSeconds<chartSeconds)
+    runtime.error("Use standard intraday time candles, at least 1 minute, with parent timeframe at or above the chart timeframe.")
+if barstate.isfirst and bMin>=bMax
+    runtime.error("Minimum B retracement must be below maximum B retracement.")
+
+float fast=ta.ema(close,fastLen)
+float slow=ta.ema(close,slowLen)
+float trendEma=ta.ema(close,trendLen)
+float sar=ta.sar(sarStart,sarStep,sarMax)
+float volBase=ta.sma(volume[1],volumeLen)
+float volRatio=not na(volBase) and volBase>0 and not na(volume) and volume>=0?volume/volBase:na
+float priorHigh=ta.highest(high[1],breakLen)
+float priorLow=ta.lowest(low[1],breakLen)
+float candleSpan=math.max(high-low,tick)
+float body=math.abs(close-open)
+float upperWick=(high-math.max(open,close))/candleSpan
+float lowerWick=(math.min(open,close)-low)/candleSpan
+float tr=ta.tr(true)
+float travel=math.sum(math.abs(ta.change(close)),warningWindow)
+float efficiency=travel>0?math.abs(close-close[warningWindow])/travel:na
+float balance=travel>0?100*math.sum(math.max(ta.change(close),0),warningWindow)/travel:50
+bool emaCrossUp=ta.crossover(fast,slow)
+bool emaCrossDown=ta.crossunder(fast,slow)
+bool sarFlipUp=ta.crossover(close,sar)
+bool sarFlipDown=ta.crossunder(close,sar)
+bool priorDoji=math.abs(close[1]-open[1])/math.max(high[1]-low[1],tick)<=dojiPart
+bool bullEngulf=close>open and (close[1]<=open[1] or priorDoji) and open<=math.min(open[1],close[1]) and close>=math.max(open[1],close[1]) and body>math.abs(close[1]-open[1])+tick
+bool bearEngulf=close<open and (close[1]>=open[1] or priorDoji) and open>=math.max(open[1],close[1]) and close<=math.min(open[1],close[1]) and body>math.abs(close[1]-open[1])+tick
+float manualU=useManual and manualUpper>0 and manualAt>0 and manualAt<time?manualUpper:na
+float manualL=useManual and manualLower>0 and manualAt>0 and manualAt<time?manualLower:na
+bool upperSelected=upperFeed[1]!=close[1] or upperFeed[2]!=close[2]
+bool lowerSelected=lowerFeed[1]!=close[1] or lowerFeed[2]!=close[2]
+float priorUpper=not na(manualU)?manualU:useLinked and upperSelected?upperFeed[1]:na
+float priorLower=not na(manualL)?manualL:useLinked and lowerSelected?lowerFeed[1]:na
+int upperKnown=not na(manualU)?manualAt:not na(priorUpper)?time:na
+int lowerKnown=not na(manualL)?manualAt:not na(priorLower)?time:na
+
+// Clocks are carried separately. Geometry and POI samples are always prior information.
+type Pivot
+    float price
+    int ix
+    int at
+    int known
+    int side
+    int sourceAt=na
+
+type Sample
+    int ix
+    int at
+    float hi
+    float lo
+    float upper
+    float lower
+    int upperKnown
+    int lowerKnown
+
+type SwingABC
+    int id
+    int rootId
+    int attempt
+    int dir
+    Pivot o
+    float threshold
+    int stage=1
+    Pivot a=na
+    Pivot b=na
+    Pivot c=na
+    Pivot bTurn=na
+    bool poi=false
+    float poiPrice=na
+    int poiAt=na
+    int poiKnown=na
+    int aRecognized=na
+    int bRecognized=na
+    int cRecognized=na
+    int ended=na
+    string reason="A DRIVE"
+
+type Evidence
+    int ix
+    int at
+    int known
+    int rootId
+    int side
+    int family
+    string icon
+    string detail
+    float price
+    float pad
+
+type WarningScore
+    int ix
+    int known
+    int rootId
+    int side
+    int score
+    int available
+    int tier
+    float price
+    float pad
+    string detail
+
+var array<WarningScore> scoreHistory=array.new<WarningScore>()
+var array<int> heldAt=array.new_int(8,-100000)
+var array<int> heldWeight=array.new_int(8,0)
+var array<int> warningContributions=array.new_int(8,0)
+var array<float> repairPrice=array.new_float(8,na)
+var int scoreRoot=0
+var int warningPoints=0
+var int warningAvailable=0
+var int warningTier=0
+var int lastScoreMark=-100000
+var string warningDetail="Warming up"
+var array<Sample> samples=array.new<Sample>()
+var array<Pivot> parents=array.new<Pivot>()
+var array<Pivot> localPivots=array.new<Pivot>()
+var array<SwingABC> cycles=array.new<SwingABC>()
+var array<Evidence> evidence=array.new<Evidence>()
+var array<int> lastWarning=array.new_int(8,-100000)
+var array<bool> priorWarning=array.new_bool(8,false)
+var Pivot root=na
+var Pivot activeEnd=na
+var Pivot protectedPivot=na
+var Pivot divergencePivot=na
+var float divergenceBalance=na
+var int lastParentKnown=na
+var int nextId=0
+var int rootId=0
+var int lastClosedBar=na
+var float lastClosedPrice=na
+var int latestMask=0
+var int lastClosedAt=na
+var int warningSampleRoot=0
+var int warningSampleSide=0
+var float warningSampleVolume=na
+var int lastSupportBar=-100000
+
+f_price(float p)=>na(p)?"—":str.tostring(p,format.mintick)
+f_json(float p)=>na(p)?"null":str.tostring(p)
+f_tier(int points)=>points>=9?3:points>=6?2:points>=3?1:0
+f_tierText(int tier)=>tier==3?"STRONG":tier==2?"WEAKENING":tier==1?"CAUTION":"LOW"
+f_tierInk(int tier)=>tier==3?color.rgb(244,70,94):tier==2?color.rgb(255,150,45):tier==1?color.rgb(247,204,75):color.rgb(150,175,200)
+f_stage(int s)=>s==1?"A drive":s==2?"B retracement":s==3?"C developing":s==4?"C beyond A":s==5?"Invalid":s==6?"C completed":"Expired"
+f_contact(float hi,float lo,float level)=>not na(level) and hi>=level-poiTicks*tick and lo<=level+poiTicks*tick
+f_pivot(float price,int ix,int at,int known,int side)=>Pivot.new(price=price,ix=ix,at=at,known=known,side=side,sourceAt=at)
+f_extreme(int fromAt,int dir)=>
+    Pivot found=na
+    if array.size(samples)>0
+        for s in samples
+            if s.at>fromAt
+                float p=dir==1?s.hi:s.lo
+                if na(found) or dir*(p-found.price)>=0
+                    found:=f_pivot(p,s.ix,s.at,time_close,dir)
+    found
+f_bTurn(Pivot a,Pivot b,int dir)=>
+    Pivot found=na
+    if not na(a) and not na(b) and array.size(localPivots)>0
+        for p in localPivots
+            if p.side==-dir and p.at>a.at and math.abs(p.price-b.price)<=tick
+                found:=p.copy()
+    found
+f_align(SwingABC s,int through)=>
+    s.poi:=false
+    s.poiPrice:=na
+    s.poiAt:=na
+    s.poiKnown:=na
+    for sample in samples
+        if sample.at>s.o.at and sample.at<=through
+            float level=s.dir==1?sample.upper:sample.lower
+            if not s.poi and f_contact(sample.hi,sample.lo,level)
+                s.poi:=true
+                s.poiPrice:=level
+                s.poiAt:=sample.at
+                s.poiKnown:=s.dir==1?sample.upperKnown:sample.lowerKnown
+    true
+f_parentAnchor(int sourceAt,float price,int known,int side)=>
+    Pivot found=na
+    if not na(sourceAt) and array.size(samples)>0
+        for sample in samples
+            if sample.at>=sourceAt and sample.at<sourceAt+sourceSeconds*1000
+                float wick=side==1?sample.hi:sample.lo
+                if math.abs(wick-price)<=tick*0.25
+                    found:=f_pivot(price,sample.ix,sample.at,known,side)
+                    found.sourceAt:=sourceAt
+    found
+f_geometry(Pivot anchor,Pivot endpoint)=>
+    float top=na
+    float bottom=na
+    float leftTop=na
+    float leftBottom=na
+    int left=na
+    if not na(anchor) and not na(endpoint) and endpoint.ix>anchor.ix and array.size(samples)>=3
+        float slope=(endpoint.price-anchor.price)/(endpoint.ix-anchor.ix)
+        float ho=0.0
+        float lo=0.0
+        int count=0
+        left:=math.max(anchor.ix,bar_index-geometryBars)
+        for j=0 to array.size(samples)-1
+            Sample s=array.get(samples,array.size(samples)-1-j)
+            if s.ix<left
+                break
+            float spine=anchor.price+slope*(s.ix-anchor.ix)
+            ho:=math.max(ho,s.hi-spine)
+            lo:=math.min(lo,s.lo-spine)
+            count+=1
+        if count>=3
+            top:=anchor.price+slope*(bar_index-anchor.ix)+ho
+            bottom:=anchor.price+slope*(bar_index-anchor.ix)+lo
+            leftTop:=anchor.price+slope*(left-anchor.ix)+ho
+            leftBottom:=anchor.price+slope*(left-anchor.ix)+lo
+    [top,bottom,leftTop,leftBottom,left]
+f_emit(string kind,SwingABC s)=>
+    if eventAlerts and barstate.isrealtime
+        string packet="{\"schema\":\"agentic.swing.abc.v1.5\",\"event\":\""+kind+"\",\"symbol\":\""+syminfo.tickerid+"\",\"chart_timeframe\":\""+timeframe.period+"\",\"swing_timeframe\":\""+swingTf+"\",\"observed_at\":"+str.tostring(time_close)+",\"id\":"+str.tostring(s.id)+",\"root_id\":"+str.tostring(s.rootId)+",\"attempt\":"+str.tostring(s.attempt)+",\"dir\":"+str.tostring(s.dir)+",\"stage\":"+str.tostring(s.stage)
+        packet+=",\"o_source_bar\":"+str.tostring(s.o.sourceAt)+",\"o_origin\":"+str.tostring(s.o.at)+",\"o_known\":"+str.tostring(s.o.known)+",\"o_price\":"+str.tostring(s.o.price)
+        packet+=",\"a_price\":"+f_json(not na(s.a)?s.a.price:na)+",\"a_origin\":"+f_json(not na(s.a)?s.a.at:na)+",\"a_recognized\":"+f_json(s.aRecognized)
+        packet+=",\"b_price\":"+f_json(not na(s.b)?s.b.price:na)+",\"b_origin\":"+f_json(not na(s.b)?s.b.at:na)+",\"b_recognized\":"+f_json(s.bRecognized)
+        packet+=",\"c_price\":"+f_json(not na(s.c)?s.c.price:na)+",\"c_origin\":"+f_json(not na(s.c)?s.c.at:na)+",\"c_start_recognized\":"+f_json(s.cRecognized)
+        packet+=",\"poi\":"+(s.poi?"true":"false")+",\"poi_price\":"+f_json(s.poiPrice)+",\"poi_contact_at\":"+f_json(s.poiAt)+",\"poi_known\":"+f_json(s.poiKnown)+",\"reason\":\""+s.reason+"\"}"
+        alert(packet,alert.freq_all)
+    true
+
+// Assess current closed candle against geometry and structure known BEFORE this candle.
+[geometryTop,geometryBottom,geometryLeftTop,geometryLeftBottom,geometryLeft]=f_geometry(root,activeEnd)
+int delivery=not na(root)?-root.side:0
+int emaTrend=close>trendEma and trendEma>trendEma[1]?1:close<trendEma and trendEma<trendEma[1]?-1:0
+int exhaustionSide=volumeTrend=="EMA 50"?emaTrend:volumeTrend=="Swing + EMA 50"?(emaTrend==delivery?delivery:0):delivery
+float opposingWick=exhaustionSide==1?upperWick:lowerWick
+bool volumeExhaustion=exhaustionSide!=0 and not na(volRatio) and volRatio>=volumeMultiple and (opposingWick>=wickMin or not na(atr[1]) and tr<=stalledAtr*atr[1])
+float signedGap=delivery*(fast-slow)
+bool emaContract=delivery!=0 and signedGap>tick and delivery*(fast[warningWindow]-slow[warningWindow])>tick and signedGap<=delivery*(fast[warningWindow]-slow[warningWindow])*emaShrink
+bool emaExpanding=delivery!=0 and signedGap>tick and signedGap>delivery*(fast[warningWindow]-slow[warningWindow])+tick
+bool favorableCross=delivery==1?emaCrossUp:delivery==-1?emaCrossDown:false
+bool adverseCross=delivery==1?emaCrossDown:delivery==-1?emaCrossUp:false
+bool adverseSar=delivery==1?sarFlipDown:delivery==-1?sarFlipUp:false
+bool doji=delivery!=0 and body/candleSpan<=dojiPart and (delivery==1?upperWick:lowerWick)>=wickMin
+bool adverseEngulf=delivery==1?bearEngulf:delivery==-1?bullEngulf:false
+bool geometryBreak=delivery==1?not na(geometryBottom) and close<geometryBottom-tick:delivery==-1?not na(geometryTop) and close>geometryTop+tick:false
+bool structureBreak=not na(protectedPivot) and protectedPivot.known<=time and (delivery==1?close<protectedPivot.price-tick:delivery==-1?close>protectedPivot.price+tick:false)
+float recentProgress=delivery*(close-close[warningWindow])
+float precedingProgress=delivery*(close[warningWindow]-close[warningWindow*2])
+bool slowing=delivery!=0 and precedingProgress>tick and recentProgress>=0 and recentProgress/precedingProgress<slowRatio
+bool chopping=delivery!=0 and not na(efficiency) and efficiency<chopLimit
+bool divergence=not na(divergencePivot) and divergencePivot.known<=time and (delivery==1?high>divergencePivot.price+tick and balance<divergenceBalance-5:delivery==-1?low<divergencePivot.price-tick and balance>divergenceBalance+5:false)
+bool cStarted=false
+bool cBrokeA=false
+bool invalidated=false
+bool upExhaustion=false
+bool downExhaustion=false
+
+if barstate.isconfirmed
+    lastClosedBar:=bar_index
+    lastClosedAt:=time_close
+    warningSampleRoot:=rootId
+    warningSampleSide:=delivery
+    warningSampleVolume:=volRatio
+    lastClosedPrice:=close
+    latestMask:=0
+    upExhaustion:=warningsOn and volumeExhaustion and exhaustionSide==1
+    downExhaustion:=warningsOn and volumeExhaustion and exhaustionSide==-1
+    array<bool> warningNow=array.from(volumeExhaustion,emaContract or adverseCross,adverseSar,doji or adverseEngulf,geometryBreak,structureBreak,slowing or chopping,divergence)
+    if warningsOn and delivery!=0
+        for family=0 to 7
+            bool on=array.get(warningNow,family)
+            bool fresh=not array.get(priorWarning,family) or family==0 or family==3
+            if on
+                latestMask+=int(math.pow(2,family))
+            if on and fresh and (bar_index-array.get(lastWarning,family)>=warningCooldown or family==3 and adverseEngulf)
+                int side=family==0?exhaustionSide:delivery
+                string icon=family==0?"◆":family==1?"×":family==2?"•":family==3?(adverseEngulf?"▰":"◇"):family==4?"∠":family==5?"!":family==6?"~":"≠"
+                string detail=family==0?"Heavy-volume poor result: relative volume "+str.tostring(volRatio,"#.00")+"; opposing wick "+str.tostring(opposingWick,"#.00")+"; true range / prior ATR "+str.tostring(tr/atr[1],"#.00"):family==1?(adverseCross?"8/20 EMA adverse cross":"EMA spread contracted; expansion has slowed"):family==2?"SAR flipped against observed swing":family==3?(adverseEngulf?"Opposing real-body engulfing; confirmation evidence":"Doji with opposing wick; early warning"):family==4?"Close outside prior swing envelope "+f_price(geometryBottom)+" / "+f_price(geometryTop):family==5?"Close through protected pivot "+f_price(not na(protectedPivot)?protectedPivot.price:na)+"; known "+str.tostring(not na(protectedPivot)?protectedPivot.known:na):family==6?(slowing?"Directional progress slowed over equal windows":"Low net travel efficiency / chop"):"Price extended beyond a recognized extreme with weaker momentum balance"
+                array.push(evidence,Evidence.new(ix=bar_index,at=time,known=time_close,rootId=rootId,side=side,family=family,icon=icon,detail=detail,price=side==1?high:low,pad=math.max(nz(atr,tick*10)*0.06,tick*2)))
+                array.set(lastWarning,family,bar_index)
+                upExhaustion:=upExhaustion or family==0 and side==1
+                downExhaustion:=downExhaustion or family==0 and side==-1
+                if eventAlerts and barstate.isrealtime
+                    alert("{\"schema\":\"agentic.swing.evidence.v1.5\",\"observed_at\":"+str.tostring(time_close)+",\"origin_at\":"+str.tostring(time)+",\"root_id\":"+str.tostring(rootId)+",\"family\":"+str.tostring(family)+",\"side\":"+str.tostring(side)+",\"price\":"+str.tostring(side==1?high:low)+"}",alert.freq_all)
+            array.set(priorWarning,family,on)
+    if warningsOn and delivery!=0 and (favorableCross or emaExpanding and not emaExpanding[1]) and bar_index-lastSupportBar>=warningCooldown
+        array.push(evidence,Evidence.new(ix=bar_index,at=time,known=time_close,rootId=rootId,side=-delivery,family=9,icon="○",detail=favorableCross?"8/20 EMA crossed with observed swing; support context":"8/20 EMA spread expanding with observed swing; support context",price=delivery==1?low:high,pad=math.max(nz(atr,tick*10)*0.08,tick*2)))
+        lastSupportBar:=bar_index
+    while array.size(evidence)>150
+        array.shift(evidence)
+
+    // Bounded weighted evidence: current conditions plus short-lived candle/cross events.
+    // Each category contributes once; related tests upgrade it rather than accumulating.
+    int oldTier=warningTier
+    bool changedRoot=scoreRoot!=rootId
+    if changedRoot or not warningsOn
+        scoreRoot:=rootId
+        for family=0 to 7
+            array.set(heldAt,family,-100000)
+            array.set(heldWeight,family,0)
+            array.set(repairPrice,family,na)
+    warningPoints:=0
+    warningAvailable:=0
+    for category=0 to 7
+        array.set(warningContributions,category,0)
+    warningDetail:="Swing #"+str.tostring(rootId)+" "+(delivery==1?"UP":delivery==-1?"DOWN":"WARMING")+" · closed "+str.format_time(time_close,"MM-dd HH:mm",syminfo.timezone)
+    bool volumeUsable=exhaustionSide==delivery and not na(volRatio) and not na(atr[1])
+    bool emaUsable=not na(slow) and not na(fast[warningWindow])
+    bool sarUsable=not na(sar)
+    bool candleUsable=not na(close[1])
+    bool geometryUsable=not na(geometryTop) and not na(geometryBottom)
+    bool structureUsable=not na(protectedPivot) and protectedPivot.known<=time
+    bool paceUsable=not na(efficiency) and not na(close[warningWindow*2])
+    bool divergenceUsable=not na(divergencePivot) and not na(divergenceBalance) and divergencePivot.known<=time
+    array<bool> usable=array.from(volumeUsable,emaUsable,sarUsable,candleUsable,geometryUsable,structureUsable,paceUsable,divergenceUsable)
+    array<int> capacity=array.from(2,2,1,2,2,3,1,1)
+    array<string> names=array.from("Volume exhaustion","EMA","SAR opposing","Candle rejection","Geometry break","Structure break","Slow / chop","Momentum divergence")
+    array<int> freshWeights=array.from(volumeExhaustion and exhaustionSide==delivery?2:0,0,0,adverseEngulf?2:doji?1:0,0,0,0,divergence?1:0)
+    if warningsOn and delivery!=0
+        for family=0 to 7
+            bool available=array.get(usable,family)
+            int maxWeight=array.get(capacity,family)
+            if available
+                warningAvailable+=maxWeight
+            int fresh=array.get(freshWeights,family)
+            int held=array.get(heldWeight,family)
+            int age=bar_index-array.get(heldAt,family)
+            float repair=array.get(repairPrice,family)
+            bool repaired=family==1?delivery*(fast-slow)>0:not na(repair) and delivery*(close-repair)>=tick
+            if not available or age>=evidenceHold or repaired
+                held:=0
+                array.set(heldWeight,family,0)
+            if available and fresh>0 and fresh>=held
+                held:=fresh
+                array.set(heldWeight,family,held)
+                array.set(heldAt,family,bar_index)
+                array.set(repairPrice,family,delivery==1?high:low)
+            int contribution=0
+            if family==0
+                contribution:=held
+            else if family==1
+                contribution:=delivery*(fast-slow)<-tick?2:emaContract?1:0
+            else if family==2
+                contribution:=(delivery==1?sar>close:sar<close)?1:0
+            else if family==3
+                contribution:=held
+            else if family==4
+                contribution:=geometryBreak?2:0
+            else if family==5
+                contribution:=structureBreak?3:0
+            else if family==6
+                contribution:=slowing or chopping?1:0
+            else
+                contribution:=held
+            contribution:=available?contribution:0
+            array.set(warningContributions,family,contribution)
+            warningPoints+=contribution
+            string status=not available?"N/A":str.tostring(contribution)+"/"+str.tostring(maxWeight)
+            warningDetail+="\n"+array.get(names,family)+" · "+status
+        warningTier:=f_tier(warningPoints)
+        warningDetail+="\nAvailable weight "+str.tostring(warningAvailable)+"/14. Missing evidence never counts as clear."
+        warningDetail+="\nEvent evidence lasts up to "+str.tostring(evidenceHold)+" completed bars, or clears on directional repair. Repeats do not stack."
+        warningDetail+="\n0–2 Low · 3–5 Caution · 6–8 Weakening · 9–14 Strong opposition. Research weights; not reversal odds or an entry signal."
+        if warningTier!=oldTier or changedRoot
+            if warningTier>0 or oldTier>0
+                array.push(scoreHistory,WarningScore.new(ix=bar_index,known=time_close,rootId=rootId,side=delivery,score=warningPoints,available=warningAvailable,tier=warningTier,price=delivery==1?high:low,pad=math.max(nz(atr,tick*10)*0.4,tick*4),detail=warningDetail))
+                lastScoreMark:=bar_index
+            if eventAlerts and barstate.isrealtime
+                alert("{\"schema\":\"agentic.swing.warning_score.v1.5\",\"root_id\":"+str.tostring(rootId)+",\"side\":"+str.tostring(delivery)+",\"observed_at\":"+str.tostring(time_close)+",\"score\":"+str.tostring(warningPoints)+",\"maximum\":14,\"available_weight\":"+str.tostring(warningAvailable)+",\"tier\":"+str.tostring(warningTier)+",\"state\":\""+f_tierText(warningTier)+"\"}",alert.freq_all)
+    else
+        warningTier:=0
+        warningDetail:=warningsOn?"Waiting for a confirmed parent swing":"Warning calculations disabled"
+    while array.size(scoreHistory)>60
+        array.shift(scoreHistory)
+
+    array.push(samples,Sample.new(ix=bar_index,at=time,hi=high,lo=low,upper=priorUpper,lower=priorLower,upperKnown=upperKnown,lowerKnown=lowerKnown))
+    if array.size(samples)>3000
+        array.shift(samples)
+
+    // Update existing attempts before accepting today's newly confirmed parent information.
+    int cycleCount=array.size(cycles)
+    if cycleCount>0
+        for i=0 to cycleCount-1
+            SwingABC s=array.get(cycles,i)
+            if s.stage<=4
+                float adverse=s.dir==1?low:high
+                float forward=s.dir==1?high:low
+                if s.dir*(adverse-s.o.price)<=-tick
+                    s.stage:=5
+                    s.reason:="O INVALIDATED"
+                    s.ended:=time_close
+                    invalidated:=true
+                    f_emit("INVALIDATED_O",s)
+                else if bar_index-s.o.ix>expiryBars
+                    s.stage:=7
+                    s.reason:="EXPIRED"
+                    s.ended:=time_close
+                    f_emit("EXPIRED",s)
+                else if s.stage==1
+                    if na(s.a) or s.dir*(forward-s.a.price)>=0
+                        s.a:=f_pivot(forward,bar_index,time,time_close,s.dir)
+                        s.b:=na
+                        s.reason:="A DRIVE"
+                    else if time>s.a.at and math.abs(s.a.price-s.o.price)>=s.threshold
+                        float tentativeB=s.dir==1?low:high
+                        float tentativeRatio=-s.dir*(tentativeB-s.a.price)/math.abs(s.a.price-s.o.price)
+                        if tentativeRatio>=bMin and (na(s.b) or -s.dir*(tentativeB-s.b.price)>0)
+                            s.b:=f_pivot(tentativeB,bar_index,time,time_close,-s.dir)
+                            s.reason:="A? TURN / B? DEVELOPING · PARENT PIVOT PENDING"
+                    float level=s.dir==1?priorUpper:priorLower
+                    if not s.poi and f_contact(high,low,level)
+                        s.poi:=true
+                        s.poiPrice:=level
+                        s.poiAt:=time
+                        s.poiKnown:=s.dir==1?upperKnown:lowerKnown
+                else if s.stage==2
+                    float retrace=s.dir==1?low:high
+                    if time>s.a.at and (na(s.b) or -s.dir*(retrace-s.b.price)>=0)
+                        s.b:=f_pivot(retrace,bar_index,time,time_close,-s.dir)
+                        s.bTurn:=na
+                    bool localB=s.dir==1?not na(localPL):not na(localPH)
+                    if localB and time[localLen]>s.a.at
+                        float pivotPrice=s.dir==1?localPL:localPH
+                        if not na(s.b) and math.abs(pivotPrice-s.b.price)<=tick
+                            s.bTurn:=f_pivot(pivotPrice,bar_index-localLen,time[localLen],time_close,-s.dir)
+                    float drive=math.abs(s.a.price-s.o.price)
+                    float retracement=not na(s.b) and drive>0?-s.dir*(s.b.price-s.a.price)/drive:0
+                    bool bHeld=not na(s.bTurn) and s.dir*(adverse-s.bTurn.price)>=-tick
+                    bool microBreak=s.dir==1?close>=priorHigh+tick:close<=priorLow-tick
+                    if retracement>bMax
+                        s.stage:=5
+                        s.reason:="B TOO DEEP"
+                        s.ended:=time_close
+                        invalidated:=true
+                        f_emit("INVALIDATED_B_DEPTH",s)
+                    else if retracement>=bMin and bHeld and microBreak and s.dir*(close-open)>0 and time>s.bTurn.at
+                        s.b:=s.bTurn.copy()
+                        s.bRecognized:=time_close
+                        s.c:=f_pivot(forward,bar_index,time,time_close,s.dir)
+                        s.cRecognized:=time_close
+                        s.stage:=3
+                        s.reason:="C START · B TURN + CLOSE BREAK"
+                        cStarted:=true
+                        array.push(evidence,Evidence.new(ix=bar_index,at=time,known=time_close,rootId=s.rootId,side=-s.dir,family=8,icon=s.dir==1?"↑":"↓",detail="C start observation: recognized B turn and completed close through prior micro structure",price=s.dir==1?low:high,pad=math.max(nz(atr,tick*10)*0.12,tick*2)))
+                        f_emit("C_START",s)
+                else if s.stage==3 or s.stage==4
+                    if s.dir*(adverse-s.b.price)<=-tick
+                        s.stage:=5
+                        s.reason:="B BREACHED"
+                        s.ended:=time_close
+                        invalidated:=true
+                        f_emit("INVALIDATED_B",s)
+                        if s.attempt<retryLimit and s.dir*(adverse-s.o.price)>tick
+                            nextId+=1
+                            SwingABC retry=SwingABC.new(id=nextId,rootId=s.rootId,attempt=s.attempt+1,dir=s.dir,o=s.o.copy(),threshold=s.threshold,stage=2,a=s.a.copy(),b=f_pivot(adverse,bar_index,time,time_close,-s.dir),poi=s.poi,poiPrice=s.poiPrice,poiAt=s.poiAt,poiKnown=s.poiKnown,aRecognized=s.aRecognized,reason="FRESH B ATTEMPT")
+                            array.push(cycles,retry)
+                            f_emit("B_RETRY",retry)
+                    else
+                        if na(s.c) or s.dir*(forward-s.c.price)>=0
+                            s.c:=f_pivot(forward,bar_index,time,time_close,s.dir)
+                        if s.stage==3 and s.dir*(close-s.a.price)>=tick
+                            s.stage:=4
+                            s.reason:="C CLOSED BEYOND A"
+                            cBrokeA:=true
+                            f_emit("C_BREAK_A",s)
+
+    // Parent pivots define whole delivery legs; chart pivots can NEVER create a new O or A.
+    bool uniqueParent=((not na(parentPH))!=(not na(parentPL))) and not na(parentKnown) and (na(lastParentKnown) or parentKnown!=lastParentKnown)
+    if uniqueParent
+        lastParentKnown:=parentKnown
+        int parentSide=not na(parentPH)?1:-1
+        float parentPrice=parentSide==1?parentPH:parentPL
+        Pivot q=f_parentAnchor(parentOrigin,parentPrice,parentKnown,parentSide)
+        bool accepted=not na(q) and (na(root) or parentSide!=root.side or parentSide*(parentPrice-root.price)>=tick)
+        if accepted
+            if array.size(cycles)>0
+                for s in cycles
+                    if s.stage==1 and s.dir==q.side and q.at>s.o.at and math.abs(q.price-s.o.price)>=s.threshold
+                        s.a:=q.copy()
+                        s.aRecognized:=time_close
+                        s.b:=f_extreme(q.at,-s.dir)
+                        s.stage:=2
+                        s.bTurn:=f_bTurn(s.a,s.b,s.dir)
+                        f_align(s,s.a.at)
+                        s.reason:="A CONFIRMED · B DEVELOPING"
+                        f_emit("A_CONFIRMED",s)
+                    else if s.stage==2 and s.dir==q.side and q.at>s.a.at and s.dir*(q.price-s.a.price)>=tick
+                        s.a:=q.copy()
+                        s.aRecognized:=time_close
+                        s.b:=f_extreme(q.at,-s.dir)
+                        s.bTurn:=f_bTurn(s.a,s.b,s.dir)
+                        f_align(s,s.a.at)
+                        s.reason:="A EXTENDED BEFORE B CONFIRMATION"
+                        f_emit("A_EXTENDED",s)
+                    else if (s.stage==3 or s.stage==4) and q.side==s.dir and q.at>s.b.at
+                        s.c:=q.copy()
+                        s.stage:=6
+                        s.ended:=time_close
+                        s.reason:="C END PIVOT CONFIRMED"
+                        f_emit("C_COMPLETED",s)
+                    if not na(root) and q.side==root.side and s.o.at==root.at and s.stage==1
+                        s.stage:=5
+                        s.ended:=time_close
+                        s.reason:="NEW MORE EXTREME ROOT"
+                        f_emit("ROOT_REPLACED",s)
+            if not na(root) and q.side==root.side and array.size(parents)>0
+                array.set(parents,array.size(parents)-1,q.copy())
+            else
+                array.push(parents,q.copy())
+                if array.size(parents)>120
+                    array.shift(parents)
+            root:=q.copy()
+            rootId+=1
+            activeEnd:=f_extreme(q.at,-q.side)
+            protectedPivot:=na
+            divergencePivot:=na
+            divergenceBalance:=na
+            for family=0 to 7
+                array.set(priorWarning,family,false)
+            nextId+=1
+            SwingABC fresh=SwingABC.new(id=nextId,rootId=rootId,attempt=1,dir=-q.side,o=q.copy(),threshold=math.max(minDriveTicks*tick,nz(atr,tick)*minDriveAtr),a=not na(activeEnd)?activeEnd.copy():na)
+            // Retrospective origin scan is stamped NOW; no warning/entry is backdated.
+            for sample in samples
+                if sample.at>q.at
+                    float level=fresh.dir==1?sample.upper:sample.lower
+                    if not fresh.poi and f_contact(sample.hi,sample.lo,level)
+                        fresh.poi:=true
+                        fresh.poiPrice:=level
+                        fresh.poiAt:=sample.at
+                        fresh.poiKnown:=fresh.dir==1?sample.upperKnown:sample.lowerKnown
+            array.push(cycles,fresh)
+            f_emit("ORIGIN_CONFIRMED",fresh)
+    while array.size(cycles)>60
+        array.shift(cycles)
+
+    bool oneLocal=(not na(localPH))!=(not na(localPL))
+    if oneLocal
+        array.push(localPivots,f_pivot(not na(localPH)?localPH:localPL,bar_index-localLen,time[localLen],time_close,not na(localPH)?1:-1))
+        if array.size(localPivots)>1000
+            array.shift(localPivots)
+    // These anchors become available only AFTER the closed bar's warnings and C tests.
+    if not na(root)
+        int d=-root.side
+        float p=d==1?high:low
+        if time>root.at and (na(activeEnd) or d*(p-activeEnd.price)>=0)
+            activeEnd:=f_pivot(p,bar_index,time,time_close,d)
+        bool localProtected=d==1?not na(localPL):not na(localPH)
+        if localProtected and time[localLen]>root.at
+            float protectedPrice=d==1?localPL:localPH
+            if na(protectedPivot) or d*(protectedPrice-protectedPivot.price)>0
+                protectedPivot:=f_pivot(protectedPrice,bar_index-localLen,time[localLen],time_close,-d)
+        bool localExtreme=d==1?not na(localPH):not na(localPL)
+        if localExtreme and time[localLen]>root.at
+            divergencePivot:=f_pivot(d==1?localPH:localPL,bar_index-localLen,time[localLen],time_close,d)
+            divergenceBalance:=balance[localLen]
+
+    while array.size(evidence)>150
+        array.shift(evidence)
+
+// Machine-readable observation series: never broker signals or probability estimates.
+SwingABC focused=na
+if array.size(cycles)>0
+    if reviewBack>0
+        focused:=array.get(cycles,math.max(0,array.size(cycles)-1-reviewBack))
+    else
+        for s in cycles
+            if s.stage==2 or s.stage==3 or s.stage==4
+                int score=s.stage==3 or s.stage==4?3:2
+                int focusedScore=not na(focused)?(focused.stage==3 or focused.stage==4?3:2):0
+                if na(focused) or score>focusedScore or score==focusedScore and (s.o.at>focused.o.at or s.o.at==focused.o.at and s.id>focused.id)
+                    focused:=s
+        if na(focused)
+            focused:=array.get(cycles,array.size(cycles)-1)
+plot(not na(focused)?focused.id:na,"ABC ID",display=display.data_window)
+plot(not na(focused)?focused.rootId:na,"ABC root ID",display=display.data_window)
+plot(not na(focused)?focused.stage:na,"ABC stage 1 A 2 B 3 C 4 C beyond A 5 invalid 6 complete 7 expired",display=display.data_window)
+plot(not na(focused)?focused.o.price:na,"O price",display=display.data_window)
+plot(not na(focused)?focused.o.at:na,"O origin time",display=display.data_window)
+plot(not na(focused)?focused.o.sourceAt:na,"O source bar time",display=display.data_window)
+plot(not na(focused)?focused.o.known:na,"O recognized time",display=display.data_window)
+plot(not na(focused) and not na(focused.a)?focused.a.price:na,"A price",display=display.data_window)
+plot(not na(focused)?focused.aRecognized:na,"A recognized time",display=display.data_window)
+plot(not na(focused) and not na(focused.a)?focused.a.at:na,"A origin time",display=display.data_window)
+plot(not na(focused) and not na(focused.b)?focused.b.price:na,"B price",display=display.data_window)
+plot(not na(focused)?focused.bRecognized:na,"B recognized time",display=display.data_window)
+plot(not na(focused) and not na(focused.b)?focused.b.at:na,"B origin time",display=display.data_window)
+plot(not na(focused) and not na(focused.c)?focused.c.price:na,"C price",display=display.data_window)
+plot(not na(focused)?focused.cRecognized:na,"C start recognized time",display=display.data_window)
+plot(not na(focused) and not na(focused.c)?focused.c.at:na,"C origin time",display=display.data_window)
+plot(not na(focused) and focused.poi?1:0,"ABC POI alignment",display=display.data_window)
+plot(cStarted?1:0,"C start observation",display=display.data_window)
+plot(cBrokeA?1:0,"C break A observation",display=display.data_window)
+plot(invalidated?1:0,"ABC invalidation",display=display.data_window)
+plot(warningsOn and warningSampleSide!=0?warningPoints:na,"Warning weight 0–14",display=display.data_window)
+plot(warningsOn and warningSampleSide!=0?warningAvailable:na,"Warning available weight /14",display=display.data_window)
+plot(warningsOn and warningSampleSide!=0?warningTier:na,"Warning tier 0 low 1 caution 2 weakening 3 opposition",display=display.data_window)
+plot(warningSampleSide,"Warning assessed direction",display=display.data_window)
+plot(warningSampleRoot,"Warning assessed root",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,0):na,"Weight · Volume",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,1):na,"Weight · EMA",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,2):na,"Weight · SAR",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,3):na,"Weight · Candles",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,4):na,"Weight · Geometry",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,5):na,"Weight · Structure",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,6):na,"Weight · Slow chop",display=display.data_window)
+plot(warningsOn?array.get(warningContributions,7):na,"Weight · Divergence",display=display.data_window)
+plot(latestMask,"Warning evidence bitmask V E S K G M T D",display=display.data_window)
+plot(upExhaustion?1:0,"UpExhaustion · buyers tiring",display=display.data_window)
+plot(downExhaustion?1:0,"DownExhaustion · sellers tiring",display=display.data_window)
+plot(volRatio,"Relative volume / prior full-bar baseline",display=display.data_window)
+plot(signedGap>0?(emaContract?2:emaExpanding?1:3):0,"EMA phase 0 conflict 1 expanding 2 contracted 3 aligned",display=display.data_window)
+plot(geometryTop,"Prior geometry upper",display=display.data_window)
+plot(geometryBottom,"Prior geometry lower",display=display.data_window)
+plot(not na(protectedPivot)?protectedPivot.price:na,"Protected local structure",display=display.data_window)
+plot(showEma?fast:na,"Fast EMA",color=color.rgb(70,160,255))
+plot(showEma?slow:na,"Slow EMA",color=color.rgb(255,185,40))
+plot(showEma?trendEma:na,"Trend EMA",color=color.new(color.white,60))
+plot(showSar?sar:na,"Parabolic SAR",color=color.new(color.white,35),style=plot.style_circles)
+alertcondition(cStarted,"ABC · C start observation","{{ticker}}: B turn and completed close through prior micro structure. C observation; no order placed.")
+alertcondition(cBrokeA,"ABC · C beyond A","{{ticker}}: C closed beyond frozen A.")
+alertcondition(upExhaustion,"Volume · buyers tiring","{{ticker}}: high volume with poor upward result.")
+alertcondition(downExhaustion,"Volume · sellers tiring","{{ticker}}: high volume with poor downward result.")
+
+var array<line> drawLines=array.new<line>()
+var array<label> drawLabels=array.new<label>()
+var array<box> drawBoxes=array.new<box>()
+var array<float> railYs=array.new_float()
+f_line(Pivot p,Pivot q,color ink,int width,string style)=>
+    if not na(p) and not na(q) and q.ix>p.ix and p.ix>=bar_index-9000
+        array.push(drawLines,line.new(p.ix,p.price,q.ix,q.price,xloc=xloc.bar_index,color=ink,width=width,style=style))
+    true
+f_rail(float level,string caption,color ink,string tip,float gap)=>
+    if not na(level)
+        float y=level
+        if array.size(railYs)>0
+            for pass=0 to 9
+                for used in railYs
+                    if math.abs(y-used)<gap
+                        y:=used-gap
+        array.push(railYs,y)
+        int rail=bar_index+10
+        array.push(drawLabels,label.new(rail,y,caption,xloc=xloc.bar_index,style=label.style_label_left,color=color.new(color.rgb(10,16,27),8),textcolor=ink,size=size.small,tooltip=tip))
+        if math.abs(y-level)>tick
+            array.push(drawLines,line.new(rail-2,level,rail,y,xloc=xloc.bar_index,color=color.new(ink,55),style=line.style_dotted))
+    true
+f_tip(SwingABC s)=>
+    "ABC #"+str.tostring(s.id)+" / root "+str.tostring(s.rootId)+" / attempt "+str.tostring(s.attempt)+"\n"+f_stage(s.stage)+" · "+s.reason+"\nO origin "+str.format_time(s.o.at,"MM-dd HH:mm",syminfo.timezone)+"; recognized "+str.format_time(s.o.known,"MM-dd HH:mm",syminfo.timezone)+"\nA "+f_price(not na(s.a)?s.a.price:na)+"; B "+f_price(not na(s.b)?s.b.price:na)+"; C "+f_price(not na(s.c)?s.c.price:na)+"\nA recognized "+(not na(s.aRecognized)?str.format_time(s.aRecognized,"MM-dd HH:mm",syminfo.timezone):"pending")+"; B/C start recognized "+(not na(s.bRecognized)?str.format_time(s.bRecognized,"MM-dd HH:mm",syminfo.timezone):"pending")+"\nPOI "+(s.poi?f_price(s.poiPrice)+"; contact "+str.format_time(s.poiAt,"MM-dd HH:mm",syminfo.timezone):"not aligned / unavailable")+"\nC start needs recognized B and a completed close through prior micro structure. Geometry is analysis, not an order."
+
+if barstate.islastconfirmedhistory or barstate.islast
+    for l in drawLines
+        line.delete(l)
+    for l in drawLabels
+        label.delete(l)
+    for b in drawBoxes
+        box.delete(b)
+    array.clear(drawLines)
+    array.clear(drawLabels)
+    array.clear(drawBoxes)
+    array.clear(railYs)
+    if warningsOn and showWarningMarks and array.size(evidence)>0
+        for i=0 to array.size(evidence)-1
+            Evidence e=array.get(evidence,i)
+            if e.family>=0 and e.family<=7 and e.ix>=bar_index-9000
+                int stack=0
+                if i>0
+                    for j=0 to i-1
+                        Evidence prior=array.get(evidence,j)
+                        if prior.ix==e.ix and prior.side==e.side and prior.family>=0 and prior.family<=7
+                            stack+=1
+                string familyName=e.family==0?"Volume exhaustion":e.family==1?"EMA":e.family==2?"SAR":e.family==3?"Candlestick":e.family==4?"Geometry":e.family==5?"Structure":e.family==6?"Slow / chop":"Momentum divergence"
+                color markInk=e.family==0?color.rgb(255,150,40):e.family==1?color.rgb(66,165,245):e.family==2?color.rgb(171,123,255):e.family==3?color.rgb(244,91,105):e.family==4?color.rgb(0,195,255):e.family==5?color.rgb(224,86,253):e.family==6?color.rgb(255,209,102):color.rgb(203,213,225)
+                float y=e.price+e.side*e.pad*(1+stack)
+                string tip=familyName+" warning · root #"+str.tostring(e.rootId)+"\nRecognized "+str.format_time(e.known,"MM-dd HH:mm",syminfo.timezone)+"\n"+e.detail+"\nThe X color identifies the warning family; the right-side badge shows its total weight."
+                array.push(drawLabels,label.new(e.ix,y,"×",xloc=xloc.bar_index,style=label.style_none,textcolor=markInk,size=size.tiny,tooltip=tip))
+    int parentCount=array.size(parents)
+    if parentCount>1
+        for i=math.max(1,parentCount-keepSwings) to parentCount-1
+            Pivot p=array.get(parents,i-1)
+            Pivot q=array.get(parents,i)
+            f_line(p,q,color.new(q.side==1?upInk:downInk,28),2,line.style_solid)
+            if q.ix>=bar_index-9000
+                float pad=math.max(nz(atr,tick*10)*0.3,tick*4)
+                string historyTip="Completed parent swing · "+str.tostring(int(math.round(math.abs(q.price-p.price)/tick)))+" ticks / "+str.tostring(int((q.at-p.at)/60000))+" minutes\nOrigin "+str.format_time(q.at,"MM-dd HH:mm",syminfo.timezone)+"\nRecognized "+str.format_time(q.known,"MM-dd HH:mm",syminfo.timezone)+". Retrospective pivot endpoint."
+                array.push(drawLabels,label.new(q.ix,q.price+q.side*pad,"·",xloc=xloc.bar_index,style=label.style_none,textcolor=q.side==1?upInk:downInk,size=size.tiny,tooltip=historyTip))
+    if not na(root) and not na(activeEnd)
+        f_line(root,activeEnd,color.new(delivery==1?upInk:downInk,15),2,line.style_solid)
+    if showRange and parentCount>1
+        Pivot p=array.get(parents,parentCount-2)
+        Pivot q=array.get(parents,parentCount-1)
+        float hi=math.max(p.price,q.price)
+        float lo=math.min(p.price,q.price)
+        if p.ix>=bar_index-9000
+            array.push(drawBoxes,box.new(p.ix,hi,bar_index+8,hi-(hi-lo)*0.15,border_color=na,bgcolor=color.new(downInk,94)))
+            array.push(drawBoxes,box.new(p.ix,lo+(hi-lo)*0.15,bar_index+8,lo,border_color=na,bgcolor=color.new(upInk,94)))
+    if showChannel and not na(geometryTop) and not na(geometryLeft)
+        array.push(drawLines,line.new(geometryLeft,geometryLeftTop,bar_index,geometryTop,color=color.new(delivery==1?upInk:downInk,65),width=1))
+        array.push(drawLines,line.new(geometryLeft,geometryLeftBottom,bar_index,geometryBottom,color=color.new(delivery==1?upInk:downInk,65),width=1))
+    if showHistory and array.size(cycles)>0
+        int drawn=0
+        for j=0 to array.size(cycles)-1
+            SwingABC s=array.get(cycles,array.size(cycles)-1-j)
+            if drawn<keepSwings and s.stage==6 and (na(focused) or s.id!=focused.id)
+                f_line(s.o,s.a,color.new(aInk,65),1,line.style_solid)
+                f_line(s.a,s.b,color.new(bInk,55),1,line.style_solid)
+                f_line(s.b,s.c,color.new(cInk,45),2,line.style_solid)
+                drawn+=1
+    if not na(focused)
+        SwingABC s=focused
+        float gap=math.max(nz(atr,tick*15)*0.8,tick*10)
+        string tip=f_tip(s)
+        f_rail(lastClosedPrice+gap*5,(s.dir==1?"↑ ":"↓ ")+(s.stage==1?(not na(s.b)?"A? B?":"A?"):s.stage==2?"B?":s.stage==3?"C?":s.stage==4?"C ✓":s.stage==6?"ABC ✓":"ABC ×")+(s.poi?" ◈":""),s.dir==1?upInk:downInk,tip,gap)
+        if showAbc
+            f_line(s.o,s.a,aInk,3,s.stage==1?line.style_dashed:line.style_solid)
+            if not na(s.b)
+                f_line(s.a,s.b,bInk,3,s.stage<=2?line.style_dashed:line.style_solid)
+            if not na(s.c)
+                f_line(s.b,s.c,cInk,3,s.stage==3 or s.stage==4?line.style_dashed:line.style_solid)
+            f_rail(s.o.price,"O "+f_price(s.o.price),aInk,tip,gap)
+            if not na(s.a)
+                f_rail(s.a.price,(s.stage==1?"A? ":"A ")+f_price(s.a.price),aInk,tip,gap)
+            if not na(s.b)
+                f_rail(s.b.price,(s.stage<=2?"B? ":"B ")+f_price(s.b.price),bInk,tip,gap)
+            if not na(s.c)
+                f_rail(s.c.price,(s.stage==3 or s.stage==4?"C? ":"C ")+f_price(s.c.price),cInk,tip,gap)
+    if warningsOn and not na(lastClosedPrice)
+        bool scoreReady=warningSampleSide!=0 and warningAvailable>0
+        string caption=scoreReady?(warningSampleSide==1?"UP":"DOWN")+" LEG · "+str.tostring(warningPoints)+"/14 · "+f_tierText(warningTier)+(warningAvailable<14?" · PARTIAL":""):"WARNINGS · WARMING"
+        string tip=warningDetail+"\nThe assessed parent swing can differ from an older ABC kept in view. See its direction and root above."
+        f_rail(lastClosedPrice-math.max(nz(atr,tick*15)*3,tick*30),caption,f_tierInk(warningTier),tip,math.max(nz(atr,tick*15)*0.8,tick*10))
+    if showScoreHistory and array.size(scoreHistory)>0
+        int count=array.size(scoreHistory)
+        for i=math.max(0,count-keepWarnings) to count-1
+            WarningScore w=array.get(scoreHistory,i)
+            if w.ix>=bar_index-9000
+                float y=w.price+w.side*w.pad
+                string tip=w.detail+"\nRecognized "+str.format_time(w.known,"MM-dd HH:mm",syminfo.timezone)
+                array.push(drawLabels,label.new(w.ix,y,"W"+str.tostring(w.score),xloc=xloc.bar_index,style=label.style_none,textcolor=f_tierInk(w.tier),size=size.tiny,tooltip=tip))
