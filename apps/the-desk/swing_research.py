@@ -60,6 +60,9 @@ class SwingResearch:
         self.gateway=gateway;self.judge=judge or Jev();self.lock=threading.RLock();self.stop=threading.Event()
         self.data_dir=Path(directory);self.path=self.data_dir/'swing-research.sqlite3';self.path.parent.mkdir(parents=True,exist_ok=True)
         self.active={};self.last={};self.next_due={};self.configs={};self.context_cache={};self.worker=None;self.storage_guard=None
+        self._status_watch=None;self._status_identity=None;self._status_cache=None
+        self._status_refresh_lock=threading.Lock();self._status_worker=None;self._status_refreshed=None;self._status_error=None
+        self._quick_cache=None
         with self.db() as db:
             db.executescript('''
               CREATE TABLE IF NOT EXISTS study_state (run TEXT PRIMARY KEY, symbol TEXT NOT NULL, at INTEGER NOT NULL, state TEXT NOT NULL);
@@ -69,6 +72,7 @@ class SwingResearch:
               CREATE INDEX IF NOT EXISTS ledger_run ON ledger(run,id);
               CREATE TABLE IF NOT EXISTS predictions (id TEXT PRIMARY KEY, run TEXT NOT NULL, symbol TEXT NOT NULL, at INTEGER NOT NULL, prediction_bar INTEGER NOT NULL, primary_sample INTEGER NOT NULL, state TEXT NOT NULL, response TEXT, outcome TEXT);
               CREATE INDEX IF NOT EXISTS predictions_run ON predictions(run,prediction_bar);
+              CREATE INDEX IF NOT EXISTS predictions_run_at ON predictions(run,at DESC);
               CREATE UNIQUE INDEX IF NOT EXISTS prediction_primary_minute ON predictions(run,prediction_bar) WHERE primary_sample=1;
               CREATE UNIQUE INDEX IF NOT EXISTS prediction_sampling_slot ON predictions(run,json_extract(state,'$.evaluation_bar'),json_extract(state,'$.evaluation_slot'));
               CREATE TABLE IF NOT EXISTS run_bars(run TEXT NOT NULL,symbol TEXT NOT NULL,time INTEGER NOT NULL,observed_at INTEGER NOT NULL,warmup INTEGER NOT NULL,payload TEXT NOT NULL CHECK(json_valid(payload)),digest TEXT NOT NULL,PRIMARY KEY(run,time));
@@ -206,6 +210,9 @@ class SwingResearch:
         with self.lock:
             for symbol in list(self.active):self.pause(symbol,'SERVICE_STOPPED')
         if self.worker and self.worker is not threading.current_thread():self.worker.join(timeout=15)
+        if self._status_worker and self._status_worker is not threading.current_thread():self._status_worker.join(timeout=2)
+        with self.lock:
+            if self._status_watch:self._status_watch.close();self._status_watch=None
 
     def configure_key(self,p):
         if not isinstance(p,dict):raise ValueError('Expected a TypeSafe key command')
@@ -669,31 +676,113 @@ class SwingResearch:
                 else:outcome={'label':'unknown','reason':'MISSING_FUTURE_BAR','resolved_at':now}
                 db.execute('UPDATE predictions SET outcome=? WHERE id=? AND outcome IS NULL',(encode(outcome),r['id']))
 
+    def quick_status(self):
+        """Current control state plus explicitly timestamped background evidence."""
+        if not self.lock.acquire(blocking=False):
+            # A collector may be committing to a slow drive. Serve only the
+            # last published state, retaining its timestamp and marking it old.
+            cached=self._quick_cache
+            if cached is None:raise StorageFault('Swing control state is updating; retry shortly.')
+            result=deepcopy(cached);result.update(control_refresh_pending=True,evidence_refreshing=True)
+            if result['costs']:result['costs']['stale']=True
+            now=int(time.time()*1000)
+            for s in result['symbols'].values():
+                if s['running'] and s.get('observed_at') and now-s['observed_at']>max(75000,s['config']['cadence_seconds']*2000):s['status']='STALE'
+            return result
+        try:return self._quick_status_locked()
+        finally:self.lock.release()
+
+    def _quick_status_locked(self):
+        with self.lock:
+            now=int(time.time()*1000);cached=deepcopy(self._status_cache[1]) if self._status_cache else None
+            result=deepcopy(cached) if cached else {'observation':{'max_active':1,'timeframe':'1m','scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':{},'costs':None,'lab_intent':None,'swing_pause':None}
+            result.update(as_of=now,jev_configured=self.judge.configured,jev_key_source=getattr(self.judge,'key_source',None),jev_key_storage=deepcopy(getattr(self.judge,'key_storage',None)))
+            result['observation']['active_symbol']=next(iter(self.active),None)
+            with self.lab.lock:result['lab_intent']=deepcopy(self.lab.intent_cache)
+            intent_symbol=(result['lab_intent'] or {}).get('symbol')
+            marker=read_swing_pause(data_dir=self.data_dir,symbol=intent_symbol)
+            result['swing_pause']=marker
+            if marker and result['lab_intent']:result['lab_intent'].update(enabled=False,paused_by_marker=True)
+            for symbol in SYMBOLS:
+                previous=result['symbols'].get(symbol,{})
+                current=deepcopy(self.last[symbol]);current.update(running=symbol in self.active,config=deepcopy(self.configs[symbol]))
+                same_run=previous.get('run')==current.get('run')
+                current['dots']=previous.get('dots',[]) if same_run else []
+                current['collection']=previous.get('collection') if same_run else None
+                current['evidence_as_of']=cached.get('evidence_as_of',cached.get('as_of')) if cached and same_run else None
+                current['coverage']='Hyperliquid public REST snapshots · 1m OHLC · not a full tick feed'
+                if not same_run:result['costs']=None
+                if current['running'] and current.get('observed_at') and now-current['observed_at']>max(75000,current['config']['cadence_seconds']*2000):current['status']='STALE'
+                result['symbols'][symbol]=current
+            if result['costs']:
+                result['costs']['stale']=any(result['symbols'][s].get('observed_at')!=cached['symbols'][s].get('observed_at') or result['symbols'][s]['running']!=cached['symbols'][s]['running'] for s in SYMBOLS)
+            for symbol,current in result['symbols'].items():current['costs']=(result['costs'] or {}).get('symbols',{}).get(symbol)
+            if not self.stop.is_set() and (self._status_refreshed is None or time.monotonic()-self._status_refreshed>=2) and self._status_refresh_lock.acquire(blocking=False):
+                def refresh():
+                    try:self.status();self._status_error=None
+                    except Exception as error:self._status_error=type(error).__name__
+                    finally:self._status_refreshed=time.monotonic();self._status_refresh_lock.release()
+                self._status_worker=threading.Thread(target=refresh,daemon=True,name='swing-status-evidence');self._status_worker.start()
+            result['evidence_refreshing']=self._status_refresh_lock.locked()
+            result['evidence_error']=self._status_error
+            result['control_refresh_pending']=False
+            if result['costs']:
+                result['costs']['stale']=result['costs']['stale'] or result['evidence_refreshing'] or result['jev_configured']!=cached['jev_configured'] or any(result['symbols'][s]['config']!=cached['symbols'][s]['config'] for s in SYMBOLS)
+            self._quick_cache=deepcopy(result)
+            return result
+
     def status(self):
         with self.lock:
-            now=int(time.time()*1000);result={};lab_intent=self.effective_lab_intent();pause_marker=read_swing_pause(data_dir=self.data_dir,symbol=lab_intent.get('symbol') if lab_intent else None)
-            for symbol in SYMBOLS:
-                s=deepcopy(self.last[symbol]);s['running']=symbol in self.active;s['config']=deepcopy(self.configs[symbol])
-                with self.read_db() as db:
-                    saved=db.execute('SELECT COUNT(*) n,MIN(time) first,MAX(time) last,COALESCE(SUM(warmup=0),0) live FROM run_bars WHERE run=?',(s.get('run'),)).fetchone()
-                    checkpoint=db.execute('SELECT observed_at,closed_cutoff,prediction_id FROM collection_checkpoints WHERE run=?',(s.get('run'),)).fetchone()
-                    gaps=db.execute('SELECT COUNT(*) FROM (SELECT time,LAG(time) OVER(ORDER BY time) prev FROM run_bars WHERE run=?) WHERE prev IS NOT NULL AND time-prev!=60000',(s.get('run'),)).fetchone()[0]
-                s['collection']={'saved_candles':saved['n'],'live_candles':saved['live'],'first_candle':saved['first'],'last_candle':saved['last'],
-                                 'source_bar_gaps':gaps,'checkpoint':dict(checkpoint) if checkpoint else None,
-                                 'legacy_coverage':bool(s.get('run') and not checkpoint),'durability':'WAL / FULL sync; candle, event, prediction, usage reservation and checkpoint commit together'}
-                if s['running'] and s.get('observed_at') and now-s['observed_at']>max(75000,s['config']['cadence_seconds']*2000):s['status']='STALE'
-                s['dots']=self.dots(s.get('run'),s.get('snapshot',{}),s.get('forming'))
-                if not s.get('study') and s.get('run'):
-                    report=self.study_report(symbol,s['run'])
-                    if report:s['study']=self.study_brief(report)
-                s['coverage']='Hyperliquid public REST snapshots · 1m OHLC · not a full tick feed'
-                result[symbol]=s
-            contexts={k:{'run':v.get('run'),'parent_id':(v.get('snapshot') or {}).get('parent_id'),
-                'running':v['running'],'jev_enabled':v['config']['jev_enabled'],
-                'cadence_seconds':v['config']['cadence_seconds'],'key_configured':self.judge.configured} for k,v in result.items()}
-            costs=self.cost_meter.summary(contexts,MODEL)
-            for k,v in result.items():v['costs']=costs['symbols'][k]
-            return {'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(self.active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':self.judge.configured,'jev_key_source':getattr(self.judge,'key_source',None),'jev_key_storage':getattr(self.judge,'key_storage',None),'model':MODEL,'prompt_version':PROMPT_VERSION,'lab_intent':lab_intent,'swing_pause':pause_marker,'symbols':result,'costs':costs,'as_of':now}
+            # Evidence is unchanged between commits. Keep a read-only
+            # connection so SQLite's data_version detects even in-place edits;
+            # reopening it on file replacement also detects a restored dataset.
+            stat=self.path.stat();identity=(stat.st_dev,stat.st_ino)
+            if self._status_watch is None or identity!=self._status_identity:
+                if self._status_watch:self._status_watch.close()
+                self._status_watch=connect_readonly(self.path,check_same_thread=False)
+                self._status_identity=identity;self._status_cache=None
+            version=self._status_watch.execute('PRAGMA data_version').fetchone()[0]
+            signature=(version,digest([self.last,self.configs,sorted(self.active),
+                [read_swing_pause(data_dir=self.data_dir,symbol=s) for s in SYMBOLS],
+                self.judge.configured,getattr(self.judge,'key_source',None),getattr(self.judge,'key_storage',None)]))
+            if self._status_cache and self._status_cache[0]==signature:
+                result=deepcopy(self._status_cache[1]);result['as_of']=int(time.time()*1000)
+                for s in result['symbols'].values():
+                    if s['running'] and s.get('observed_at') and result['as_of']-s['observed_at']>max(75000,s['config']['cadence_seconds']*2000):s['status']='STALE'
+                return result
+            captured=deepcopy(self.last);configs=deepcopy(self.configs);active=tuple(self.active)
+            configured=self.judge.configured;key_source=getattr(self.judge,'key_source',None);key_storage=deepcopy(getattr(self.judge,'key_storage',None))
+            invalidate_costs=self._status_cache is not None
+        if invalidate_costs:
+            # An external commit must not seed this longer-lived status
+            # cache with a cost total retained by the short cost-meter TTL.
+            with self.cost_meter.lock:self.cost_meter.cache=None
+        now=int(time.time()*1000);result={};lab_intent=self.effective_lab_intent();pause_marker=read_swing_pause(data_dir=self.data_dir,symbol=lab_intent.get('symbol') if lab_intent else None)
+        for symbol in SYMBOLS:
+            s=captured[symbol];s['running']=symbol in active;s['config']=configs[symbol]
+            with self.read_db() as db:
+                saved=db.execute('SELECT COUNT(*) n,MIN(time) first,MAX(time) last,COALESCE(SUM(warmup=0),0) live FROM run_bars WHERE run=?',(s.get('run'),)).fetchone()
+                checkpoint=db.execute('SELECT observed_at,closed_cutoff,prediction_id FROM collection_checkpoints WHERE run=?',(s.get('run'),)).fetchone()
+                gaps=db.execute('SELECT COUNT(*) FROM (SELECT time,LAG(time) OVER(ORDER BY time) prev FROM run_bars WHERE run=?) WHERE prev IS NOT NULL AND time-prev!=60000',(s.get('run'),)).fetchone()[0]
+            s['collection']={'saved_candles':saved['n'],'live_candles':saved['live'],'first_candle':saved['first'],'last_candle':saved['last'],
+                             'source_bar_gaps':gaps,'checkpoint':dict(checkpoint) if checkpoint else None,
+                             'legacy_coverage':bool(s.get('run') and not checkpoint),'durability':'WAL / FULL sync; candle, event, prediction, usage reservation and checkpoint commit together'}
+            if s['running'] and s.get('observed_at') and now-s['observed_at']>max(75000,s['config']['cadence_seconds']*2000):s['status']='STALE'
+            s['dots']=self.dots(s.get('run'),s.get('snapshot',{}),s.get('forming'))
+            if not s.get('study') and s.get('run'):
+                report=self.study_report(symbol,s['run'])
+                if report:s['study']=self.study_brief(report)
+            s['coverage']='Hyperliquid public REST snapshots · 1m OHLC · not a full tick feed'
+            result[symbol]=s
+        contexts={k:{'run':v.get('run'),'parent_id':(v.get('snapshot') or {}).get('parent_id'),
+            'running':v['running'],'jev_enabled':v['config']['jev_enabled'],
+            'cadence_seconds':v['config']['cadence_seconds'],'key_configured':configured} for k,v in result.items()}
+        costs=self.cost_meter.summary(contexts,MODEL)
+        for k,v in result.items():v['costs']=costs['symbols'][k]
+        result={'observation':{'max_active':1,'timeframe':'1m','active_symbol':next(iter(active),None),'scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','jev_configured':configured,'jev_key_source':key_source,'jev_key_storage':key_storage,'model':MODEL,'prompt_version':PROMPT_VERSION,'lab_intent':lab_intent,'swing_pause':pause_marker,'symbols':result,'costs':costs,'as_of':now}
+        result['evidence_as_of']=int(time.time()*1000)
+        with self.lock:self._status_cache=(signature,deepcopy(result))
+        return result
 
     def dots(self,run,snapshot,forming):
         if not run:return []

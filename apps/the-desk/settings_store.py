@@ -1,6 +1,8 @@
 """Revision-checked workspace saves. Server acknowledgement follows SQLite commit."""
 import json
 import time
+from contextlib import closing
+from storage import connect_readonly
 
 class SettingsConflict(ValueError):
     def __init__(self,state):
@@ -14,7 +16,12 @@ class SettingsStore:
 
     def state(self,db=None):
         if db is None:
-            with self.engine.db() as connection:return self.state(connection)
+            # Loading the workspace must not reserve write capacity or wait for
+            # writer connection setup. Keep values and revisions in one snapshot.
+            with closing(connect_readonly(self.engine.path)) as connection:
+                with connection:
+                    connection.execute('BEGIN')
+                    return self.state(connection)
         values={r['key']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')}
         rows={r['key']:dict(r) for r in db.execute('SELECT * FROM settings_revisions')}
         return {'values':values,'revisions':{k:rows.get(k,{}).get('revision',0) for k in values},

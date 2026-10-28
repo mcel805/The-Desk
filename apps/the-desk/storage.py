@@ -174,14 +174,14 @@ def connect(path):
         return db
     except BaseException:db.close();raise
 
-def connect_readonly(path):
+def connect_readonly(path,*,check_same_thread=True):
     """Read existing evidence without write guards or recursive capacity scans."""
     policy_path=os.environ.get('DESK_STORAGE_POLICY')
     if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
         from storage_host import drive_ready
         if not drive_ready(json.loads(Path(policy_path).read_text())):
             raise StorageFault('External storage disconnected')
-    db=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=3)
+    db=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,timeout=3,check_same_thread=check_same_thread)
     db.row_factory=sqlite3.Row
     db.execute('PRAGMA query_only=ON')
     return db
@@ -213,7 +213,23 @@ class DirectoryLock:
 
 def inspect_database(path):
     path=Path(path)
-    with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=15) as db:
+    # Integrity checks revisit overflow/index pages many times. On removable
+    # storage that can monopolize the drive for minutes. Inspect one committed,
+    # WAL-aware snapshot in memory when its size is bounded; the source is read
+    # sequentially once and every check sees the same database transaction.
+    source=sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True,timeout=15)
+    db=source
+    try:
+        source.execute('BEGIN')
+        source.execute('SELECT name FROM sqlite_master LIMIT 1').fetchone()
+        pages=source.execute('PRAGMA page_count').fetchone()[0]
+        page_size=source.execute('PRAGMA page_size').fetchone()[0]
+        if pages*page_size<=512*1024*1024:
+            db=sqlite3.connect(':memory:')
+            started=time.monotonic()
+            def progress(*args):
+                if time.monotonic()-started>120:raise StorageFault('Database inspection snapshot timed out')
+            source.backup(db,pages=256,sleep=.01,progress=progress)
         result=[r[0] for r in db.execute('PRAGMA integrity_check')]
         if result!=['ok']:raise StorageFault('SQLite integrity check failed: '+path.name)
         if db.execute('PRAGMA foreign_key_check').fetchone():raise StorageFault('Foreign-key integrity check failed: '+path.name)
@@ -229,6 +245,9 @@ def inspect_database(path):
         if 'predictions' in tables:
             coverage=dict(zip(('first_observation','last_observation'),db.execute('SELECT MIN(at),MAX(at) FROM predictions').fetchone()))
         return {'integrity':'ok','rows':counts,'coverage':coverage,'checked_at':int(time.time()*1000)}
+    finally:
+        if db is not source:db.close()
+        source.close()
 
 def sha256(path):
     h=hashlib.sha256()
@@ -302,9 +321,14 @@ class DataVault:
                 dest=stage/name
                 src=sqlite3.connect(source.as_uri()+'?mode=ro',uri=True,timeout=15);target=sqlite3.connect(dest)
                 try:
+                    # Pin one WAL snapshot across backup steps. Otherwise each
+                    # observation commit can restart a slow USB copy at page 1.
+                    src.execute('BEGIN')
+                    src.execute('SELECT name FROM sqlite_master LIMIT 1').fetchone()
                     started=time.monotonic()
+                    deadline=max(60,min(600,2*source.stat().st_size/(1024*1024)))
                     def progress(*args):
-                        if time.monotonic()-started>60:raise StorageFault('Backup timed out; previous verified snapshots are retained')
+                        if time.monotonic()-started>deadline:raise StorageFault('Backup timed out; previous verified snapshots are retained')
                     src.backup(target,pages=256,sleep=.01,progress=progress)
                     target.execute('PRAGMA journal_mode=DELETE')
                 finally:target.close();src.close()
@@ -445,9 +469,12 @@ class DataVault:
         for r in rows:
             if r['id'] not in keep:shutil.rmtree(root/r['id'])
 
-    def start(self):
+    def start(self,initial_reason=None,initial_delay=15):
         if self.worker and self.worker.is_alive():return
         def run():
+            if initial_reason and not self.stop.wait(initial_delay):
+                try:self.snapshot(initial_reason)
+                except Exception:pass
             while not self.stop.wait(self.interval):
                 try:self.snapshot('scheduled')
                 except Exception:pass # Error is retained in status; a bad backup never replaces a good one.

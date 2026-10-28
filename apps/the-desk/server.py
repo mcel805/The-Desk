@@ -176,10 +176,15 @@ def main():
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
     ownership=DirectoryLock(data).acquire()
     vault=DataVault(data,journal=os.environ.get('DESK_JOURNAL_DB_PATH'))
-    if not vault.preflight():
+    # DataVault already checked these sources during construction. Repeating
+    # the same full scan here delays startup on removable storage.
+    if any(v['integrity']!='ok' for v in vault.last_check.values()):
         try:return serve_recovery(vault,args.port,ROOT/'web')
         finally:ownership.close()
-    if any(p.exists() for p in vault.sources.values()):
+    # Keep a first baseline before opening an existing unprotected dataset.
+    # Later restarts retain their verified backups and refresh them in the
+    # worker; repeatedly copying the entire USB archive must not gate the UI.
+    if any(p.exists() for p in vault.sources.values()) and not vault.catalog():
         try:vault.snapshot('before-start')
         except Exception:pass # Existing verified snapshots remain available; status shows the error.
     engine=Engine(data/'desk.sqlite3');settings_store=SettingsStore(engine);gateway=Gateway();funding=FundingRoutes(args.port,data)
@@ -199,9 +204,14 @@ def main():
     spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
     chart_chat=ChartChat(engine)
     vault.preflight()
-    try:vault.snapshot('startup')
-    except Exception:pass
-    vault.start()
+    # The integrity gates have already run. Let the UI connect before refreshing
+    # its verified startup snapshot on the removable drive.
+    if vault.catalog():vault.start(initial_reason='startup')
+    else:
+        # A brand-new dataset has no pre-start source files to snapshot.
+        try:vault.snapshot('startup')
+        except Exception:pass
+        vault.start()
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'web'),**kw)
         def log_message(self,*a):pass
@@ -233,7 +243,7 @@ def main():
                 if funding.get(self,parsed.path,q):return
                 if parsed.path=='/api/swing/settings':return self.json(swing_research.settings_state())
                 if parsed.path=='/api/swing/lab':return self.json(swing_research.lab_status())
-                if parsed.path=='/api/swing/status':return self.json(swing_research.status())
+                if parsed.path=='/api/swing/status':return self.json(swing_research.quick_status())
                 if parsed.path=='/api/swing/study/archive':return self.json(swing_research.study_archive(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/study':return self.json(swing_research.study_report(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/advisors':return self.json(swing_advisors.status(value('symbol','hyperliquid:BTC')))

@@ -102,6 +102,7 @@ def verdict(summary,stage):
 class LearningLab:
     def __init__(self,path):
         self.path=Path(path);self.lock=threading.RLock();self.stop=threading.Event();self.worker=None;self.cache={'state':'REVIEW_PENDING','message':'Reviewing every retained run in the background.'};self.error=None
+        self.intent_cache=None
         with closing(connect(self.path)) as db:
             db.executescript('''CREATE TABLE IF NOT EXISTS lab_policies(symbol TEXT PRIMARY KEY,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS lab_assignments(run TEXT PRIMARY KEY,payload TEXT NOT NULL);
@@ -118,10 +119,14 @@ class LearningLab:
         finally:db.close()
     def intent(self,symbol=None,enabled=None):
         if symbol is not None:self.write('INSERT OR REPLACE INTO lab_intent VALUES(1,?,?)',(symbol,int(enabled)))
-        rows=self.read('SELECT * FROM lab_intent');return rows[0] if rows else None
+        rows=self.read('SELECT * FROM lab_intent');value=rows[0] if rows else None
+        with self.lock:self.intent_cache=deepcopy(value)
+        return value
 
     def disable_intent(self,symbol):
         self.write('UPDATE lab_intent SET enabled=0 WHERE id=1 AND symbol=?',(symbol,))
+        with self.lock:
+            if self.intent_cache and self.intent_cache['symbol']==symbol:self.intent_cache['enabled']=0
     def policy(self,symbol,cfg):
         cfg=json.loads(dump(cfg))
         rows=self.read('SELECT payload FROM lab_policies WHERE symbol=?',(symbol,));p=json.loads(rows[0]['payload']) if rows else None
@@ -200,14 +205,24 @@ class LearningLab:
                 'message':'No efficient setting established yet.' if not total_resolved else 'Comparisons are evidence-qualified; baseline remains until a later validation block passes.',
                 'protocol':{'development_resolved_contacts':20,'development_days':3,'validation_resolved_contacts':60,'validation_days':10,'max_unresolved_fraction':.1,'promotion':'Positive lower 95% UTC-day bootstrap and no worse daily drawdown; costs required. New settings apply only to a new run.',
                             'scope':'One-factor deterministic HTF reversal shadow trials. No model training, extra inference, broker actions, or claims of Jev/continuation improvement.'}}
-        self.write('INSERT INTO lab_reviews(at,payload) VALUES(?,?)',(report['at'],dump(report)));self.refresh_cache()
-    def start(self):
+        previous=self.read('SELECT payload FROM lab_reviews ORDER BY id DESC LIMIT 1')
+        prior=json.loads(previous[0]['payload']) if previous else {}
+        # Rewriting an identical report can keep restarting the online backup.
+        if {k:v for k,v in prior.items() if k!='at'}!={k:v for k,v in report.items() if k!='at'}:
+            self.write('INSERT INTO lab_reviews(at,payload) VALUES(?,?)',(report['at'],dump(report)))
+        self.refresh_cache()
+    def start(self,interval=60):
         if self.worker and self.worker.is_alive():return
         def work():
-            while not self.stop.is_set():
-                try:self.review();self.error=None
-                except Exception as e:self.error=type(e).__name__;self.refresh_cache()
-                self.stop.wait(60)
+            with closing(connect_readonly(self.path)) as watch:
+                reviewed=None
+                while not self.stop.is_set():
+                    try:
+                        version=watch.execute('PRAGMA data_version').fetchone()[0]
+                        if version!=reviewed:
+                            self.error=None;self.review();reviewed=version
+                    except Exception as e:self.error=type(e).__name__;self.refresh_cache()
+                    self.stop.wait(interval)
         self.worker=threading.Thread(target=work,daemon=True,name='swing-learning-review');self.worker.start()
     def close(self):
         self.stop.set()

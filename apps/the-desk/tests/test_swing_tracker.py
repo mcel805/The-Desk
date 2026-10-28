@@ -173,6 +173,87 @@ class ServiceTests(unittest.TestCase):
     def sample(self):
         with patch('swing_research.time.time',return_value=self.now/1000):self.service.sample('hyperliquid:BTC',self.service.active['hyperliquid:BTC'])
 
+    def test_paused_status_reuses_evidence_but_external_commits_invalidate_it(self):
+        first=self.service.status()
+        first['symbols']['hyperliquid:BTC']['status']='caller mutation'
+        with patch.object(self.service,'read_db',side_effect=AssertionError('unchanged archive reread')):
+            cached=self.service.status()
+        self.assertNotEqual(cached['symbols']['hyperliquid:BTC']['status'],'caller mutation')
+        with self.service.db() as db:
+            db.execute("INSERT INTO runs VALUES(?,?,?,?)",('external','hyperliquid:BTC',self.now,json.dumps({'jev_enabled':False})))
+            db.execute("INSERT INTO jev_usage VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",('external','external','hyperliquid:BTC',self.now,None,'DISABLED',None,None,None,0,None,'request_snapshot'))
+        refreshed=self.service.status()
+        self.assertEqual(refreshed['costs']['total']['observations'],1)
+
+    def test_latest_dot_query_uses_run_time_index_without_sorting_archive_payloads(self):
+        with self.service.read_db() as db:
+            plan=' '.join(str(tuple(r)) for r in db.execute('EXPLAIN QUERY PLAN SELECT p.id,p.at,p.state,p.response,u.status FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE p.run=? ORDER BY p.at DESC LIMIT 360',('run',)))
+        self.assertIn('predictions_run_at',plan)
+        self.assertNotIn('TEMP B-TREE',plan)
+
+    def test_active_status_reuses_unchanged_evidence_and_still_becomes_stale(self):
+        self.command('start');self.sample()
+        with patch('swing_research.time.time',return_value=self.now/1000):self.service.status()
+        with patch.object(self.service,'read_db',side_effect=AssertionError('unchanged active evidence reread')):
+            with patch('swing_research.time.time',return_value=(self.now+80000)/1000):
+                result=self.service.status()
+        self.assertTrue(result['symbols']['hyperliquid:BTC']['running'])
+        self.assertEqual(result['symbols']['hyperliquid:BTC']['status'],'STALE')
+
+    def test_quick_status_keeps_control_state_responsive_during_slow_evidence_read(self):
+        import threading
+        from contextlib import contextmanager
+        self.command('start');self.sample();self.service.status()
+        entered=threading.Event();release=threading.Event();original=self.service.read_db
+        @contextmanager
+        def slow_read():
+            entered.set();release.wait(2)
+            with original() as db:yield db
+        self.service.last['hyperliquid:BTC']['detail']='new control state'
+        with patch.object(self.service,'read_db',slow_read):
+            try:
+                self.service.quick_status();self.assertTrue(entered.wait(1))
+                current=self.service.quick_status()
+                self.assertTrue(current['symbols']['hyperliquid:BTC']['running'])
+                self.assertEqual(current['symbols']['hyperliquid:BTC']['detail'],'new control state')
+                self.assertTrue(current['evidence_refreshing'])
+                with self.service.lock:self.service.last['hyperliquid:BTC']['run']='replacement-run'
+                changed=self.service.quick_status()
+                self.assertEqual(changed['symbols']['hyperliquid:BTC']['dots'],[])
+                self.assertIsNone(changed['symbols']['hyperliquid:BTC']['collection'])
+                self.assertIsNone(changed['costs'])
+            finally:release.set();self.service._status_worker.join(timeout=2)
+
+    def test_cold_quick_status_reports_unknown_evidence_without_starting_an_observer(self):
+        import threading
+        release=threading.Event();entered=threading.Event();calls=[]
+        def slow_status():
+            calls.append(1);entered.set();release.wait(2)
+        with patch.object(self.service,'status',slow_status):
+            try:
+                first=self.service.quick_status();self.assertTrue(entered.wait(1))
+                second=self.service.quick_status()
+                self.assertIsNone(first['costs']);self.assertIsNone(second['costs'])
+                self.assertIsNone(first['symbols']['hyperliquid:BTC']['evidence_as_of'])
+                self.assertIsNone(first['symbols']['hyperliquid:BTC']['collection'])
+                self.assertEqual(self.service.active,{})
+                self.assertEqual(len(calls),1)
+            finally:release.set();self.service._status_worker.join(timeout=2)
+
+    def test_quick_status_returns_timestamped_previous_state_while_collector_commits(self):
+        import threading
+        first=self.service.quick_status();entered=threading.Event();release=threading.Event()
+        def commit():
+            with self.service.lock:entered.set();release.wait(2)
+        writer=threading.Thread(target=commit);writer.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            retained=self.service.quick_status()
+            self.assertTrue(writer.is_alive())
+            self.assertTrue(retained['control_refresh_pending'])
+            self.assertEqual(retained['as_of'],first['as_of'])
+        finally:release.set();writer.join(timeout=2)
+
     def test_observation_is_atomic_and_storage_failure_stops_before_a_model_call(self):
         import sqlite3
         calls=[];self.service.judge.judge=lambda s:(calls.append(s) or response())

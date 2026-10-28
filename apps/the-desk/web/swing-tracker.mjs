@@ -3,6 +3,7 @@ import {projectEvaluationDots} from './swing-dot-model.mjs';
 import {projectHouseABC,houseFamilies,houseColors} from './house-abc-view.mjs';
 import {marketIdentity} from './trading-model.mjs';
 import {eligibleSwingCharts,selectSwingChart} from './swing-view-model.mjs';
+import {singleFlight} from './polling.mjs';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function setupSwingTracker({workspace}){
  let data=null,view=null,pending=null,previous=null,optionsSignature='',disposed=false,selectedWarning=null;
@@ -15,7 +16,7 @@ export function setupSwingTracker({workspace}){
  button?.setAttribute('title','Show or hide dots on one 1-minute chart. This does not start or pause paid observations.');
  button?.addEventListener('click',()=>{enabled=!enabled;localStorage.setItem('desk.swing.v12.visible',String(enabled));button.setAttribute('aria-pressed',String(enabled));paint();});
  select.onchange=()=>{selected=select.value;localStorage.setItem('desk.swing.chart',selected);previous=null;paint();};
- async function poll(){try{const r=await fetch('/api/swing/status');if(!r.ok)throw Error();data=await r.json();}catch{data=null;}if(!disposed)paint();}
+ const poll=singleFlight(async()=>{try{const r=await fetch('/api/swing/status');if(!r.ok)throw Error();data=await r.json();}catch{data=null;}if(!disposed)paint();});
  function clear(){view?.root.remove();view=null;}
  function paint(){
   if(disposed)return;const ws=workspace();if(!ws)return;
@@ -26,6 +27,7 @@ export function setupSwingTracker({workspace}){
   const chosen=selectSwingChart(charts,{selected,previous,active:cells.find(c=>c.chart===ws.chart)?.id,runningMarket:running});
   if(chosen)previous=chosen.id;
   status.textContent=!data?'Offline':running?`${running.split(':')[1]} · ${data.symbols[running].status.toLowerCase()}${!chosen?' · add matching 1m chart':''}`:chosen?'Paused':'Add a BTC/ETH 1m chart';
+  if(data?.evidence_refreshing)status.textContent+=' · updating evidence';
   status.title=running?'One shared 1m collector. Hiding dots or closing charts does not pause collection; use Swing Lab.':'No paid observation run is active. Start one in Swing Lab.';
   const cell=cells.find(c=>c.id===chosen?.id),show=enabled&&!ws.replay?.state.active&&cell;
   if(!show){pending=null;clear();return;}

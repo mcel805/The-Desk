@@ -52,6 +52,8 @@ class JevCostMeter:
                 pricing TEXT, provenance TEXT NOT NULL);
               CREATE INDEX IF NOT EXISTS jev_usage_run ON jev_usage(run,at);
               CREATE INDEX IF NOT EXISTS jev_usage_symbol ON jev_usage(symbol,at);
+              CREATE INDEX IF NOT EXISTS predictions_unpriced_transport ON predictions
+                (id,COALESCE(json_extract(response,'$.transport.unpriced_attempts'),0));
             ''')
             db.execute("UPDATE jev_usage SET status='UNRESOLVED' WHERE status='PENDING'")
         self.backfill()
@@ -65,10 +67,19 @@ class JevCostMeter:
 
     def backfill(self):
         with self.db() as db:
-            rows=db.execute('''SELECT p.id,p.run,p.symbol,p.at,p.state,p.response,r.config
-                FROM predictions p JOIN runs r ON r.id=p.run
-                LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE u.prediction_id IS NULL
-                OR (u.status IN ('PENDING','UNRESOLVED') AND p.response IS NOT NULL)''').fetchall()
+            # Find candidate IDs using the small indexes before reading the
+            # large retained chart states. Most restarts have no backfill work.
+            ids=[row[0] for row in db.execute('''
+                SELECT p.id FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id
+                WHERE u.prediction_id IS NULL
+                UNION
+                SELECT p.id FROM jev_usage u JOIN predictions p ON p.id=u.prediction_id
+                WHERE u.status IN ('PENDING','UNRESOLVED') AND p.response IS NOT NULL''')]
+            rows=[]
+            for prediction_id in ids:
+                row=db.execute('''SELECT p.id,p.run,p.symbol,p.at,p.state,p.response,r.config
+                    FROM predictions p JOIN runs r ON r.id=p.run WHERE p.id=?''',(prediction_id,)).fetchone()
+                if row is not None:rows.append(row)
         for row in rows:
             state=json.loads(row['state']);response=json.loads(row['response']) if row['response'] else None
             enabled=json.loads(row['config']).get('jev_enabled') is True
@@ -104,7 +115,7 @@ class JevCostMeter:
           COALESCE(SUM(status!='DISABLED' AND cost_nano_usd IS NOT NULL),0) priced_requests,
           COALESCE(SUM(status='PENDING'),0) pending_requests,
           COALESCE(SUM(status NOT IN ('DISABLED','PENDING') AND (cost_nano_usd IS NULL OR EXISTS
-            (SELECT 1 FROM predictions p WHERE p.id=jev_usage.prediction_id
+            (SELECT 1 FROM predictions p INDEXED BY predictions_unpriced_transport WHERE p.id=jev_usage.prediction_id
              AND COALESCE(json_extract(p.response,'$.transport.unpriced_attempts'),0)>0))),0) unknown_cost_requests,
           COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
           COALESCE(SUM(cost_nano_usd),0) cost_nano_usd,

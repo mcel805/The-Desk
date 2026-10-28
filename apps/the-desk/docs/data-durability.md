@@ -51,6 +51,26 @@ the server is empty after a new build, the mirror seeds it at revision zero. If 
 server has a newer revision, it wins and replaces the stale mirror. Browser drafts
 are a recovery aid, not a replacement for the server database or verified backups.
 
+Workspace hydration reads a consistent read-only settings snapshot, without
+opening a writer or reserving storage capacity. Swing and backup-status polling
+allow one outstanding request per page so a slow drive cannot accumulate requests.
+Swing status reuses its saved evidence only while SQLite reports no new
+commits and its in-memory configuration and pause markers are unchanged. An index
+serves the latest evaluation dots without sorting retained chart payloads.
+Learning reviews watch SQLite's data version, preserve the prior report timestamp
+when findings are identical, and avoid committing duplicate reports. This lets
+online backups make progress without duplicate review writes. Active observations
+still update status on new commits, and cached observations retain stale detection.
+Chart and backup-status polling return current in-memory control state immediately.
+One background worker refreshes saved dots, coverage and costs. Pending evidence
+is explicitly marked; retained evidence keeps its original timestamps, and a new
+run cannot inherit another run's dots or coverage. Full cost/history endpoints
+remain available for audit reads.
+While a collector holds the control lock, polling returns the last published
+state with its original timestamp and `control_refresh_pending`; it does not
+label that retained state as a fresh observation. A cold poll with no published
+state reports temporary unavailability until the first control snapshot is ready.
+
 ## Verified snapshots
 
 Snapshots run at startup, every 15 minutes while the server is running, on clean
@@ -58,6 +78,16 @@ shutdown and from **Back up now**. The service uses SQLite's online backup API,
 including committed WAL data. It checks SQLite integrity, foreign keys, known JSON
 columns, row counts and SHA-256 file hashes. A snapshot is published by atomic rename
 only after validation and fsync. Failed attempts never replace the last good copy.
+Each copy pins a read transaction for its duration, so concurrent WAL commits can
+continue without restarting a slow copy or changing its selected snapshot.
+
+Integrity gates remain in the startup path. An existing dataset without any
+verified backup gets a baseline before opening. When verified backups already
+exist, the startup backup runs in the worker after a 15-second delay, allowing the
+workspace to connect first. Integrity inspection uses a consistent in-memory
+SQLite snapshot for databases up to 512 MiB, avoiding repeated random USB reads;
+larger databases are checked directly. Backup copy deadlines scale from 60 to
+600 seconds with database size. Prior verified snapshots survive a timeout.
 
 Scope: `desk.sqlite3` (layouts, indicators, settings, paper ledger and agent records),
 `swing-research.sqlite3` (source candles, observations, runs, usage and checkpoints),
