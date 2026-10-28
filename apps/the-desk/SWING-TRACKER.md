@@ -1,7 +1,7 @@
 # Swing Tracker / Jev Decision Lab
 
 The liquidity trading studies, tracker measurement update, Jev
-`swing-observer.6-warnings.1`
+`swing-observer.7-house-abc.1`
 and separate RIDER/Spider advisors are documented in [SWING-LIQUIDITY-STUDY.md](SWING-LIQUIDITY-STUDY.md).
 The v1 audit below remains a separate reference.
 
@@ -25,7 +25,7 @@ could be recovered. Keys saved through Swing Lab now persist in macOS Keychain.
 4. Click **Open BTC/ETH 1m chart** to open the selected market with the overlay
    enabled. The Lab is a controls/results page; dots are on the workspace chart. On a 1m chart, each fresh Jev
    evaluation adds a timestamped dot. Green long leans stack below the candle;
-   red short and gray neutral leans stack above it. The ordinal slot increases
+   red short and yellow neutral leans stack above it. The ordinal slot increases
    away from the candle; the warning cadence and slot contract are defined in
    [SWING-WARNINGS.md](SWING-WARNINGS.md).
    Hover/focus a dot for its timestamp, probabilities and service status.
@@ -219,7 +219,7 @@ export also includes usage rows and uncapped market totals. Credentials are
 never part of these outputs.
 
 The adapter uses the documented System One HTTP endpoint, pins `jev-1.14.0`, and
-pins question revision `swing-observer.6-warnings.1`. It validates answer types, all choice
+pins question revision `swing-observer.7-house-abc.1`. It validates answer types, all choice
 keys, finite [0,1] probabilities, probability sums and model identity. A 2s request
 timeout, a 3s elapsed budget, a crossed minute, or a changed run withholds the
 judgment from active display. Service errors never fabricate an answer or relax
@@ -366,3 +366,51 @@ prefers native API costs; otherwise it reads this summary. Figures older than
 12 seconds are visibly stale. The companion exits automatically when native
 accounting appears after a natural server restart. Generated summaries stay
 Git-ignored. The native accounting requires no companion on later launches.
+
+## House ABC 1.7 and exhaustion overlay
+
+The selected eligible Hyperliquid BTC or ETH 1m chart can show the house
+O→A→B→C delivery with the same 1.7 Pine source in
+`web/pine-examples/swing-tracker-1.7.pine`. Cyan is O→A delivery, yellow is
+A→B retracement, and violet is B→C continuation. Dashed segments and `?`
+indicate developing points. Hover a point for its origin and recognition time;
+for C, the recorded recognition time is the C **start**, not the C endpoint.
+The low-opacity contour is a visual guide around the path, not a measured channel.
+
+The local background evaluator runs at most once for each new completed 1m
+cutoff, using up to the latest 1,200 contiguous completed 1m bars, the current
+market tick size, and the run's selected parent timeframe. It requires Node and
+the installed `@luxalgo/vela-pinets` dependency (`npm ci` in this directory
+using the checked-in lockfile). Errors, missing dependencies, timeouts, data gaps,
+and results for an older cutoff are displayed as unavailable rather than
+reusing old evidence. Results may arrive after the first 15-second observation
+of a minute. The chart labels the history start and actual computation receipt;
+all chart warning events are reconstructed from the retained bar window, not
+claims that they were observed in real time. IDs are local to that reconstruction
+and can change as its rolling window advances. Display also requires the selected
+1m chart, outside replay, and the usual fresh observer status.
+
+The 1.7 score has eight capped families and a fixed denominator of 14. The card
+shows available weight and marks partial coverage; an outlined category is
+unavailable. The original 1.3 warning engine and its distinct pressure score are
+retained in Swing Lab, not added to the 1.7 score. If the focused ABC and the
+assessed 1.7 warning root differ, the card labels the score as belonging to a
+different swing. Tiny colored symbols mark the 1.7 warning events for the focused
+root; select one to inspect its candle and a vertical guide. The earlier warning
+symbols remain available if no 1.7 output is available. History and warmup do not
+become forward market observations.
+
+The 1.7 source uses its original default inputs (including parent pivot length 4,
+local pivot length 2, B depth 25–95%, and three B attempts); only its parent
+frame is set from the run. The evaluator does not yet supply 1.7 manual or linked
+POI references, so POI is unavailable rather than a negative alignment claim.
+This is a research overlay. The score is a heuristic, not calibrated reversal
+odds, and no component gains order or broker control.
+
+The existing Jev request receives the same timestamped 1.7 ABC and score as
+bounded contextual state, without the potentially long reconstructed event list.
+Its directional and warning questions can consider this evidence while keeping
+1.3 and 1.7 scores separate. No new paid request or cadence is added. Jev remains
+optional, requires the existing explicit Swing Lab enable/start action, and
+returns an unavailable/hollow dot when no valid answer arrives. Older saved
+runs retain their old prompt/version and are not retroactively reinterpreted.

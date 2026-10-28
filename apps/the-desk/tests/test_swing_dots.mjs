@@ -8,7 +8,7 @@ test('four intrabar judgments retain color and ordinal stack on their own candle
  const frozen=structuredClone(dots),drawn=projectEvaluationDots(dots,projection);
  assert.equal(drawn.length,4);[129.45,62.65,54.75,153.15].forEach((y,i)=>assert.ok(Math.abs(drawn[i].cy-y)<1e-9));
  assert.deepEqual(drawn.map(d=>d.cx),[50,50,50,50]);assert.deepEqual(dots,frozen);
- assert.match(drawn[2].label,/NEUTRAL/);assert.match(drawn[3].label,/4\/4/);
+ assert.match(drawn[2].label,/NEUTRAL/);assert.equal(drawn[2].color,'#f5d34e');assert.equal(drawn[2].hollow,false);assert.match(drawn[3].label,/4\/4/);
 });
 test('service absence is hollow rather than a fabricated neutral result',()=>{
  const d=projectEvaluationDots([{...base,vote:'unavailable',slot:1,service:'STALE',probabilities:null}],projection)[0];

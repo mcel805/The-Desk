@@ -5,6 +5,9 @@ export const warningDescriptions=[
  'Opposing wick and adverse close near the extreme','Delivery stretched from its base',
  'Known level contact and rejection','New extreme with weaker momentum',
  'High completed volume with little body progress','Micro break → protected break → failed reclaim / departure'];
+// Six-pixel symbols encode warning family. The accessible title lists every grouped event.
+const shapes={SLOW:[[-3,0],[3,0]],CHOP:[[-3,2],[-1,-2],[1,2],[3,-2]],REJECT:[[-3,-2],[2,-2],[2,2],[-1,-1]],EXTENDED:[[0,-3],[3,0],[0,3],[-3,0],[0,-3]],LEVEL:[[-3,-2],[3,-2],[0,-2],[0,3]],DIVERGENCE:[[-3,3],[0,0],[3,-3],[0,0],[3,3]],EFFORT:[[-2,3],[-2,0],[-2,3],[0,3],[0,-3],[0,3],[2,3],[2,-1]],STRUCTURE:[[-3,-2],[-3,-3],[3,-3],[3,-2],[3,2],[3,3],[-3,3],[-3,2]]};
+export function warningGlyph(t){const points=shapes[t.feature]||shapes.SLOW;return points.map(([x,y],i)=>`${i?'L':'M'}${t.cx+x*.75} ${t.cy+y*.75}`).join(' ');}
 const esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=n=>Number.isFinite(n)?n.toLocaleString(undefined,{maximumFractionDigits:2}):'—';
 const stamp=t=>Number.isFinite(t)?new Date(t).toISOString():'—';
@@ -20,7 +23,7 @@ export function projectWarningTags(e,{timeToX,priceToY,width,top,height,now=Date
   if(!Number.isFinite(cx)||!Number.isFinite(cy)||cx<4||cx>width-4||cy<top+4||cy>top+height-4)return [];
   const active=g.events.filter(x=>!x.cleared),label=g.events.map(x=>x.feature+(x.kind==='UPDATE'?':'+x.severity:'')+(x.cleared?' ✓':'' )).join(' · ');
   const detail=g.events.map(x=>`${x.feature}: ${warningDescriptions[warningCodes.indexOf(x.feature)]}; ${x.cleared?'cleared':'active at last snapshot'}; severity ${x.severity}; known ${stamp(x.knownAt)}; first seen ${stamp(x.firstObserved)}; ${x.scope||'FORWARD'}`).join('\n');
-  return [{id:g.events.map(x=>x.seq).join('-'),cx,cy,label,color:active.length?(g.side<0?'#ffb55c':'#6acddd'):'#8993a5',detail}];
+  return [{id:g.events.map(x=>x.seq).join('-'),cx,cy,anchorY:priceToY(g.price),features:g.events.map(e=>e.feature),label,color:active.length?(g.side<0?'#ffb55c':'#6acddd'):'#8993a5',detail}];
  });
 }
 export function warningPanelHTML(e,{status='PAUSED',judgment=null,now=Date.now()}={}){

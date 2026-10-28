@@ -1,5 +1,5 @@
 // Presentation-only projection. Historical votes and timestamps are immutable.
-export const dotColors=Object.freeze({up:'#00c99b',down:'#ff6072',flat:'#a3acba',unavailable:'#8993a5'});
+export const dotColors=Object.freeze({up:'#00c99b',down:'#ff6072',flat:'#f5d34e',unavailable:'#8993a5'});
 export function projectEvaluationDots(dots,{timeToX,priceToY,width,top,height,timeframe='1',now=Date.now(),barWidth=null}){
  if(String(timeframe)!=='1')return [];
  return dots.flatMap(d=>{
