@@ -83,7 +83,7 @@ continue without restarting a slow copy or changing its selected snapshot.
 
 Integrity gates remain in the startup path. An existing dataset without any
 verified backup gets a baseline before opening. When verified backups already
-exist, the startup backup runs in the worker after a 15-second delay, allowing the
+exist, the startup backup runs in the worker after a 60-second delay, allowing the
 workspace to connect first. Integrity inspection uses a consistent in-memory
 SQLite snapshot for databases up to 512 MiB, avoiding repeated random USB reads;
 larger databases are checked directly. Backup copy deadlines scale from 60 to
@@ -96,6 +96,8 @@ Swing publishes its retained control state before auto-resume begins. While
 warmup holds the control lock, status retains that timestamp and marks the
 control refresh pending; unknown evidence and costs remain unknown. Automatic
 resume uses a compact response instead of reading display history under the lock.
+The archive-wide learning review starts after the first collector cycle so it
+does not compete with initial market warmup for the removable drive.
 
 Scope: `desk.sqlite3` (layouts, indicators, settings, paper ledger and agent records),
 `swing-research.sqlite3` (source candles, observations, runs, usage and checkpoints),

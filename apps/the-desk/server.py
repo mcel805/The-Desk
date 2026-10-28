@@ -212,7 +212,7 @@ def main():
         agent_signals.start();agents.start();workers.start()
     # The integrity gates have already run. Let the UI connect before refreshing
     # its verified startup snapshot on the removable drive.
-    if vault.catalog():vault.start(initial_reason='startup')
+    if vault.catalog():vault.start(initial_reason='startup',initial_delay=60)
     else:
         # A brand-new dataset has no pre-start source files to snapshot.
         try:vault.snapshot('startup')

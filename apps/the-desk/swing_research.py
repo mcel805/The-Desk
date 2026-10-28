@@ -208,7 +208,7 @@ class SwingResearch:
             # not read archive evidence or claim a fresh observation.
             self._quick_status_locked(refresh=False)
             self.worker=threading.Thread(target=self.loop,daemon=True,name='swing-research-single')
-            self.worker.start();self.lab.start()
+            self.worker.start()
     def close(self):
         self.stop.set();self.lab.close()
         with self.lock:
@@ -379,6 +379,7 @@ class SwingResearch:
             return False
 
     def loop(self):
+        review_started=False
         while not self.stop.is_set():
             if not self.active and time.monotonic()>=self.recover_after:
                 self.recover_after=time.monotonic()+30
@@ -404,6 +405,10 @@ class SwingResearch:
                             self.last[symbol]={'status':'UNAVAILABLE','run':a['run'],'detail':type(e).__name__+': observation withheld; retry pending'}
                             try:self.append(a['run'],symbol,'SAMPLE_UNAVAILABLE',int(time.time()*1000),{'class':type(e).__name__})
                             except sqlite3.Error as fault:self.storage_failure(symbol,a,fault)
+            # Let a resumed collector finish its first warmup before the
+            # archive-wide learning review competes for the removable drive.
+            if not review_started and not self.stop.is_set():
+                self.lab.start();review_started=True
             self.stop.wait(.5)
 
     def sample(self,symbol,a):

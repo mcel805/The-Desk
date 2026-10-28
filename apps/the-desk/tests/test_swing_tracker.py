@@ -279,6 +279,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('hyperliquid:BTC',self.service.active)
         self.assertEqual(self.service.last['hyperliquid:BTC']['status'],'WARMING')
 
+    def test_initial_sample_precedes_archive_learning_review(self):
+        self.command('start');events=[]
+        with patch.object(self.service,'sample',side_effect=lambda *args:events.append('sample')), \
+             patch.object(self.service.lab,'start',side_effect=lambda:events.append('review')), \
+             patch('swing_research.time.time',return_value=self.now/1000), \
+             patch.object(self.service.stop,'wait',side_effect=lambda *args:self.service.stop.set()):
+            self.service.loop()
+        self.assertEqual(events,['sample','review'])
+
     def test_observation_is_atomic_and_storage_failure_stops_before_a_model_call(self):
         import sqlite3
         calls=[];self.service.judge.judge=lambda s:(calls.append(s) or response())
