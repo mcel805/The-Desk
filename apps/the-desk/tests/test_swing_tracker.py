@@ -254,6 +254,31 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(retained['as_of'],first['as_of'])
         finally:release.set();writer.join(timeout=2)
 
+    def test_startup_publishes_unknown_evidence_before_slow_auto_resume(self):
+        import threading
+        entered=threading.Event();release=threading.Event()
+        def warmup():
+            with self.service.lock:entered.set();release.wait(2)
+        with patch.object(self.service,'loop',warmup),patch.object(self.service.lab,'start'):
+            try:
+                self.service.start();self.assertTrue(entered.wait(1))
+                started=time.monotonic();state=self.service.quick_status()
+                self.assertLess(time.monotonic()-started,.1)
+                self.assertTrue(state['control_refresh_pending'])
+                self.assertIsNone(state['costs'])
+                self.assertIsNone(state['symbols']['hyperliquid:BTC']['collection'])
+                self.assertIsNone(state['symbols']['hyperliquid:BTC']['evidence_as_of'])
+                self.assertFalse(state['symbols']['hyperliquid:BTC']['running'])
+                self.assertIsNone(self.service._status_worker)
+            finally:release.set();self.service.worker.join(timeout=2)
+
+    def test_auto_resume_does_not_read_display_archive_under_control_lock(self):
+        self.service.lab.intent('hyperliquid:BTC',True)
+        with patch.object(self.service,'status',side_effect=AssertionError('display evidence read during auto resume')):
+            self.assertTrue(self.service.recover_auto())
+        self.assertIn('hyperliquid:BTC',self.service.active)
+        self.assertEqual(self.service.last['hyperliquid:BTC']['status'],'WARMING')
+
     def test_observation_is_atomic_and_storage_failure_stops_before_a_model_call(self):
         import sqlite3
         calls=[];self.service.judge.judge=lambda s:(calls.append(s) or response())

@@ -203,6 +203,10 @@ class SwingResearch:
     def start(self):
         with self.lock:
             if self.worker and self.worker.is_alive():return
+            # Publish the retained state before auto-resume can hold the
+            # control lock for USB writes or public-history warmup. This does
+            # not read archive evidence or claim a fresh observation.
+            self._quick_status_locked(refresh=False)
             self.worker=threading.Thread(target=self.loop,daemon=True,name='swing-research-single')
             self.worker.start();self.lab.start()
     def close(self):
@@ -370,7 +374,7 @@ class SwingResearch:
                 if marker:return False
                 raise
             if intent and intent['enabled'] and not read_swing_pause(data_dir=self.data_dir,symbol=intent['symbol']):
-                self.command({'action':'start_auto','symbol':intent['symbol']},clear_pause=False)
+                self.command({'action':'start_auto','symbol':intent['symbol'],'compact':True},clear_pause=False)
                 return True
             return False
 
@@ -692,7 +696,7 @@ class SwingResearch:
         try:return self._quick_status_locked()
         finally:self.lock.release()
 
-    def _quick_status_locked(self):
+    def _quick_status_locked(self,refresh=True):
         with self.lock:
             now=int(time.time()*1000);cached=deepcopy(self._status_cache[1]) if self._status_cache else None
             result=deepcopy(cached) if cached else {'observation':{'max_active':1,'timeframe':'1m','scope':'One shared collector per Desk server; chart displays never start model requests'},'warning_version':WARNING_VERSION,'volume_version':VOLUME_VERSION,'revision':REVISION,'code_hash':CODE_HASH,'mode':'shadow research · no orders','model':MODEL,'prompt_version':PROMPT_VERSION,'symbols':{},'costs':None,'lab_intent':None,'swing_pause':None}
@@ -717,7 +721,7 @@ class SwingResearch:
             if result['costs']:
                 result['costs']['stale']=any(result['symbols'][s].get('observed_at')!=cached['symbols'][s].get('observed_at') or result['symbols'][s]['running']!=cached['symbols'][s]['running'] for s in SYMBOLS)
             for symbol,current in result['symbols'].items():current['costs']=(result['costs'] or {}).get('symbols',{}).get(symbol)
-            if not self.stop.is_set() and (self._status_refreshed is None or time.monotonic()-self._status_refreshed>=2) and self._status_refresh_lock.acquire(blocking=False):
+            if refresh and not self.stop.is_set() and (self._status_refreshed is None or time.monotonic()-self._status_refreshed>=2) and self._status_refresh_lock.acquire(blocking=False):
                 def refresh():
                     try:self.status();self._status_error=None
                     except Exception as error:self._status_error=type(error).__name__
