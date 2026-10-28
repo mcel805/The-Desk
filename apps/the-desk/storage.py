@@ -45,6 +45,10 @@ def fsync_dir(path):
     try:os.fsync(fd)
     finally:os.close(fd)
 
+def _sqlite_file_size(path):
+    try:return path.stat().st_size
+    except FileNotFoundError:return 0
+
 def atomic_json(path,value):
     external_guard()
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
@@ -145,7 +149,7 @@ def clear_swing_pause(*,data_dir=None,control=None,symbol=None):
 def connect(path):
     """Every writer uses FULL sync, WAL, a bounded busy wait, and FK validation."""
     external_guard()
-    lease=None;before=sum(Path(str(path)+suffix).stat().st_size for suffix in ('','-wal','-shm') if Path(str(path)+suffix).exists())
+    lease=None;before=sum(_sqlite_file_size(Path(str(path)+suffix)) for suffix in ('','-wal','-shm'))
     policy_path=os.environ.get('DESK_STORAGE_POLICY')
     if policy_path and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
         from storage_budget import reserve
@@ -158,7 +162,7 @@ def connect(path):
         def close(self):
             try:return super().close()
             finally:
-                if lease:lease.finish(sum(Path(str(path)+suffix).stat().st_size for suffix in ('','-wal','-shm') if Path(str(path)+suffix).exists())-before)
+                if lease:lease.finish(sum(_sqlite_file_size(Path(str(path)+suffix)) for suffix in ('','-wal','-shm'))-before)
     try:db=sqlite3.connect(str(path),timeout=15,factory=Guarded)
     except BaseException:
         if lease:lease.finish()
