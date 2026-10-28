@@ -1,7 +1,7 @@
 # Swing Tracker / Jev Decision Lab
 
 The liquidity trading studies, tracker measurement update, Jev
-`swing-observer.6-warnings.1`
+`swing-observer.7-house-abc.1`
 and separate RIDER/Spider advisors are documented in [SWING-LIQUIDITY-STUDY.md](SWING-LIQUIDITY-STUDY.md).
 The v1 audit below remains a separate reference.
 
@@ -219,7 +219,7 @@ export also includes usage rows and uncapped market totals. Credentials are
 never part of these outputs.
 
 The adapter uses the documented System One HTTP endpoint, pins `jev-1.14.0`, and
-pins question revision `swing-observer.6-warnings.1`. It validates answer types, all choice
+pins question revision `swing-observer.7-house-abc.1`. It validates answer types, all choice
 keys, finite [0,1] probabilities, probability sums and model identity. A 2s request
 timeout, a 3s elapsed budget, a crossed minute, or a changed run withholds the
 judgment from active display. Service errors never fabricate an answer or relax
