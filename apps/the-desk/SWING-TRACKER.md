@@ -340,14 +340,18 @@ Tests:
 ```sh
 python3 -m unittest discover -s tests -p 'test_swing_tracker.py'
 python3 -m unittest discover -s tests -p 'test_swing_http.py'
-node --test tests/test_swing_dots.mjs
+node --test tests/test_swing_dots.mjs tests/test_house_abc_view.mjs \
+  tests/test_house_abc_pine.mjs tests/test_swing_warning_view.mjs \
+  tests/test_polling.mjs
 ```
 
 The backend tests cover causal pivot timing/prefix replay, mirrored sweep gates,
 prior rails, frozen attempts, fractional risk, gaps, next-open handling, ambiguous
 barriers, deferred BE, slot deduplication, response freshness, run boundaries,
 restart behavior and server routing without account/order effects. The browser
-verification uses explicitly labeled synthetic votes solely for rendering tests.
+verification covers retained House ABC display state, the checked-in House ABC
+Pine authority, warning rendering and single-flight polling, using explicitly
+labeled synthetic votes solely for rendering tests.
 Actual Jev responses and crypto forecast accuracy require the configured key and
 forward observations.
 
