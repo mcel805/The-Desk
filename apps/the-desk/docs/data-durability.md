@@ -98,6 +98,9 @@ control refresh pending; unknown evidence and costs remain unknown. Automatic
 resume uses a compact response instead of reading display history under the lock.
 The archive-wide learning review starts after the first collector cycle so it
 does not compete with initial market warmup for the removable drive.
+Capacity scans retry a full traversal if SQLite removes a temporary file or a
+backup directory is renamed during the scan. Persistent missing paths and I/O
+errors still fail the storage check; a moving backup is counted after retry.
 
 Scope: `desk.sqlite3` (layouts, indicators, settings, paper ledger and agent records),
 `swing-research.sqlite3` (source candles, observations, runs, usage and checkpoints),

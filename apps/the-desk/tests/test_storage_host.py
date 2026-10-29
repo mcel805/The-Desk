@@ -23,6 +23,23 @@ class StorageHostTests(unittest.TestCase):
   with patch.object(Path,'is_mount',return_value=True):
    self.assertTrue(host.drive_ready(self.policy))
    self.policy['volume_uuid']='different';self.assertFalse(host.drive_ready(self.policy))
+ def test_backup_publication_during_capacity_scan_retries_without_disconnect(self):
+  root=Path(self.policy['external_root']);root.mkdir()
+  stage=root/'.building-backup';stage.mkdir();(stage/'history').write_bytes(b'verified history')
+  published=root/'published-backup';scandir=os.scandir
+  def publish_while_scanning(path):
+   if Path(path)==stage and stage.exists():stage.rename(published)
+   return scandir(path)
+  with patch.object(host.os,'scandir',side_effect=publish_while_scanning):
+   available,used=host.capacity_available(self.policy)
+  self.assertTrue(available)
+  self.assertEqual(used,len(b'verified history'))
+  self.assertTrue((published/'history').exists())
+ def test_capacity_scan_does_not_hide_real_drive_io_failure(self):
+  root=Path(self.policy['external_root']);root.mkdir()
+  with patch.object(host.os,'scandir',side_effect=OSError(5,'Input/output error')) as scan:
+   self.assertEqual(host.capacity_available(self.policy),(False,0))
+  self.assertEqual(scan.call_count,1)
  def test_copy_hashes_all_files_and_preserves_source(self):
   src=self.root/'source';src.mkdir();(src/'record').write_text('old history')
   dst=self.root/'destination';receipt=host.verified_copy(src,dst)
