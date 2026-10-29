@@ -382,13 +382,22 @@ cutoff, using up to the latest 1,200 contiguous completed 1m bars, the current
 market tick size, and the run's selected parent timeframe. It requires Node and
 the installed `@luxalgo/vela-pinets` dependency (`npm ci` in this directory
 using the checked-in lockfile). Errors, missing dependencies, timeouts, data gaps,
-and results for an older cutoff are displayed as unavailable rather than
-reusing old evidence. Results may arrive after the first 15-second observation
+and results for an older cutoff remain unavailable as a new observation.
+The chart keeps the last confirmed ABC drawing and info card visible while the
+next cutoff evaluates, a poll fails, or observation becomes delayed or paused.
+It labels the retained display and preserves its original completed cutoff and
+receipt; it never relabels old geometry as the new candle's result. Retention is
+scoped to the same market, run and engine build. A new run starts with a visible
+waiting card until its first confirmed swing. The card keeps its chosen corner
+through updates and renderer reattachment, and drawing coordinates are
+reprojected when the chart moves or resizes.
+Results may arrive after the first 15-second observation
 of a minute. The chart labels the history start and actual computation receipt;
 all chart warning events are reconstructed from the retained bar window, not
 claims that they were observed in real time. IDs are local to that reconstruction
 and can change as its rolling window advances. Display also requires the selected
-1m chart, outside replay, and the usual fresh observer status.
+1m chart outside replay. Fresh observation status is required for current model
+dots; a labeled retained ABC drawing does not assert fresh market evidence.
 
 The 1.7 score has eight capped families and a fixed denominator of 14. The card
 shows available weight and marks partial coverage; an outlined category is

@@ -19,14 +19,16 @@ class SyntheticProvider{
 }
 const warningFixture=__WARNING_FIXTURE__;
 const dotBars=bars('1').slice(-18,-3),status={symbols:{'hyperliquid:BTC':{status:'OBSERVING',running:true,observed_at:Date.now(),snapshot:{cutoff:end,warnings:warningFixture,house_abc:{status:'AVAILABLE',version:'desk-house-abc.1',cutoff:end,history_start:end-160*60000,parent_timeframe:5,received_at:end,abc:{id:12,root_id:4,stage:3,points:{o:{origin:end-55*60000,known:end-50*60000,price:93},a:{origin:end-37*60000,known:end-32*60000,price:107},b:{origin:end-25*60000,known:end-20*60000,price:98},c:{origin:end-10*60000,known:end-20*60000,price:105}}},exhaustion:{root_id:4,side:1,score:7,available:12,tier:2,contributions:[2,1,1,0,2,null,1,0]},events:[{root:4,family:0,bar:end-20*60000,known:end-19*60000,price:107,scope:'RECONSTRUCTED',detail:'Synthetic volume warning'}, {root:4,family:4,bar:end-11*60000,known:end-10*60000,price:104,scope:'RECONSTRUCTED',detail:'Synthetic geometry warning'}]}},dots:dotBars.flatMap((b,i)=>Array.from({length:4},(_,slot)=>({id:'synthetic-'+i+'-'+slot,bar:b.time,high:b.high,low:b.low,slot:slot+1,vote:['up','down','flat','up'][(i+slot)%4],observed_at:b.time+1000+slot*15000,prediction_bar:b.time+60000,cadence_seconds:15,service:'SYNTHETIC_RENDER_TEST'})))},'hyperliquid:ETH':{status:'PAUSED',running:false}}};
-const originalFetch=window.fetch.bind(window);let reads=0;
-window.fetch=(input,init)=>{if(input==='/api/swing/status'){reads++;status.symbols['hyperliquid:BTC'].observed_at=Date.now();return Promise.resolve(new Response(JSON.stringify(status),{headers:{'Content-Type':'application/json'}}));}return originalFetch(input,init);};
+const originalFetch=window.fetch.bind(window);let reads=0,failure=false;
+status.code_hash='SYNTHETIC_RENDER_TEST';status.symbols['hyperliquid:BTC'].run='synthetic-render-run';
+const confirmed=structuredClone(status.symbols['hyperliquid:BTC'].snapshot.house_abc);
+window.fetch=(input,init)=>{if(input==='/api/swing/status'){reads++;if(failure)return Promise.reject(Error('Synthetic network outage'));status.symbols['hyperliquid:BTC'].observed_at=Date.now();return Promise.resolve(new Response(JSON.stringify(status),{headers:{'Content-Type':'application/json'}}));}return originalFetch(input,init);};
 localStorage.setItem('desk.swing.v12.visible','true');localStorage.removeItem('desk.swing.chart');
 const ws=new VelaWorkspace('#workspace',{layout:'4',symbol:'hyperliquid:BTC',timeframe:'1',providers:{hyperliquid:()=>new SyntheticProvider()},live:false,theme:'dark',nativeBackend:'canvas2d',bars:160,volume:false,drawings:true,timeframes:['1','5','60']});
 ws.sync.set('timeframe',false);ws.sync.set('symbol',false);
 await Promise.all(ws.cells().map(async(c,i)=>{await c.chart.ready();await c.chart.setMarket({timeframe:['60','5','1','1'][i]});}));
 setupSwingTracker({workspace:()=>ws});
-window.swingViewTest={workspace:ws,status,get reads(){return reads;},ready:true};
+window.swingViewTest={workspace:ws,status,get reads(){return reads;},ready:true,setMode(mode){failure=mode==='offline';const b=status.symbols['hyperliquid:BTC'];b.status=mode==='stale'?'STALE':'OBSERVING';b.snapshot.cutoff=end+60000;b.snapshot.house_abc=mode==='fresh'?{...structuredClone(confirmed),cutoff:end+60000,abc:{...structuredClone(confirmed.abc),id:13}}:{status:'UNAVAILABLE',reason:mode==='failed'?'EVALUATION_FAILED':'EVALUATING',cutoff:end+60000};}};
 </script></body></html>'''
 def render_html():
  end=int(time.time()*1000)//60000*60000

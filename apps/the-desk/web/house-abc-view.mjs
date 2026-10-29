@@ -3,6 +3,23 @@ const finite=Number.isFinite;
 export const houseFamilies=['Volume exhaustion','EMA','SAR','Candlestick','Geometry','Structure','Slow / chop','Momentum divergence'];
 export const houseColors=['#ff9628','#42a5f5','#ab7bff','#f45b69','#00c3ff','#e056fd','#ffd166','#cbd5e1'];
 const stageNames={1:'A DRIVE',2:'B RETRACEMENT',3:'C DEVELOPING',4:'C BEYOND A',5:'INVALIDATED',6:'ABC COMPLETE',7:'EXPIRED'};
+// Display continuity only: retained evidence keeps its original cutoff and
+// receipt. It never becomes the result of a later candle or another run.
+export function createHouseABCDisplay(){
+ const markets=new Map();
+ return {resolve({market,run,codeHash='',house,cutoff,offline=false,status}){
+  const scope=JSON.stringify([run,codeHash]);let entry=markets.get(market);
+  if(!entry||entry.scope!==scope){entry={scope,value:null,input:null};markets.set(market,entry);}
+  const limit=Number.isSafeInteger(cutoff)&&cutoff>0?cutoff:entry.value?.cutoff;
+  const point=p=>p&&finite(p.price)&&Number.isSafeInteger(p.origin)&&p.origin<house.cutoff&&(p.known==null||Number.isSafeInteger(p.known)&&p.known<=house.cutoff);
+  const valid=typeof run==='string'&&run.length>0&&house?.status==='AVAILABLE'&&Number.isSafeInteger(house.cutoff)&&house.cutoff<=limit&&Number.isInteger(house.abc?.id)&&point(house.abc.points?.o)&&point(house.abc.points?.a);
+  if(valid&&(!entry.value||house.cutoff>=entry.value.cutoff)&&entry.input!==house){entry.value=structuredClone(house);entry.input=house;}
+  const value=entry.value&&entry.value.cutoff<=limit?entry.value:null;
+  const retained=!!value&&(offline||status!=='OBSERVING'||!valid||value.cutoff!==cutoff);
+  const note=offline?'Connection unavailable · showing last confirmed drawing':status==='PAUSED'?'Paused · showing last confirmed drawing':status==='STALE'?'Data delayed · showing last confirmed drawing':status!=='OBSERVING'&&status?'Observation unavailable · showing last confirmed drawing':'Updating · showing last confirmed drawing';
+  return {house:value,retained,note:retained?note:'',waiting:offline?'Connecting · waiting for first confirmed swing':house?.reason==='EVALUATION_FAILED'?'Evaluation unavailable · waiting for confirmed swing':'Waiting for first confirmed swing'};
+ }};
+}
 export function projectHouseABC(h,{timeToX,priceToY,width,top,height,cutoff}){
  if(h?.status!=='AVAILABLE'||!finite(h.cutoff)||h.cutoff!==cutoff||!h.abc||!Number.isInteger(h.abc.id)||!h.abc.points)return null;
  const pts={};
