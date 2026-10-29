@@ -101,6 +101,9 @@ does not compete with initial market warmup for the removable drive.
 Capacity scans retry a full traversal if SQLite removes a temporary file or a
 backup directory is renamed during the scan. Persistent missing paths and I/O
 errors still fail the storage check; a moving backup is counted after retry.
+Cost displays read a pinned SQLite snapshot without holding the usage-writer
+lock. If an observation commits during that read, its older totals are marked
+stale and are not cached; the display retains the snapshot's timestamp.
 
 Scope: `desk.sqlite3` (layouts, indicators, settings, paper ledger and agent records),
 `swing-research.sqlite3` (source candles, observations, runs, usage and checkpoints),

@@ -724,7 +724,7 @@ class SwingResearch:
                 if current['running'] and current.get('observed_at') and now-current['observed_at']>max(75000,current['config']['cadence_seconds']*2000):current['status']='STALE'
                 result['symbols'][symbol]=current
             if result['costs']:
-                result['costs']['stale']=any(result['symbols'][s].get('observed_at')!=cached['symbols'][s].get('observed_at') or result['symbols'][s]['running']!=cached['symbols'][s]['running'] for s in SYMBOLS)
+                result['costs']['stale']=result['costs'].get('stale',False) or any(result['symbols'][s].get('observed_at')!=cached['symbols'][s].get('observed_at') or result['symbols'][s]['running']!=cached['symbols'][s]['running'] for s in SYMBOLS)
             for symbol,current in result['symbols'].items():current['costs']=(result['costs'] or {}).get('symbols',{}).get(symbol)
             if refresh and not self.stop.is_set() and (self._status_refreshed is None or time.monotonic()-self._status_refreshed>=2) and self._status_refresh_lock.acquire(blocking=False):
                 def refresh():

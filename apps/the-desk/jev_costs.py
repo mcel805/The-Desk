@@ -42,7 +42,7 @@ def _json(v):return json.dumps(v,sort_keys=True,separators=(',',':'))
 
 class JevCostMeter:
     def __init__(self,path):
-        self.path=Path(path);self.lock=threading.RLock();self.cache=None;self.cached_at=0
+        self.path=Path(path);self.lock=threading.RLock();self.cache=None;self.cached_at=0;self.generation=0
         with self.db(write=True) as db:
             db.executescript('''
               CREATE TABLE IF NOT EXISTS jev_usage (
@@ -107,6 +107,7 @@ class JevCostMeter:
               (prediction_id,run,symbol,at,parent_id,status,model,usage['input_tokens'] if usage else None,
                usage['output_tokens'] if usage else None,cost,_json(pricing) if pricing else None,provenance))
             self.cache=None
+            self.generation+=1
 
     @staticmethod
     def aggregate(db,where='',args=()):
@@ -130,25 +131,35 @@ class JevCostMeter:
     def data(self):
         with self.lock:
             if self.cache is not None and time.monotonic()-self.cached_at<2:return deepcopy(self.cache)
-            with self.db() as db:
-                total=self.aggregate(db)
-                sessions=[]
-                for r in db.execute('SELECT id,symbol,started FROM runs ORDER BY started DESC LIMIT 100'):
-                    sessions.append({**dict(r),**self.aggregate(db,'WHERE run=?',(r['id'],))})
-                parents=[]
-                for r in db.execute('''SELECT run,symbol,parent_id,MAX(at) last FROM jev_usage
+            generation=self.generation
+        # A display-only archive read must not hold the lock needed to commit
+        # a new observation. WAL keeps this read snapshot consistent while
+        # the collector writes; its generation prevents caching old totals.
+        with self.db() as db:
+            db.execute('BEGIN')
+            as_of=int(time.time()*1000)
+            total=self.aggregate(db)
+            sessions=[]
+            for r in db.execute('SELECT id,symbol,started FROM runs ORDER BY started DESC LIMIT 100'):
+                sessions.append({**dict(r),**self.aggregate(db,'WHERE run=?',(r['id'],))})
+            parents=[]
+            for r in db.execute('''SELECT run,symbol,parent_id,MAX(at) last FROM jev_usage
                       WHERE status!='DISABLED' AND parent_id IS NOT NULL
                       GROUP BY run,symbol,parent_id ORDER BY last DESC LIMIT 100'''):
-                    parents.append({'run':r['run'],'symbol':r['symbol'],'parent_id':r['parent_id'],
+                parents.append({'run':r['run'],'symbol':r['symbol'],'parent_id':r['parent_id'],
                         **self.aggregate(db,'WHERE run=? AND parent_id=?',(r['run'],r['parent_id']))})
-                symbols={}
-                for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
-                    recent=[dict(r) for r in db.execute('''SELECT input_tokens,output_tokens,model FROM jev_usage
+            symbols={}
+            for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
+                recent=[dict(r) for r in db.execute('''SELECT input_tokens,output_tokens,model FROM jev_usage
                       WHERE symbol=? AND input_tokens IS NOT NULL AND status!='DISABLED'
                       ORDER BY at DESC LIMIT 20''',(symbol,))]
-                    symbols[symbol]={'total':self.aggregate(db,'WHERE symbol=?',(symbol,)),'recent':recent}
-            self.cache={'total':total,'sessions':sessions,'parent_swings':parents,'symbols':symbols}
-            self.cached_at=time.monotonic();return deepcopy(self.cache)
+                symbols[symbol]={'total':self.aggregate(db,'WHERE symbol=?',(symbol,)),'recent':recent}
+        with self.lock:
+            result={'total':total,'sessions':sessions,'parent_swings':parents,'symbols':symbols,
+                    'as_of':as_of,'generation':generation,'stale':generation!=self.generation}
+            if not result['stale']:
+                self.cache=deepcopy(result);self.cached_at=time.monotonic()
+            return result
 
     def summary(self,contexts,model):
         data=self.data();pricing=deepcopy(RATES.get(model));symbols={}
@@ -190,5 +201,6 @@ class JevCostMeter:
             'pricing':pricing,'total':data['total'],'sessions':data['sessions'],'parent_swings':data['parent_swings'],
             'symbols':symbols,'active_estimated_usd_per_hour':sum(p['current_usd_per_hour'] or 0 for p in active),
             'active_projection_complete':all(p['current_usd_per_hour'] is not None for p in active),
-            'restored_archive_cutoff_utc':restoration,'as_of':int(time.time()*1000),
+            'restored_archive_cutoff_utc':restoration,'as_of':data['as_of'],
+            'stale':data['stale'] or data['generation']!=self.generation,
             'scope':'All retained tracker records, across BTC/ETH and all runs; no export row cap on totals. Missing usage is unknown. Parent groups can be unfinished and are not completed research swings.'}
