@@ -391,6 +391,9 @@ scoped to the same market, run and engine build. A new run starts with a visible
 waiting card until its first confirmed swing. The card keeps its chosen corner
 through updates and renderer reattachment, and drawing coordinates are
 reprojected when the chart moves or resizes.
+Completion receipts are captured by the evaluator worker, so a result already
+finished before an observation can be used on its first matching poll. Results
+completed after that observation still wait; the completed cutoff must match.
 Results may arrive after the first 15-second observation
 of a minute. The chart labels the history start and actual computation receipt;
 all chart warning events are reconstructed from the retained bar window, not
