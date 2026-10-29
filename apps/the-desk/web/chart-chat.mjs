@@ -86,7 +86,7 @@ export function setupChartChat({workspace,toast}){
  }
  async function send(e){
   e.preventDefault();if(running||pending)return;const text=$('ccInput').value.trim();if(!text)return;
-  pending=true;controls();const requestEpoch=++epoch;
+  pending=true;controls();status('Preparing your chart request…');const requestEpoch=++epoch;
   try{
    const target=ws.active,original=chartScope(ws),tf=requestedFrame(text),expectedFrame=tf?frame(tf):original.timeframe;
    if(tf&&frame(target.chart.market.timeframe)!==frame(tf)){
@@ -94,7 +94,7 @@ export function setupChartChat({workspace,toast}){
    }
    await target.chart.ready();
    if(ws.active!==target||chartScope(ws).symbol!==original.symbol||chartScope(ws).timeframe!==expectedFrame)throw Error('Chart changed while loading. Send the request again on the intended chart.');
-   const snap=chartSnapshot(ws);scope=chartScope(ws);contextChanged=false;const r=await api('send',{text,chatId,snapshot:snap,web:$('ccWeb').checked});
+   const snap=chartSnapshot(ws);scope=chartScope(ws);contextChanged=false;status('Sending the chart snapshot to The Desk…');const r=await api('send',{text,chatId,snapshot:snap,web:$('ccWeb').checked});
    if(requestEpoch!==epoch)return;chatId=r.chatId;localStorage.setItem('desk.chart-chat.last',chatId);user(text);$('ccInput').value='';running=r.id;status('Reading the active chart…');void poll();
   }catch(e){status(e.message,true);}finally{pending=false;controls();}
  }
