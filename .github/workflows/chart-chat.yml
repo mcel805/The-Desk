@@ -45,7 +45,7 @@ jobs:
       - name: Chart and drawing regressions
         run: node --test tests/test_chart_chat_model.mjs tests/test_spider*.mjs tests/test_chart_menu_actions.mjs tests/test_chart_brackets.mjs
       - name: Swing display and workspace recovery
-        run: node --test tests/test_house_abc_view.mjs tests/test_swing_dots.mjs tests/test_swing_warning_view.mjs tests/test_polling.mjs tests/test_durable_settings.mjs tests/test_workspace_mirror.mjs
+        run: node --test tests/test_house_abc_view.mjs tests/test_house_abc_pine.mjs tests/test_swing_dots.mjs tests/test_swing_warning_view.mjs tests/test_polling.mjs tests/test_durable_settings.mjs tests/test_workspace_mirror.mjs
       - name: Syntax
         run: |
           python -m py_compile chart_chat.py server.py swing_advisors.py
