@@ -54,5 +54,12 @@
     "license": "CC BY-NC-SA 4.0; user reports written permission to use supplied source",
     "reference_url": "https://www.luxalgo.com/library/indicator/three-drive-pattern-detector/",
     "parity": "User-supplied Pine preserved byte-for-byte except title and shorttitle. Scoped host correction restores shadowed lab(num) parameter in pinned PineTS. Matching-data TradingView visual and numeric parity pending."
+  },
+  "agentic_market_geometry_mtf": {
+    "version": "desk-market-geometry.2",
+    "source": "web/pine-examples/agentic-market-geometry-mtf.pine",
+    "source_sha256": "2fca9099e4c2bb34f61e7737597f17f6a4ad487cfa4b837ae3dcb4b83b4febc0",
+    "reference_source": "web/pine-examples/agentic-market-geometry.pine",
+    "scope": "Desk-hosted deterministic 1H/30M/15M/5M/1M wick channels, locked/working swing paths and micro rejection/escape event ledger. Coinbase 30M requires complete 15M components. Exact original saves migrate with rollback and custom-input preservation. Original chart-only Pine remains selectable. Native TradingView MTF parity and predictive improvement unverified."
   }
 }

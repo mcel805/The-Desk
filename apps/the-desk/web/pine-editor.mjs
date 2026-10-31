@@ -17,7 +17,7 @@ function current(){return context?.chart;}
 function studyName(h){const source=savedSource(h),declared=source?.match(/^\s*(?:indicator|strategy)\s*\(\s*(?:title\s*=\s*)?(?:"([^"\n]+)"|'([^'\n]+)')/m);return declared?.[1]||declared?.[2]||getEngine().records.get(h.id)?.model.title||h.title;}
 function savedSource(h){const source=getEngine().records.get(h.id)?.source;return isABCSource(h.source)&&source?.includes('Desk visual anchors v2')?source:h.source;}
 function hideOtherDialogs(){current()?.renderer.closeDialogs();}
-export function createPineEngine(){const engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event)});engines.add(engine);return engine;}
+export function createPineEngine(){const engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event),geometryContext:(market,id)=>services?.geometryContext?.(market,id)||{}});engines.add(engine);return engine;}
 function getEngine(){return {records:{get:id=>[...engines].map(e=>e.records.get(id)).find(Boolean)},cancelTests:()=>{for(const e of engines)e.cancelTests();}};}
 window.addEventListener('pagehide',()=>{for(const e of engines)e.terminate();});
 export function setupPineEditor(opts){
@@ -56,7 +56,7 @@ async function renderTab(tab,source=''){
    {id:'pineCipherB',name:'Agentic Market Synth B',detail:'Desk reconstruction · Momentum & money flow',match:'agentic market synth b market cipher cypher b premium oscillator momentum money flow reconstruction',source:'/pine-examples/market-cipher-b.pine'},
    {id:'pineThreeDrive',name:'Agentic - Three Drive Pattern',detail:'Multi-length harmonic swings · Original rules',match:'agentic - three drive pattern detector premium harmonic luxalgo',source:'/pine-examples/agentic-three-drive-pattern.pine'},
    {id:'pineABCReversal',name:'Agentic - ABC Reversal',detail:'Liquidity contact → micro ABC · 1m / 5m',match:'agentic - abc reversal premium liquidity reversal zone',source:'/pine-examples/agentic-abc-reversal.pine'},
-   {id:'pineMarketGeometry',name:'Agentic - Market Geometry',detail:'Wick-safe channels · Chart timeframe',match:'agentic - market geometry premium wick channels',source:'/pine-examples/agentic-market-geometry.pine'},
+   {id:'pineMarketGeometry',name:'Agentic - Market Geometry',detail:'1H → 1M · Broad channels, swings & micro turns',match:'agentic - market geometry premium wick channels swings reversal mtf',source:'/pine-examples/agentic-market-geometry-mtf.pine'},
    {id:'pineLiquidity',name:'Agentic - Liquidity',detail:'Clean pools · 60 + 30 + 15M',match:'agentic - liquidity premium pools',source:'/pine-examples/agentic-liquidity.pine'},
    {id:'pineElliot',name:'Agentic - Elliot Waves',detail:'Daily → 1m · Open & test',match:'agentic - elliot waves elliott wave premium',source:'/pine-examples/agentic-elliot-waves.pine'},
    {id:'pineCleo',name:"Cleo's Liquidity",detail:'Open & test',match:"cleo's liquidity premium",source:'/pine-examples/cleos-liquidity.pine'},
