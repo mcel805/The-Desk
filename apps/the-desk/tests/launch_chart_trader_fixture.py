@@ -43,7 +43,7 @@ def main():
   engine=Engine(Path(tmp)/'paper.sqlite3');settings=SettingsStore(engine)
   account=engine.execute('init','account',{'name':'ISOLATED CHART QA','capital':'1000000','fee_bps':'0','leverage':'1'})['id']
   chat=ChartChat(engine,ChatFixtureSession)
-  commands=[];faults={};videos=TradeRecordings(tmp,engine)
+  commands=[];faults={};videos=TradeRecordings(tmp,engine,require_usb=False)
   if os.environ.get('DESK_CHART_BASELINE_WEB'):settings.commit({'trading':{'instant':True}})
   def quotes():
    for i in ['hyperliquid:BTC','hyperliquid:ETH','coinbase:BTC-USD']:engine.ingest(i,79999,80000,{'tick':'1','qty_step':'.001'})

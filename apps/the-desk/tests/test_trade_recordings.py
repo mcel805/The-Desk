@@ -13,8 +13,14 @@ class RecordingTests(unittest.TestCase):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
   self.engine=Engine(Path(self.tmp.name)/'desk.sqlite3')
   self.account=self.engine.execute('init','account',{'name':'Video QA','capital':'10000','fee_bps':'0','leverage':'1'})['id']
-  self.archive=TradeRecordings(self.tmp.name,self.engine)
+  self.archive=TradeRecordings(self.tmp.name,self.engine,require_usb=False)
  def start(self):return self.archive.start({'account_id':self.account,'instrument':'hyperliquid:BTC','timeframe':'1','mime':'video/webm'})
+ def test_usb_required_without_policy_never_falls_back(self):
+  from unittest.mock import patch
+  with patch.dict('os.environ',{'DESK_RECORDING_POLICY':str(Path(self.tmp.name)/'missing-policy.json')}):
+   archive=TradeRecordings(self.tmp.name,self.engine)
+   with self.assertRaises(StorageFault):archive.start({'account_id':self.account,'instrument':'hyperliquid:BTC','mime':'video/webm'})
+   self.assertFalse(archive.root.exists())
  def test_chunk_retry_order_and_versions(self):
   clip=self.start();other=self.start();self.assertNotEqual(clip['id'],other['id'])
   with concurrent.futures.ThreadPoolExecutor(2) as pool:results=list(pool.map(lambda _:self.archive.append(clip['id'],0,b'first'),range(2)))

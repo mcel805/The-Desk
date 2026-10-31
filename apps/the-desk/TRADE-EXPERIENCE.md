@@ -49,3 +49,7 @@ order. No real account or live order was exercised.
 ## Recording visibility correction
 
 On the active dev server the recorder was unarmed and had no clips. An attempted start exposed the old running server's JSON-only POST guard rejecting WebM chunks. Restarting on the already-reviewed WebM-aware handler restored uploads without changing positions. Recorder now auto-arms by default (explicit disarm is saved), shows a chart-top-left status badge, and only displays RECORDING after a chunk is acknowledged; starting and error states remain distinct. The active user's paper short remained 0.001 at 77,711 while the archive grew from 192,228 to 603,195 bytes. Capture before the fix cannot be recovered. This dev dataset is LOCAL under /tmp/desk-trade-dev/data; it is not the managed USB dataset.
+
+## USB-only recording
+
+Recording now requires the configured USB identity and capacity, independent of the dev ledger's local dataset. Production archive root is external_root/live/desk/trade-videos; missing recording policy or disconnected USB refuses recording with no local fallback. Only isolated test constructors explicitly opt out. Current dev server uses DESK_RECORDING_POLICY pointing at the existing managed USB policy. Existing local video files were copied, SHA-256 verified, then removed locally (0 bytes remain in the local video directory). The current recording API reports EXTERNAL and new bytes under the dated USB folder. The red tag now identifies USB capture. Six archive tests pass, including refusing local fallback without a valid policy.

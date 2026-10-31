@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import threading
 import uuid
 from zoneinfo import ZoneInfo
@@ -14,8 +15,21 @@ MAX_CHUNK = 8 * 1024 * 1024
 ID = re.compile(r'^\d{4}-\d{2}-\d{2}_[a-f0-9]{32}$')
 
 class TradeRecordings:
-    def __init__(self, data, engine, guard=external_guard):
+    def __init__(self, data, engine, guard=external_guard, require_usb=True):
+        self.policy=None;self.require_usb=require_usb
+        policy_path=Path(os.environ.get('DESK_RECORDING_POLICY',os.environ.get('DESK_STORAGE_POLICY',str(Path(__file__).parent/'storage-policy.local.json'))))
+        if require_usb and policy_path.exists():self.policy=json.loads(policy_path.read_text())
         self.root=Path(data)/'trade-videos';self.engine=engine;self.guard=guard;self.lock=threading.RLock()
+        if self.policy:self.root=Path(self.policy['external_root'])/'live'/'desk'/'trade-videos'
+
+    def writable(self):
+        if self.require_usb:
+            from storage_host import drive_ready
+            from storage_budget import snapshot
+            if not self.policy or not drive_ready(self.policy):raise StorageFault('Recording requires the configured USB drive. No local fallback.')
+            used,reserved=snapshot(self.policy)
+            if used+reserved+64*1024*1024>self.policy['limit_bytes'] or shutil.disk_usage(self.policy['volume']).free<64*1024*1024:raise StorageFault('USB recording capacity reached')
+        self.guard()
 
     def folder(self, ident):
         if not isinstance(ident,str) or not ID.fullmatch(ident):raise ValueError('Invalid recording identity')
@@ -39,12 +53,12 @@ class TradeRecordings:
                     if len(result)>=200:break
                 if len(result)>=200:break
         return {'recordings':sorted(result,key=lambda r:r['started_at'],reverse=True),
-                'storage_mode':os.environ.get('DESK_STORAGE_MODE','LOCAL'), 'root':str(self.root),
+                'storage_mode':('EXTERNAL' if self.require_usb else 'ISOLATED TEST'), 'root':str(self.root),
                 'session_timezone':'America/Los_Angeles','limit':200}
 
     def start(self,p):
         with self.lock:
-            self.guard()
+            self.writable()
             aid=p.get('account_id');state=self.engine.state(aid)
             if aid!=state.get('active_account'):raise ValueError('Valid paper account required')
             market=p.get('instrument')
@@ -56,22 +70,23 @@ class TradeRecordings:
                'timeframe':str(p.get('timeframe',''))[:20],'mode':'PAPER','status':'recording',
                'started_at':now.isoformat(),'session_date':day,'session_timezone':'America/Los_Angeles',
                'mime':p['mime'],'bytes':0,'chunks':[], 'capture':'Chart canvas and trade overlays; browser must remain open and visible',
-               'storage_mode':os.environ.get('DESK_STORAGE_MODE','LOCAL')}
+               'storage_mode':('EXTERNAL' if self.require_usb else 'ISOLATED TEST')}
             atomic_json(self.folder(ident)/'manifest.json',m);return {k:v for k,v in m.items() if k!='chunks'}
 
     def append(self,ident,sequence,body):
         if type(sequence) is not int or sequence<0 or not body or len(body)>MAX_CHUNK:raise ValueError('Invalid video chunk')
         digest=hashlib.sha256(body).hexdigest()
         with self.lock:
-            self.guard();m=self.read(ident);chunks=m['chunks']
+            self.writable();m=self.read(ident);chunks=m['chunks']
             if sequence<len(chunks):
                 if chunks[sequence]['sha256']!=digest:raise ValueError('Chunk retry differs from accepted content')
                 return {'accepted':sequence,'bytes':m['bytes']}
             if m['status']!='recording' or sequence!=len(chunks):raise ValueError('Recording closed or chunk out of sequence')
-            lease=None;policy=os.environ.get('DESK_STORAGE_POLICY')
-            if policy and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':
+            lease=None;policy=self.policy
+            if not policy and os.environ.get('DESK_STORAGE_POLICY') and os.environ.get('DESK_STORAGE_MODE')=='EXTERNAL':policy=json.loads(Path(os.environ['DESK_STORAGE_POLICY']).read_text())
+            if policy:
                 from storage_budget import reserve
-                lease=reserve(json.loads(Path(policy).read_text()),len(body)+4096)
+                lease=reserve(policy,len(body)+4096)
             path=self.folder(ident)/'chart.webm';before=path.stat().st_size if path.exists() else 0
             try:
                 # Roll back only an unacknowledged tail left by an interrupted append.
@@ -86,7 +101,7 @@ class TradeRecordings:
 
     def finish(self,p):
         with self.lock:
-            self.guard();m=self.read(p.get('id'))
+            self.writable();m=self.read(p.get('id'))
             if m['status']!='recording':return m
             reason=p.get('reason','closed')
             if reason not in ('closed','cancelled','disarmed','context-changed','hidden','error'):raise ValueError('Invalid recording finish reason')
