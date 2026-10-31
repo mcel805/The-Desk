@@ -2,6 +2,7 @@ import {PineWorkerEngine} from './vendor/pine-engine.js';
 import {GeometrySources,geometryCutoff,verifiedGeometryTick} from './market-geometry-source.mjs';
 import {geometryDrawing} from './market-geometry-drawing.mjs';
 import {GEOMETRY_FRAMES,geometryOptions,geometryCalculationOptions} from './market-geometry-model.mjs';
+import {isMarketGeometryCatalogOrigin} from './market-geometry-origin.mjs';
 export const MTF_GEOMETRY_HASH='2fca9099e4c2bb34f61e7737597f17f6a4ad487cfa4b837ae3dcb4b83b4febc0';
 export const GEOMETRY_CUSTOM_SCOPE_WARNING='Edited Market Geometry source runs chart-timeframe Pine only; Desk multi-timeframe controls are inactive until the catalog source is restored.';
 const CUSTOM_MTF_KEYS=new Set(['geometryMode','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry','showSwingPaths','showWorking','showProjection','showStatus','showTurnHistory','stageAlerts','showFrame60','showFrame30','showFrame15','showFrame5','showFrame1','frameColor60','frameColor30','frameColor15','frameColor5','frameColor1']);
@@ -10,18 +11,18 @@ const checkpointKey=(req,id,source,inputs,tick,cutoff,context)=>{const phase=con
 const getCheckpoint=key=>{const value=checkpoints.get(key);if(value){checkpoints.delete(key);checkpoints.set(key,value);}return value||null;};
 const setCheckpoint=(key,value)=>{checkpoints.delete(key);checkpoints.set(key,value);while(checkpoints.size>CHECKPOINT_LIMIT)checkpoints.delete(checkpoints.keys().next().value);};
 const usableCheckpoint=(checkpoint,sources)=>checkpoint&&GEOMETRY_FRAMES.every(tf=>{const source=sources[tf],last=checkpoint.frames?.[tf]?.lastTime;return source?.status==='ready'&&source.bars.length>0&&!source.gaps?.length&&(last==null||source.bars.some(b=>b.time===last));})?checkpoint:null;
-// Deliberately hash-owned: edited Pine executes its own chart-only rules.
-export const isMTFGeometrySource=s=>typeof s==='string'&&s.includes('// Desk MTF Geometry v2.');
+const catalogSourceShape=s=>typeof s==='string'&&s.includes('// Desk MTF Geometry v2.')&&s.includes('indicator("Agentic - Market Geometry", "Agentic - Market Geometry"')&&s.includes('f_geometryCandidate(')&&s.includes('f_drawWickChannels(');
+export const isMTFGeometrySource=(s,origin=null)=>isMarketGeometryCatalogOrigin(origin)||catalogSourceShape(s);
 const digest=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s.replace(/\r\n/g,'\n'))))].map(v=>v.toString(16).padStart(2,'0')).join('');
 export class MarketGeometryWorker {
  constructor({legacy=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href}),context=()=>({}),now=Date.now,threadFactory=()=>new Worker(new URL('./market-geometry-thread.mjs',import.meta.url),{type:'module'}),displayTarget=globalThis}={}){this.legacy=legacy;this.context=context;this.now=now;this.threadFactory=threadFactory;this.displayTarget=displayTarget;this.sessions=new Set();}
- async prepare(source,id){
-  const prepared=await this.legacy.prepare(source,id),hosted=await digest(source)===MTF_GEOMETRY_HASH,custom=isMTFGeometrySource(source)&&!hosted;
+ async prepare(source,id,{origin=null}={}){
+  const prepared=await this.legacy.prepare(source,id),hosted=await digest(source)===MTF_GEOMETRY_HASH,custom=isMarketGeometryCatalogOrigin(origin)&&!hosted;
   if(hosted){const originalOnly=new Set(['geometryShown','geometryActiveShown','geometryActiveInk','geometryBrokenInk']);
    prepared.inputs=prepared.inputs.map(s=>({...s,...(originalOnly.has(s.key)?{when:{key:'geometryMode',equals:'Original chart only'}}:{}),title:s.title.replace('Chart bars retained','Source bars retained').replace('chart bars','source bars'),group:s.key==='geometryMode'?'Geometry view':s.group}));
    prepared.inputs.sort((a,b)=>(a.key==='geometryMode'?-1:b.key==='geometryMode'?1:0));
   }else if(custom)prepared.inputs=prepared.inputs.filter(s=>!CUSTOM_MTF_KEYS.has(s.key));
-  return {...prepared,meta:{...prepared.meta,...(custom?{scope:'chart-only/custom-source',scopeWarning:GEOMETRY_CUSTOM_SCOPE_WARNING}:{})},geometryHosted:hosted,geometryScope:custom?'chart-only/custom-source':hosted?'desk-mtf':'pine',geometryWarning:custom?GEOMETRY_CUSTOM_SCOPE_WARNING:null,token:{...prepared.token,source,instanceId:id}};
+  return {...prepared,meta:{...prepared.meta,...(custom?{scope:'chart-only/custom-source',scopeWarning:GEOMETRY_CUSTOM_SCOPE_WARNING}:{})},geometryHosted:hosted,geometryScope:custom?'chart-only/custom-source':hosted?'desk-mtf':'pine',geometryWarning:custom?GEOMETRY_CUSTOM_SCOPE_WARNING:null,geometryOrigin:custom?origin:null,token:{...prepared.token,source,instanceId:id,geometryOrigin:custom?origin:null}};
  }
  execute(req,handlers){
   if(!req.prepared.geometryHosted||req.inputs?.geometryMode==='Original chart only')return this.executeSwitchable(req,handlers);

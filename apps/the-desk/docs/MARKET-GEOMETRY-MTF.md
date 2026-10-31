@@ -5,6 +5,18 @@ channels and swing paths on one Desk chart. Large context and micro reversals ha
 separate ledgers and drawing quotas. This is a local research indicator; no
 account, order, strategy-agent or paid inference integration is involved.
 
+## Feature review scope
+
+The Geometry feature is reviewed from baseline `fbf7ae8` through the current
+pipeline head. Its changed paths are `docs/MARKET-GEOMETRY-MTF.md`,
+`source-manifest.json`, `tests/launch_market_geometry_fixture.py`,
+`tests/test_market_geometry_mtf.mjs`, `tests/test_market_geometry_worker.mjs`,
+`tests/verify_market_geometry_mtf_browser.mjs`, `web/app.js`,
+`web/market-geometry-{compute,drawing,model,origin,source,thread,upgrade,worker}.mjs`,
+`web/pine-editor.mjs`, `web/pine-examples/agentic-market-geometry-mtf.pine`,
+`web/pine-runtime.mjs` and `web/pine-state.mjs`. Other inherited workspace paths
+are preserved baseline work, not Geometry feature scope.
+
 ## Using it
 
 Choose **Indicators → Agentic - Market Geometry → Add**. Its legend settings offer:
@@ -20,7 +32,9 @@ Choose **Indicators → Agentic - Market Geometry → Add**. Its legend settings
 Blue is 1H, violet 30M, amber 15M, cyan 5M and pearl 1M. Default colors adapt to a
 light background; individual custom colors persist. Direction is an arrow and
 structure state rather than the hue. Solid paths/filled vertices are locked;
-dashed working legs and hollow tips can move. Optional forward projections are
+dashed working legs and hollow observed tips can move. A working tail uses only
+already observed source highs/lows and does not promote a pivot or forecast a
+future point. Optional forward projections are
 dotted and disabled initially. Completed channel breaches freeze the last valid
 wick-safe endpoint; failed reversal attempts remain in the event ledger.
 
@@ -86,7 +100,9 @@ that event stays distinct from a horizontal structure-level retest.
 Each candidate freezes the contact/escape candle's adverse extreme. A subsequent
 completed wick one tick beyond it fails the candidate. Expiry is initially 20
 completed 1M bars. Missing minutes terminate a pending attempt as unavailable.
-An ended channel is a projected reference only, with a bounded post-break watch.
+An ended channel is a projected reference only, with a bounded post-break watch;
+contact labels disclose whether their rail is projected or audited, its source
+frame and the audited cutoff.
 The indicator never widens or moves old rails to preserve a story. One attempted
 side/family per channel is retained rather than recycling a failed drawing as an
 unreported new attempt.
@@ -118,8 +134,11 @@ owns asynchronous data, source identity, generation cancellation and drawing.
 Periodic refresh keeps 1M evaluation advancing on a 1H view. Original-mode Pine
 runs through the existing compatibility worker. Edited catalog sources execute
 their own chart-timeframe Pine rather than having their logic replaced by the
-host; the Desk marks them as custom/chart-only, warns that dedicated MTF
-controls are inactive, and does not advertise those controls. Missing
+host; catalog origin is carried as bounded study metadata through add, edit,
+compile, replacement and persisted restore, so changing the Pine title or
+marker does not change ownership. The Desk marks an identified catalog edit as
+custom/chart-only, warns that dedicated MTF controls are inactive, and does not
+advertise those controls. Unidentified pasted Pine remains generic. Missing
 exact-symbol tick metadata blocks MTF decisions. Explicit live sessions use the
 current clock; replay and unknown contexts remain bounded by their supplied
 cutoff or viewing-chart history.

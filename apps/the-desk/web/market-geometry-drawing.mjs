@@ -2,6 +2,14 @@ import {GEOMETRY_FRAMES,FRAME_STYLE,geometryOptions,channelBounds,stageLabel,fra
 const alpha=(c,a)=>String(c).slice(0,7)+a;
 const tip=p=>new Date(p).toISOString();
 const name=tf=>FRAME_STYLE[tf].name;
+const observedWorkingTip=(s,locked,working)=>{
+ const anchor=locked.at(-1)?.time??working?.time,bars=[...(s.bars||[]),...(s.forming?[s.forming]:[])].filter(b=>Number.isFinite(b?.time)&&(!Number.isFinite(anchor)||b.time>=anchor));
+ if(!bars.length)return working;
+ const recent=bars.slice(-Math.min(8,bars.length)),first=recent[0],last=recent.at(-1),side=last.close>first.open?1:last.close<first.open?-1:working?.side||1;
+ let point=bars[0];for(const b of bars)if(side>0?b.high>point.high:b.low<point.low)point=b;
+ const latest=bars.at(-1);return latest.time>=point.time?{time:latest.time,price:side>0?latest.high:latest.low,side}:{time:point.time,price:side>0?point.high:point.low,side};
+};
+const contactScope=(candidate,cutoff)=>{const g=candidate.geometry||{},projected=Boolean(g.projected||g.endAt>cutoff),frame=g.frame||'1';return `${projected?'projected':'audited'} ${name(frame)} rail · audited through ${tip(cutoff)}`;};
 export function geometryDrawing(result,{id,inputs={},schema=[],props={},sources={},light=false,viewTimeframe='1',liveBar=null,compact=false}={}){
  const o=geometryOptions(inputs),lines=[],labels=[],tables=[],prefix=id+':geometry:',micro=o.geometryMode==='Micro detail',macro=o.geometryMode==='Big picture',inspect=o.geometryMode==='Inspect';
  const color=tf=>{const custom=inputs['frameColor'+tf],defaultInk=FRAME_STYLE[tf].color;return light&&(!custom||custom.slice(0,7).toUpperCase()===defaultInk)?({60:'#2458CF',30:'#7751C9',15:'#986207',5:'#087F83',1:'#39475D'})[tf]:custom||defaultInk;};
@@ -19,10 +27,9 @@ export function geometryDrawing(result,{id,inputs={},schema=[],props={},sources=
    for(const p of locked.slice(-3))label(`${tf}:locked:${p.id}`,p,'',ink,{marker:true,tooltip:`${name(tf)} ${p.kind} · anchor ${tip(p.time)} · known ${tip(p.knownAt)} · locked ${tip(p.lockedAt)}`});
    const working=f.working;
    if(working&&locked.length&&o.showWorking){
-    const tail=(s.bars||[]).filter(b=>b.time>=working.time),forming=s.forming;if(forming&&forming.time>=working.time)tail.push(forming);
-    const extreme=tail.reduce((p,b)=>(working.side>0?b.high>p.price:b.low<p.price)?{time:b.time,price:working.side>0?b.high:b.low}:p,working);
+    const extreme=observedWorkingTip(s,locked,working);
     line(`${tf}:working`,locked.at(-1),extreme,ink,width,'dashed',{deskDashPattern:[5,4]});
-    label(`${tf}:tip`,extreme,'○ '+name(tf)+' · working',ink,{hollow:true,tooltip:'Unfinished swing endpoint; can move. Source '+s.aggregation+' · closed through '+(f.closedThrough?tip(f.closedThrough):'unavailable')});
+    label(`${tf}:tip`,extreme,'○ '+name(tf)+' · observed working',ink,{hollow:true,tooltip:'Observed provisional swing endpoint; can move. Source '+s.aggregation+' · closed through '+(f.closedThrough?tip(f.closedThrough):'unavailable')});
    }else if(locked.at(-1))label(`${tf}:tag`,locked.at(-1),name(tf)+' '+locked.at(-1).kind,ink);
   }
   if(o.showChannels){
@@ -43,13 +50,13 @@ export function geometryDrawing(result,{id,inputs={},schema=[],props={},sources=
  const turns=result.turns,latest=turns.candidates.filter(c=>!c.terminal).slice(-2),history=o.showTurnHistory?[...new Map(turns.events.filter(e=>['shift','retest','failed','expired'].includes(e.stage)).map(e=>[e.candidateId,e])).values()].slice(-8):[];
  if(!macro&&Number(viewTimeframe)<15&&inputs.showFrame1!==false){
   for(const e of history)label(e.id,{time:e.knownAt-60000,price:e.price},`${e.side>0?'↑':'↓'} ${e.stage==='failed'?'FAIL':e.stage==='expired'?'END':e.stage==='retest'?'HOLD':'SHIFT'}`,e.side>0?'#2CCAC8':'#F59CAA',{tooltip:`${e.family} · known ${tip(e.knownAt)} · invalidation ${e.invalidation}`,hollow:true,style:'none'});
-  for(const c of latest){const e=c.lastEvent,p={time:c.startedAt-60000,price:c.invalidation},last=liveBar||sources['1']?.bars.at(-1);if(last&&o.showWorking){line(`${c.id}:turn`,p,{time:last.time,price:last.close},color('1'),1.5,'dashed',{deskDashPattern:[3,3]});label(`${c.id}:turntip`,{time:last.time,price:last.close},`○ ${c.side>0?'↑':'↓'} ${stageLabel(c.stage)}`,color('1'),{hollow:true,tooltip:`${c.family} · ${c.reference?'reference '+c.reference.price:'local reference unavailable'} · next: ${c.next}`});}if(e&&c.reference)line(`${c.id}:reference`,{time:c.startedAt-60000,price:c.reference.price},{time:result.cutoff,price:c.reference.price},alpha(color('1'),'66'),1,'dotted');}
+  for(const c of latest){const e=c.lastEvent,p={time:c.startedAt-60000,price:c.invalidation},last=liveBar||sources['1']?.bars.at(-1),scope=contactScope(c,result.cutoff);if(last&&o.showWorking){line(`${c.id}:turn`,p,{time:last.time,price:last.close},color('1'),1.5,'dashed',{deskDashPattern:[3,3]});label(`${c.id}:turntip`,{time:last.time,price:last.close},`○ ${c.side>0?'↑':'↓'} ${stageLabel(c.stage)} · ${scope}`,color('1'),{hollow:true,tooltip:`${c.family} · ${scope} · ${c.reference?'reference '+c.reference.price:'local reference unavailable'} · next: ${c.next}`});}if(e&&c.reference)line(`${c.id}:reference`,{time:c.startedAt-60000,price:c.reference.price},{time:result.cutoff,price:c.reference.price},alpha(color('1'),'66'),1,'dotted');}
  }
  if(o.showStatus){
   const cell=(text,ink=light?'#242936':'#D1D4DC',tooltip='')=>({text,textColor:ink,bgColor:light?'#F7F8FAEE':'#131722E8',hAlign:'left',vAlign:'center',textSize:'tiny',fontFamily:'default',bold:false,italic:false,tooltip});
   const rows=[[cell('Geometry · 1H → 1M'),cell('Structure'),cell(result.revision?'Data revision '+result.revision:'Closed evidence')]];
   for(const tf of GEOMETRY_FRAMES){const f=result.frames[tf],s=sources[tf]||{},direction=f?.structure.direction;rows.push([cell(name(tf),color(tf)),cell(s.status==='ready'?(direction>0?'↑ up'+(f.events.at(-1)?.kind==='shift'?' · shift':''):direction<0?'↓ down'+(f.events.at(-1)?.kind==='shift'?' · shift':''):'unresolved'):'— '+(s.status||'unavailable')),cell(s.status==='ready'?s.aggregation||'native':s.error?'history unavailable':s.status||'unavailable',undefined,`${s.error?s.error+' · ':''}${s.symbol||''} · ${s.coverageStart?tip(s.coverageStart):'no start'} → ${s.closedThrough?tip(s.closedThrough):'no cutoff'} · ${s.bars?.length||0} bars · ${s.gaps?.length||0} gaps`)]);}
-  for(const c of latest)rows.push([cell(`${c.side>0?'↑':'↓'} 1M ${c.family==='escape'?'escape':'reject'}`),cell(stageLabel(c.stage)),cell((sources['1']?.status==='ready'?c.next:'Source unavailable · paused'),undefined,`${c.family} · ${c.reference?'reference '+c.reference.price:'reference missing'} · invalidation ${c.invalidation} · ${c.parentProgress.filter(p=>p.shift&&p.available).map(p=>name(p.frame)+' shifted').join(', ')||'parent shift unconfirmed'}`)]);
+  for(const c of latest){const scope=contactScope(c,result.cutoff);rows.push([cell(`${c.side>0?'↑':'↓'} 1M ${c.family==='escape'?'escape':'reject'}`),cell(stageLabel(c.stage)),cell((sources['1']?.status==='ready'?c.next:'Source unavailable · paused'),undefined,`${c.family} · ${scope} · ${c.reference?'reference '+c.reference.price:'reference missing'} · invalidation ${c.invalidation} · ${c.parentProgress.filter(p=>p.shift&&p.available).map(p=>name(p.frame)+' shifted').join(', ')||'parent shift unconfirmed'}`)]);}
   rows.push([cell('As of'),cell(tip(result.cutoff).slice(11,19)+' UTC'),cell(result.tick?'source tick '+result.tick:'tick unavailable')]);
   tables.push({id:prefix+'status',paneId:'',position:'top_right',columns:compact?2:3,rows:rows.length,cells:compact?rows.map(r=>[r[0],{...r[1],tooltip:[r[1].tooltip,r[2].text,r[2].tooltip].filter(Boolean).join(' · ')}]):rows,merges:[],frameWidth:1,frameColor:light?'#D5DAE4':'#2A2E39',borderWidth:0,bgColor:'#131722CC'});
  }
