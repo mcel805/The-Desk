@@ -12,6 +12,8 @@ import time
 from urllib.parse import urlparse,parse_qs
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from engine import Engine
+from chart_chat import ChartChat,PLAN
+from chat_trading import SCHEMA as TRADE_SCHEMA
 from trade_recordings import TradeRecordings
 from settings_store import SettingsStore,SettingsConflict
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,11 +25,24 @@ PROVIDER='''export class DeskHyperliquidProvider {
  async getBars(symbol,tf){const end=Math.floor(Date.now()/60000)*60000;return Array.from({length:160},(_,i)=>{const p=80000+Math.sin(i/9)*1300;return {time:end-(159-i)*Number(tf)*60000,open:p,high:p+80,low:p-80,close:p+Math.sin(i)*20,volume:10};});}
  subscribe(){return ()=>{};}
 }'''
+class ChatFixtureSession:
+ def __init__(self,**kwargs):pass
+ def ensure_thread(self,*args):pass
+ def close(self):pass
+ def run(self,prompt,schema,**kwargs):
+  if schema==PLAN:return {'action':'trade','reason':'Synthetic explicit trade request'},[]
+  if schema==TRADE_SCHEMA:
+   request=json.loads(prompt)['request']
+   if 'missing size' in request:return {'concern':'What quantity should I use?','commands':[]},[]
+   return {'concern':'','commands':[{'action':'order','payload':json.dumps({'side':'sell','kind':'limit','qty':'.002','price':'80500','stop':'81000','target':'79000'})}]},[]
+  raise ValueError('Unexpected fixture schema')
+
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=0);args=parser.parse_args()
  with tempfile.TemporaryDirectory(prefix='desk-chart-qa-') as tmp:
   engine=Engine(Path(tmp)/'paper.sqlite3');settings=SettingsStore(engine)
   account=engine.execute('init','account',{'name':'ISOLATED CHART QA','capital':'1000000','fee_bps':'0','leverage':'1'})['id']
+  chat=ChartChat(engine,ChatFixtureSession)
   commands=[];faults={};videos=TradeRecordings(tmp,engine)
   if os.environ.get('DESK_CHART_BASELINE_WEB'):settings.commit({'trading':{'instant':True}})
   def quotes():
@@ -42,6 +57,7 @@ def main():
     parsed=urlparse(self.path);path=parsed.path;q=parse_qs(parsed.query)
     if path=='/hyperliquid-provider.mjs':
      body=PROVIDER.encode();self.send_response(200);self.send_header('Content-Type','text/javascript');self.end_headers();self.wfile.write(body);return
+    if chat.get(self,path,q):return
     if videos.get(self,path,q):return
     if path=='/api/state':
      if faults.get('state_delay'):time.sleep(faults['state_delay'])
@@ -59,6 +75,7 @@ def main():
      q=parse_qs(parsed.query);return self.reply(videos.append(q['id'][0],int(q['sequence'][0]),self.rfile.read(int(self.headers['Content-Length']))))
     p=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
     try:
+     if chat.post(self,path,p):return
      if videos.post(self,path,p):return
      if path=='/qa/faults':faults.clear();faults.update(p);return self.reply({'ok':True})
      if path=='/qa/quote':engine.ingest(p.get('instrument','hyperliquid:BTC'),p['bid'],p['ask'],{'tick':'1','qty_step':'.001'});return self.reply({'ok':True})

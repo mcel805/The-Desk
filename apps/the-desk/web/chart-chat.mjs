@@ -4,15 +4,15 @@ import {frame,requestedFrame,chartSnapshot,chartScope,sameScope,applyMarkup,rest
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z" stroke="currentColor" stroke-width="1.5"/><path d="m7 12 3-3 3 2 4-5" stroke="currentColor" stroke-width="1.5"/></svg>';
 async function api(path,payload){const r=await fetch('/api/chart-chat/'+path,payload===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw Error(d.error||'Chart chat unavailable');return d;}
-export function setupChartChat({workspace,toast}){
+export function setupChartChat({workspace,toast,tradingContext=()=>null,onTrade=async()=>{}}){
  const ws=workspace(),button=document.createElement('button');button.id='chartChatButton';button.innerHTML=icon+'<span>Chart chat</span>';button.setAttribute('aria-expanded','true');document.querySelector('.header-spacer').before(button);
  const panel=document.createElement('aside');panel.id='chartChat';panel.setAttribute('aria-label','Trading chart chat');
  panel.innerHTML=`<header class="cc-header"><div class="cc-brand">${icon}<div><strong>Spider · Lead Trader</strong><small>RIDER SUPPORT · YOUR CHART IS THE CANVAS</small></div></div><button id="ccHistory" aria-label="Chat history" title="Chat history">◷</button><button id="ccNew" aria-label="New trading chat" title="New chat">＋</button><button id="ccClose" aria-label="Collapse chart chat" title="Collapse">‹</button></header>
  <div class="cc-context"><span class="cc-live"></span><strong id="ccMarket"></strong><span id="ccScope">Active chart</span></div>
  <div id="ccHistoryList" hidden></div><div id="ccMessages" role="log" aria-label="Trading conversation" aria-live="polite"></div>
  <div id="ccWork" hidden></div><div class="cc-canvas-tools"><button id="ccUndo" disabled>↶ Undo markup</button><button id="ccHide">◉ Hide AI</button><button id="ccClear">Clear AI drawings</button></div>
- <form id="ccForm"><textarea id="ccInput" aria-label="Ask the trading chat" placeholder="Ask about this chart, or tell me what to draw…" rows="3" maxlength="4000"></textarea><div class="cc-composer-bottom"><label title="Let the analyst research current outside facts"><input id="ccWeb" type="checkbox"> Web research</label><span class="cc-model">Codex · Auto</span><button type="button" id="ccStop" hidden>■ Stop</button><button id="ccSend" type="submit" aria-label="Send trading request">↑</button></div></form>
- <p class="cc-disclaimer">Chart research · verify the evidence before trading.</p><div id="ccResize" role="separator" aria-orientation="vertical" aria-label="Resize chart chat" tabindex="0"></div>`;
+ <form id="ccForm"><textarea id="ccInput" aria-label="Ask the trading chat" placeholder="Ask about the chart, place a paper order, or manage a trade…" rows="3" maxlength="4000"></textarea><div class="cc-composer-bottom"><label title="Let the analyst research current outside facts"><input id="ccWeb" type="checkbox"> Web research</label><span class="cc-model">Codex · Auto</span><button type="button" id="ccStop" hidden>■ Stop</button><button id="ccSend" type="submit" aria-label="Send trading request">↑</button></div></form>
+ <p class="cc-disclaimer">Paper trading & chart research · requested actions execute on the selected paper account.</p><div id="ccResize" role="separator" aria-orientation="vertical" aria-label="Resize chart chat" tabindex="0"></div>`;
  document.querySelector('.desk-main').prepend(panel);
  const $=id=>panel.querySelector('#'+id),messages=$('ccMessages');let chatId=null,running=null,scope=null,epoch=0,polling=false,undo=null,hidden=false,pending=false;
  const seen=new Set();let contextChanged=false;
@@ -56,6 +56,12 @@ export function setupChartChat({workspace,toast}){
   const cell=ws.cells().find(c=>c.id===r.snapshot.cellId);
   const current=()=>runEpoch===epoch&&running===r.id&&!contextChanged&&cell&&ws.cells().includes(cell)&&sameScope(r.snapshot,chartScope(ws,cell))&&sameScope(scope,chartScope(ws));
   let outcome='Analysis complete · no chart changes';
+  if(r.trade){
+   const ctx=tradingContext();
+   if(!current()||!ctx||ctx.broker||ctx.replay||ctx.account_id!==r.trade.account_id)outcome='Not executed · account or chart changed';
+   else{const done=await api('execute',{id:r.id,account_id:ctx.account_id,instrument:chartScope(ws).symbol});await onTrade(done.trade.receipts||[]);if(runEpoch===epoch){render(done);controls();}return;}
+  }
+
   if(isMarkupAction(r.result?.action)){
    if(!current())outcome='Not applied · chart context changed';
    else{
@@ -95,7 +101,7 @@ export function setupChartChat({workspace,toast}){
    }
    await target.chart.ready();
    if(ws.active!==target||chartScope(ws).symbol!==original.symbol||chartScope(ws).timeframe!==expectedFrame)throw Error('Chart changed while loading. Send the request again on the intended chart.');
-   const snap=chartSnapshot(ws);scope=chartScope(ws);contextChanged=false;status('Sending the chart snapshot to The Desk…');const r=await api('send',{text,chatId,snapshot:snap,web:$('ccWeb').checked});
+   const snap=chartSnapshot(ws);scope=chartScope(ws);contextChanged=false;status('Sending the chart snapshot to The Desk…');const r=await api('send',{text,chatId,snapshot:snap,web:$('ccWeb').checked,tradingContext:{...tradingContext(),drawings:ws.active.chart.drawings.all().slice(-80).map(d=>d.serialize?.()||d)}});
    if(requestEpoch!==epoch)return;chatId=r.chatId;localStorage.setItem('desk.chart-chat.last',chatId);user(text);$('ccInput').value='';running=r.id;status('Reading the active chart…');void poll();
   }catch(e){status(e.message,true);}finally{pending=false;controls();}
  }

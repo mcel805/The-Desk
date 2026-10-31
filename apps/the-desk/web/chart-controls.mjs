@@ -47,7 +47,8 @@ export function setupChartControls({workspace,panel,status,user}){
  const form=panel.querySelector('#ccForm'),input=panel.querySelector('#ccInput'),tools=document.createElement('div');tools.className='cc-control-tools';tools.innerHTML='<label><input type="checkbox" id="ccControlMode"> Chart controls & indicators</label><button type="button" id="ccDictate" title="Dictate a draft; review before sending">🎙 Dictate</button>';
  form.prepend(tools);let busy=false;
  form.addEventListener('submit',async e=>{
-  if(!panel.querySelector('#ccControlMode').checked)return;e.preventDefault();e.stopImmediatePropagation();if(busy)return;const text=input.value.trim();if(!text)return;busy=true;const ws=workspace(),scope=chartScope(ws);let applied=false;
+  const tradeRequest=/\b(place|submit|cancel|close|flatten|reverse|buy|sell|short|long|move|amend|modify)\b/i.test(input.value)&&/\b(order|limit|stop|target|position|trade|btc|eth|sol)\b/i.test(input.value);
+  if(tradeRequest||!panel.querySelector('#ccControlMode').checked)return;e.preventDefault();e.stopImmediatePropagation();if(busy)return;const text=input.value.trim();if(!text)return;busy=true;const ws=workspace(),scope=chartScope(ws);let applied=false;
   try{
    if(ws.replay.state.active)throw Error('Exit replay before changing charts through the assistant');
    const snapshot=chartSnapshot(ws),image=captureChart(ws),before=JSON.stringify(context(ws).cells);user(text);status('Looking at chart · preparing changes…');
