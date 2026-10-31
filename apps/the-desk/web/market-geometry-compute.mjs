@@ -15,10 +15,10 @@ export class GeometryComputation {
   for(const {tf,b} of pending){
    const f=this.frames.get(tf);
    if(tf==='1'){
-    const channels=[...this.frames.values()].filter(x=>x.lastTime!=null&&x.lastTime+frameMs(x.tf)>=Math.floor(b.time/frameMs(x.tf))*frameMs(x.tf)).flatMap(x=>x.channels.filter(g=>g.knownAt<=b.time));
-    const parents=GEOMETRY_FRAMES.filter(t=>t!=='1').map(t=>{const p=this.frames.get(t);return {frame:t,direction:p.structure.direction,protected:p.structure.protected};});
+    const channels=[...this.frames.values()].filter(x=>sources[x.tf]?.status==='ready'&&x.lastTime!=null&&x.lastTime+frameMs(x.tf)>=Math.floor(b.time/frameMs(x.tf))*frameMs(x.tf)).flatMap(x=>x.channels.filter(g=>g.knownAt<=b.time));
+    const parents=GEOMETRY_FRAMES.filter(t=>t!=='1'&&sources[t]?.status==='ready').map(t=>{const p=this.frames.get(t);return {frame:t,direction:p.structure.direction,protected:p.structure.protected};});
     // Historical replay uses availability at that bar, never today's tail staleness.
-    this.turns.feed(b,{channels,pivots:f.rawPivots.filter(p=>p.time>=(f.bars[f.segmentStart||0]?.time??-Infinity)),parents,available:this.tick>0});
+    this.turns.feed(b,{channels,pivots:f.rawPivots.filter(p=>p.time>=(f.bars[f.segmentStart||0]?.time??-Infinity)),parents,available:this.tick>0&&sources['1']?.status==='ready'});
    }
    f.feed(b);this.accepted.get(tf).set(b.time,{...b});
    const accepted=this.accepted.get(tf);while(accepted.size>this.inputs.geometryHistory+64)accepted.delete(accepted.keys().next().value);
