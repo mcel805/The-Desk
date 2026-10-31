@@ -28,7 +28,7 @@ const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const usd=v=>Number.isFinite(Number(v))?'$'+number(v):'—', fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:8});
 let brokerContext=null,brokerScope='';
-let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,contextKey='',menuPrice=null,ticketRevision=0,ticketSubmission=null;
+ let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,contextKey='',menuPrice=null,ticketRevision=0,ticketSubmission=null,ticketOrderKind=$('#orderKind').value;
 const instruments=['hyperliquid:BTC','hyperliquid:ETH','hyperliquid:SOL','coinbase:BTC-USD','coinbase:ETH-USD','coinbase:SOL-USD'];
 
 async function api(path,payload,headers={}){
@@ -130,7 +130,7 @@ function quantity(){
  const step=Number(q?.qty_step||.000001);
  return Number((Math.floor((qty+step*1e-7)/step)*step).toPrecision(12));
 }
-function entryReference(){const k=$('#orderKind').value;return Number(k==='limit'||k==='stop_limit'?$('#entryPrice').value:k==='stop'?$('#triggerPrice').value:quote()?.[side==='buy'?'ask':'bid']||0);}
+function entryReference(kind=$('#orderKind').value){return Number(kind==='limit'||kind==='stop_limit'?$('#entryPrice').value:kind==='stop'?$('#triggerPrice').value:quote()?.[side==='buy'?'ask':'bid']||0);}
 function payload(){return {account_id:activeAccount,instrument:instrument(),side,kind:$('#orderKind').value,qty:String(quantity()),price:$('#entryPrice').value||null,trigger:$('#triggerPrice').value||null,stop:$('#stopPrice').value||null,target:$('#targetPrice').value||null,ttl_seconds:Number($('#timeInForce').value)};}
 
 function updateTicket(){
@@ -181,11 +181,16 @@ function updateTicket(){
 }
 
 function setSide(next){side=next;draft=true;updateTicket();}
+function setDraftOrderKind(value,fromKind=ticketOrderKind){
+ const entry=entryReference(fromKind);
+ $('#orderKind').value=value;ticketOrderKind=value;
+ if(Number.isFinite(entry)&&entry>0){const price=snap(entry);if(['limit','stop_limit'].includes(value))$('#entryPrice').value=price;if(['stop','stop_limit'].includes(value))$('#triggerPrice').value=price;}
+}
 function stage(nextSide,kind='market',price){
  ticketRevision++;
  if(readonlyMarket())return toast('IBKR futures data is read-only. Orders are disabled.',true);
  if(ws.replay.state.active)return toast('Exit chart replay before staging a paper order.',true);
- side=nextSide;$('#orderKind').value=kind;if(price){$('#entryPrice').value=snap(price);$('#triggerPrice').value=snap(price);}
+ side=nextSide;setDraftOrderKind(kind);if(price){$('#entryPrice').value=snap(price);$('#triggerPrice').value=snap(price);}
  else if(kind!=='market'){$('#entryPrice').value=snap(entryReference()||quote()?.last);$('#triggerPrice').value=snap(quote()?.last);}
  draft=true;$('#orderError').textContent='';document.body.classList.remove('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','true');updateTicket();
 }
@@ -193,7 +198,7 @@ $('#sideBuy').onclick=()=>setSide('buy');$('#sideSell').onclick=()=>setSide('sel
 $('#quickBuy').onclick=()=>stageTrade('buy');$('#quickSell').onclick=()=>stageTrade('sell');
 $('#orderForm').oninput=()=>{ticketRevision++;draft=true;updateTicket();};
 $('#orderForm').onchange=()=>{ticketRevision++;draft=true;updateTicket();};
-$('#orderKind').onchange=()=>{if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
+$('#orderKind').onchange=()=>{amendDraftParameter('kind',$('#orderKind').value);if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
 $('#orderForm').onsubmit=async e=>{
  e.preventDefault();if(readonlyMarket())return toast('IBKR futures data is read-only.',true);if(busy)return;
  if(ws.replay.state.active)return toast('Paper orders are disabled during chart replay.',true);
@@ -405,10 +410,10 @@ function amendDraft(field,value){
  for(const [key,price] of Object.entries(changes)){
   const id=key==='entry'&&$('#orderKind').value==='stop'?'triggerPrice':({entry:'entryPrice',trigger:'triggerPrice',stop:'stopPrice',target:'targetPrice'}[key]);$('#'+id).value=price;
  }
- if(field==='entry'&&$('#orderKind').value==='market')$('#orderKind').value='limit';updateTicket();
+ if(field==='entry'&&$('#orderKind').value==='market')setDraftOrderKind('limit','market');updateTicket();
 }
 function removeDraft(field){ticketRevision++;if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';updateTicket();}
-function amendDraftParameter(field,value){ticketRevision++;if(field==='qty'){$('#sizeMode').value='units';$('#quantity').value=value;}else if(field==='kind')$('#orderKind').value=value;else if(['stop','target'].includes(field))$('#'+field+'Price').value=value;updateTicket();}
+function amendDraftParameter(field,value){ticketRevision++;if(field==='qty'){$('#sizeMode').value='units';$('#quantity').value=value;}else if(field==='kind')setDraftOrderKind(value);else if(['stop','target'].includes(field))$('#'+field+'Price').value=value;updateTicket();}
 const swingTracker=setupSwingTracker({workspace:()=>ws});
 const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,stage:stageTrade,menu:chartMenu,placeDraft:()=>$('#orderForm').requestSubmit(),amendDraftParameter,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,pending:tradingActions.pending,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
 function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;updateTicket();drawWatch();drawDOM();window.dispatchEvent(new CustomEvent('desk:agents-sync-chart'));});}chartTrader.attach(cell);swingTracker.attach(cell);}
@@ -446,7 +451,7 @@ async function reviewBrokerTicket(){
   },{submitLabel:'Place live order',cancelLabel:'Cancel'});
  }catch(e){$('#orderError').textContent=e.message;}finally{busy=false;updateTicket();}
 }
-brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.agent_owner)||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;brokerScope=scope;if(brokerContext?.selected){$('#orderKind').value='limit';for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
+brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.agent_owner)||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;brokerScope=scope;if(brokerContext?.selected){setDraftOrderKind('limit');for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
 
 
 async function boot(){

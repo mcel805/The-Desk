@@ -20,6 +20,7 @@ test('chart limit brackets: staging, all three drags, review, removal and discar
   await stage('sell');assert.equal(await entry.evaluate(e=>e.style.getPropertyValue('--level')),'#00bcd4');
   assert.match(await stop.innerText(),/SL.*−/);assert.match(await target.innerText(),/TP.*\+/);
   assert.equal(await entry.locator('.trade-line-label').innerText(),'Sell limit');assert.equal(await stop.evaluate(e=>e.style.getPropertyValue('--level')),'#ffb300');
+  const projectedEntry=(await values()).entry;await entry.locator('.trade-order-kind').selectOption('stop');assert.equal(await page.locator('#triggerPrice').inputValue(),String(projectedEntry));await entry.locator('.trade-order-kind').selectOption('stop_limit');assert.equal(await page.locator('#triggerPrice').inputValue(),String(projectedEntry));await entry.locator('.trade-order-kind').selectOption('limit');assert.equal(await page.locator('#entryPrice').inputValue(),String(projectedEntry));
   if(process.env.DESK_CHART_SCREENSHOT)await page.screenshot({path:process.env.DESK_CHART_SCREENSHOT});
   const initial=await values();await drag(entry,25);const moved=await values();assert.notEqual(moved.entry,initial.entry);assert.equal(moved.stop-moved.entry,initial.stop-initial.entry);assert.equal(moved.entry-moved.target,initial.entry-initial.target);
   await drag(stop,-18);const next=await values();assert.notEqual(next.stop,moved.stop);assert.equal(next.entry,moved.entry);assert.equal(next.target,moved.target);
