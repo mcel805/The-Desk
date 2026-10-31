@@ -134,7 +134,9 @@ class AgentsTests(unittest.TestCase):
         self.assertEqual(d['orders'][0]['status'],'working')
         other=self.e.execute('manual-later','order',{'account_id':self.a['account']['id'],'instrument':self.i,'side':'sell','kind':'market','qty':'.001'})
         self.now+=.1
-        self.quote(99.99);d=self.s.detail(self.a['id'])
+        self.quote(99.99)
+        self.e.ingest_trade(self.i,'99.99',time.time()+.1,'isolated-agent-limit-touch')
+        d=self.s.detail(self.a['id'])
         self.assertEqual(d['orders'][0]['status'],'rejected');self.assertFalse(d['fills'])
         self.assertTrue(any(p['id']==other['position_id'] for p in self.e.state(self.a['account']['id'])['positions']))
 

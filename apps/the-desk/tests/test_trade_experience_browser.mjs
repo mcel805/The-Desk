@@ -19,6 +19,15 @@ test('enhanced manager, real video encoding/archive, assistant chart controls an
  const archive=await(await page.request.get(url+'/api/trade-videos')).json();assert.equal(archive.recordings.length,1);assert.ok(archive.recordings[0].bytes>1000);assert.equal(archive.recordings[0].status,'interrupted');
  const media=await page.request.get(url+'/api/trade-videos/media?id='+archive.recordings[0].id,{headers:{Range:'bytes=0-3'}});assert.equal(media.status(),206);assert.equal((await media.body()).toString('hex'),'1a45dfa3');
  const videoCheck=await page.evaluate(async id=>{const v=document.createElement('video');v.src='/api/trade-videos/media?id='+id;v.muted=true;document.body.append(v);try{await new Promise((resolve,reject)=>{v.onloadeddata=resolve;v.onerror=()=>reject(Error('Video decode failed'));});return {width:v.videoWidth,height:v.videoHeight};}finally{v.remove();}},archive.recordings[0].id);assert.ok(videoCheck.width>=640);
+ // Exercise the full recorder post-roll using its production timer and an advanced wall clock.
+ await page.locator('#tradeRecorder').click();await page.locator('#submitOrder').click();
+ await page.waitForFunction(()=>document.querySelector('#tradeRecorder').textContent==='● Recording');await page.waitForTimeout(1200);
+ await page.locator('#managerCancel').click();await page.waitForFunction(()=>document.querySelector('#tradeRecorder').textContent.includes('Post-trade'));
+ await page.evaluate(()=>{window.qaOriginalNow=Date.now;const offset=120001;Date.now=()=>window.qaOriginalNow()+offset;});
+ await page.waitForFunction(()=>document.querySelector('#tradeRecorder').textContent==='○ Record trades');
+ await page.evaluate(()=>{Date.now=window.qaOriginalNow;delete window.qaOriginalNow;});
+ const completed=await(await page.request.get(url+'/api/trade-videos')).json();
+ assert.equal(completed.recordings.length,2);assert.ok(completed.recordings.some(c=>c.status==='complete'&&c.reason==='cancelled'&&c.bytes>0));
  // Actual Vela application, synthetic planner response (no external model or account).
  let commands=[],receipt;
  await page.route('**/api/chart-controls/plan',r=>r.fulfill({json:{id:'fixture-plan',commands,answer:'Fixture chart plan'}}));await page.route('**/api/chart-controls/verify',r=>{receipt=r.request().postDataJSON();return r.fulfill({json:{id:'fixture-plan',answer:'Fixture visual receipt accepted'}});});
