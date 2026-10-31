@@ -125,7 +125,10 @@ not imply that the full requested history was available.
 Coinbase Exchange has native 1M/5M/15M/1H data. The coordinator fetches deeper 15M
 components for 30M and only publishes two-component, UTC-aligned, completed 30M
 buckets. Native 30M is never inferred from a single half-hour component. That
-source is labeled `15M → 30M`; missing components remain partial/unavailable.
+source is labeled `15M → 30M`; a provisional 30M candle, when available, is
+formed at the 30M bucket start from its completed 15M start component and the
+current 15M component, while missing components remain partial/unavailable.
+Raw 15M timestamps are not used as 30M drawing endpoints.
 Provider pagination/rate limits are handled by the existing data adapter. An
 adapter with a shallower limit yields explicitly shorter coverage.
 

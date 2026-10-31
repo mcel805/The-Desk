@@ -1,5 +1,11 @@
 import {GEOMETRY_FRAMES,frameMs,validateBars,aggregateThirty} from './market-geometry-model.mjs';
 const same=(a,b)=>['time','open','high','low','close','volume'].every(k=>a[k]===b[k]);
+const aggregateThirtyForming=(bars,forming,cutoff)=>{
+ if(!forming||forming.time!==Math.floor(cutoff/frameMs('15'))*frameMs('15')||forming.time+frameMs('15')<=cutoff)return null;
+ const bucket=Math.floor(forming.time/frameMs('30'))*frameMs('30'),first=bars.find(b=>b.time===bucket);
+ if(!first||forming.time!==bucket+frameMs('15'))return null;
+ return {time:bucket,open:first.open,high:Math.max(first.high,forming.high),low:Math.min(first.low,forming.low),close:forming.close,volume:first.volume+forming.volume};
+};
 export function geometryCutoff(req,now=Date.now(),context={}){
  if(req.mode==='live'&&context.replay===false)return now;
  if(Number.isFinite(context.cutoff))return Math.min(now,context.cutoff);
@@ -32,7 +38,7 @@ export class GeometrySources {
   const coinbase=this.market.symbol.toLowerCase().startsWith('coinbase:'),requests=GEOMETRY_FRAMES.filter(tf=>!(coinbase&&tf==='30'));
   const settled=await Promise.allSettled(requests.map(async tf=>[tf,await this.read(tf,cutoff,coinbase&&tf==='15'?this.history*2+2:this.history)]));
   const out={};settled.forEach((r,i)=>{const tf=requests[i];if(r.status==='fulfilled')out[tf]={...r.value[1],aggregation:'native'};else out[tf]={bars:[],error:String(r.reason?.message||r.reason)};});
-  if(coinbase){const source=out['15'];if(source.error)out['30']={bars:[],error:'15M components unavailable'};else{const agg=aggregateThirty(source.bars,cutoff);out['30']={...source,bars:agg.bars.slice(-this.history),aggregation:agg.aggregation,missingComponents:agg.missing.filter(t=>t>=(agg.bars.slice(-this.history)[0]?.time??Infinity))};}}
+  if(coinbase){const source=out['15'];if(source.error)out['30']={bars:[],error:'15M components unavailable'};else{const agg=aggregateThirty(source.bars,cutoff);out['30']={...source,bars:agg.bars.slice(-this.history),forming:aggregateThirtyForming(source.bars,source.forming,cutoff),aggregation:agg.aggregation,missingComponents:agg.missing.filter(t=>t>=(agg.bars.slice(-this.history)[0]?.time??Infinity))};}}
   for(const tf of GEOMETRY_FRAMES){
    const s=out[tf],ms=frameMs(tf);s.frame=tf;s.symbol=this.market.symbol;s.observedAt=this.now();s.bars=s.bars.slice(-this.history);s.coverageStart=s.bars[0]?.time??null;s.closedThrough=s.bars.at(-1)?.time+ms||null;s.gaps=[];
    for(let i=1;i<s.bars.length;i++)if(s.bars[i].time-s.bars[i-1].time!==ms)s.gaps.push({from:s.bars[i-1].time+ms,to:s.bars[i].time});
