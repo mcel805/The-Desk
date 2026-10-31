@@ -1,0 +1,38 @@
+/* Chart trading shares The Desk's existing dark/light theme and color tokens. */
+.trade-overlay .trade-line .trade-line-controls{right:42px;height:25px;top:-13px;border-radius:5px;overflow:visible;max-width:calc(100% - 96px);box-shadow:0 1px 4px #0003}
+.trade-overlay .trade-line .trade-line-controls .trade-line-label{color:var(--level);font-size:12px;font-weight:500;max-width:260px;padding:3px 10px;white-space:nowrap}
+.trade-overlay .trade-line .trade-line-controls button{line-height:17px;touch-action:none}
+.trade-overlay .trade-line .trade-line-controls button[data-action=cancel],.trade-overlay .trade-line .trade-line-controls button[data-action=close]{font-size:18px;padding:2px 8px}
+.trade-overlay .trade-line .trade-line-controls .trade-quantity{min-width:30px;font-size:12px;font-weight:600;padding:3px 8px;border-left:0;border-right:1px solid var(--level);cursor:pointer}
+.trade-overlay .trade-line .trade-line-controls .trade-quantity:disabled{opacity:1;cursor:default}
+.trade-overlay .trade-line.protection .trade-line-controls{border-style:dotted}
+.trade-overlay .trade-line .trade-bracket-handles{position:absolute;right:calc(100% + 10px);display:flex;gap:3px;top:-1px;height:25px}
+.trade-overlay .trade-line .trade-bracket-handles button{border:1px dashed currentColor;border-radius:4px;padding:3px 7px;background:var(--bg);font-size:12px;font-weight:500;cursor:ns-resize}
+.trade-overlay .trade-line .trade-bracket-handles .target{color:#089981}
+.trade-overlay .trade-line .trade-bracket-handles .stop{color:#ffb300}
+.trade-overlay .trade-line .trade-bracket-handles button:hover{background:var(--raised);box-shadow:0 0 0 2px currentColor}
+.trade-overlay .trade-line .trade-order-kind{border:0;border-right:1px solid var(--level);border-radius:0;padding:2px 3px;background:var(--bg);color:var(--level);font-size:10px;max-width:75px;touch-action:manipulation}
+.trade-overlay .trade-line .trade-line-detail{position:absolute;right:43px;top:14px;font-size:9px;line-height:13px;color:var(--muted);background:var(--bg);border-radius:2px;padding:0 3px;white-space:nowrap;max-width:calc(100% - 50px);overflow:hidden;text-overflow:ellipsis}
+.trade-overlay .trade-line .chart-confirm{color:#fff;background:var(--blue);border-left:1px solid var(--level)}
+.trade-overlay .trade-line.editing{border-top-style:dashed}
+.trade-overlay .trade-line.invalid .trade-line-detail{color:#ff8891}
+.trade-overlay .trade-line .trade-price-badge{height:23px;top:-12px;font-size:11px;background:var(--bg);border:1px solid var(--level);color:var(--level);font-weight:500}
+.trade-overlay .trade-line.dragging .trade-price-badge{background:var(--level);color:#131722}
+.trade-overlay .trade-line .chart-quantity-editor{position:absolute;right:0;top:30px;display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:5px;box-shadow:0 4px 16px #0006;padding:8px;z-index:8}
+.trade-overlay .trade-line .chart-quantity-editor input{width:100px;padding:5px;color:var(--text);font-size:12px}
+.trade-overlay .trade-line .chart-quantity-editor button{border:1px solid var(--line);color:var(--text);cursor:pointer}
+.trade-overlay .trade-line:has(.chart-quantity-editor){z-index:5}
+.trade-overlay .trade-line .trade-bracket-connector{position:absolute;right:18px;width:1px;border-left:1px solid var(--level);opacity:.65;pointer-events:none}
+.trade-bracket-connector::before,.trade-bracket-connector::after{content:'';position:absolute;left:-3px;width:5px;height:5px;background:var(--bg);border:1px solid var(--level);border-radius:50%}
+.trade-bracket-connector::before{top:-3px}.trade-bracket-connector::after{bottom:-3px}
+@media(max-width:700px){.trade-overlay .trade-line .trade-line-controls{right:18px;max-width:calc(100% - 32px)}.trade-overlay .trade-line .trade-line-controls .trade-line-label{font-size:10px;max-width:145px;padding:3px 5px}.trade-overlay .trade-line .trade-bracket-handles{right:calc(100% + 4px)}.trade-overlay .trade-line .trade-bracket-handles button{font-size:10px;padding:3px 5px}.trade-overlay .trade-line .trade-line-detail{right:20px}.trade-overlay .trade-line .trade-bracket-connector{display:none}}
+.trade-overlay .trade-line .trade-label-stem{position:absolute;right:42px;border-left:1px dotted var(--level);pointer-events:none;opacity:.8}
+.trade-overlay{container-type:inline-size}
+@container (max-width:450px){
+ .trade-overlay .trade-line .trade-line-controls{right:18px;max-width:calc(100% - 30px)}
+ .trade-overlay .trade-line .trade-bracket-handles{right:0;top:29px}
+ .trade-overlay .trade-line:has(.trade-pull:not([hidden])) .trade-line-detail{display:none}
+ .trade-overlay .trade-line .trade-line-controls .trade-line-label{max-width:130px;font-size:10px;padding-inline:4px}
+ .trade-overlay .trade-line .trade-order-kind{max-width:52px}
+ .trade-overlay .trade-line .trade-label-stem{right:18px}
+}

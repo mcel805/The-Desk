@@ -37,7 +37,8 @@ test('full chart and manager trading against isolated real paper engine',{skip:!
   o=await ticket({stop:'79000',target:'81000'});await line(o.id).waitFor({state:'visible'});
   const label=line(o.id).locator('.trade-line-label'),box=await label.boundingBox();await label.hover();await page.mouse.down();await page.mouse.move(box.x+box.width/2,box.y+box.height/2-20,{steps:8});await page.mouse.up();await noDialog();
   await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.revision>o.revision);steps.push('drag live entry immediately amends');
-  await line(o.id,'stop').locator('[data-action=cancel]').click();await noDialog();await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.stop===null);assert.equal((await state()).orders.find(x=>x.id===o.id).target,'81000');steps.push('remove protection preserves other fields');
+  const movedTarget=(await state()).orders.find(x=>x.id===o.id).target;
+  await line(o.id,'stop').locator('[data-action=cancel]').click();await noDialog();await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.stop===null);assert.equal((await state()).orders.find(x=>x.id===o.id).target,movedTarget);steps.push('remove protection preserves other fields');
   await cancel((await state()).orders.find(x=>x.id===o.id));
   for(const kind of ['stop','stop_limit']){o=await ticket({kind,price:'80400'});assert.equal(o.status,'working');await line(o.id,'trigger').locator('[data-action=cancel]').click();await noDialog();await until(async()=>(await state()).orders.find(x=>x.id===o.id)?.status==='cancelled');}steps.push('stop market and stop limit placement/cancellation');
   for(const [sizeMode,qty,stop] of [['cash','159',''],['balance','.02',''],['risk','1','79000']]){o=await ticket({sizeMode,qty,stop});assert.equal(o.qty,'0.002');await cancel(o);}steps.push('cash, percent-balance and stop-risk sizing');
