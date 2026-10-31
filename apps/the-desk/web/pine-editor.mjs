@@ -52,6 +52,7 @@ async function renderTab(tab,source=''){
   body.innerHTML='<label>Search built-in indicators<input id="pineLibrarySearch" type="search" placeholder="Search indicators"></label><div id="pineOnChart"></div><div id="pineFeatured" class="pine-catalog"></div><div id="pineBuiltins" class="pine-catalog"></div>';
   const items=await current().availableNativeIndicators();if(revision!==generation)return;
   const premiums=[
+   {id:'pineKeyLevels',name:'Agentic - Key Levels',detail:'Confirmed pivots · broken-level removal · buffer / R:R scenarios',match:'key levels support resistance stop buffer risk reward',source:'/pine-examples/agentic-key-levels.pine'},
    {id:'pineCipherA',name:'Agentic - Market Synth A',detail:'Desk reconstruction · EMA ribbon & symbols',match:'agentic market synth a market cipher cypher a premium ribbon reconstruction',source:'/pine-examples/market-cipher-a.pine'},
    {id:'pineCipherB',name:'Agentic Market Synth B',detail:'Desk reconstruction · Momentum & money flow',match:'agentic market synth b market cipher cypher b premium oscillator momentum money flow reconstruction',source:'/pine-examples/market-cipher-b.pine'},
    {id:'pineThreeDrive',name:'Agentic - Three Drive Pattern',detail:'Multi-length harmonic swings · Original rules',match:'agentic - three drive pattern detector premium harmonic luxalgo',source:'/pine-examples/agentic-three-drive-pattern.pine'},

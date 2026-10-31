@@ -130,9 +130,10 @@ class CodexSession:
         self.thread_id=None
         return self.ensure_thread(instructions)
 
-    def run(self,prompt,schema=None,timeout=600,cancel=None):
+    def run(self,prompt,schema=None,timeout=600,cancel=None,images=None):
         self.stream_text=schema is None;self.finished.clear();self.messages={};self.searches=[];self.failure=None;self.turn=None
         p={'threadId':self.thread_id,'input':[{'type':'text','text':prompt}],'environments':[]}
+        if images:p['input'] += [{'type':'image','url':url} for url in images]
         if schema:p['outputSchema']=schema
         result=self.request('turn/start',p);turn_id=result['turn']['id']
         deadline=time.monotonic()+timeout

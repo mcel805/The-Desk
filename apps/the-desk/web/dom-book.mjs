@@ -83,7 +83,7 @@ export class BookStream {
             this.emit(this.coinbaseBook(),at);
           }else if(m.type==='ticker')this.trade(m.price,m.side,Date.parse(m.time));
         }
-        if(hyper&&m.channel==='trades'&&!m.isSnapshot){for(const t of m.data||[])if(t.coin===symbol)this.trade(t.px,t.side,t.time);}
+        if(hyper&&m.channel==='trades'&&!m.isSnapshot){for(const t of m.data||[])if(t.coin===symbol)this.trade(t.px,t.side,t.time,t.sz,t.tid);}
       }catch{this.ready=false;ws.close();}
     };
     ws.onerror=()=>{if(current())ws.close();};
@@ -107,7 +107,7 @@ export class BookStream {
     this.ready=true;this.attempt=0;this.lastBook=this.now();this.onStatus('streaming');
     this.onBook({...book,instrument:this.instrument,receivedAt:this.lastBook,sourceTime,transport:'WebSocket',mode:this.mode});
   }
-  trade(price,side,time){if(Number.isFinite(Number(price))&&Number(price)>0&&Number.isFinite(time)&&time>=this.tradeTime){this.tradeTime=time;this.onTrade({price:Number(price),side,time,instrument:this.instrument});}}
+  trade(price,side,time,qty,id){if(Number.isFinite(Number(price))&&Number(price)>0&&Number.isFinite(time)&&time>=this.tradeTime){this.tradeTime=time;this.onTrade({price:Number(price),side,time,qty:Number(qty),id,instrument:this.instrument});}}
   retry(generation){if(generation!==this.generation)return;this.onStatus('reconnecting');clearTimeout(this.retryTimer);this.retryTimer=setTimeout(()=>this.connect(generation),Math.min(15000,500*2**Math.min(this.attempt++,5)));}
   stop(){this.generation++;clearTimeout(this.retryTimer);clearInterval(this.health);this.tradeTime=0;if(this.ws){this.ws.onclose=null;this.ws.close();this.ws=null;}}
 }

@@ -1,3 +1,4 @@
+import {setupChartControls} from './chart-controls.mjs';
 import {paintLiquidityLabels} from './chart-chat-labels.mjs';
 import {frame,requestedFrame,chartSnapshot,chartScope,sameScope,applyMarkup,restoreMarkup,owned,drawingScope,scopeKey,isMarkupAction,commitMarkup} from './chart-chat-model.mjs';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -98,6 +99,7 @@ export function setupChartChat({workspace,toast}){
    if(requestEpoch!==epoch)return;chatId=r.chatId;localStorage.setItem('desk.chart-chat.last',chatId);user(text);$('ccInput').value='';running=r.id;status('Reading the active chart…');void poll();
   }catch(e){status(e.message,true);}finally{pending=false;controls();}
  }
+ setupChartControls({workspace,panel,status,user});
  $('ccForm').onsubmit=send;
  $('ccInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('ccForm').requestSubmit();}};
  $('ccStop').onclick=async()=>{if(!running)return;const id=running;epoch++;running=null;status('Stopped. Pending chart changes discarded.');controls();try{await api('stop',{id});}catch(e){status('Chart changes stopped locally. Server cancellation is unconfirmed: '+e.message,true);}};

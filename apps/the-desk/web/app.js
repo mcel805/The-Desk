@@ -1,3 +1,6 @@
+import {setupFootprint} from './footprint.mjs';
+import {setupTradeRecorder} from './trade-recorder.mjs';
+import {reconcileHTML,setupTradeWorkbench} from './trade-workbench.mjs';
 import {createTradingActions,acknowledgeTradingResult} from './trading-actions.mjs';
 import {setupSwingTracker} from './swing-tracker.mjs';
 import {DurableSettings} from './durable-settings.mjs';
@@ -270,6 +273,8 @@ document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{
  document.querySelectorAll('[data-rail]').forEach(x=>x.classList.toggle('active',x===b));drawDOM();ws?.cells().forEach(c=>c.chart.resize());
 });
 
+let tradeRecorder;
+const tradeWorkbench=setupTradeWorkbench({workspace:()=>ws,state:()=>state,instrument,accountId:()=>activeAccount,config:tradeConfig,stage:stageTrade,command,showDialog,toast,render:renderManager,broker:()=>!!brokerContext?.selected});
 function setPanel(next){
  panel=next;document.body.classList.add('manager-open');$('#managerOpen').setAttribute('aria-expanded','true');document.querySelectorAll('[data-panel]').forEach(b=>{b.classList.toggle('active',b.dataset.panel===next);b.setAttribute('aria-selected',b.dataset.panel===next);});document.body.classList.toggle('journal-expanded',next==='journal');renderManager();ws?.cells().forEach(c=>c.chart.resize());
 }
@@ -282,7 +287,7 @@ function table(headers,rows){return `<table><thead><tr>${headers.map(h=>'<th>'+e
 function instrumentShort(i){return i.toUpperCase();}
 function renderManager(){
  if(!state)return;
- const host=$('#managerContent');
+ const host=$('#managerContent');tradeWorkbench?.sync();tradeRecorder?.observe(state);
  if(brokerContext?.selected){
   if(panel==='orders'){
    const accountId=brokerContext.selected;host.innerHTML='<div class="rh-empty">Reading Robinhood order status…</div>';
@@ -300,12 +305,12 @@ function renderManager(){
  }
  if(panel==='strategy'){if(!host.querySelector('#strategyForm'))renderStrategy();return;}
  if(panel==='positions'){
-  const rows=state.positions.map(p=>{const {mark,pnl,increment}=positionMetrics(p,state.quotes[p.instrument]);return `<tr data-position-id="${esc(p.id)}"><td>${esc(instrumentShort(p.instrument))}</td><td class="${p.side==='buy'?'positive':'negative'}">${p.side==='buy'?'Long':'Short'}</td><td>${fmt(p.qty)}</td><td>${fmt(p.entry)}</td><td data-position-mark>${fmt(mark)}</td><td data-position-pnl class="${pnl>=0?'positive':'negative'}">${formatMoney(pnl,increment)}</td><td>${p.stop?fmt(p.stop):'—'} / ${p.target?fmt(p.target):'—'}</td><td><button data-bracket="${p.id}">SL / TP</button><button data-close="${p.id}">Close</button><button data-partial="${p.id}">Partial</button><button data-reverse="${p.id}">Reverse</button></td></tr>`;});
-  host.innerHTML=rows.length?table(['Instrument','Side','Quantity','Entry','Mark','Open P&L','SL / TP','Actions'],rows):empty('No open positions','Place a paper order from the chart, ticket or DOM.');
+  const rows=tradeWorkbench.filter(state.positions,'positions').map(p=>{const {mark,pnl,increment}=positionMetrics(p,state.quotes[p.instrument]);return `<tr data-position-id="${esc(p.id)}"><td>${esc(instrumentShort(p.instrument))}</td><td class="${p.side==='buy'?'positive':'negative'}">${p.side==='buy'?'Long':'Short'}</td><td>${fmt(p.qty)}</td><td>${fmt(p.entry)}</td><td data-position-mark>${fmt(mark)}</td><td data-position-pnl class="${pnl>=0?'positive':'negative'}">${formatMoney(pnl,increment)}</td><td>${p.stop?fmt(p.stop):'—'} / ${p.target?fmt(p.target):'—'}</td><td><button data-bracket="${p.id}">SL / TP</button><button data-breakeven="${p.id}" title="Move stop to entry price; fees excluded">BE</button><button data-close="${p.id}">Close</button><button data-partial="${p.id}">Partial</button><button data-reverse="${p.id}">Reverse</button></td></tr>`;});
+  reconcileHTML(host,rows.length?table(['Instrument','Side','Quantity','Entry','Mark','Open P&L','SL / TP','Actions'],rows):empty('No open positions','Place a paper order from the chart, ticket or DOM.'));
  }
  if(panel==='orders'){
-  const rows=state.orders.map(o=>`<tr><td>${esc(instrumentShort(o.instrument))}</td><td>${o.side.toUpperCase()}</td><td>${esc(o.kind.replace('_',' '))}</td><td>${fmt(o.qty)}</td><td>${o.price?fmt(o.price):o.filled_price?fmt(o.filled_price):'Market'}</td><td>${o.trigger?fmt(o.trigger):'—'}</td><td>${esc(o.status)}</td><td>${['working','triggered'].includes(o.status)?`<button data-edit="${o.id}">Modify</button><button data-cancel="${o.id}">Cancel</button>`:'—'}</td></tr>`);
-  host.innerHTML=rows.length?table(['Instrument','Side','Type','Quantity','Price','Trigger','Status','Actions'],rows):empty('No orders yet','Submitted paper orders and their accepted status appear here.');
+  const rows=tradeWorkbench.filter(state.orders,'orders').map(o=>`<tr data-order-id="${esc(o.id)}"><td>${esc(instrumentShort(o.instrument))}</td><td>${o.side.toUpperCase()}</td><td>${esc(o.kind.replace('_',' '))}</td><td>${fmt(o.qty)}</td><td>${o.price?fmt(o.price):o.filled_price?fmt(o.filled_price):'Market'}</td><td>${o.trigger?fmt(o.trigger):'—'}</td><td>${esc(o.status)}</td><td>${['working','triggered'].includes(o.status)?`<button data-edit="${o.id}">Modify</button><button data-cancel="${o.id}">Cancel</button>`:'—'}</td></tr>`);
+  reconcileHTML(host,rows.length?table(['Instrument','Side','Type','Quantity','Price','Trigger','Status','Actions'],rows):empty('No orders yet','Submitted paper orders and their accepted status appear here.'));
  }
  if(panel==='fills'){
   host.innerHTML=state.fills.length?table(['Time','Instrument','Side','Quantity','Fill price','Fee','Realized gross','Reason'],state.fills.map(f=>`<tr><td>${esc(new Date(f.executed_at).toLocaleString())}</td><td>${esc(instrumentShort(f.instrument))}</td><td>${f.side.toUpperCase()}</td><td>${fmt(f.qty)}</td><td>${fmt(f.price)}</td><td>${usd(f.fee)}</td><td>${usd(f.realized)}</td><td>${esc(f.reason)}</td></tr>`)):empty('No executions','Accepted fills are stored here and sent to Lux Journal.');
@@ -316,10 +321,11 @@ function renderManager(){
  host.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editOrder(state.orders.find(x=>x.id===b.dataset.edit)));
  host.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closePosition(state.positions.find(x=>x.id===b.dataset.close)));
  host.querySelectorAll('[data-partial]').forEach(b=>b.onclick=()=>closePosition(state.positions.find(x=>x.id===b.dataset.partial),{partial:true}));
+ host.querySelectorAll('[data-breakeven]').forEach(b=>b.onclick=()=>{const p=state.positions.find(x=>x.id===b.dataset.breakeven);if(p)editBracket(p,{stop:p.entry});});
  host.querySelectorAll('[data-bracket]').forEach(b=>b.onclick=()=>editBracket(state.positions.find(x=>x.id===b.dataset.bracket)));
  host.querySelectorAll('[data-reverse]').forEach(b=>b.onclick=()=>reversePosition(state.positions.find(x=>x.id===b.dataset.reverse)));
  host.querySelectorAll('[data-alert-delete]').forEach(b=>b.onclick=async()=>{try{await command('alert_delete',{id:b.dataset.alertDelete,account_id:activeAccount});}catch(e){toast(e.message,true);}});
- if(ws?.replay.state.active)host.querySelectorAll('[data-close],[data-partial],[data-reverse],[data-bracket],[data-edit],[data-cancel]').forEach(b=>b.disabled=true);
+ if(ws?.replay.state.active)host.querySelectorAll('[data-close],[data-partial],[data-reverse],[data-bracket],[data-breakeven],[data-edit],[data-cancel]').forEach(b=>b.disabled=true);
 }
 window.addEventListener('desk:robinhood-orders',()=>{if(brokerContext?.selected&&panel==='orders')renderManager();});
 setInterval(()=>{if(brokerContext?.selected&&panel==='orders')window.dispatchEvent(new Event('desk:robinhood-orders'));},10000);
@@ -451,7 +457,7 @@ async function boot(){
   setupChartChat({workspace:()=>ws,toast});
   setupSpider({workspace:()=>ws,instrument,toast,sourceContext:()=>({accountId:brokerContext?.selected||null}),executionContext:()=>({connected:!!brokerContext?.valid(),account:brokerContext?.account()?.account||'',symbol:brokerContext?.asset?.symbol||'',matches:!!brokerContext?.matches,tradable:!!brokerContext?.account()?.tradable}),openExecution:()=>{if(!brokerContext?.selected)$('#robinhoodButton').click();else if(!brokerContext?.asset||!brokerContext?.matches)$('#brokerAssetsButton').click();else{if($('#tradeButton').getAttribute('aria-expanded')!=='true')$('#tradeButton').click();toast('Robinhood spot ticket ready. Review amount and native broker preview before placing an order.');}},setHistory:enabled=>{for(const p of Object.values(spiderHistories))p.serverHistory=enabled;}});
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
-  await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
+  setupFootprint();tradeRecorder=setupTradeRecorder({workspace:()=>ws,state:()=>state,broker:()=>!!brokerContext?.selected,toast});await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(async()=>{
    const swingMarket=new URLSearchParams(location.search).get('swing_market');
    if(['hyperliquid:BTC','hyperliquid:ETH'].includes(swingMarket)){

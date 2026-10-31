@@ -1,3 +1,4 @@
+import {tape} from './footprint.mjs';
 import {BookStream,normalizeBook,depthRows} from './dom-book.mjs';
 
 export function setupDOM({instrument,quote,stage,account,replay}){
@@ -15,7 +16,7 @@ export function setupDOM({instrument,quote,stage,account,replay}){
     // A delayed source packet must not appear as a current book.
     if(next.sourceTime&&Date.now()-next.sourceTime>10000){streamState='stale';schedule();return;}
     book=next;ticks++;schedule();
-  },onTrade:next=>{if(next.instrument===active){trade=next;schedule();}},onStatus:next=>{streamState=next;schedule();}});
+  },onTrade:next=>{if(next.instrument===active){trade=next;tape.add(next);schedule();}},onStatus:next=>{streamState=next;tape.status=next;schedule();}});
   function useFallback(){
     const q=quote(),age=q?.received_at?(Date.now()/1000-q.received_at):q?.age;
     if(q?.book&&age<=15&&(!book||book.transport!=='WebSocket'||Date.now()-book.receivedAt>10000)){
@@ -25,7 +26,7 @@ export function setupDOM({instrument,quote,stage,account,replay}){
   }
   function sync(){
     const next=instrument();
-    if(next!==active){active=next;book=null;trade=null;selected=null;previousMid=null;ticks=0;fallbackAt='';pinned=false;shown=[];changes.clear();lastPaint.clear();$('#domSelection').textContent='Click a price to stage a paper limit';stream.start(active,mode.value);}
+    if(next!==active){active=next;tape.clear(next);book=null;trade=null;selected=null;previousMid=null;ticks=0;fallbackAt='';pinned=false;shown=[];changes.clear();lastPaint.clear();$('#domSelection').textContent='Click a price to stage a paper limit';stream.start(active,mode.value);}
     useFallback();schedule();
   }
   function pick(side,price,sourceInstrument,stop=false){

@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlparse,parse_qs
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from engine import Engine
+from trade_recordings import TradeRecordings
 from settings_store import SettingsStore,SettingsConflict
 ROOT=Path(__file__).resolve().parents[1]
 WEB=Path(os.environ.get('DESK_CHART_BASELINE_WEB',str(ROOT/'web')))
@@ -27,7 +28,7 @@ def main():
  with tempfile.TemporaryDirectory(prefix='desk-chart-qa-') as tmp:
   engine=Engine(Path(tmp)/'paper.sqlite3');settings=SettingsStore(engine)
   account=engine.execute('init','account',{'name':'ISOLATED CHART QA','capital':'1000000','fee_bps':'0','leverage':'1'})['id']
-  commands=[];faults={}
+  commands=[];faults={};videos=TradeRecordings(tmp,engine)
   if os.environ.get('DESK_CHART_BASELINE_WEB'):settings.commit({'trading':{'instant':True}})
   def quotes():
    for i in ['hyperliquid:BTC','hyperliquid:ETH','coinbase:BTC-USD']:engine.ingest(i,79999,80000,{'tick':'1','qty_step':'.001'})
@@ -36,10 +37,12 @@ def main():
    def log_message(self,*a):pass
    def reply(self,value,status=200):
     body=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+   json=reply
    def do_GET(self):
     parsed=urlparse(self.path);path=parsed.path;q=parse_qs(parsed.query)
     if path=='/hyperliquid-provider.mjs':
      body=PROVIDER.encode();self.send_response(200);self.send_header('Content-Type','text/javascript');self.end_headers();self.wfile.write(body);return
+    if videos.get(self,path,q):return
     if path=='/api/state':
      if faults.get('state_delay'):time.sleep(faults['state_delay'])
      quotes();return self.reply({**engine.state(q.get('account_id',[account])[0]),'journal_url':'http://127.0.0.1:1','journal_available':False})
@@ -51,8 +54,12 @@ def main():
      return self.reply({'connected':False,'accounts':[],'symbols':{},'sessions':[],'running':False,'enabled':False})
     return super().do_GET()
    def do_POST(self):
-    p=json.loads(self.rfile.read(int(self.headers['Content-Length'])));path=urlparse(self.path).path
+    parsed=urlparse(self.path);path=parsed.path
+    if path=='/api/trade-videos/chunk':
+     q=parse_qs(parsed.query);return self.reply(videos.append(q['id'][0],int(q['sequence'][0]),self.rfile.read(int(self.headers['Content-Length']))))
+    p=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
     try:
+     if videos.post(self,path,p):return
      if path=='/qa/faults':faults.clear();faults.update(p);return self.reply({'ok':True})
      if path=='/qa/quote':engine.ingest(p.get('instrument','hyperliquid:BTC'),p['bid'],p['ask'],{'tick':'1','qty_step':'.001'});return self.reply({'ok':True})
      if path=='/api/command-status':

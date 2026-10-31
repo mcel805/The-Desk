@@ -12,6 +12,8 @@ import signal
 import threading
 import time
 from chart_chat import ChartChat
+from chart_controls import ChartControls
+from trade_recordings import TradeRecordings, MAX_CHUNK
 from spider_service import Spider
 from spider_markets import binance_bars
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -199,7 +201,8 @@ def main():
     agents=Agents(engine);agents.journal_url=workers.journal_url
     agent_signals=AgentSignals(agents,gateway);agents.signal_service=agent_signals
     spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
-    chart_chat=ChartChat(engine)
+    chart_chat=ChartChat(engine);chart_controls=ChartControls(engine)
+    trade_recordings=TradeRecordings(data,engine,vault.writable)
     # Check constructor/migration writes before starting collection, learning,
     # journal delivery or market workers. Concurrent USB work can otherwise
     # make this gate time out and strand an already-running observer.
@@ -241,6 +244,7 @@ def main():
             if not self.trusted():return self.json({'error':'Loopback origin required'},403)
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
+                if trade_recordings.get(self,parsed.path,q):return
                 if data_routes.get(self,parsed.path,q):return
                 if chart_chat.get(self,parsed.path,q):return
                 if spider.get(self,parsed.path,q):return
@@ -278,12 +282,18 @@ def main():
             if not self.trusted() or not self.headers.get('Content-Type','').startswith('application/json'):return self.json({'error':'Same-origin JSON command required'},403)
             try:
                 length=int(self.headers.get('Content-Length',0))
+                if urlparse(self.path).path=='/api/trade-videos/chunk':
+                    if length<=0 or length>MAX_CHUNK:return self.json({'error':'Invalid video chunk size'},413)
+                    query=parse_qs(urlparse(self.path).query)
+                    return self.json(trade_recordings.append(query.get('id',[''])[0],int(query.get('sequence',['-1'])[0]),self.rfile.read(length)))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
                 p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
-                if path.startswith(('/api/spider/','/api/swing/','/api/chart-chat/')) and path!='/api/chart-chat/stop' and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
+                if path.startswith(('/api/spider/','/api/swing/','/api/chart-chat/','/api/chart-controls/')) and path!='/api/chart-chat/stop' and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))
+                if chart_controls.post(self,path,p):return
+                if trade_recordings.post(self,path,p):return
                 if chart_chat.post(self,path,p):return
                 if data_routes.post(self,path,p):return
                 if spider.post(self,path,p):return
