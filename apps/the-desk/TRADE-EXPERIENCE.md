@@ -45,3 +45,7 @@ Verification covered backend trade tests, existing chart-chat tests and the
 browser suites: chart chat created an engine order with entry/SL/TP chart lines,
 deduplicated execution retries and asked for missing size without placing another
 order. No real account or live order was exercised.
+
+## Recording visibility correction
+
+On the active dev server the recorder was unarmed and had no clips. An attempted start exposed the old running server's JSON-only POST guard rejecting WebM chunks. Restarting on the already-reviewed WebM-aware handler restored uploads without changing positions. Recorder now auto-arms by default (explicit disarm is saved), shows a chart-top-left status badge, and only displays RECORDING after a chunk is acknowledged; starting and error states remain distinct. The active user's paper short remained 0.001 at 77,711 while the archive grew from 192,228 to 603,195 bytes. Capture before the fix cannot be recovered. This dev dataset is LOCAL under /tmp/desk-trade-dev/data; it is not the managed USB dataset.
