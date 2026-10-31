@@ -17,6 +17,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
     if(level.kind==='draft'){for(const [field,value] of Object.entries(changes)){if(field==='qty'||field==='kind')amendDraftParameter?.(field,value);else level.amendField(field,value);}return;}
     if(editing?.saving||pending(level.item.account_id,level.item.id))return;
     if(editing&&editing.original.id!==level.item.id){toast('Confirm or discard the current chart changes first.',true);return;}
+    workspace().setActiveCell(cell.id);
     if(!editing)editing={...scope(cell),kind:level.kind,original:level.item,changes:{},error:''};
     Object.assign(editing.changes,changes);editing.error='';
     if(config().instant)void confirmEdit();
@@ -53,7 +54,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
     form.append(input,apply,cancel);node.refs.group.append(form);input.focus();input.select();
     form.onpointerdown=e=>e.stopPropagation();form.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')form.remove();};
     const initialScope=scope(cell),revision=level.item.revision;
-    form.onsubmit=e=>{e.preventDefault();if(!validDrag(initialScope)||node.level.item.revision!==revision){form.remove();return;}if(!(Number(input.value)>0)){input.setCustomValidity('Enter a positive quantity.');input.reportValidity();return;}change(node.level,{qty:input.value},cell);form.remove();};input.oninput=()=>input.setCustomValidity('');
+    form.onsubmit=e=>{e.preventDefault();workspace().setActiveCell(cell.id);if(!validDrag(initialScope)||node.level.item.revision!==revision){form.remove();return;}if(!(Number(input.value)>0)){input.setCustomValidity('Enter a positive quantity.');input.reportValidity();return;}change(node.level,{qty:input.value},cell);form.remove();};input.oninput=()=>input.setCustomValidity('');
   }
   function attach(cell){
     if(cell.deskAttached)return;cell.deskAttached=true;
