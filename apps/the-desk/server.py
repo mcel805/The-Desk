@@ -279,15 +279,19 @@ def main():
             except ValueError as e:return self.json({'error':str(e)},400)
             except Exception:return self.json({'error':'Market data temporarily unavailable. Please retry.'},503)
         def do_POST(self):
-            if not self.trusted() or not self.headers.get('Content-Type','').startswith('application/json'):return self.json({'error':'Same-origin JSON command required'},403)
+            path=urlparse(self.path).path
+            content_type=self.headers.get('Content-Type','')
+            is_chunk=path=='/api/trade-videos/chunk'
+            chunk_type=content_type.split(';',1)[0].strip().lower()=='video/webm'
+            if not self.trusted() or (is_chunk and not chunk_type) or (not is_chunk and not content_type.startswith('application/json')):return self.json({'error':'Same-origin JSON command required'},403)
             try:
                 length=int(self.headers.get('Content-Length',0))
-                if urlparse(self.path).path=='/api/trade-videos/chunk':
+                if is_chunk:
                     if length<=0 or length>MAX_CHUNK:return self.json({'error':'Invalid video chunk size'},413)
                     query=parse_qs(urlparse(self.path).query)
                     return self.json(trade_recordings.append(query.get('id',[''])[0],int(query.get('sequence',['-1'])[0]),self.rfile.read(length)))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
-                p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
+                p=json.loads(self.rfile.read(length))
                 if path.startswith(('/api/spider/','/api/swing/','/api/chart-chat/','/api/chart-controls/')) and path!='/api/chart-chat/stop' and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
