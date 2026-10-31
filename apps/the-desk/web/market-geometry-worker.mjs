@@ -1,12 +1,18 @@
 import {PineWorkerEngine} from './vendor/pine-engine.js';
 import {GeometrySources,geometryCutoff,verifiedGeometryTick} from './market-geometry-source.mjs';
 import {geometryDrawing} from './market-geometry-drawing.mjs';
-import {geometryOptions,geometryCalculationOptions} from './market-geometry-model.mjs';
+import {GEOMETRY_FRAMES,geometryOptions,geometryCalculationOptions} from './market-geometry-model.mjs';
 export const MTF_GEOMETRY_HASH='2fca9099e4c2bb34f61e7737597f17f6a4ad487cfa4b837ae3dcb4b83b4febc0';
 export const GEOMETRY_CUSTOM_SCOPE_WARNING='Edited Market Geometry source runs chart-timeframe Pine only; Desk multi-timeframe controls are inactive until the catalog source is restored.';
 const CUSTOM_MTF_KEYS=new Set(['geometryMode','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry','showSwingPaths','showWorking','showProjection','showStatus','showTurnHistory','stageAlerts','showFrame60','showFrame30','showFrame15','showFrame5','showFrame1','frameColor60','frameColor30','frameColor15','frameColor5','frameColor1']);
+const CHECKPOINT_LIMIT=24,checkpoints=new Map();
+const checkpointKey=(req,id,source,inputs,tick,cutoff,context)=>{const phase=context?.replay===true?'replay':context?.replay===false?'live':'unknown',boundary=phase==='replay'||phase==='unknown'?(Number.isFinite(context?.cutoff)?context.cutoff:cutoff):null;return JSON.stringify([id,req.market?.symbol||'',source,req.mode||'static',phase,boundary,tick,geometryCalculationOptions(inputs)]);};
+const getCheckpoint=key=>{const value=checkpoints.get(key);if(value){checkpoints.delete(key);checkpoints.set(key,value);}return value||null;};
+const setCheckpoint=(key,value)=>{checkpoints.delete(key);checkpoints.set(key,value);while(checkpoints.size>CHECKPOINT_LIMIT)checkpoints.delete(checkpoints.keys().next().value);};
+const usableCheckpoint=(checkpoint,sources)=>checkpoint&&GEOMETRY_FRAMES.every(tf=>{const source=sources[tf];return source?.status==='ready'&&source.bars.length>0&&!source.gaps?.length;})?checkpoint:null;
+const resumeCheckpoint=(checkpoint,sources)=>{if(!checkpoint)return null;const resumed=structuredClone(checkpoint);for(const tf of GEOMETRY_FRAMES){const source=sources[tf],last=resumed.frames?.[tf]?.lastTime,step=Number(tf)*60000;if(source?.bars[0]&&last!=null&&source.bars[0].time>last+step)resumed.frames[tf].lastTime=source.bars[0].time-step;}return resumed;};
 // Deliberately hash-owned: edited Pine executes its own chart-only rules.
-export const isMTFGeometrySource=s=>typeof s==='string'&&s.includes('// Desk MTF Geometry v2.')&&s.includes('indicator("Agentic - Market Geometry"');
+export const isMTFGeometrySource=s=>typeof s==='string'&&s.includes('// Desk MTF Geometry v2.');
 const digest=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s.replace(/\r\n/g,'\n'))))].map(v=>v.toString(16).padStart(2,'0')).join('');
 export class MarketGeometryWorker {
  constructor({legacy=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href}),context=()=>({}),now=Date.now,threadFactory=()=>new Worker(new URL('./market-geometry-thread.mjs',import.meta.url),{type:'module'}),displayTarget=globalThis}={}){this.legacy=legacy;this.context=context;this.now=now;this.threadFactory=threadFactory;this.displayTarget=displayTarget;this.sessions=new Set();}
@@ -32,7 +38,7 @@ export class MarketGeometryWorker {
   const id=req.prepared.token.instanceId;let inputs={...Object.fromEntries(req.prepared.inputs.map(s=>[s.key,s.defval])),...req.inputs},props={...req.props},stopped=false,running=false,again=false,generation=0,sources,result,legacyChild;
   let loader=new GeometrySources(req.fetchSeries,req.market,{history:geometryOptions(inputs).geometryHistory,now:this.now}),thread=this.threadFactory(),lastMinute=null,alertBaseline=false,lastAlertTime=-Infinity,lastKey=null;
   const pending=new Map();
-  thread.onmessage=({data:m})=>{const p=pending.get(m.generation);if(!p)return;pending.delete(m.generation);m.error?p.reject(Error(m.error)):p.resolve(m.result);};
+  thread.onmessage=({data:m})=>{const p=pending.get(m.generation);if(!p)return;pending.delete(m.generation);m.error?p.reject(Error(m.error)):p.resolve({result:m.result,checkpoint:m.checkpoint});};
   thread.onerror=e=>{for(const p of pending.values())p.reject(Error(e.message||'Geometry worker failed'));pending.clear();};
   const compute=(payload)=>new Promise((resolve,reject)=>{pending.set(payload.generation,{resolve,reject});thread.postMessage(payload);});
   const emit=()=>{if(stopped||!result||!sources)return;const ctx=this.context(req.market,id)||{},liveBar=!ctx.replay&&String(req.market.timeframe)==='1'?(req.getBars?.()||req.bars).at(-1):null;
@@ -52,7 +58,8 @@ export class MarketGeometryWorker {
     if(!tick){for(const s of Object.values(sources)){s.error='Verified source tick metadata unavailable';s.status='unavailable';s.bars=[];}}
     const key=JSON.stringify([req.market.symbol,req.market.symbolInfo?.timezone,req.market.symbolInfo?.session,tick,geometryCalculationOptions(o)]);
     if(lastKey!==key){lastKey=key;alertBaseline=false;}
-    const computed=await compute({generation:revision,key,config:{identity:req.market.symbol,tick:tick||0,inputs},sources,cutoff});if(stopped||revision!==generation)return;result=computed;
+    const scope=checkpointKey(req,id,req.prepared.token.source,inputs,tick||0,cutoff,ctx),checkpoint=resumeCheckpoint(usableCheckpoint(getCheckpoint(scope),sources),sources);
+    const computed=await compute({generation:revision,key,config:{identity:req.market.symbol,tick:tick||0,inputs,checkpoint},sources,cutoff});if(stopped||revision!==generation)return;result=computed.result;if(computed.checkpoint)setCheckpoint(scope,computed.checkpoint);
     if(inputs.stageAlerts&&alertBaseline&&!ctx.replay&&!id.startsWith('pine-test-')&&sources['1'].status==='ready')for(const e of result.turns.events)if(e.knownAt>lastAlertTime&&e.knownAt>=cutoff-60000)handlers.onAlert?.({id:e.id,title:'Geometry · '+e.stage,message:`${e.side>0?'Bullish':'Bearish'} ${e.family} · ${e.stage} · 1M · ${req.market.symbol}`,time:e.knownAt,barIndex:Math.max(0,(req.getBars?.()||req.bars).length-1),freq:'once_per_bar_close'});
     lastAlertTime=Math.max(lastAlertTime,...result.turns.events.map(e=>e.knownAt));alertBaseline=true;lastMinute=Math.floor(cutoff/60000);emit();handlers.onDone?.();
    }catch(error){if(!stopped&&revision===generation)handlers.onError?.(error);}finally{running=false;if(again&&!stopped){again=false;void run();}}
