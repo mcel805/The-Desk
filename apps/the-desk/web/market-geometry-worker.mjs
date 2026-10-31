@@ -3,18 +3,20 @@ import {GeometrySources,geometryCutoff,verifiedGeometryTick} from './market-geom
 import {geometryDrawing} from './market-geometry-drawing.mjs';
 import {geometryOptions,geometryCalculationOptions} from './market-geometry-model.mjs';
 export const MTF_GEOMETRY_HASH='2fca9099e4c2bb34f61e7737597f17f6a4ad487cfa4b837ae3dcb4b83b4febc0';
+export const GEOMETRY_CUSTOM_SCOPE_WARNING='Edited Market Geometry source runs chart-timeframe Pine only; Desk multi-timeframe controls are inactive until the catalog source is restored.';
+const CUSTOM_MTF_KEYS=new Set(['geometryMode','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry','showSwingPaths','showWorking','showProjection','showStatus','showTurnHistory','stageAlerts','showFrame60','showFrame30','showFrame15','showFrame5','showFrame1','frameColor60','frameColor30','frameColor15','frameColor5','frameColor1']);
 // Deliberately hash-owned: edited Pine executes its own chart-only rules.
 export const isMTFGeometrySource=s=>typeof s==='string'&&s.includes('// Desk MTF Geometry v2.')&&s.includes('indicator("Agentic - Market Geometry"');
 const digest=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s.replace(/\r\n/g,'\n'))))].map(v=>v.toString(16).padStart(2,'0')).join('');
 export class MarketGeometryWorker {
- constructor({legacy=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href}),context=()=>({}),now=Date.now,threadFactory=()=>new Worker(new URL('./market-geometry-thread.mjs',import.meta.url),{type:'module'})}={}){this.legacy=legacy;this.context=context;this.now=now;this.threadFactory=threadFactory;this.sessions=new Set();}
+ constructor({legacy=new PineWorkerEngine({workerUrl:new URL('./vendor/pine-compatible-worker.js',import.meta.url).href}),context=()=>({}),now=Date.now,threadFactory=()=>new Worker(new URL('./market-geometry-thread.mjs',import.meta.url),{type:'module'}),displayTarget=globalThis}={}){this.legacy=legacy;this.context=context;this.now=now;this.threadFactory=threadFactory;this.displayTarget=displayTarget;this.sessions=new Set();}
  async prepare(source,id){
-  const prepared=await this.legacy.prepare(source,id),hosted=await digest(source)===MTF_GEOMETRY_HASH;
+  const prepared=await this.legacy.prepare(source,id),hosted=await digest(source)===MTF_GEOMETRY_HASH,custom=isMTFGeometrySource(source)&&!hosted;
   if(hosted){const originalOnly=new Set(['geometryShown','geometryActiveShown','geometryActiveInk','geometryBrokenInk']);
    prepared.inputs=prepared.inputs.map(s=>({...s,...(originalOnly.has(s.key)?{when:{key:'geometryMode',equals:'Original chart only'}}:{}),title:s.title.replace('Chart bars retained','Source bars retained').replace('chart bars','source bars'),group:s.key==='geometryMode'?'Geometry view':s.group}));
    prepared.inputs.sort((a,b)=>(a.key==='geometryMode'?-1:b.key==='geometryMode'?1:0));
-  }
-  return {...prepared,geometryHosted:hosted,token:{...prepared.token,source,instanceId:id}};
+  }else if(custom)prepared.inputs=prepared.inputs.filter(s=>!CUSTOM_MTF_KEYS.has(s.key));
+  return {...prepared,meta:{...prepared.meta,...(custom?{scope:'chart-only/custom-source',scopeWarning:GEOMETRY_CUSTOM_SCOPE_WARNING}:{})},geometryHosted:hosted,geometryScope:custom?'chart-only/custom-source':hosted?'desk-mtf':'pine',geometryWarning:custom?GEOMETRY_CUSTOM_SCOPE_WARNING:null,token:{...prepared.token,source,instanceId:id}};
  }
  execute(req,handlers){
   if(!req.prepared.geometryHosted||req.inputs?.geometryMode==='Original chart only')return this.executeSwitchable(req,handlers);
@@ -22,8 +24,9 @@ export class MarketGeometryWorker {
  }
  executeSwitchable(req,handlers){
   // The outer adapter owns stop/termination; this wrapper permits Original ↔ MTF settings.
+  const warning=req.prepared.geometryWarning;if(warning)handlers.onWarning?.({message:warning,method:'scope',bar:0});
   let child=this.legacy.execute(req,handlers),inputs={...req.inputs};
-  return {stop:()=>child.stop(),update:(next,props)=>{inputs={...inputs,...next};if(req.prepared.geometryHosted&&inputs.geometryMode!=='Original chart only'){child.stop();child=this.start({...req,inputs,props},handlers);}else child.update(next,props);},notifyBars:r=>child.notifyBars(r),setVisibleRange:r=>child.setVisibleRange(r),getContext:s=>child.getContext(s)};
+  return {stop:()=>child.stop(),update:(next,props)=>{inputs={...inputs,...next};if(req.prepared.geometryHosted&&inputs.geometryMode!=='Original chart only'){child.stop();child=this.start({...req,inputs,props},handlers);}else child.update(next,props);},notifyBars:r=>child.notifyBars(r),setVisibleRange:r=>child.setVisibleRange(r),getContext:s=>child.getContext(s).then(context=>warning?{...(context||{}),warnings:[...(context?.warnings||[]),{message:warning,method:'scope',bar:0}]}:context)};
  }
  start(req,handlers){
   const id=req.prepared.token.instanceId;let inputs={...Object.fromEntries(req.prepared.inputs.map(s=>[s.key,s.defval])),...req.inputs},props={...req.props},stopped=false,running=false,again=false,generation=0,sources,result,legacyChild;
@@ -33,8 +36,13 @@ export class MarketGeometryWorker {
   thread.onerror=e=>{for(const p of pending.values())p.reject(Error(e.message||'Geometry worker failed'));pending.clear();};
   const compute=(payload)=>new Promise((resolve,reject)=>{pending.set(payload.generation,{resolve,reject});thread.postMessage(payload);});
   const emit=()=>{if(stopped||!result||!sources)return;const ctx=this.context(req.market,id)||{},liveBar=!ctx.replay&&String(req.market.timeframe)==='1'?(req.getBars?.()||req.bars).at(-1):null;
-   handlers.onModel(geometryDrawing(result,{id,inputs,schema:req.prepared.inputs,props,sources,light:ctx.light,viewTimeframe:req.market.timeframe,liveBar,compact:globalThis.innerWidth<700}));
+   handlers.onModel(geometryDrawing(result,{id,inputs,schema:req.prepared.inputs,props,sources,light:ctx.light,viewTimeframe:req.market.timeframe,liveBar,compact:this.displayTarget.innerWidth<700}));
   };
+  const displayTarget=this.displayTarget,redraw=()=>emit();
+  if(typeof displayTarget?.addEventListener==='function')displayTarget.addEventListener('resize',redraw);
+  const body=displayTarget?.document?.body,Observer=displayTarget?.MutationObserver;
+  const themeObserver=body&&typeof Observer==='function'?new Observer(redraw):null;
+  themeObserver?.observe(body,{attributes:true,attributeFilter:['class']});
   const run=async()=>{
    if(stopped)return;if(legacyChild){legacyChild.notifyBars();return;}if(running){again=true;return;}running=true;const revision=generation;
    try{
@@ -51,7 +59,7 @@ export class MarketGeometryWorker {
   };
   // Timer updates 1M sources on a 1H viewing chart even without a chart tick.
   const timer=setInterval(()=>{if(!stopped&&!legacyChild&&req.mode==='live'){const ctx=this.context(req.market,id)||{};if(!ctx.replay)void run();}},15000);
-  const session={stop:()=>{if(stopped)return;stopped=true;generation++;clearInterval(timer);loader.stop();thread.terminate();legacyChild?.stop();for(const p of pending.values())p.reject(Error('Geometry cancelled'));pending.clear();this.sessions.delete(session);},update:(next,nextProps)=>{
+  const session={stop:()=>{if(stopped)return;stopped=true;generation++;clearInterval(timer);if(typeof displayTarget?.removeEventListener==='function')displayTarget.removeEventListener('resize',redraw);themeObserver?.disconnect();loader.stop();thread.terminate();legacyChild?.stop();for(const p of pending.values())p.reject(Error('Geometry cancelled'));pending.clear();this.sessions.delete(session);},update:(next,nextProps)=>{
    const previous=inputs.geometryMode,previousRules=JSON.stringify(geometryCalculationOptions(inputs));inputs={...inputs,...next};props={...props,...nextProps};const rulesChanged=previousRules!==JSON.stringify(geometryCalculationOptions(inputs));
    if(inputs.geometryMode==='Original chart only'){generation++;lastMinute=null;loader.stop();if(!legacyChild)legacyChild=this.legacy.execute({...req,inputs,props},handlers);else legacyChild.update(next,nextProps);return;}
    if(previous==='Original chart only'){legacyChild?.stop();legacyChild=null;}else if(!rulesChanged){emit();handlers.onDone?.();return;}

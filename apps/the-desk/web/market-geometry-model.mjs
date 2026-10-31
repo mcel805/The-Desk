@@ -4,14 +4,21 @@ export const GEOMETRY_FRAMES=['60','30','15','5','1'];
 export const FRAME_STYLE={60:{name:'1H',color:'#5B8FFF',width:3.5},30:{name:'30M',color:'#B39AFF',width:3},15:{name:'15M',color:'#F6BD54',width:2.5},5:{name:'5M',color:'#2CCAC8',width:2},1:{name:'1M',color:'#E7EDF7',width:1.5}};
 export const DEFAULT_GEOMETRY={geometryMode:'Context + Micro',geometryHistory:600,geometryPivot:4,geometryMinSpan:8,geometryTouchTolerance:2,geometryMinTouches:0,structuralPivot:8,structuralMinSpan:32,microPivot:2,parentPivot:4,turnExpiry:20,showChannels:true,showSwingPaths:true,showWorking:true,showProjection:false,geometryShowBroken:true,geometryShowLabels:true,showStatus:true,showTurnHistory:true,stageAlerts:false};
 const copy=v=>structuredClone(v),finite=Number.isFinite;
+const CALCULATION_KEYS=['geometryHistory','geometryPivot','geometryMinSpan','geometryTouchTolerance','geometryMinTouches','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry'];
 export const frameMs=tf=>Number(tf)*60000;
 export function geometryOptions(inputs={}){
  const o={...DEFAULT_GEOMETRY,...inputs};
- for(const [key,min,max] of [['geometryHistory',100,1200],['geometryPivot',2,15],['geometryMinSpan',2,100],['geometryTouchTolerance',0,10],['geometryMinTouches',0,8],['structuralPivot',4,15],['structuralMinSpan',8,100],['microPivot',1,10],['parentPivot',2,15],['turnExpiry',5,100]])o[key]=Math.max(min,Math.min(max,Math.round(Number(o[key])||DEFAULT_GEOMETRY[key]||min)));
+ for(const [key,min,max] of [['geometryHistory',100,1200],['geometryPivot',2,15],['geometryMinSpan',2,100],['geometryTouchTolerance',0,10],['geometryMinTouches',0,8],['structuralPivot',4,15],['structuralMinSpan',8,100],['microPivot',1,10],['parentPivot',2,15],['turnExpiry',5,100]]){
+  const raw=o[key],value=typeof raw==='number'||typeof raw==='string'&&raw.trim()!==''?Number(raw):NaN;
+  o[key]=finite(value)?Math.max(min,Math.min(max,Math.round(value))):DEFAULT_GEOMETRY[key];
+ }
  return o;
 }
 export function geometryCalculationOptions(inputs={}){
- const o=geometryOptions(inputs);return Object.fromEntries(['geometryHistory','geometryPivot','geometryMinSpan','geometryTouchTolerance','geometryMinTouches','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry'].map(k=>[k,o[k]]));
+ const o=geometryOptions(inputs);return Object.fromEntries(CALCULATION_KEYS.map(k=>[k,o[k]]));
+}
+export function geometryEvidenceIdentity(identity,tick,inputs={}){
+ return JSON.stringify({source:String(identity),rule:GEOMETRY_VERSION,tick,settings:geometryCalculationOptions(inputs)});
 }
 export function validateBars(bars,tf,cutoff){
  const ms=frameMs(tf),byTime=new Map();
@@ -102,7 +109,7 @@ export class GeometryFrame {
 }
 const stageNames={contact:'Contact',escape:'Channel escape',forming:'Turn forming',shift:'1M shift',retest:'Retest held',railRetest:'Rail retest held',failed:'Failed',expired:'Expired',unavailable:'Unavailable'};
 export class MicroTurns {
- constructor({tick,inputs={},identity=''}={}){this.tick=tick;this.o=geometryOptions(inputs);this.identity=identity;this.candidates=[];this.events=[];this.previous=null;this.index=0;this.used=new Set();}
+ constructor({tick,inputs={},identity=''}={}){this.tick=tick;this.o=geometryOptions(inputs);this.identity=geometryEvidenceIdentity(identity,tick,inputs);this.candidates=[];this.events=[];this.previous=null;this.index=0;this.used=new Set();}
  event(c,stage,bar,extra={}){const e={id:`${c.id}:${stage}`,candidateId:c.id,side:c.side,family:c.family,frame:'1',stage,knownAt:bar.time+60000,price:bar.close,reference:c.reference,geometry:c.geometry,invalidation:c.invalidation,...extra};c.stage=stage;c.next=stage==='shift'?'Retest of frozen level':stage==='retest'||stage==='railRetest'?'Independent 5M / parent evidence':stage==='contact'||stage==='forming'||stage==='escape'?'Close through frozen 1M reference':'Fresh geometry contact';c.lastEvent=e;this.events.push(e);return e;}
  feed(bar,{channels=[],pivots=[],parents=[],available=true}={}){
   const now=bar.time+60000,tick=this.tick,prior=this.previous;this.index++;
@@ -127,7 +134,7 @@ export class MicroTurns {
     }).sort((a,b)=>Number(b.frame)-Number(a.frame)||b.spanBars-a.spanBars||a.id.localeCompare(b.id));
     const g=matches.find(g=>!this.used.has(`${g.id}:${side}:${family}`));if(!g)continue;
     const ref=pivots.filter(p=>p.side===side&&p.knownAt<=bar.time).at(-1)||null;
-    const c={id:`${this.identity}:${GEOMETRY_VERSION}:${family}:${side}:${bar.time}`,side,family,startIndex:this.index,startedAt:now,reference:ref?copy(ref):null,invalidation:side>0?bar.low:bar.high,geometry:{...copy(g),projected:bar.time>g.endAt},parents:copy(parents),stage:family==='escape'?'escape':'contact',terminal:false,shiftAt:null};
+    const c={id:`${this.identity}:${family}:${side}:${bar.time}`,side,family,startIndex:this.index,startedAt:now,reference:ref?copy(ref):null,invalidation:side>0?bar.low:bar.high,geometry:{...copy(g),projected:bar.time>g.endAt},parents:copy(parents),stage:family==='escape'?'escape':'contact',terminal:false,shiftAt:null};
     this.used.add(`${g.id}:${side}:${family}`);if(this.used.size>1000)this.used.delete(this.used.values().next().value);this.candidates.push(c);this.event(c,c.stage,bar,{gapEscape:family==='escape'&&(side>0?bar.low>channelBounds(g,bar.time).high:bar.high<channelBounds(g,bar.time).low)});this.advance(c,bar,prior);
    }
   }

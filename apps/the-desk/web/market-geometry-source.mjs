@@ -1,6 +1,7 @@
 import {GEOMETRY_FRAMES,frameMs,validateBars,aggregateThirty} from './market-geometry-model.mjs';
 const same=(a,b)=>['time','open','high','low','close','volume'].every(k=>a[k]===b[k]);
 export function geometryCutoff(req,now=Date.now(),context={}){
+ if(req.mode==='live'&&context.replay===false)return now;
  if(Number.isFinite(context.cutoff))return Math.min(now,context.cutoff);
  const last=(req.getBars?.()||req.bars||[]).at(-1);return last?Math.min(now,last.time+frameMs(req.market.timeframe)):now;
 }

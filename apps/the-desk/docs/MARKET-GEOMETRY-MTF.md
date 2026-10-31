@@ -116,9 +116,13 @@ adapter with a shallower limit yields explicitly shorter coverage.
 The dedicated module worker owns all numeric states; the main-thread adapter
 owns asynchronous data, source identity, generation cancellation and drawing.
 Periodic refresh keeps 1M evaluation advancing on a 1H view. Original-mode Pine
-runs through the existing compatibility worker. Unrecognized edited catalog
-sources execute their own Pine rather than having their logic replaced by the
-host. Missing exact-symbol tick metadata blocks MTF decisions.
+runs through the existing compatibility worker. Edited catalog sources execute
+their own chart-timeframe Pine rather than having their logic replaced by the
+host; the Desk marks them as custom/chart-only, warns that dedicated MTF
+controls are inactive, and does not advertise those controls. Missing
+exact-symbol tick metadata blocks MTF decisions. Explicit live sessions use the
+current clock; replay and unknown contexts remain bounded by their supplied
+cutoff or viewing-chart history.
 
 The Desk supplies the chart-specific replay cutoff; forming replay candles use
 their opening timestamp so no unseen intrabar prices enter source confirmations.
