@@ -26,7 +26,7 @@ Python 3.9+ and Node 22 are available on this machine. The checked-in Vela brows
 | Markets | BTC, ETH and SOL on Coinbase spot and Hyperliquid perpetuals; qualified source identity, server quote age and visible stale/unavailable states |
 | Watchlist and DOM | Six market rows, streaming price/size/cumulative-total book, red/green depth bars and change highlights, source switching, click-to-stage limits, adjacent paper ticket |
 | Ticket | Buy/sell, market/limit/stop market/stop limit, units/USD notional/percentage/risk sizing, commission/risk/reward estimates, optional SL/TP, GTC or timed expiry |
-| Chart trader | Draft/working/position/protection lines aligned with the native price pane; context-menu staging, one-click paper actions, drag amendment and keyboard Enter editing; see [chart trading](CHART-TRADING.md) |
+| Chart trader | Draft/working/position/protection lines aligned with the native price pane; one-click paper actions, focus-preserving manager controls, drag amendment and keyboard shortcuts; see [chart trading](CHART-TRADING.md) and [trade experience](TRADE-EXPERIENCE.md) |
 | Account manager | Separate virtual balances and ledgers; orders, open positions, executions, event history, partial close, reversal, SL/TP amendment and cancellation |
 | Paper backend | Server-owned matching/timers, quote freshness and precision checks, spot inventory, virtual buying power, fees/realized cash, atomic receipts/outbox, idempotent commands and revision checks |
 | Alerts | Durable one-shot above/below alerts evaluated by the server; visible event/toast when this account workspace is open |
@@ -34,6 +34,7 @@ Python 3.9+ and Node 22 are available on this machine. The checked-in Vela brows
 | Strategy study | Reused completed-bar SMA crossover tester, next-bar-open fills, configurable fees, realized P&L/drawdown, source/interval/cutoff and trade table |
 | Lux Journal | Original UI embedded and linked with the selected durable account; original executions, trade reconstruction, calendar, notes, playbooks and reports; authenticated retry queue and duplicate receipts |
 | Export | Complete account-scoped orders, positions, fills, cash ledger and events as JSON, including simulation/cost/UTC metadata |
+| Trade recording | Arm browser-visible chart capture for selected paper activity, with a 120-second post-roll and dated archive; see [trade experience](TRADE-EXPERIENCE.md) |
 
 Use the main **+ Alert** button for server alerts. Vela's native chart alert panel belongs to its own chart runtime. Chart interval controls change bar aggregation; they are not an automated trading decision cadence.
 
@@ -157,5 +158,6 @@ settings, provenance and calibration boundaries.
 ## Trading chart chat
 
 The left-side Chart chat adds bounded chart tools, RIDER / Spider evidence reviews,
-optional web research and native source-scoped drawings. See [CHART-CHAT.md](CHART-CHAT.md)
-for supported prompts, methods, limits and acceptance checks.
+optional web research, native source-scoped drawings and explicitly requested
+paper trading tasks. See [CHART-CHAT.md](CHART-CHAT.md) for supported prompts,
+paper-action guards, methods, limits and acceptance checks.

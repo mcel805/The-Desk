@@ -36,6 +36,12 @@ Baseline attribution: the unchanged original checkout also fails the same Cleo i
 
 ## Chat trading correction
 
-Normal chart chat now routes explicit trading requests into typed paper actions: market/limit/stop/stop-limit, amendment, cancellation, partial/full close, bracket changes, cancellation batches, flatten and reversal. It resolves requested levels against captured drawings and uses the selected account/chart and ticket quantity context. Missing or ambiguous details and concerns return a discussion response. New unprotected entries require explicit wording. Plan validation invokes the real engine inside a rolled-back transaction; execution rechecks current engine constraints. Up to eight actions commit atomically under one durable command key. Duplicate/lost-response retries return the original receipt. Context changes, replay, broker selection, expiry and stale revisions block execution. Existing research and chart controls remain available. Paper order acceptance and actual fills are distinguished in the receipt.
+The authoritative chat-trading contract, including supported paper actions,
+ambiguity handling, engine validation, idempotency and chart-context guards, is
+maintained in [CHART-CHAT.md](CHART-CHAT.md). This acceptance record does not
+duplicate that contract.
 
-Verification: six backend trade tests, twenty existing chart-chat tests, and all three browser suites pass. Browser chat creates an actual engine order with entry/SL/TP chart lines, deduplicates execution retries and asks for missing size without placing another order. A real Codex request also translated the exact 77,699 / 78,094 / 77,072 short into an accepted working limit in an isolated temporary paper account. No real account or live order was exercised.
+Verification covered backend trade tests, existing chart-chat tests and the
+browser suites: chart chat created an engine order with entry/SL/TP chart lines,
+deduplicated execution retries and asked for missing size without placing another
+order. No real account or live order was exercised.
