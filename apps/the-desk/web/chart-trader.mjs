@@ -104,7 +104,10 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
   }
   function frame(now=0){
     requestAnimationFrame(frame);
-    if(document.hidden||now-lastFrame<(drag?15:32))return;lastFrame=now;
+    // Keep chart-attached levels in step with the chart compositor while idle
+    // too. A 32 ms cap left axis badges one frame behind the live scale and
+    // made fixed order/SL/TP prices shimmer as streaming bars redrew.
+    if(document.hidden||now-lastFrame<16)return;lastFrame=now;
     const ws=workspace(),s=state(),c=config();
     if(editing&&!editing.saving&&!validEdit(editing)){editing=null;toast('Chart edit discarded because the order or chart changed.',true);}
     if(drag&&!validDrag(drag))drag=null;
@@ -136,7 +139,8 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
         let node=nodes.get(level.key);if(!node){node=createLine(level,wrap,cell,pane);nodes.set(level.key,node);}node.level=level;node.dataset.price=level.price;node.dataset.kind=level.kind;node.dataset.field=level.field;node.dataset.itemId=level.item?.id||'';
         const protection=['stop','target'].includes(level.field),item=level.item;
         level={...level,color:level.field==='stop'?'#ffb300':level.field==='target'?'#089981':item.side==='buy'?'#2962ff':'#f23645'};
-        const placement=tradeLevelPlacement(native.coords.priceToY(level.price,pane.scale,pane.bounds),pane.bounds),y=placement?.y;
+        const rawY=native.coords.priceToY(level.price,pane.scale,pane.bounds),pixelRatio=window.devicePixelRatio||1;
+        const placement=tradeLevelPlacement(Number.isFinite(rawY)?Math.round(rawY*pixelRatio)/pixelRatio:rawY,pane.bounds),y=placement?.y;
         node.offscale=placement?.edge||null;node.classList.toggle('offscale',!!node.offscale);node.dataset.edge=node.offscale||'';
         node.style.display=placement?'':'none';setStyle(node,'top',y+'px');setStyle(node,'right',axisWidth+'px');node.style.left='0px';node.style.setProperty('--level',level.color);node.classList.toggle('draft',level.kind==='draft');
         node.classList.toggle('protection',['stop','target'].includes(level.field));node.classList.toggle('dragging',dragging);
