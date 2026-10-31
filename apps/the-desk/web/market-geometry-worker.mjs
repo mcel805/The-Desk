@@ -9,8 +9,7 @@ const CHECKPOINT_LIMIT=24,checkpoints=new Map();
 const checkpointKey=(req,id,source,inputs,tick,cutoff,context)=>{const phase=context?.replay===true?'replay':context?.replay===false?'live':'unknown',boundary=phase==='replay'||phase==='unknown'?(Number.isFinite(context?.cutoff)?context.cutoff:cutoff):null;return JSON.stringify([id,req.market?.symbol||'',source,req.mode||'static',phase,boundary,tick,geometryCalculationOptions(inputs)]);};
 const getCheckpoint=key=>{const value=checkpoints.get(key);if(value){checkpoints.delete(key);checkpoints.set(key,value);}return value||null;};
 const setCheckpoint=(key,value)=>{checkpoints.delete(key);checkpoints.set(key,value);while(checkpoints.size>CHECKPOINT_LIMIT)checkpoints.delete(checkpoints.keys().next().value);};
-const usableCheckpoint=(checkpoint,sources)=>checkpoint&&GEOMETRY_FRAMES.every(tf=>{const source=sources[tf];return source?.status==='ready'&&source.bars.length>0&&!source.gaps?.length;})?checkpoint:null;
-const resumeCheckpoint=(checkpoint,sources)=>{if(!checkpoint)return null;const resumed=structuredClone(checkpoint);for(const tf of GEOMETRY_FRAMES){const source=sources[tf],last=resumed.frames?.[tf]?.lastTime,step=Number(tf)*60000;if(source?.bars[0]&&last!=null&&source.bars[0].time>last+step)resumed.frames[tf].lastTime=source.bars[0].time-step;}return resumed;};
+const usableCheckpoint=(checkpoint,sources)=>checkpoint&&GEOMETRY_FRAMES.every(tf=>{const source=sources[tf],last=checkpoint.frames?.[tf]?.lastTime;return source?.status==='ready'&&source.bars.length>0&&!source.gaps?.length&&(last==null||source.bars.some(b=>b.time===last));})?checkpoint:null;
 // Deliberately hash-owned: edited Pine executes its own chart-only rules.
 export const isMTFGeometrySource=s=>typeof s==='string'&&s.includes('// Desk MTF Geometry v2.');
 const digest=async s=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s.replace(/\r\n/g,'\n'))))].map(v=>v.toString(16).padStart(2,'0')).join('');
@@ -58,7 +57,7 @@ export class MarketGeometryWorker {
     if(!tick){for(const s of Object.values(sources)){s.error='Verified source tick metadata unavailable';s.status='unavailable';s.bars=[];}}
     const key=JSON.stringify([req.market.symbol,req.market.symbolInfo?.timezone,req.market.symbolInfo?.session,tick,geometryCalculationOptions(o)]);
     if(lastKey!==key){lastKey=key;alertBaseline=false;}
-    const scope=checkpointKey(req,id,req.prepared.token.source,inputs,tick||0,cutoff,ctx),checkpoint=resumeCheckpoint(usableCheckpoint(getCheckpoint(scope),sources),sources);
+    const scope=checkpointKey(req,id,req.prepared.token.source,inputs,tick||0,cutoff,ctx),checkpoint=usableCheckpoint(getCheckpoint(scope),sources);
     const computed=await compute({generation:revision,key,config:{identity:req.market.symbol,tick:tick||0,inputs,checkpoint},sources,cutoff});if(stopped||revision!==generation)return;result=computed.result;if(computed.checkpoint)setCheckpoint(scope,computed.checkpoint);
     if(inputs.stageAlerts&&alertBaseline&&!ctx.replay&&!id.startsWith('pine-test-')&&sources['1'].status==='ready')for(const e of result.turns.events)if(e.knownAt>lastAlertTime&&e.knownAt>=cutoff-60000)handlers.onAlert?.({id:e.id,title:'Geometry · '+e.stage,message:`${e.side>0?'Bullish':'Bearish'} ${e.family} · ${e.stage} · 1M · ${req.market.symbol}`,time:e.knownAt,barIndex:Math.max(0,(req.getBars?.()||req.bars).length-1),freq:'once_per_bar_close'});
     lastAlertTime=Math.max(lastAlertTime,...result.turns.events.map(e=>e.knownAt));alertBaseline=true;lastMinute=Math.floor(cutoff/60000);emit();handlers.onDone?.();
