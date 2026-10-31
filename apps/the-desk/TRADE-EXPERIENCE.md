@@ -19,9 +19,16 @@ Trading manager: focus-preserving position/order rows, working/history and marke
 
 Recorder: arm from chart, capture chart canvases and trade overlays at up to 15fps, start on observed working limit or open position, retain 120 seconds after no remaining scoped positions/orders. Partial closes retain capture. Browser visibility/context changes interrupt explicitly. This is browser-visible chart recording, not an unattended desktop or verified live-broker recorder. Existing paper command acknowledgements trigger observation; background fills are observed through state polling, not exchange-timestamp synchronization. No audio is captured.
 
-Archive: managed data directory/trade-videos/YYYY-MM-DD/unique-id/chart.webm and manifest.json. Session dates use America/Los_Angeles. Sequential hashed chunks deduplicate retries; incomplete appends are replaced on retry. No automatic deletion. Existing external storage guards and reservations apply. Temporary/local storage is labeled. USB was absent during development, so real USB removal/reconnect remains acceptance work.
+Archive: with the production recording policy, files use external_root/live/desk/trade-videos/YYYY-MM-DD/unique-id/chart.webm and manifest.json. Session dates use America/Los_Angeles. Sequential hashed chunks deduplicate retries; incomplete appends are replaced on retry. No automatic deletion. Existing external storage guards and reservations apply. Recording requires the configured USB identity and capacity; a missing or disconnected drive refuses recording and never falls back to local storage. Only explicitly isolated test constructors may use labeled local storage.
 
-Validation evidence so far: original full browser trading suite passes before and after manager changes; 38 engine tests, 39 focused JS checks, 20 chart-chat tests, five archive tests pass. A real Codex image request read the synthetic screenshot and correctly distinguished separate fixture numbers. New browser acceptance passed: real WebM encode/decode, ranged playback, filters, focus persistence, presets, chart layouts/styles, Pine submission and tablet overflow. A separate Pine runtime test passed bounded geometry and completed-breakout invalidation. Synthetic navigation loaded in 332 ms with one 81 ms long task; this is not a whole-site or production performance verdict. No-mistakes run 01M67TKJ8TFBZ6WHN5717M75WD failed before review due to the configured runner usage limit and TradingView MCP authentication. No push, PR or CI validation completed.
+Recording access is intentionally trusted-local, like the Desk's other loopback
+surfaces: catalog, media, start, chunk and finish routes accept any same-machine
+process that can satisfy the Desk loopback Host/origin checks. Recording IDs are
+not credentials, and there is no per-account authentication boundary. Keep the
+server bound to loopback; network or multi-user hosting requires a separate
+authenticated access model.
+
+Validation evidence so far: original full browser trading suite passes before and after manager changes; 38 engine tests, 39 focused JS checks, 20 chart-chat tests, six archive tests pass. A real Codex image request read the synthetic screenshot and correctly distinguished separate fixture numbers. New browser acceptance passed: real WebM encode/decode, ranged playback, filters, focus persistence, presets, chart layouts/styles, Pine submission and tablet overflow. A separate Pine runtime test passed bounded geometry and completed-breakout invalidation. Synthetic navigation loaded in 332 ms with one 81 ms long task; this is not a whole-site or production performance verdict. No-mistakes run 01M67TKJ8TFBZ6WHN5717M75WD failed before review due to the configured runner usage limit and TradingView MCP authentication. No push, PR or CI validation completed.
 
 ## Extended test pass
 
@@ -52,4 +59,8 @@ On the active dev server the recorder was unarmed and had no clips. An attempted
 
 ## USB-only recording
 
-Recording now requires the configured USB identity and capacity, independent of the dev ledger's local dataset. Production archive root is external_root/live/desk/trade-videos; missing recording policy or disconnected USB refuses recording with no local fallback. Only isolated test constructors explicitly opt out. Current dev server uses DESK_RECORDING_POLICY pointing at the existing managed USB policy. Existing local video files were copied, SHA-256 verified, then removed locally (0 bytes remain in the local video directory). The current recording API reports EXTERNAL and new bytes under the dated USB folder. The red tag now identifies USB capture. Six archive tests pass, including refusing local fallback without a valid policy.
+The archive policy above is enforced independently of the dev ledger's local
+dataset. Current verification used `DESK_RECORDING_POLICY` with the managed USB
+policy; the recording API reported `EXTERNAL` and wrote new bytes under the dated
+USB folder. The red tag identifies USB capture. Six archive tests pass, including
+refusal of local fallback without a valid policy.

@@ -1,4 +1,4 @@
-"""Chunked chart video archive in the same managed data root as Swing Lab."""
+"""Chunked chart video archive using the configured managed storage policy."""
 from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
