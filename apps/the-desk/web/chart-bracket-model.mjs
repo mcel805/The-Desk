@@ -51,9 +51,9 @@ export function draftTradingLevels(item,quote,amend,remove){
 // The chart shows gross quote-currency P&L; fees are accounted for by the ledger.
 export function chartBracketMetrics(item,field,quote={}){
  const entry=Number(item.entry??item.price??item.trigger),price=Number(item[field]);
- const distance=(price-entry)*(item.side==='buy'?1:-1),qty=Number(item.qty);
- const risk=Math.abs(Number(item.stop)-entry);
- return {amount:distance*qty,ticks:distance/Number(quote.tick||.01),ratio:field==='target'&&positive(item.stop)&&risk>0?Math.abs(price-entry)/risk:null};
+ const sign=item.side==='buy'?1:-1,distance=(price-entry)*sign,qty=Number(item.qty);
+ const risk=(entry-Number(item.stop))*sign;
+ return {amount:distance*qty,ticks:distance/Number(quote.tick||.01),ratio:field==='target'&&positive(item.stop)&&risk>0&&distance>0?distance/risk:null};
 }
 export function chartEntry(item){return Number(item.entry??(item.kind==='stop'?item.trigger:item.price)??item.trigger);}
 export function chartMove(item,field,value,tick,kind='order',quote={}){

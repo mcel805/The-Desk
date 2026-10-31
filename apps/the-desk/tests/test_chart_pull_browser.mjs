@@ -16,6 +16,7 @@ test('pull TP/SL from entry, preview/confirm/discard, quantity and context cance
  const post=async(path,data)=>(await page.request.post(url+path,{data})).json();
  async function until(fn){const end=Date.now()+10000;while(Date.now()<end){if(await fn())return;await page.waitForTimeout(60);}throw Error('Expectation timed out');}
  const line=(id,field='price')=>page.locator(`.trade-line[data-item-id="${id}"][data-field="${field}"]`).first();
+ const contrast=locator=>locator.evaluate(e=>{const rgb=value=>value.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255);const lum=value=>value.map(v=>v<=.03928?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);const fg=rgb(getComputedStyle(e).color),bg=rgb(getComputedStyle(e).backgroundColor),a=lum(fg),b=lum(bg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);});
  async function drag(button,dy,beforeRelease){await button.hover();const b=await button.boundingBox();await page.mouse.down();await page.mouse.move(b.x+b.width/2,b.y+b.height/2+dy,{steps:12});await page.waitForTimeout(80);await beforeRelease?.();await page.mouse.up();}
  async function setting(instant){await page.locator('#tradingSettings').click();await page.locator('[name=instant]').setChecked(instant);await page.locator('#dialogForm button[type=submit]').click();await page.locator('#dialog').waitFor({state:'hidden'});}
  async function ticket(side,kind='limit'){
@@ -34,7 +35,7 @@ test('pull TP/SL from entry, preview/confirm/discard, quantity and context cance
  await draft.locator('[data-action=cancel]').click();await draft.waitFor({state:'detached'});
  // Both buy and sell orders begin naked; each leg must be created by the pull.
  for(const side of ['buy','sell']){
-  await ticket(side);await page.locator('#submitOrder').click();let order;await until(async()=>!!(order=(await state()).orders.find(o=>o.side===side&&o.status==='working')));await line(order.id).waitFor({state:'visible'});
+  await ticket(side);await page.locator('#submitOrder').click();let order;await until(async()=>!!(order=(await state()).orders.find(o=>o.side===side&&o.status==='working')));await line(order.id).waitFor({state:'visible'});assert.ok(await contrast(line(order.id).locator('.trade-price-badge'))>=3);
   let count=(await commands()).length;await drag(line(order.id).locator('[data-action=add-stop]'),side==='buy'?35:-35,async()=>assert.equal((await commands()).length,count));
   await until(async()=>!!(await state()).orders.find(o=>o.id===order.id)?.stop);
   await drag(line(order.id).locator('[data-action=add-target]'),side==='buy'?-60:60);await until(async()=>!!(await state()).orders.find(o=>o.id===order.id)?.target);
@@ -57,7 +58,9 @@ test('pull TP/SL from entry, preview/confirm/discard, quantity and context cance
  await drag(line(position.id,'entry').locator('[data-action=add-stop]'),-40);await until(async()=>!!(await state()).positions[0]?.stop);
  await drag(line(position.id,'entry').locator('[data-action=add-target]'),60);await until(async()=>!!(await state()).positions[0]?.target);
  assert.equal(await line(position.id,'entry').locator('[data-action=quantity]').isDisabled(),true);
- await setting(false);await drag(line(position.id,'target').locator('.trade-line-label'),25);const beforeReplay=(await commands()).length;await page.locator('#replayButton').click();await page.locator('#startReplay').click();await page.locator('.trade-line').first().waitFor({state:'detached'});await page.locator('#stopReplay').click();await line(position.id,'entry').waitFor({state:'visible'});assert.equal(await line(position.id,'entry').locator('[data-action=confirm]').isVisible(),false);assert.equal((await commands()).length,beforeReplay);
+ await setting(false);await drag(line(position.id,'target').locator('.trade-line-label'),25);await line(position.id,'entry').locator('[data-action=confirm]').waitFor({state:'visible'});
+ const positionBeforeManager=await state(),managerStop=Number(positionBeforeManager.positions[0].stop)+1;await page.locator('[data-panel=positions]').click();await page.locator(`[data-bracket="${position.id}"]`).click();await page.locator('#dialog').waitFor({state:'visible'});await page.locator('#dialogForm input[name=stop]').fill(String(managerStop));await page.locator('#dialogForm button[type=submit]').click();await page.locator('#dialog').waitFor({state:'hidden'});await until(async()=>!(await line(position.id,'entry').locator('[data-action=confirm]').isVisible()));assert.equal(Number((await state()).positions[0].stop),managerStop);
+ const beforeReplay=(await commands()).length;await page.locator('#replayButton').click();await page.locator('#startReplay').click();await page.locator('.trade-line').first().waitFor({state:'detached'});await page.locator('#stopReplay').click();await line(position.id,'entry').waitFor({state:'visible'});assert.equal(await line(position.id,'entry').locator('[data-action=confirm]').isVisible(),false);assert.equal((await commands()).length,beforeReplay);
  if(process.env.DESK_CHART_SCREENSHOT)await page.screenshot({path:process.env.DESK_CHART_SCREENSHOT});
  await page.setViewportSize({width:800,height:1000});await page.waitForTimeout(150);assert.ok((await line(position.id,'entry').locator('.trade-line-controls').boundingBox()).x>=0);
  assert.deepEqual(errors,[]);

@@ -18,7 +18,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
     if(editing?.saving||pending(level.item.account_id,level.item.id))return;
     if(editing&&editing.original.id!==level.item.id){toast('Confirm or discard the current chart changes first.',true);return;}
     workspace().setActiveCell(cell.id);
-    if(!editing)editing={...scope(cell),kind:level.kind,original:level.item,changes:{},error:''};
+    if(!editing)editing={...scope(cell),kind:level.kind,original:{...level.item},changes:{},error:''};
     Object.assign(editing.changes,changes);editing.error='';
     if(config().instant)void confirmEdit();
   }
@@ -33,7 +33,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
   function startDrag(e,node,cell,field=node.level.field,pull=false){
     const l=node.level;if(e.button!==0||node.offscale||pending(l.item.account_id,l.item.id)||editing?.saving||l.kind==='position'&&field==='entry')return;
     e.preventDefault();e.stopPropagation();workspace().setActiveCell(cell.id);
-    const native=wraps.get(cell.id).native,level={...l,field};
+    const native=wraps.get(cell.id).native,level={...l,item:{...l.item},field};
     const price=pull?chartEntry(l.item):l.price;
     drag={node,level,startY:e.clientY,startPrice:price,price,native,pane:native.scene.panes.get('price'),pull,...scope(cell)};e.currentTarget.setPointerCapture(e.pointerId);
   }

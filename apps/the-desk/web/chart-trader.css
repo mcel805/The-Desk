@@ -16,8 +16,8 @@
 .trade-overlay .trade-line .chart-confirm{color:#fff;background:var(--blue);border-left:1px solid var(--level)}
 .trade-overlay .trade-line.editing{border-top-style:dashed}
 .trade-overlay .trade-line.invalid .trade-line-detail{color:#ff8891}
-.trade-overlay .trade-line .trade-price-badge{height:23px;top:-12px;font-size:11px;background:var(--bg);border:1px solid var(--level);color:var(--level);font-weight:500}
-.trade-overlay .trade-line.dragging .trade-price-badge{background:var(--level);color:#131722}
+.trade-overlay .trade-line .trade-price-badge{height:23px;top:-12px;font-size:11px;background:var(--bg);border:1px solid var(--level);color:var(--level)!important;font-weight:500}
+.trade-overlay .trade-line.dragging .trade-price-badge{background:var(--level);color:#131722!important}
 .trade-overlay .trade-line .chart-quantity-editor{position:absolute;right:0;top:30px;display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:5px;box-shadow:0 4px 16px #0006;padding:8px;z-index:8}
 .trade-overlay .trade-line .chart-quantity-editor input{width:100px;padding:5px;color:var(--text);font-size:12px}
 .trade-overlay .trade-line .chart-quantity-editor button{border:1px solid var(--line);color:var(--text);cursor:pointer}
