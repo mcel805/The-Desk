@@ -2,7 +2,6 @@ import {marketIdentity} from './trading-model.mjs';
 import {RecordingLifecycle} from './trade-recorder-model.mjs';
 export function setupTradeRecorder({workspace,state,broker,toast}){
  const button=document.createElement('button');button.id='tradeRecorder';button.textContent='○ Record trades';button.title='Arm automatic chart recording for this account and chart';document.querySelector('.quote-strip .header-spacer').before(button);
- const badge=document.createElement('div');badge.id='chartRecordingBadge';badge.setAttribute('role','status');badge.setAttribute('aria-live','polite');badge.hidden=true;document.querySelector('.chart-section').append(badge);
  const library=document.createElement('a');library.href='/trade-videos.html';library.target='_blank';library.rel='noopener';library.textContent='Videos ↗';button.after(library);
  let armed=false,pinned=null,life=null,recorder=null,stream=null,canvas=null,context=null,session=null,queue=Promise.resolve(),seq=0,queuedBytes=0,starting=false,stopping=false,failed=false,lastState=null,lastPaint=0,savedBytes=0,lastSaved=0,automatic=localStorage.getItem('desk.recorder.auto')!=='false',autoAttempted=false;
  async function api(path,data){const r=await fetch('/api/trade-videos'+path,data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const v=await r.json();if(!r.ok)throw Error(v.error||'Video storage unavailable');return v;}
@@ -15,7 +14,7 @@ export function setupTradeRecorder({workspace,state,broker,toast}){
   for(const label of host.querySelectorAll('.trade-line-controls,.trade-price-badge')){const r=label.getBoundingClientRect();if(!r.width||!r.height)continue;const x=(r.left-rect.left)*sx,y=32+(r.top-rect.top)*sy;context.fillStyle='#1e222d';context.fillRect(x,y,r.width*sx,r.height*sy);context.fillStyle=getComputedStyle(label).color;context.font='11px sans-serif';context.fillText(label.textContent,x+3,y+14);}
   context.fillStyle='#d1d4dc';context.font='12px sans-serif';context.fillText(`${pinned.instrument} · ${pinned.timeframe} · PAPER · ${new Date().toISOString()}`,10,21);
  }
- function label(text){button.textContent=text;button.setAttribute('aria-pressed',String(armed));badge.hidden=!armed&&!failed;badge.dataset.state=failed?'error':recorder&&savedBytes?'recording':'starting';badge.textContent=failed?'● RECORDING FAILED':recorder&&savedBytes?'● RECORDING'+(session?.storage_mode==='EXTERNAL'?' · USB':'')+' · '+(savedBytes/1024).toFixed(0)+' KB saved'+(life?.deadline?' · POST-TRADE':'') :recorder?'● STARTING · awaiting saved video':armed?'◉ AUTO RECORD ARMED':'';badge.title=lastSaved?'Last video chunk saved '+new Date(lastSaved).toLocaleTimeString():text;}
+ function label(text){button.textContent=text;button.setAttribute('aria-pressed',String(armed));button.title=lastSaved?'USB recording · '+(savedBytes/1024).toFixed(0)+' KB saved · last chunk '+new Date(lastSaved).toLocaleTimeString():text;}
  function error(e){failed=true;toast('Recording interrupted: '+e.message,true);label('⚠ Video interrupted');void stop('error');}
  async function start(){
   if(starting||recorder||stopping)return;starting=true;
