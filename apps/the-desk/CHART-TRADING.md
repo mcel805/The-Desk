@@ -14,7 +14,7 @@ trading** to enable direct actions.
 - Close exits the full position directly. **Partial** opens the quantity editor.
   Click the entry or use Modify for exact values; pull TP / SL from entry for chart protection. Reverse, DOM batch cancels
   and Flatten also honor the one-click setting.
-- Disabling one-click uses inline Confirm / Discard for chart amendments and review dialogs for placement/cancellation/other actions.
+- Disabling one-click keeps a new limit projection on the chart until its ✓ placement button is pressed. Chart amendments use inline Confirm / Discard; cancellation and other management actions retain their review dialogs.
   Replay, account ownership, revisions, precision, quote freshness, buying power
   and spot inventory checks still apply.
 - Robinhood keeps its account-bound native preview and final live-order review.
