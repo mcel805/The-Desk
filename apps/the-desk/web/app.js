@@ -21,6 +21,7 @@ import {upgradeLiquidityWorkspace} from './liquidity-catalog-upgrade.mjs';
 import {setupChartAccount} from './chart-account.mjs';
 import {RobinhoodProvider,brokerMoney} from './account-context.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
+import {geometryContextForOwner} from './market-geometry-context.mjs';
 
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -410,10 +411,7 @@ document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
 $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER trading (place, cancel, drag, close and reverse)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">One-click paper trading is on by default. Chart limits use your current ticket size and optional protection. Turn it off for confirmation dialogs. Click SL / TP or Modify to enter exact values; drag levels to amend immediately. Quote freshness and replay checks always apply. Robinhood uses its native live-order review.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
 
-setupPineEditor({saveSettings,geometryContext:(market,id)=>{
- const chart=ws?.cells().find(c=>c.chart.indicators().some(h=>h.id===id))?.chart,r=chart?.replay.state;
- return {light:document.body.classList.contains('light'),replay:!!r?.active,...(r?.active&&r.cursorTime!=null?{cutoff:r.cursorTime+(r.nextTime===r.cursorTime?0:timeframeMs(market.timeframe))}:{})};
-}});
+setupPineEditor({saveSettings,geometryContext:(market,id,owner)=>geometryContextForOwner(ws?.cells(),owner,market,{light:document.body.classList.contains('light')})});
 
 async function reviewBrokerTicket(){
  if(busy)return;

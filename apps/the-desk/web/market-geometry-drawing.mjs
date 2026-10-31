@@ -9,10 +9,10 @@ const observedWorkingTip=(s,locked,working)=>{
  let point=bars[0];for(const b of bars)if(side>0?b.high>point.high:b.low<point.low)point=b;
  const latest=bars.at(-1);return latest.time>=point.time?{time:latest.time,price:side>0?latest.high:latest.low,side}:{time:point.time,price:side>0?point.high:point.low,side};
 };
-const contactScope=(candidate,cutoff)=>{const g=candidate.geometry||{},projected=Boolean(g.projected||g.endAt>cutoff),frame=g.frame||'1';return `${projected?'projected':'audited'} ${name(frame)} rail · audited through ${tip(cutoff)}`;};
+const contactScope=(candidate,cutoff)=>{const g=candidate.geometry||{},projected=Boolean(g.projected||g.endAt>cutoff),frame=g.frame||'1',auditedThrough=Number.isFinite(g.endAt)?g.endAt+frameMs(frame):cutoff;return `${projected?'projected':'audited'} ${name(frame)} rail · audited through ${tip(auditedThrough)}`;};
 export function geometryDrawing(result,{id,inputs={},schema=[],props={},sources={},light=false,viewTimeframe='1',liveBar=null,compact=false}={}){
  const o=geometryOptions(inputs),lines=[],labels=[],tables=[],prefix=id+':geometry:',micro=o.geometryMode==='Micro detail',macro=o.geometryMode==='Big picture',inspect=o.geometryMode==='Inspect';
- const color=tf=>{const custom=inputs['frameColor'+tf],defaultInk=FRAME_STYLE[tf].color;return light&&(!custom||custom.slice(0,7).toUpperCase()===defaultInk)?({60:'#2458CF',30:'#7751C9',15:'#986207',5:'#087F83',1:'#39475D'})[tf]:custom||defaultInk;};
+ const color=tf=>{const custom=inputs['frameColor'+tf],defaultInk=FRAME_STYLE[tf].color,untouched=!custom||String(custom).toUpperCase()===defaultInk;return light&&untouched?({60:'#2458CF',30:'#7751C9',15:'#986207',5:'#087F83',1:'#39475D'})[tf]:custom||defaultInk;};
  const line=(key,a,b,ink,width=1,style='solid',extra={})=>{if(!a||!b||b.time<=a.time)return;lines.push({id:prefix+key,paneId:'',xloc:'bar_time',x1:a.time,y1:a.price,x2:b.time,y2:b.price,color:ink,width,style,extend:'none',invisible:false,arrowLeft:false,arrowRight:false,...extra});};
  const label=(key,p,text,ink,{hollow=false,marker=false,tooltip='',style='none'}={})=>{labels.push({id:prefix+key,paneId:'',xloc:'bar_time',x:p.time,y:p.price,yloc:'price',text,style:marker?'circle':style,color:hollow?'#00000000':marker?ink:alpha(ink,'22'),textColor:ink,noFill:hollow,size:'tiny',textAlign:'left',fontFamily:'default',tooltip});};
  for(const tf of GEOMETRY_FRAMES){
