@@ -56,13 +56,8 @@ function stageChartTrade(next,kind='limit',price){
  if(busy)return;stage(next,kind,price);if(!draft||ws.replay.state.active)return;
  if(brokerContext?.selected){reviewChartOrder();return;}
  if(tradeConfig().instant){$('#orderForm').requestSubmit();return;}
- const q=quote();if(!q)return;
- const native=ws.chart.renderer.renderer,pane=native?.scene?.panes.get('price'),entry=entryReference();
- const y=pane?native.coords.priceToY(entry,pane.scale,pane.bounds):null;
- const distance=Number.isFinite(y)?Math.abs(entry-native.coords.yToPrice(y+40,pane.scale,pane.bounds)):undefined;
- const levels=starterBracket({entry,side,tick:q.tick,stop:$('#stopPrice').value,target:$('#targetPrice').value,distance});
- for(const field of ['stop','target'])if(levels[field])$('#'+field+'Price').value=levels[field];
- updateTicket();reviewChartOrder();
+ // A chart projection stays at the selected price until the user moves it.
+ updateTicket();
 }
 function reviewChartOrder(){
  if(brokerContext?.selected){$('#orderForm').requestSubmit();return;}

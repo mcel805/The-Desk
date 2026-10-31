@@ -36,3 +36,13 @@
  .trade-overlay .trade-line .trade-order-kind{max-width:52px}
  .trade-overlay .trade-line .trade-label-stem{right:18px}
 }
+
+/* Entry chips match the reference: TP / SL, quantity, side/type and cancel. */
+.trade-overlay .trade-line:not(.protection) .trade-line-controls{height:26px;border-radius:5px}
+.trade-overlay .trade-line:not(.protection) .trade-line-controls .trade-line-label{font-size:13px;font-weight:400;padding:3px 12px}
+.trade-overlay .trade-line .trade-line-controls .trade-quantity{font-size:13px;font-weight:400}
+.trade-overlay .trade-line .trade-bracket-handles{gap:0;right:calc(100% + 10px);height:26px}
+.trade-overlay .trade-line .trade-bracket-handles button{font-size:13px;padding:3px 9px;border-radius:0;min-width:35px}
+.trade-overlay .trade-line .trade-bracket-handles button:first-child{border-radius:4px 0 0 4px}
+.trade-overlay .trade-line .trade-bracket-handles button:last-child{border-radius:0 4px 4px 0}
+.trade-overlay .trade-line .trade-line-detail:empty{display:none}

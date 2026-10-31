@@ -69,8 +69,10 @@ Pull the teal **TP** or amber **SL** handle from an entry line, release to set t
 
 A pending entry drag translates attached stop/target distances. Positions use the executable bid/ask to constrain new protection, so stops can trail beyond entry while remaining on the correct side of the current quote. The server is authoritative for precision, buying power, validation and revisions.
 
-Click the quantity chip to resize a projection or working order. Projected order type and quantity stay synchronized with the order ticket. Position chips show quantity without resizing; use the manager's Partial action. Projections carry an explicit not-placed caption and a Place action.
+Click the quantity chip to resize a projection or working order. Quantity changes stay synchronized with the order ticket; order-type changes are made in the ticket. Position chips show quantity without resizing; use the manager's Partial action. Projection status is in the accessible title; a compact ✓ button explicitly places the projection. The entry chip contains quantity, side/type and cancel, with TP/SL handles beside it. Order type stays in the ticket.
 
 With one-click off, chart changes accumulate in one nonmodal preview, including removal of a leg. Confirm submits one revision-bound amendment; Discard or Escape restores original values. A rejected command keeps its preview with an error. Changing account, active chart, replay state or server revision discards unsaved changes. One-click mode sends the same revision-bound command on release. Existing exact-value editors, cancellation, close and reverse still use their established paths.
 
 `test_chart_pull_browser.mjs` exercises pointer pulls for naked buy/sell orders and positions, draft/ticket sync, quantity, confirmation/discard, rejection recovery, Escape, replay invalidation and tablet control placement. It uses the isolated real engine fixture and blocks external network requests.
+
+The `test_chart_limit_stability_browser.mjs` regression stages a right-click sell limit on a 1-minute chart, drives changing quote/state polls, and verifies the selected entry remains fixed. It pulls SL and TP using real pointer movement and checks both price-line geometry and the final ticket values.

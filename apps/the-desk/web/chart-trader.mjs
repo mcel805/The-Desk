@@ -60,7 +60,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
     if(cell.deskAttached)return;cell.deskAttached=true;
     cell.chart.ready().then(()=>{
       const native=cell.chart.renderer.renderer;if(!native?.plot)return;
-      const overlay=document.createElement('div');overlay.className='trade-overlay';native.plot.append(overlay);
+      const overlay=document.createElement('div');overlay.className='trade-overlay';overlay.dataset.chartTraderVersion='tv-pull-2';native.plot.append(overlay);
       const quick=document.createElement('div');quick.className='chart-quick-trade';quick.innerHTML='<button class="sell" data-quick="sell">Sell · PAPER</button><button class="buy" data-quick="buy">Buy · PAPER</button>';overlay.append(quick);quick.querySelectorAll('button').forEach(b=>b.onclick=()=>{workspace().setActiveCell(cell.id);stage(b.dataset.quick,'market');});
       const plus=document.createElement('button');plus.className='chart-price-plus';plus.textContent='+';plus.title='Trade at this chart price';plus.setAttribute('aria-label','Trade at hovered chart price');plus.hidden=true;overlay.append(plus);
       const wrap={overlay,nodes:new Map(),fills:new Map(),elliotPanels:new Map(),abcPanels:new Map(),native,quick,plus,cursorTime:null,cursorPrice:null};wraps.set(cell.id,wrap);
@@ -82,7 +82,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
     label.onclick=()=>{if(node.offscale)edit(node.level);else if(node.level.kind==='position'&&node.level.field==='entry')editBracket(node.level.item);};
     if(level.kind==='draft'||level.kind==='order'||['stop','target'].includes(level.field)){const cancel=document.createElement('button');cancel.textContent='×';cancel.dataset.action='cancel';cancel.setAttribute('aria-label',level.kind==='draft'?'Remove draft '+level.field:['stop','target'].includes(level.field)?'Remove '+level.field:'Cancel chart order');cancel.onclick=()=>{const l=node.level;if(l.kind==='draft')l.remove?.();else if(['stop','target'].includes(l.field))change(l,{[l.field]:''},cell);else cancelOrder(l.item);};group.append(cancel);}
     if(level.kind==='draft'&&level.field==='entry'){
-      const b=document.createElement('button');b.textContent='Place';b.dataset.action='place';b.setAttribute('aria-label','Review and place draft paper order');b.onclick=()=>placeDraft?.();group.append(b);
+      const b=document.createElement('button');b.textContent='✓';b.title='Place projected paper order';b.dataset.action='place';b.setAttribute('aria-label','Review and place draft paper order');b.onclick=()=>placeDraft?.();group.append(b);
     }
     if(level.kind==='position'&&level.field==='entry'){
       for(const [action,text] of [['reverse','⇄'],['close','×']]){const b=document.createElement('button');b.textContent=text;b.dataset.action=action;b.setAttribute('aria-label',action==='close'?'Close chart position':action==='reverse'?'Reverse chart position':'Protect chart position');b.onclick=()=>action==='close'?closePosition(node.level.item):action==='reverse'?reversePosition(node.level.item):editBracket(node.level.item);group.append(b);}
@@ -92,9 +92,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
       const qty=document.createElement('button');qty.className='trade-quantity';qty.dataset.action='quantity';qty.title='Change order quantity';qty.onclick=()=>quantityEditor(node,cell);group.prepend(qty);
       const handles=document.createElement('div');handles.className='trade-bracket-handles';group.prepend(handles);
       for(const [field,text] of [['target','TP'],['stop','SL']]){const handle=document.createElement('button');handle.textContent=text;handle.dataset.action='add-'+field;handle.className='trade-pull '+field;handle.setAttribute('aria-label','Drag to add '+(field==='stop'?'Stop Loss':'Take Profit'));handle.title='Drag '+text+' from entry, or click to add';handles.append(handle);bindDrag(handle,node,cell,field,true);handle.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();const l=node.level,q=state().quotes[marketIdentity(cell.chart)]||{},entry=l.kind==='position'?Number(q[l.item.side==='buy'?'bid':'ask']):chartEntry(l.item);const value=starterBracket({entry,side:l.item.side,tick:q.tick})[field];if(value)change({...l,field},{[field]:value},cell);}};}
-      if(level.kind==='draft'){
-        const kind=document.createElement('select');kind.className='trade-order-kind';kind.setAttribute('aria-label','Projected order type');for(const [value,text] of [['market','Market'],['limit','Limit'],['stop','Stop'],['stop_limit','Stop limit']]){const o=document.createElement('option');o.value=value;o.textContent=text;kind.append(o);}kind.onchange=()=>amendDraftParameter?.('kind',kind.value);group.insertBefore(kind,label);
-      }else{
+      if(level.kind!=='draft'){
         const confirm=document.createElement('button');confirm.dataset.action='confirm';confirm.className='chart-confirm';confirm.textContent='Confirm';confirm.onclick=confirmEdit;
         const discard=document.createElement('button');discard.dataset.action='discard';discard.textContent='Discard';discard.onclick=()=>{if(!editing?.saving)editing=null;};group.append(confirm,discard);
       }
@@ -137,7 +135,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
       for(let level of levels){const dragging=drag?.level.key===level.key||drag?.pull&&drag.level.kind===level.kind&&drag.level.item.id===level.item.id&&drag.level.field===level.field;
         let node=nodes.get(level.key);if(!node){node=createLine(level,wrap,cell,pane);nodes.set(level.key,node);}node.level=level;node.dataset.price=level.price;node.dataset.kind=level.kind;node.dataset.field=level.field;node.dataset.itemId=level.item?.id||'';
         const protection=['stop','target'].includes(level.field),item=level.item;
-        level={...level,color:level.field==='stop'?'#ffb300':level.field==='target'?'#089981':level.kind==='draft'?'#00bcd4':item.side==='buy'?'#2962ff':'#f23645'};
+        level={...level,color:level.field==='stop'?'#ffb300':level.field==='target'?'#089981':item.side==='buy'?'#2962ff':'#f23645'};
         const placement=tradeLevelPlacement(native.coords.priceToY(level.price,pane.scale,pane.bounds),pane.bounds),y=placement?.y;
         node.offscale=placement?.edge||null;node.classList.toggle('offscale',!!node.offscale);node.dataset.edge=node.offscale||'';
         node.style.display=placement?'':'none';setStyle(node,'top',y+'px');setStyle(node,'right',axisWidth+'px');node.style.left='0px';node.style.setProperty('--level',level.color);node.classList.toggle('draft',level.kind==='draft');
@@ -151,7 +149,7 @@ export function setupChartTrader({workspace,state,config,draftLevels,stage,menu,
         const label=node.refs.label;
         let text;
         if(protection){const m=chartBracketMetrics(item,level.field,quote);text=(level.field==='stop'?'SL  ':'TP  ')+(m.amount<0?'−':'+')+formatMoney(Math.abs(m.amount),Math.abs(Number(item.qty)*Number(quote?.tick||.01)));setText(node.refs.detail,Math.abs(m.ticks).toLocaleString('en-US',{maximumFractionDigits:2})+' ticks'+(m.ratio!=null?' · '+m.ratio.toFixed(2)+'R':'')+' · gross');}
-        else{text=level.kind==='position'?(item.side==='buy'?'LONG':'SHORT')+(c.pnl?'  '+formatPnl(positionMetrics(item,quote,c.pnlUnit)):''):(item.side==='buy'?'Buy ':'Sell ')+(item.kind||'limit').replace('_',' ')+(level.field==='trigger'&&item.kind==='stop_limit'?' · trigger':'');setText(node.refs.detail,level.kind==='draft'?(document.querySelector('#orderError')?.textContent||'Projection · not placed'):editing&&editing.original.id===item.id?(editing.error||'Unsaved changes · PAPER'):'');}
+        else{text=level.kind==='position'?(item.side==='buy'?'LONG':'SHORT')+(c.pnl?'  '+formatPnl(positionMetrics(item,quote,c.pnlUnit)):''):(item.side==='buy'?'Buy ':'Sell ')+(item.kind||'limit').replace('_',' ').replace(/^./,c=>c.toUpperCase())+(level.field==='trigger'&&item.kind==='stop_limit'?' · trigger':'');setText(node.refs.detail,level.kind==='draft'?(document.querySelector('#orderError')?.textContent||''):editing&&editing.original.id===item.id?(editing.error||'Unsaved changes · PAPER'):'');}
         if(node.offscale)text=(node.offscale==='top'?'↑ ':'↓ ')+text+' · '+formatTradePrice(level.price)+' · off scale';
         setText(label,text);label.title=(level.kind==='draft'?'Projection':'Paper')+' · '+item.side+' '+item.qty+' · '+(protection?'Gross P&L before fees':'Drag price; click to edit');label.setAttribute('aria-label',(protection?bracketLabel(item,level.field,quote):text)+' at '+level.price+(node.offscale?'. Outside visible price scale. Click or press Enter to edit.':'. Drag or press Enter to edit.'));
         const isEditing=!!editing&&editing.original.id===item.id;

@@ -31,7 +31,7 @@ test('pull TP/SL from entry, preview/confirm/discard, quantity and context cance
  await until(async()=>Number(await page.locator('#stopPrice').inputValue())>0);assert.ok(Number(await page.locator('#stopPrice').inputValue())<79500);
  await drag(draft.locator('[data-action=add-target]'),-45);assert.ok(Number(await page.locator('#targetPrice').inputValue())>79500);assert.equal((await commands()).length,n);
  await draft.locator('[data-action=quantity]').click();await draft.locator('[aria-label="Chart order quantity"]').fill('.003');await draft.getByRole('button',{name:'Apply',exact:true}).click();assert.equal(await page.locator('#quantity').inputValue(),'.003');
- await draft.locator('.trade-order-kind').selectOption('stop');assert.equal(await page.locator('#orderKind').inputValue(),'stop');await draft.locator('.trade-order-kind').selectOption('limit');
+ await page.locator('#orderKind').selectOption('stop');assert.equal(Number(await page.locator('#triggerPrice').inputValue()),79500);await page.locator('#orderKind').selectOption('limit');
  await draft.locator('[data-action=cancel]').click();await draft.waitFor({state:'detached'});
  // Both buy and sell orders begin naked; each leg must be created by the pull.
  for(const side of ['buy','sell']){
