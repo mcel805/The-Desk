@@ -1,0 +1,1619 @@
+//@version=6
+// Desk Sweep 1.0: port of supplied Sweep Reclaim 1.5.1.
+// Trade callouts, risk references and post-signal outcomes removed.
+// Sweep/reclaim qualification, frozen pools, bias, ABC and geometry retained.
+// Agentic- Sweep Reclaim v1.5.1 | Mark's micro-swing research indicator.
+// Source-informed, not a complete automated Inter Equity / Spider strategy.
+// V028: https://www.youtube.com/watch?v=60yOXkGhdW8 (01:32-08:31, 11:23-12:55)
+// V044: https://www.youtube.com/watch?v=GIYrW7FC06M (03:42-05:58)
+// V046: https://www.youtube.com/watch?v=yIYY_jYy3sE (01:37-03:15)
+// Both pattern directions are always detected. Bias is recorded as context, not a gate.
+// Pivot thresholds, reclaim, expiry and pool selection are research choices.
+// A sweep is an OHLC observation, not proof of stops, a fill or a profitable trade.
+indicator("Agentic - Sweep", "Agentic - Sweep", overlay=true, max_lines_count=500, max_labels_count=300, max_bars_back=5000)
+
+string M = "01 · Micro swings"
+int micro = input.int(1, "Pivot bars each side", minval=1, maxval=10, group=M, tooltip="1 = a strict three-candle pivot, known at the next candle's close. Equal highs/lows do not qualify. There is no universal smallest profitable swing.")
+int minTicks = input.int(4, "Minimum swing size · ticks", minval=1, maxval=100, group=M)
+float minAtr = input.float(0.25, "Minimum swing size · ATR", minval=0, maxval=3, step=0.05, group=M, tooltip="Uses the greater of the tick and ATR thresholds. ATR is sampled at the pivot. Larger values remove tiny alternating pivots.")
+int minBreak = input.int(1, "HH / LL clearance · ticks", minval=1, maxval=20, group=M)
+int sequence = input.int(1, "Successive HH / LL required", minval=1, maxval=2, group=M, tooltip="1 marks each qualified HH/LL. 2 waits for two successive HHs for longs, or two successive LLs for shorts, separated by accepted opposite swings.")
+
+string B = "02 · Confirmed bias and draw"
+string contextMode = input.string("Standalone", "Context source", options=["Standalone", "Linked Bias & Draw"], group=B)
+string fastTf = input.timeframe("5", "Setup timeframe", group=B)
+string slowTf = input.timeframe("15", "Parent timeframe", group=B)
+int contextPivot = input.int(3, "Context pivot bars each side", minval=1, maxval=10, group=B)
+int fastEma = input.int(21, "Context fast EMA", minval=2, maxval=100, group=B)
+int slowEma = input.int(55, "Context slow EMA", minval=3, maxval=200, group=B)
+float externalBias = input.source(close, "Link: Overall direction -1 0 1", group=B)
+float externalDraw = input.source(close, "Link: Preferred liquidity draw", group=B)
+bool linksSelected = input.bool(false, "I selected both matching Bias & Draw plots", group=B, tooltip="Required in Linked mode. Pine cannot authenticate the selected indicator. Inputs are sampled on completed chart bars; upstream repainting would still propagate.")
+float externalUpper = input.source(close, "Optional link: Nearest active buy-side pool", group=B)
+float externalLower = input.source(close, "Optional link: Nearest active sell-side pool", group=B)
+bool twoSidedLinks = input.bool(false, "I selected both optional buy-side / sell-side plots", group=B, tooltip="Linked mode: supplies a separate objective in each direction. Without these, only the preferred draw is available; opposite patterns remain visible, but cannot record an observation without an objective on their side.")
+string alertScope = input.string("Preferred continuation", "Observation alerts include", options=["Preferred continuation", "All bias tags", "With bias only"], group=B, tooltip="Alerts only. Default prefers a matching confirmed ABC C leg, matching bias and no geometry conflict. All candidates stay visible. Missing geometry is labeled N/A and is not required. Use All bias tags for every candidate.")
+int poolAge = input.int(300, "Context pool lifetime · source bars", minval=20, maxval=1000, group=B)
+
+string E = "03 · Sweep and reclaim observation"
+int sweepTicks = input.int(1, "Sweep beyond pool · ticks", minval=1, maxval=20, group=E)
+string observationMode = input.string("Sweep + reclaim close", "Sweep observation", options=["Sweep + reclaim close", "Sweep contact at close"], group=E, tooltip="Default waits for a close back across the frozen pool. Contact mode records the first sweep at candle close. Neither assumes an intrabar fill at the wick. The source's direct observation can occur on contact; reclaim is an added research filter.")
+int reclaimBars = input.int(3, "Reclaim window · bars after sweep", minval=0, maxval=20, group=E)
+int expiry = input.int(40, "Setup expiry · bars after HH / LL confirmed", minval=3, maxval=300, group=E)
+int blockAge = input.int(150, "Sweep-origin block lifetime · chart bars", minval=10, maxval=500, group=E)
+int departureBars = input.int(12, "Block reclaim / departure window · bars", minval=1, maxval=50, group=E)
+int roomTicks = input.int(4, "Minimum draw clearance from observation close · ticks", minval=1, maxval=100, group=E)
+
+string V="04 · Green / red sweep paths"
+bool brush=input.bool(true,"Brush strokes",group=V)
+int historyPerSide=input.int(10,"Past setups per direction",minval=1,maxval=10,group=V,tooltip="Ten longs and ten shorts. The limit reserves space for colored dashed broken levels, exact-price dashes and callout leaders.")
+int projection=input.int(8,"Waiting route · bars right",minval=2,maxval=50,group=V)
+int pastPathFade=input.int(25,"Past sweep path transparency",minval=0,maxval=70,group=V,tooltip="Low values keep completed and canceled setup paths visible. Untouched references are hidden when the attempt ends. Crossed levels remain as green long or red short dashes.")
+string paletteMode=input.string("Green / Red","Palette",options=["Green / Red","Custom"],group=V)
+color customLong=input.color(#22C878,"Custom long",group=V)
+color customShort=input.color(#FF5261,"Custom short",group=V)
+bool criticalWords=input.bool(true,"One-word critical callouts",group=V)
+bool sweepWord=input.bool(false,"Also mark each sweep with one word",group=V)
+bool invalidWords=input.bool(false,"Also mark pre-observation failure / draw consumption",group=V)
+int noteBars=input.int(5,"Callout offset · bars right",minval=2,maxval=20,group=V)
+float noteAtr=input.float(1.15,"Callout offset · ATR",minval=0.5,maxval=3,step=0.05,group=V)
+bool showStatusPanel=input.bool(false,"Show optional small bias panel",group=V)
+// Legacy caption controls are fixed OFF; old saved text/color preferences
+// cannot bring back the ID paragraphs or cyan/violet palette.
+string tagSize="Small"
+bool showBiasTags=false
+bool compactLabels=true
+bool showMicroText=false
+color CYAN=#90A4AE
+f_ink(int side)=>paletteMode=="Custom"?(side==1?customLong:customShort):(side==1?#22C878:#FF5261)
+f_id(int side,int id)=>(side==1?"L":"S")+"#"+str.tostring(id)
+f_biasShort(string biasTag)=>biasTag=="WITH BIAS"?"WITH":biasTag=="AGAINST BIAS"?"AGAINST":biasTag=="BIAS UNAVAILABLE"?"BIAS N/A":"NEUTRAL"
+float tick = syminfo.mintick
+float atr = ta.atr(14)
+int stepMs = int(timeframe.in_seconds() * 1000)
+bool linked = contextMode == "Linked Bias & Draw"
+// Standalone context: close-confirmed structure break, EMA alignment and slope.
+// Up to 30 unconsumed pivot pools per side; consumed pools are never restored.
+// Output is shifted INSIDE the source context, with lookahead_on below.
+f_context() =>
+    float ph = ta.pivothigh(high, contextPivot, contextPivot)
+    float pl = ta.pivotlow(low, contextPivot, contextPivot)
+    float ef = ta.ema(close, fastEma)
+    float es = ta.ema(close, slowEma)
+    float rightH = ta.highest(high, contextPivot)
+    float rightL = ta.lowest(low, contextPivot)
+    var float lastH = na
+    var float lastL = na
+    var int regime = 0
+    var array<float> highs = array.new<float>()
+    var array<float> lows = array.new<float>()
+    var array<int> highBorn = array.new<int>()
+    var array<int> lowBorn = array.new<int>()
+    if not na(ph) and rightH < ph
+        lastH := ph
+        array.push(highs, ph)
+        array.push(highBorn, bar_index - contextPivot)
+    if not na(pl) and rightL > pl
+        lastL := pl
+        array.push(lows, pl)
+        array.push(lowBorn, bar_index - contextPivot)
+    if not na(lastH) and close > lastH
+        regime := 1
+    else if not na(lastL) and close < lastL
+        regime := -1
+    float up = na
+    float down = na
+    if array.size(highs) > 0
+        for i = array.size(highs) - 1 to 0
+            float p = array.get(highs, i)
+            if high >= p or bar_index - array.get(highBorn, i) > poolAge
+                array.remove(highs, i)
+                array.remove(highBorn, i)
+            else
+                up := na(up) ? p : math.min(up, p)
+    if array.size(lows) > 0
+        for i = array.size(lows) - 1 to 0
+            float p = array.get(lows, i)
+            if low <= p or bar_index - array.get(lowBorn, i) > poolAge
+                array.remove(lows, i)
+                array.remove(lowBorn, i)
+            else
+                down := na(down) ? p : math.max(down, p)
+    if array.size(highs) > 30
+        array.shift(highs)
+        array.shift(highBorn)
+    if array.size(lows) > 30
+        array.shift(lows)
+        array.shift(lowBorn)
+    int direction = regime == 1 and ef > es and close > es and ef > ef[3] ? 1 : regime == -1 and ef < es and close < es and ef < ef[3] ? -1 : 0
+    [direction[1], up[1], down[1]]
+
+string SG="05 · Parent ABC · same rules as Swing Tracker 1.7"
+string swingTf=input.timeframe("5","Parent swing timeframe",options=["1","2","3","5","15","30"],group=SG)
+int parentLen=input.int(4,"Parent pivot bars each side",minval=1,maxval=20,group=SG)
+f_parentData()=>
+    float ph=ta.pivothigh(high,parentLen,parentLen)
+    float pl=ta.pivotlow(low,parentLen,parentLen)
+    [ph[1],pl[1],time[parentLen+1],time_close[1]]
+
+[setupBias, setupUp, setupDown] = request.security(syminfo.tickerid, fastTf, f_context(), lookahead=barmerge.lookahead_on)
+[parentBias, parentUp, parentDown] = request.security(syminfo.tickerid, slowTf, f_context(), lookahead=barmerge.lookahead_on)
+// A chart wick can consume an imported level before its HTF candle closes.
+// Remember that consumption through the rest of the HTF interval.
+f_livePool(float source, bool upperSide) =>
+    var float remembered = na
+    var bool consumed = false
+    if barstate.isconfirmed
+        if na(source)
+            remembered := na
+            consumed := false
+        else
+            if na(remembered) or source != remembered
+                remembered := source
+                consumed := false
+            if upperSide ? high >= source : low <= source
+                consumed := true
+    consumed ? na : source
+float liveSetupUp = f_livePool(setupUp, true)
+float liveParentUp = f_livePool(parentUp, true)
+float liveSetupDown = f_livePool(setupDown, false)
+float liveParentDown = f_livePool(parentDown, false)
+float liveExternalUp = f_livePool(externalDraw, true)
+float liveExternalDown = f_livePool(externalDraw, false)
+float liveLinkedUpper = f_livePool(externalUpper, true)
+float liveLinkedLower = f_livePool(externalLower, false)
+int direction = linked ? (linksSelected and externalBias == 1 ? 1 : linksSelected and externalBias == -1 ? -1 : 0) : setupBias == 1 and parentBias == 1 ? 1 : setupBias == -1 and parentBias == -1 ? -1 : 0
+float upper = na(liveSetupUp) ? liveParentUp : na(liveParentUp) ? liveSetupUp : math.min(liveSetupUp, liveParentUp)
+float lower = na(liveSetupDown) ? liveParentDown : na(liveParentDown) ? liveSetupDown : math.max(liveSetupDown, liveParentDown)
+float longDraw = linked ? (linksSelected ? (twoSidedLinks ? liveLinkedUpper : liveExternalUp) : na) : upper
+float shortDraw = linked ? (linksSelected ? (twoSidedLinks ? liveLinkedLower : liveExternalDown) : na) : lower
+float draw = direction == 1 ? longDraw : direction == -1 ? shortDraw : na
+
+
+// ============ EMBEDDED GEOMETRY + ABC CONTEXT ============
+// Retained source algorithms; integrated selection is versioned separately.
+string IC="09 · Integrated context display"
+float geometryNearAtr=input.float(0.15,"Rail proximity · ATR",minval=0,maxval=1,step=0.05,group=IC)
+bool drawAbc=input.bool(false,"Draw selected live ABC context",group=IC,tooltip="Off avoids duplicate lines when the original Swing Tracker is visible. ABC calculations and tags remain on.")
+bool drawGeometry=input.bool(false,"Draw selected prior-known channel",group=IC,tooltip="Off avoids duplicating WC Geometry. Calculations and context tags remain on.")
+bool contextOnTags=false
+
+
+bool eventAlerts=false
+int localLen=input.int(2,"B turn pivot bars each side · chart bars",minval=1,maxval=10,group=SG)
+float minDriveAtr=input.float(1.0,"Minimum O-A delivery · ATR at origin recognition",minval=0.1,step=0.1,group=SG)
+int minDriveTicks=input.int(12,"Minimum O-A delivery · ticks",minval=1,group=SG)
+float bMin=input.float(0.25,"Minimum B retracement of O-A",minval=0.05,maxval=0.9,step=0.05,group=SG)
+float bMax=input.float(0.95,"Maximum B retracement of O-A",minval=0.1,maxval=1.0,step=0.05,group=SG)
+int breakLen=input.int(3,"C confirmation · close through prior chart bars",minval=1,maxval=10,group=SG)
+int expiryBars=input.int(600,"ABC observation lifetime · chart bars",minval=30,maxval=2500,group=SG)
+int retryLimit=input.int(3,"Fresh B attempts per fixed O-A",minval=1,maxval=5,group=SG)
+
+string PG="06 · ABC points of interest · optional"
+bool useManual=input.bool(false,"Use manual levels declared before contact",group=PG)
+float manualUpper=input.price(0,"Upper reference · 0 unavailable",group=PG)
+float manualLower=input.price(0,"Lower reference · 0 unavailable",group=PG)
+int manualAt=input.time(0,"Manual levels known from",group=PG)
+bool useLinked=input.bool(false,"I selected upstream upper / lower price plots",group=PG)
+float upperFeed=input.source(close,"Upper price plot",group=PG)
+float lowerFeed=input.source(close,"Lower price plot",group=PG)
+int poiTicks=input.int(3,"POI contact tolerance · ticks",minval=0,maxval=50,group=PG)
+
+string WG="07 · Swing warning evidence"
+bool warningsOn=input.bool(true,"Calculate warnings",group=WG)
+string volumeTrend=input.string("Swing","Volume exhaustion direction",options=["Swing","EMA 50","Swing + EMA 50"],group=WG)
+int volumeLen=input.int(20,"Prior full-bar volume average",minval=2,maxval=100,group=WG)
+float volumeMultiple=input.float(2.0,"Exhaustion volume / prior average",minval=0.5,step=0.1,group=WG)
+float wickMin=input.float(0.40,"Opposing wick / candle range",minval=0.1,maxval=0.9,step=0.05,group=WG)
+float stalledAtr=input.float(0.80,"Heavy-volume stalled true range / prior ATR",minval=0.1,maxval=2,step=0.05,group=WG)
+int fastLen=input.int(8,"Fast EMA",minval=2,maxval=100,group=WG)
+int slowLen=input.int(20,"Slow EMA",minval=3,maxval=200,group=WG)
+int trendLen=input.int(50,"Volume example trend EMA",minval=5,maxval=300,group=WG)
+float emaShrink=input.float(0.70,"EMA contraction / preceding spread",minval=0.1,maxval=0.95,step=0.05,group=WG)
+float sarStart=input.float(0.02,"SAR start",minval=0.001,step=0.001,group=WG)
+float sarStep=input.float(0.02,"SAR increment",minval=0.001,step=0.001,group=WG)
+float sarMax=input.float(0.20,"SAR maximum",minval=0.01,step=0.01,group=WG)
+float dojiPart=input.float(0.10,"Doji body / candle range",minval=0.01,maxval=0.4,step=0.01,group=WG)
+int warningWindow=input.int(5,"Delivery comparison window",minval=2,maxval=30,group=WG)
+float slowRatio=input.float(0.70,"Recent / preceding delivery speed",minval=0.1,maxval=0.95,step=0.05,group=WG)
+float chopLimit=input.float(0.35,"Chop travel efficiency",minval=0.05,maxval=0.9,step=0.05,group=WG)
+int geometryBars=input.int(180,"Prior swing-envelope audit · chart bars",minval=20,maxval=500,group=WG)
+int warningCooldown=input.int(5,"Evidence event minimum spacing · bars",minval=1,maxval=60,group=WG)
+int evidenceHold=input.int(3,"Event warning retention · completed bars",minval=1,maxval=10,group=WG)
+
+float chartPH=ta.pivothigh(high,parentLen,parentLen)
+float chartPL=ta.pivotlow(low,parentLen,parentLen)
+float localPH=ta.pivothigh(high,localLen,localLen)
+float localPL=ta.pivotlow(low,localLen,localLen)
+[htfPH,htfPL,htfOrigin,htfKnown]=request.security(syminfo.tickerid,swingTf,f_parentData(),gaps=barmerge.gaps_on,lookahead=barmerge.lookahead_on)
+int sourceSeconds=timeframe.in_seconds(swingTf)
+int chartSeconds=timeframe.in_seconds()
+bool sameTf=sourceSeconds==chartSeconds
+float parentPH=sameTf?chartPH:htfPH
+float parentPL=sameTf?chartPL:htfPL
+int parentOrigin=sameTf?time[parentLen]:htfOrigin
+int parentKnown=sameTf?time_close:htfKnown
+if barstate.isfirst and (not chart.is_standard or not timeframe.isintraday or chartSeconds<60 or sourceSeconds<chartSeconds)
+    runtime.error("Use standard intraday time candles, at least 1 minute, with parent timeframe at or above the chart timeframe.")
+if barstate.isfirst and bMin>=bMax
+    runtime.error("Minimum B retracement must be below maximum B retracement.")
+
+float fast=ta.ema(close,fastLen)
+float slow=ta.ema(close,slowLen)
+float trendEma=ta.ema(close,trendLen)
+float sar=ta.sar(sarStart,sarStep,sarMax)
+float volBase=ta.sma(volume[1],volumeLen)
+float volRatio=not na(volBase) and volBase>0 and not na(volume) and volume>=0?volume/volBase:na
+float priorHigh=ta.highest(high[1],breakLen)
+float priorLow=ta.lowest(low[1],breakLen)
+float candleSpan=math.max(high-low,tick)
+float body=math.abs(close-open)
+float upperWick=(high-math.max(open,close))/candleSpan
+float lowerWick=(math.min(open,close)-low)/candleSpan
+float tr=ta.tr(true)
+float travel=math.sum(math.abs(ta.change(close)),warningWindow)
+float efficiency=travel>0?math.abs(close-close[warningWindow])/travel:na
+float balance=travel>0?100*math.sum(math.max(ta.change(close),0),warningWindow)/travel:50
+bool emaCrossUp=ta.crossover(fast,slow)
+bool emaCrossDown=ta.crossunder(fast,slow)
+bool sarFlipUp=ta.crossover(close,sar)
+bool sarFlipDown=ta.crossunder(close,sar)
+bool priorDoji=math.abs(close[1]-open[1])/math.max(high[1]-low[1],tick)<=dojiPart
+bool bullEngulf=close>open and (close[1]<=open[1] or priorDoji) and open<=math.min(open[1],close[1]) and close>=math.max(open[1],close[1]) and body>math.abs(close[1]-open[1])+tick
+bool bearEngulf=close<open and (close[1]>=open[1] or priorDoji) and open>=math.max(open[1],close[1]) and close<=math.min(open[1],close[1]) and body>math.abs(close[1]-open[1])+tick
+float manualU=useManual and manualUpper>0 and manualAt>0 and manualAt<time?manualUpper:na
+float manualL=useManual and manualLower>0 and manualAt>0 and manualAt<time?manualLower:na
+bool upperSelected=upperFeed[1]!=close[1] or upperFeed[2]!=close[2]
+bool lowerSelected=lowerFeed[1]!=close[1] or lowerFeed[2]!=close[2]
+float priorUpper=not na(manualU)?manualU:useLinked and upperSelected?upperFeed[1]:na
+float priorLower=not na(manualL)?manualL:useLinked and lowerSelected?lowerFeed[1]:na
+int upperKnown=not na(manualU)?manualAt:not na(priorUpper)?time:na
+int lowerKnown=not na(manualL)?manualAt:not na(priorLower)?time:na
+
+// Clocks are carried separately. Geometry and POI samples are always prior information.
+type AbcPivot
+    float price
+    int ix
+    int at
+    int known
+    int side
+    int sourceAt=na
+
+type AbcSample
+    int ix
+    int at
+    float hi
+    float lo
+    float upper
+    float lower
+    int upperKnown
+    int lowerKnown
+
+type AbcCycle
+    int id
+    int rootId
+    int attempt
+    int dir
+    AbcPivot o
+    float threshold
+    int stage=1
+    AbcPivot a=na
+    AbcPivot b=na
+    AbcPivot c=na
+    AbcPivot bTurn=na
+    bool poi=false
+    float poiPrice=na
+    int poiAt=na
+    int poiKnown=na
+    int aRecognized=na
+    int bRecognized=na
+    int cRecognized=na
+    int ended=na
+    string reason="A DRIVE"
+
+type Evidence
+    int ix
+    int at
+    int known
+    int rootId
+    int side
+    int family
+    string icon
+    string detail
+    float price
+    float pad
+
+type WarningScore
+    int ix
+    int known
+    int rootId
+    int side
+    int score
+    int available
+    int tier
+    float price
+    float pad
+    string detail
+
+var array<WarningScore> scoreHistory=array.new<WarningScore>()
+var array<int> heldAt=array.new_int(8,-100000)
+var array<int> heldWeight=array.new_int(8,0)
+var array<int> warningContributions=array.new_int(8,0)
+var array<float> repairPrice=array.new_float(8,na)
+var int scoreRoot=0
+var int warningPoints=0
+var int warningAvailable=0
+var int warningTier=0
+var int lastScoreMark=-100000
+var string warningDetail="Warming up"
+var array<AbcSample> samples=array.new<AbcSample>()
+var array<AbcPivot> parents=array.new<AbcPivot>()
+var array<AbcPivot> localPivots=array.new<AbcPivot>()
+var array<AbcCycle> cycles=array.new<AbcCycle>()
+var array<Evidence> evidence=array.new<Evidence>()
+var array<int> lastWarning=array.new_int(8,-100000)
+var array<bool> priorWarning=array.new_bool(8,false)
+var AbcPivot root=na
+var AbcPivot activeEnd=na
+var AbcPivot protectedPivot=na
+var AbcPivot divergencePivot=na
+var float divergenceBalance=na
+var int lastParentKnown=na
+var int abcNextId=0
+var int rootId=0
+var int lastClosedBar=na
+var float lastClosedPrice=na
+var int latestMask=0
+var int lastClosedAt=na
+var int warningSampleRoot=0
+var int warningSampleSide=0
+var float warningSampleVolume=na
+var int lastSupportBar=-100000
+
+f_price(float p)=>na(p)?"—":str.tostring(p,format.mintick)
+f_json(float p)=>na(p)?"null":str.tostring(p)
+f_tier(int points)=>points>=9?3:points>=6?2:points>=3?1:0
+f_tierText(int tier)=>tier==3?"STRONG":tier==2?"WEAKENING":tier==1?"CAUTION":"LOW"
+f_tierInk(int tier)=>tier==3?color.rgb(244,70,94):tier==2?color.rgb(255,150,45):tier==1?color.rgb(247,204,75):color.rgb(150,175,200)
+f_stage(int s)=>s==1?"A drive":s==2?"B retracement":s==3?"C developing":s==4?"C beyond A":s==5?"Invalid":s==6?"C completed":"Expired"
+f_contact(float hi,float lo,float level)=>not na(level) and hi>=level-poiTicks*tick and lo<=level+poiTicks*tick
+f_pivot(float price,int ix,int at,int known,int side)=>AbcPivot.new(price=price,ix=ix,at=at,known=known,side=side,sourceAt=at)
+f_sampleStart(int stamp)=>
+    int left=0
+    int right=array.size(samples)
+    while left<right
+        int middle=int((left+right)/2)
+        if array.get(samples,middle).at<stamp
+            left:=middle+1
+        else
+            right:=middle
+    left
+f_extreme(int fromAt,int dir)=>
+    AbcPivot found=na
+    int begin=f_sampleStart(fromAt+1)
+    if begin<array.size(samples)
+        for i=begin to array.size(samples)-1
+            AbcSample s=array.get(samples,i)
+            float p=dir==1?s.hi:s.lo
+            if na(found) or dir*(p-found.price)>=0
+                found:=f_pivot(p,s.ix,s.at,time_close,dir)
+    found
+f_bTurn(AbcPivot a,AbcPivot b,int dir)=>
+    AbcPivot found=na
+    if not na(a) and not na(b) and array.size(localPivots)>0
+        for p in localPivots
+            if p.side==-dir and p.at>a.at and math.abs(p.price-b.price)<=tick
+                found:=p.copy()
+    found
+f_align(AbcCycle s,int through)=>
+    s.poi:=false
+    s.poiPrice:=na
+    s.poiAt:=na
+    s.poiKnown:=na
+    if useManual or useLinked
+        for sample in samples
+            if sample.at>s.o.at and sample.at<=through
+                float level=s.dir==1?sample.upper:sample.lower
+                if not s.poi and f_contact(sample.hi,sample.lo,level)
+                    s.poi:=true
+                    s.poiPrice:=level
+                    s.poiAt:=sample.at
+                    s.poiKnown:=s.dir==1?sample.upperKnown:sample.lowerKnown
+    true
+f_parentAnchor(int sourceAt,float price,int known,int side)=>
+    AbcPivot found=na
+    int begin=not na(sourceAt)?f_sampleStart(sourceAt):array.size(samples)
+    if begin<array.size(samples)
+        for i=begin to array.size(samples)-1
+            AbcSample sample=array.get(samples,i)
+            if sample.at>=sourceAt+sourceSeconds*1000
+                break
+            float wick=side==1?sample.hi:sample.lo
+            if math.abs(wick-price)<=tick*0.25
+                found:=f_pivot(price,sample.ix,sample.at,known,side)
+                found.sourceAt:=sourceAt
+    found
+f_geometry(AbcPivot anchor,AbcPivot endpoint)=>
+    float top=na
+    float bottom=na
+    float leftTop=na
+    float leftBottom=na
+    int left=na
+    if not na(anchor) and not na(endpoint) and endpoint.ix>anchor.ix and array.size(samples)>=3
+        float slope=(endpoint.price-anchor.price)/(endpoint.ix-anchor.ix)
+        float ho=0.0
+        float lo=0.0
+        int count=0
+        left:=math.max(anchor.ix,bar_index-geometryBars)
+        for j=0 to array.size(samples)-1
+            AbcSample s=array.get(samples,array.size(samples)-1-j)
+            if s.ix<left
+                break
+            float spine=anchor.price+slope*(s.ix-anchor.ix)
+            ho:=math.max(ho,s.hi-spine)
+            lo:=math.min(lo,s.lo-spine)
+            count+=1
+        if count>=3
+            top:=anchor.price+slope*(bar_index-anchor.ix)+ho
+            bottom:=anchor.price+slope*(bar_index-anchor.ix)+lo
+            leftTop:=anchor.price+slope*(left-anchor.ix)+ho
+            leftBottom:=anchor.price+slope*(left-anchor.ix)+lo
+    [top,bottom,leftTop,leftBottom,left]
+f_emit(string kind,AbcCycle s)=>
+    if eventAlerts and barstate.isrealtime
+        string packet="{\"schema\":\"agentic.swing.abc.v1.5\",\"event\":\""+kind+"\",\"symbol\":\""+syminfo.tickerid+"\",\"chart_timeframe\":\""+timeframe.period+"\",\"swing_timeframe\":\""+swingTf+"\",\"observed_at\":"+str.tostring(time_close)+",\"id\":"+str.tostring(s.id)+",\"root_id\":"+str.tostring(s.rootId)+",\"attempt\":"+str.tostring(s.attempt)+",\"dir\":"+str.tostring(s.dir)+",\"stage\":"+str.tostring(s.stage)
+        packet+=",\"o_source_bar\":"+str.tostring(s.o.sourceAt)+",\"o_origin\":"+str.tostring(s.o.at)+",\"o_known\":"+str.tostring(s.o.known)+",\"o_price\":"+str.tostring(s.o.price)
+        packet+=",\"a_price\":"+f_json(not na(s.a)?s.a.price:na)+",\"a_origin\":"+f_json(not na(s.a)?s.a.at:na)+",\"a_recognized\":"+f_json(s.aRecognized)
+        packet+=",\"b_price\":"+f_json(not na(s.b)?s.b.price:na)+",\"b_origin\":"+f_json(not na(s.b)?s.b.at:na)+",\"b_recognized\":"+f_json(s.bRecognized)
+        packet+=",\"c_price\":"+f_json(not na(s.c)?s.c.price:na)+",\"c_origin\":"+f_json(not na(s.c)?s.c.at:na)+",\"c_start_recognized\":"+f_json(s.cRecognized)
+        packet+=",\"poi\":"+(s.poi?"true":"false")+",\"poi_price\":"+f_json(s.poiPrice)+",\"poi_contact_at\":"+f_json(s.poiAt)+",\"poi_known\":"+f_json(s.poiKnown)+",\"reason\":\""+s.reason+"\"}"
+        alert(packet,alert.freq_all)
+    true
+
+// Assess current closed candle against geometry and structure known BEFORE this candle.
+[geometryTop,geometryBottom,geometryLeftTop,geometryLeftBottom,geometryLeft]=f_geometry(root,activeEnd)
+int delivery=not na(root)?-root.side:0
+int emaTrend=close>trendEma and trendEma>trendEma[1]?1:close<trendEma and trendEma<trendEma[1]?-1:0
+int exhaustionSide=volumeTrend=="EMA 50"?emaTrend:volumeTrend=="Swing + EMA 50"?(emaTrend==delivery?delivery:0):delivery
+float opposingWick=exhaustionSide==1?upperWick:lowerWick
+bool volumeExhaustion=exhaustionSide!=0 and not na(volRatio) and volRatio>=volumeMultiple and (opposingWick>=wickMin or not na(atr[1]) and tr<=stalledAtr*atr[1])
+float signedGap=delivery*(fast-slow)
+bool emaContract=delivery!=0 and signedGap>tick and delivery*(fast[warningWindow]-slow[warningWindow])>tick and signedGap<=delivery*(fast[warningWindow]-slow[warningWindow])*emaShrink
+bool emaExpanding=delivery!=0 and signedGap>tick and signedGap>delivery*(fast[warningWindow]-slow[warningWindow])+tick
+bool favorableCross=delivery==1?emaCrossUp:delivery==-1?emaCrossDown:false
+bool adverseCross=delivery==1?emaCrossDown:delivery==-1?emaCrossUp:false
+bool adverseSar=delivery==1?sarFlipDown:delivery==-1?sarFlipUp:false
+bool doji=delivery!=0 and body/candleSpan<=dojiPart and (delivery==1?upperWick:lowerWick)>=wickMin
+bool adverseEngulf=delivery==1?bearEngulf:delivery==-1?bullEngulf:false
+bool geometryBreak=delivery==1?not na(geometryBottom) and close<geometryBottom-tick:delivery==-1?not na(geometryTop) and close>geometryTop+tick:false
+bool structureBreak=not na(protectedPivot) and protectedPivot.known<=time and (delivery==1?close<protectedPivot.price-tick:delivery==-1?close>protectedPivot.price+tick:false)
+float recentProgress=delivery*(close-close[warningWindow])
+float precedingProgress=delivery*(close[warningWindow]-close[warningWindow*2])
+bool slowing=delivery!=0 and precedingProgress>tick and recentProgress>=0 and recentProgress/precedingProgress<slowRatio
+bool chopping=delivery!=0 and not na(efficiency) and efficiency<chopLimit
+bool divergence=not na(divergencePivot) and divergencePivot.known<=time and (delivery==1?high>divergencePivot.price+tick and balance<divergenceBalance-5:delivery==-1?low<divergencePivot.price-tick and balance>divergenceBalance+5:false)
+bool cStarted=false
+bool cBrokeA=false
+bool invalidated=false
+bool upExhaustion=false
+bool downExhaustion=false
+
+if barstate.isconfirmed
+    lastClosedBar:=bar_index
+    lastClosedAt:=time_close
+    warningSampleRoot:=rootId
+    warningSampleSide:=delivery
+    warningSampleVolume:=volRatio
+    lastClosedPrice:=close
+    latestMask:=0
+    upExhaustion:=warningsOn and volumeExhaustion and exhaustionSide==1
+    downExhaustion:=warningsOn and volumeExhaustion and exhaustionSide==-1
+    array<bool> warningNow=array.from(volumeExhaustion,emaContract or adverseCross,adverseSar,doji or adverseEngulf,geometryBreak,structureBreak,slowing or chopping,divergence)
+    if warningsOn and delivery!=0
+        for family=0 to 7
+            bool on=array.get(warningNow,family)
+            bool fresh=not array.get(priorWarning,family) or family==0 or family==3
+            if on
+                latestMask+=int(math.pow(2,family))
+            if on and fresh and (bar_index-array.get(lastWarning,family)>=warningCooldown or family==3 and adverseEngulf)
+                int side=family==0?exhaustionSide:delivery
+                string icon=family==0?"◆":family==1?"×":family==2?"•":family==3?(adverseEngulf?"▰":"◇"):family==4?"∠":family==5?"!":family==6?"~":"≠"
+                string detail=family==0?"Heavy-volume poor result: relative volume "+str.tostring(volRatio,"#.00")+"; opposing wick "+str.tostring(opposingWick,"#.00")+"; true range / prior ATR "+str.tostring(tr/atr[1],"#.00"):family==1?(adverseCross?"8/20 EMA adverse cross":"EMA spread contracted; expansion has slowed"):family==2?"SAR flipped against observed swing":family==3?(adverseEngulf?"Opposing real-body engulfing; confirmation evidence":"Doji with opposing wick; early warning"):family==4?"Close outside prior swing envelope "+f_price(geometryBottom)+" / "+f_price(geometryTop):family==5?"Close through protected pivot "+f_price(not na(protectedPivot)?protectedPivot.price:na)+"; known "+str.tostring(not na(protectedPivot)?protectedPivot.known:na):family==6?(slowing?"Directional progress slowed over equal windows":"Low net travel efficiency / chop"):"Price extended beyond a recognized extreme with weaker momentum balance"
+                array.push(evidence,Evidence.new(ix=bar_index,at=time,known=time_close,rootId=rootId,side=side,family=family,icon=icon,detail=detail,price=side==1?high:low,pad=math.max(nz(atr,tick*10)*0.06,tick*2)))
+                array.set(lastWarning,family,bar_index)
+                upExhaustion:=upExhaustion or family==0 and side==1
+                downExhaustion:=downExhaustion or family==0 and side==-1
+                if eventAlerts and barstate.isrealtime
+                    alert("{\"schema\":\"agentic.swing.evidence.v1.5\",\"observed_at\":"+str.tostring(time_close)+",\"origin_at\":"+str.tostring(time)+",\"root_id\":"+str.tostring(rootId)+",\"family\":"+str.tostring(family)+",\"side\":"+str.tostring(side)+",\"price\":"+str.tostring(side==1?high:low)+"}",alert.freq_all)
+            array.set(priorWarning,family,on)
+    if warningsOn and delivery!=0 and (favorableCross or emaExpanding and not emaExpanding[1]) and bar_index-lastSupportBar>=warningCooldown
+        array.push(evidence,Evidence.new(ix=bar_index,at=time,known=time_close,rootId=rootId,side=-delivery,family=9,icon="○",detail=favorableCross?"8/20 EMA crossed with observed swing; support context":"8/20 EMA spread expanding with observed swing; support context",price=delivery==1?low:high,pad=math.max(nz(atr,tick*10)*0.08,tick*2)))
+        lastSupportBar:=bar_index
+    while array.size(evidence)>150
+        array.shift(evidence)
+
+    // Bounded weighted evidence: current conditions plus short-lived candle/cross events.
+    // Each category contributes once; related tests upgrade it rather than accumulating.
+    int oldTier=warningTier
+    bool changedRoot=scoreRoot!=rootId
+    if changedRoot or not warningsOn
+        scoreRoot:=rootId
+        for family=0 to 7
+            array.set(heldAt,family,-100000)
+            array.set(heldWeight,family,0)
+            array.set(repairPrice,family,na)
+    warningPoints:=0
+    warningAvailable:=0
+    for category=0 to 7
+        array.set(warningContributions,category,0)
+    warningDetail:="Swing #"+str.tostring(rootId)+" "+(delivery==1?"UP":delivery==-1?"DOWN":"WARMING")+" · closed "+str.format_time(time_close,"MM-dd HH:mm",syminfo.timezone)
+    bool volumeUsable=exhaustionSide==delivery and not na(volRatio) and not na(atr[1])
+    bool emaUsable=not na(slow) and not na(fast[warningWindow])
+    bool sarUsable=not na(sar)
+    bool candleUsable=not na(close[1])
+    bool geometryUsable=not na(geometryTop) and not na(geometryBottom)
+    bool structureUsable=not na(protectedPivot) and protectedPivot.known<=time
+    bool paceUsable=not na(efficiency) and not na(close[warningWindow*2])
+    bool divergenceUsable=not na(divergencePivot) and not na(divergenceBalance) and divergencePivot.known<=time
+    array<bool> usable=array.from(volumeUsable,emaUsable,sarUsable,candleUsable,geometryUsable,structureUsable,paceUsable,divergenceUsable)
+    array<int> capacity=array.from(2,2,1,2,2,3,1,1)
+    array<string> names=array.from("Volume exhaustion","EMA","SAR opposing","Candle rejection","Geometry break","Structure break","Slow / chop","Momentum divergence")
+    array<int> freshWeights=array.from(volumeExhaustion and exhaustionSide==delivery?2:0,0,0,adverseEngulf?2:doji?1:0,0,0,0,divergence?1:0)
+    if warningsOn and delivery!=0
+        for family=0 to 7
+            bool available=array.get(usable,family)
+            int maxWeight=array.get(capacity,family)
+            if available
+                warningAvailable+=maxWeight
+            int fresh=array.get(freshWeights,family)
+            int held=array.get(heldWeight,family)
+            int age=bar_index-array.get(heldAt,family)
+            float repair=array.get(repairPrice,family)
+            bool repaired=family==1?delivery*(fast-slow)>0:not na(repair) and delivery*(close-repair)>=tick
+            if not available or age>=evidenceHold or repaired
+                held:=0
+                array.set(heldWeight,family,0)
+            if available and fresh>0 and fresh>=held
+                held:=fresh
+                array.set(heldWeight,family,held)
+                array.set(heldAt,family,bar_index)
+                array.set(repairPrice,family,delivery==1?high:low)
+            int contribution=0
+            if family==0
+                contribution:=held
+            else if family==1
+                contribution:=delivery*(fast-slow)<-tick?2:emaContract?1:0
+            else if family==2
+                contribution:=(delivery==1?sar>close:sar<close)?1:0
+            else if family==3
+                contribution:=held
+            else if family==4
+                contribution:=geometryBreak?2:0
+            else if family==5
+                contribution:=structureBreak?3:0
+            else if family==6
+                contribution:=slowing or chopping?1:0
+            else
+                contribution:=held
+            contribution:=available?contribution:0
+            array.set(warningContributions,family,contribution)
+            warningPoints+=contribution
+            string status=not available?"N/A":str.tostring(contribution)+"/"+str.tostring(maxWeight)
+            warningDetail+="\n"+array.get(names,family)+" · "+status
+        warningTier:=f_tier(warningPoints)
+        warningDetail+="\nAvailable weight "+str.tostring(warningAvailable)+"/14. Missing evidence never counts as clear."
+        warningDetail+="\nEvent evidence lasts up to "+str.tostring(evidenceHold)+" completed bars, or clears on directional repair. Repeats do not stack."
+        warningDetail+="\n0–2 Low · 3–5 Caution · 6–8 Weakening · 9–14 Strong opposition. Research weights; not reversal odds or an observation signal."
+        if warningTier!=oldTier or changedRoot
+            if warningTier>0 or oldTier>0
+                array.push(scoreHistory,WarningScore.new(ix=bar_index,known=time_close,rootId=rootId,side=delivery,score=warningPoints,available=warningAvailable,tier=warningTier,price=delivery==1?high:low,pad=math.max(nz(atr,tick*10)*0.4,tick*4),detail=warningDetail))
+                lastScoreMark:=bar_index
+            if eventAlerts and barstate.isrealtime
+                alert("{\"schema\":\"agentic.swing.warning_score.v1.5\",\"root_id\":"+str.tostring(rootId)+",\"side\":"+str.tostring(delivery)+",\"observed_at\":"+str.tostring(time_close)+",\"score\":"+str.tostring(warningPoints)+",\"maximum\":14,\"available_weight\":"+str.tostring(warningAvailable)+",\"tier\":"+str.tostring(warningTier)+",\"state\":\""+f_tierText(warningTier)+"\"}",alert.freq_all)
+    else
+        warningTier:=0
+        warningDetail:=warningsOn?"Waiting for a confirmed parent swing":"Warning calculations disabled"
+    while array.size(scoreHistory)>60
+        array.shift(scoreHistory)
+
+    array.push(samples,AbcSample.new(ix=bar_index,at=time,hi=high,lo=low,upper=priorUpper,lower=priorLower,upperKnown=upperKnown,lowerKnown=lowerKnown))
+    if array.size(samples)>3000
+        array.shift(samples)
+
+    // Update existing attempts before accepting today's newly confirmed parent information.
+    int cycleCount=array.size(cycles)
+    if cycleCount>0
+        for i=0 to cycleCount-1
+            AbcCycle s=array.get(cycles,i)
+            if s.stage<=4
+                float adverse=s.dir==1?low:high
+                float forward=s.dir==1?high:low
+                if s.dir*(adverse-s.o.price)<=-tick
+                    s.stage:=5
+                    s.reason:="O INVALIDATED"
+                    s.ended:=time_close
+                    invalidated:=true
+                    f_emit("INVALIDATED_O",s)
+                else if bar_index-s.o.ix>expiryBars
+                    s.stage:=7
+                    s.reason:="EXPIRED"
+                    s.ended:=time_close
+                    f_emit("EXPIRED",s)
+                else if s.stage==1
+                    if na(s.a) or s.dir*(forward-s.a.price)>=0
+                        s.a:=f_pivot(forward,bar_index,time,time_close,s.dir)
+                        s.b:=na
+                        s.reason:="A DRIVE"
+                    else if time>s.a.at and math.abs(s.a.price-s.o.price)>=s.threshold
+                        float tentativeB=s.dir==1?low:high
+                        float tentativeRatio=-s.dir*(tentativeB-s.a.price)/math.abs(s.a.price-s.o.price)
+                        if tentativeRatio>=bMin and (na(s.b) or -s.dir*(tentativeB-s.b.price)>0)
+                            s.b:=f_pivot(tentativeB,bar_index,time,time_close,-s.dir)
+                            s.reason:="A? TURN / B? DEVELOPING · PARENT PIVOT PENDING"
+                    float level=s.dir==1?priorUpper:priorLower
+                    if not s.poi and f_contact(high,low,level)
+                        s.poi:=true
+                        s.poiPrice:=level
+                        s.poiAt:=time
+                        s.poiKnown:=s.dir==1?upperKnown:lowerKnown
+                else if s.stage==2
+                    float retrace=s.dir==1?low:high
+                    if time>s.a.at and (na(s.b) or -s.dir*(retrace-s.b.price)>=0)
+                        s.b:=f_pivot(retrace,bar_index,time,time_close,-s.dir)
+                        s.bTurn:=na
+                    bool localB=s.dir==1?not na(localPL):not na(localPH)
+                    if localB and time[localLen]>s.a.at
+                        float pivotPrice=s.dir==1?localPL:localPH
+                        if not na(s.b) and math.abs(pivotPrice-s.b.price)<=tick
+                            s.bTurn:=f_pivot(pivotPrice,bar_index-localLen,time[localLen],time_close,-s.dir)
+                    float drive=math.abs(s.a.price-s.o.price)
+                    float retracement=not na(s.b) and drive>0?-s.dir*(s.b.price-s.a.price)/drive:0
+                    bool bHeld=not na(s.bTurn) and s.dir*(adverse-s.bTurn.price)>=-tick
+                    bool microBreak=s.dir==1?close>=priorHigh+tick:close<=priorLow-tick
+                    if retracement>bMax
+                        s.stage:=5
+                        s.reason:="B TOO DEEP"
+                        s.ended:=time_close
+                        invalidated:=true
+                        f_emit("INVALIDATED_B_DEPTH",s)
+                    else if retracement>=bMin and bHeld and microBreak and s.dir*(close-open)>0 and time>s.bTurn.at
+                        s.b:=s.bTurn.copy()
+                        s.bRecognized:=time_close
+                        s.c:=f_pivot(forward,bar_index,time,time_close,s.dir)
+                        s.cRecognized:=time_close
+                        s.stage:=3
+                        s.reason:="C START · B TURN + CLOSE BREAK"
+                        cStarted:=true
+                        array.push(evidence,Evidence.new(ix=bar_index,at=time,known=time_close,rootId=s.rootId,side=-s.dir,family=8,icon=s.dir==1?"↑":"↓",detail="C start observation: recognized B turn and completed close through prior micro structure",price=s.dir==1?low:high,pad=math.max(nz(atr,tick*10)*0.12,tick*2)))
+                        f_emit("C_START",s)
+                else if s.stage==3 or s.stage==4
+                    if s.dir*(adverse-s.b.price)<=-tick
+                        s.stage:=5
+                        s.reason:="B BREACHED"
+                        s.ended:=time_close
+                        invalidated:=true
+                        f_emit("INVALIDATED_B",s)
+                        if s.attempt<retryLimit and s.dir*(adverse-s.o.price)>tick
+                            abcNextId+=1
+                            AbcCycle retry=AbcCycle.new(id=abcNextId,rootId=s.rootId,attempt=s.attempt+1,dir=s.dir,o=s.o.copy(),threshold=s.threshold,stage=2,a=s.a.copy(),b=f_pivot(adverse,bar_index,time,time_close,-s.dir),poi=s.poi,poiPrice=s.poiPrice,poiAt=s.poiAt,poiKnown=s.poiKnown,aRecognized=s.aRecognized,reason="FRESH B ATTEMPT")
+                            array.push(cycles,retry)
+                            f_emit("B_RETRY",retry)
+                    else
+                        if na(s.c) or s.dir*(forward-s.c.price)>=0
+                            s.c:=f_pivot(forward,bar_index,time,time_close,s.dir)
+                        if s.stage==3 and s.dir*(close-s.a.price)>=tick
+                            s.stage:=4
+                            s.reason:="C CLOSED BEYOND A"
+                            cBrokeA:=true
+                            f_emit("C_BREAK_A",s)
+
+    // Parent pivots define whole delivery legs; chart pivots can NEVER create a new O or A.
+    bool uniqueParent=((not na(parentPH))!=(not na(parentPL))) and not na(parentKnown) and (na(lastParentKnown) or parentKnown!=lastParentKnown)
+    if uniqueParent
+        lastParentKnown:=parentKnown
+        int parentSide=not na(parentPH)?1:-1
+        float parentPrice=parentSide==1?parentPH:parentPL
+        AbcPivot q=f_parentAnchor(parentOrigin,parentPrice,parentKnown,parentSide)
+        bool accepted=not na(q) and (na(root) or parentSide!=root.side or parentSide*(parentPrice-root.price)>=tick)
+        if accepted
+            if array.size(cycles)>0
+                for s in cycles
+                    if s.stage==1 and s.dir==q.side and q.at>s.o.at and math.abs(q.price-s.o.price)>=s.threshold
+                        s.a:=q.copy()
+                        s.aRecognized:=time_close
+                        s.b:=f_extreme(q.at,-s.dir)
+                        s.stage:=2
+                        s.bTurn:=f_bTurn(s.a,s.b,s.dir)
+                        f_align(s,s.a.at)
+                        s.reason:="A CONFIRMED · B DEVELOPING"
+                        f_emit("A_CONFIRMED",s)
+                    else if s.stage==2 and s.dir==q.side and q.at>s.a.at and s.dir*(q.price-s.a.price)>=tick
+                        s.a:=q.copy()
+                        s.aRecognized:=time_close
+                        s.b:=f_extreme(q.at,-s.dir)
+                        s.bTurn:=f_bTurn(s.a,s.b,s.dir)
+                        f_align(s,s.a.at)
+                        s.reason:="A EXTENDED BEFORE B CONFIRMATION"
+                        f_emit("A_EXTENDED",s)
+                    else if (s.stage==3 or s.stage==4) and q.side==s.dir and q.at>s.b.at
+                        s.c:=q.copy()
+                        s.stage:=6
+                        s.ended:=time_close
+                        s.reason:="C END PIVOT CONFIRMED"
+                        f_emit("C_COMPLETED",s)
+                    if not na(root) and q.side==root.side and s.o.at==root.at and s.stage==1
+                        s.stage:=5
+                        s.ended:=time_close
+                        s.reason:="NEW MORE EXTREME ROOT"
+                        f_emit("ROOT_REPLACED",s)
+            if not na(root) and q.side==root.side and array.size(parents)>0
+                array.set(parents,array.size(parents)-1,q.copy())
+            else
+                array.push(parents,q.copy())
+                if array.size(parents)>120
+                    array.shift(parents)
+            root:=q.copy()
+            rootId+=1
+            activeEnd:=f_extreme(q.at,-q.side)
+            protectedPivot:=na
+            divergencePivot:=na
+            divergenceBalance:=na
+            for family=0 to 7
+                array.set(priorWarning,family,false)
+            abcNextId+=1
+            AbcCycle fresh=AbcCycle.new(id=abcNextId,rootId=rootId,attempt=1,dir=-q.side,o=q.copy(),threshold=math.max(minDriveTicks*tick,nz(atr,tick)*minDriveAtr),a=not na(activeEnd)?activeEnd.copy():na)
+            // Retrospective origin scan is stamped NOW; no warning/observation is backdated.
+            if useManual or useLinked
+                for sample in samples
+                    if sample.at>q.at
+                        float level=fresh.dir==1?sample.upper:sample.lower
+                        if not fresh.poi and f_contact(sample.hi,sample.lo,level)
+                            fresh.poi:=true
+                            fresh.poiPrice:=level
+                            fresh.poiAt:=sample.at
+                            fresh.poiKnown:=fresh.dir==1?sample.upperKnown:sample.lowerKnown
+            array.push(cycles,fresh)
+            f_emit("ORIGIN_CONFIRMED",fresh)
+    while array.size(cycles)>60
+        array.shift(cycles)
+
+    bool oneLocal=(not na(localPH))!=(not na(localPL))
+    if oneLocal
+        array.push(localPivots,f_pivot(not na(localPH)?localPH:localPL,bar_index-localLen,time[localLen],time_close,not na(localPH)?1:-1))
+        if array.size(localPivots)>1000
+            array.shift(localPivots)
+    // These anchors become available only AFTER the closed bar's warnings and C tests.
+    if not na(root)
+        int d=-root.side
+        float p=d==1?high:low
+        if time>root.at and (na(activeEnd) or d*(p-activeEnd.price)>=0)
+            activeEnd:=f_pivot(p,bar_index,time,time_close,d)
+        bool localProtected=d==1?not na(localPL):not na(localPH)
+        if localProtected and time[localLen]>root.at
+            float protectedPrice=d==1?localPL:localPH
+            if na(protectedPivot) or d*(protectedPrice-protectedPivot.price)>0
+                protectedPivot:=f_pivot(protectedPrice,bar_index-localLen,time[localLen],time_close,-d)
+        bool localExtreme=d==1?not na(localPH):not na(localPL)
+        if localExtreme and time[localLen]>root.at
+            divergencePivot:=f_pivot(d==1?localPH:localPL,bar_index-localLen,time[localLen],time_close,d)
+            divergenceBalance:=balance[localLen]
+
+    while array.size(evidence)>150
+        array.shift(evidence)
+
+// Always select a live ABC, independent of any upstream review/display choice.
+AbcCycle liveAbc=na
+for candidate in cycles
+    if candidate.stage>=1 and candidate.stage<=4
+        int candidateRank=candidate.stage>=3?3:candidate.stage
+        int liveRank=na(liveAbc)?0:liveAbc.stage>=3?3:liveAbc.stage
+        if na(liveAbc) or candidateRank>liveRank or candidateRank==liveRank and (candidate.o.at>liveAbc.o.at or candidate.o.at==liveAbc.o.at and candidate.id>liveAbc.id)
+            liveAbc:=candidate
+string G_STYLE = "08 · Wick geometry · same channel rules as WC 1.0"
+int geometryPivot = input.int(4, "Channel pivot bars on each side", minval = 2, maxval = 15, group = G_STYLE)
+int geometryHistory = input.int(600, "Chart bars retained for wick audit", minval = 100, maxval = 1200, group = G_STYLE)
+int geometryMinSpan = input.int(8, "Minimum anchor span · chart bars", minval = 2, maxval = 100, group = G_STYLE)
+int geometryTouchTolerance = input.int(2, "Extra wick touch tolerance · ticks", minval = 0, maxval = 10, group = G_STYLE)
+int geometryMinTouches = input.int(0, "Extra wick touches beyond 2 anchors", minval = 0, maxval = 8, group = G_STYLE, tooltip = "Zero displays channels supported by two confirmed pivot wicks, provided neither rail cuts through intervening bars. Raise to 1 or 2 to require more independent rail contacts.")
+
+type GeoPivot
+    int t
+    float p
+    int side
+    int born
+
+type WickChannel
+    int t0
+    float p0
+    int t1
+    float p1
+    int side  // -1 = base through support wicks; 1 = base through resistance wicks.
+    float offset
+    int endAt
+    bool broken
+    int touches
+    int spanBars
+
+// Chart-local channel ledger. Every base line is anchored to two confirmed
+// same-side pivot wicks and rejected if any intervening wick cuts through it.
+// The parallel boundary touches the farthest opposite wick in that interval.
+// Once either boundary is breached by a later completed wick, both end at the
+// preceding valid bar. These drawings never participate in wave/plan decisions.
+var array<int> geometryTimes = array.new<int>()
+var array<float> geometryHighs = array.new<float>()
+var array<float> geometryLows = array.new<float>()
+var array<float> geometryCloses = array.new<float>()
+var array<GeoPivot> geometryHighPivots = array.new<GeoPivot>()
+var array<GeoPivot> geometryLowPivots = array.new<GeoPivot>()
+var array<WickChannel> geometryChannels = array.new<WickChannel>()
+float geometryHighPivot = ta.pivothigh(high, geometryPivot, geometryPivot)
+float geometryLowPivot = ta.pivotlow(low, geometryPivot, geometryPivot)
+
+f_geometryBase(WickChannel g, int at) =>
+    g.p0 + (g.p1 - g.p0) * (at - g.t0) / (g.t1 - g.t0)
+
+f_geometryInside(WickChannel g, int at, float hi, float lo) =>
+    float base = f_geometryBase(g, at)
+    float epsilon = tick * 0.0001
+    g.side == -1 ? lo >= base - epsilon and hi <= base + g.offset + epsilon : hi <= base + epsilon and lo >= base - g.offset - epsilon
+
+f_geometryTouches(WickChannel g, int at, float hi, float lo) =>
+    float base = f_geometryBase(g, at)
+    float opposite = g.side == -1 ? base + g.offset : base - g.offset
+    float tolerance = geometryTouchTolerance * tick + tick * 0.0001
+    bool baseTouch = g.side == -1 ? math.abs(lo - base) <= tolerance : math.abs(hi - base) <= tolerance
+    bool oppositeTouch = g.side == -1 ? math.abs(hi - opposite) <= tolerance : math.abs(lo - opposite) <= tolerance
+    baseTouch or oppositeTouch
+
+// First index at/after a timestamp. The retained chart bars are chronological.
+// A single bound search replaces scanning all 100–1200 retained bars just to
+// locate the anchor interval. No bars inside the interval are omitted.
+f_timeAtOrAfter(array<int> times, int at) =>
+    int left = 0
+    int right = array.size(times)
+    while left < right
+        int middle = int((left + right) / 2)
+        if array.get(times, middle) < at
+            left := middle + 1
+        else
+            right := middle
+    left
+
+f_geometryCandidate(GeoPivot first, GeoPivot laterAnchor, int side) =>
+    WickChannel candidate = na
+    int n = array.size(geometryTimes)
+    int begin = f_timeAtOrAfter(geometryTimes, first.t)
+    bool retained = begin < n and array.get(geometryTimes, begin) == first.t
+    if laterAnchor.t > first.t and retained
+        float offset = 0.0
+        int spanBars = 0
+        bool cut = false
+        for i = begin to n - 1
+            int at = array.get(geometryTimes, i)
+            if at > laterAnchor.t
+                break
+            float base = first.p + (laterAnchor.p - first.p) * (at - first.t) / (laterAnchor.t - first.t)
+            float wick = side == -1 ? array.get(geometryLows, i) : array.get(geometryHighs, i)
+            float opposite = side == -1 ? array.get(geometryHighs, i) : array.get(geometryLows, i)
+            bool through = side == -1 ? wick < base - tick * 0.0001 : wick > base + tick * 0.0001
+            if through
+                cut := true
+                break
+            offset := math.max(offset, side == -1 ? opposite - base : base - opposite)
+            spanBars += 1
+        if not cut and spanBars >= geometryMinSpan and offset > 0
+            candidate := WickChannel.new(first.t, first.p, laterAnchor.t, laterAnchor.p, side, offset, laterAnchor.t, false, 0, spanBars)
+            if begin + 1 < n
+                for i = begin + 1 to n - 1
+                    int at = array.get(geometryTimes, i)
+                    if at < laterAnchor.t and f_geometryTouches(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                        candidate.touches += 1
+                    if at > laterAnchor.t
+                        if f_geometryInside(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                            candidate.endAt := at
+                            if f_geometryTouches(candidate, at, array.get(geometryHighs, i), array.get(geometryLows, i))
+                                candidate.touches += 1
+                        else
+                            candidate.broken := true
+                            break
+    candidate
+
+f_geometryAdd(GeoPivot current, int side) =>
+    array<GeoPivot> pivots = side == 1 ? geometryHighPivots : geometryLowPivots
+    int n = array.size(pivots)
+    if n > 0
+        for j = 0 to math.min(3, n - 1)
+            GeoPivot prior = array.get(pivots, n - 1 - j)
+            WickChannel candidate = f_geometryCandidate(prior, current, side)
+            if not na(candidate)
+                array.push(geometryChannels, candidate)
+                if array.size(geometryChannels) > 48
+                    array.shift(geometryChannels)
+    array.push(pivots, current)
+    if array.size(pivots) > 8
+        array.shift(pivots)
+    true
+
+// Evaluate the current candle against a channel known BEFORE it opened.
+// New channels detected at this close become eligible only on the next bar.
+WickChannel selectedGeometry=na
+if array.size(geometryChannels)>0
+    for j=0 to array.size(geometryChannels)-1
+        WickChannel candidate=array.get(geometryChannels,array.size(geometryChannels)-1-j)
+        if not candidate.broken and candidate.touches>=geometryMinTouches and candidate.t1<time
+            bool scoped=not na(liveAbc) and candidate.t0>=liveAbc.o.at
+            bool selectedScoped=not na(liveAbc) and not na(selectedGeometry) and selectedGeometry.t0>=liveAbc.o.at
+            if na(selectedGeometry) or scoped and not selectedScoped or scoped==selectedScoped and (candidate.t1>selectedGeometry.t1 or candidate.t1==selectedGeometry.t1 and candidate.touches>selectedGeometry.touches)
+                selectedGeometry:=candidate
+int geoScope=na(selectedGeometry)?0:not na(liveAbc) and selectedGeometry.t0>=liveAbc.o.at?1:-1
+float geoUpper=na
+float geoLower=na
+int geoId=na
+float geoSlope=na
+if not na(selectedGeometry)
+    float base=f_geometryBase(selectedGeometry,time)
+    geoUpper:=selectedGeometry.side==-1?base+selectedGeometry.offset:base
+    geoLower:=selectedGeometry.side==-1?base:base-selectedGeometry.offset
+    geoId:=selectedGeometry.t1
+    geoSlope:=(selectedGeometry.p1-selectedGeometry.p0)/(selectedGeometry.t1-selectedGeometry.t0)*stepMs
+float geoTolerance=math.max(geometryTouchTolerance*tick,nz(atr[1])*geometryNearAtr)
+bool geoBoth=not na(geoUpper) and high>=geoUpper-geoTolerance and low<=geoLower+geoTolerance
+bool geoUpperReject=not na(geoUpper) and not geoBoth and high>=geoUpper-geoTolerance and close<geoUpper
+bool geoLowerReclaim=not na(geoLower) and not geoBoth and low<=geoLower+geoTolerance and close>geoLower
+int geoCode=na(geoUpper)?0:geoBoth?7:close>geoUpper?5:close<geoLower?6:geoUpperReject?3:geoLowerReclaim?4:math.abs(close-geoUpper)<=geoTolerance?1:math.abs(close-geoLower)<=geoTolerance?2:8
+if barstate.isconfirmed
+    array.push(geometryTimes, time)
+    array.push(geometryHighs, high)
+    array.push(geometryLows, low)
+    array.push(geometryCloses, close)
+    if array.size(geometryTimes) > geometryHistory
+        array.shift(geometryTimes)
+        array.shift(geometryHighs)
+        array.shift(geometryLows)
+        array.shift(geometryCloses)
+    for g in geometryChannels
+        if not g.broken and time > g.endAt
+            if f_geometryInside(g, time, high, low)
+                g.endAt := time
+                if f_geometryTouches(g, time, high, low)
+                    g.touches += 1
+            else
+                g.broken := true
+    if not na(geometryHighPivot)
+        f_geometryAdd(GeoPivot.new(time[geometryPivot], geometryHighPivot, 1, time), 1)
+    if not na(geometryLowPivot)
+        f_geometryAdd(GeoPivot.new(time[geometryPivot], geometryLowPivot, -1, time), -1)
+
+f_ownedAbc(int id)=>
+    AbcCycle owned=na
+    if not na(id)
+        for candidate in cycles
+            if candidate.id==id
+                owned:=candidate
+    owned
+f_abcPhase(AbcCycle owner,int side)=>
+    na(owner)?"ABC UNASSIGNED":owner.stage==5?"ABC INVALID":owner.stage==6?"ABC COMPLETE":owner.stage==7?"ABC EXPIRED":owner.dir!=side?"CORRECTIVE":owner.stage==1?(not na(owner.b)?"B TURN? / A?":"A DRIVE"):owner.stage==2?"B TURN?":owner.stage==3?(side==1?"C UP":"C DOWN"):(side==1?"C>A UP":"C>A DOWN")
+f_geoText(int code)=>
+    code==0?"GEOM N/A":code==1?"UPPER RAIL":code==2?"LOWER RAIL":code==3?"UPPER REJECT":code==4?"LOWER RECLAIM":code==5?"BREAK UP":code==6?"BREAK DOWN":code==7?"BOTH RAILS":"MID CHANNEL"
+f_geoConflict(int side,int code)=>
+    code==7 or (side==1?(code==3 or code==6):(code==4 or code==5))
+f_priority(int side,AbcCycle owner,int bias,int code)=>
+    na(owner)?"UNASSIGNED":owner.stage>=5?"ABC ENDED":owner.dir!=side?"CORRECTIVE":owner.stage==1?(not na(owner.b)?"EARLY B TURN":"DELIVERY"):owner.stage==2?"B TURN CANDIDATE":bias==0?"NEUTRAL TRANSITION":bias!=side?"AGAINST-BIAS TRANSITION":f_geoConflict(side,code)?"ALIGNED C / GEOM CONFLICT":"PREFERRED CONTINUATION"
+f_abcDetail(AbcCycle owner)=>
+    na(owner)?"No ABC was assigned at setup recognition.":"ABC #"+str.tostring(owner.id)+" / root #"+str.tostring(owner.rootId)+" / attempt "+str.tostring(owner.attempt)+"\n"+f_stage(owner.stage)+" · "+owner.reason+"\nO "+f_price(owner.o.price)+"; A "+f_price(not na(owner.a)?owner.a.price:na)+"; B "+f_price(not na(owner.b)?owner.b.price:na)+"; C "+f_price(not na(owner.c)?owner.c.price:na)+"\nO known "+str.tostring(owner.o.known)+"; A known "+str.tostring(owner.aRecognized)+"; B/C known "+str.tostring(owner.bRecognized)
+f_warningFor(AbcCycle owner)=>
+    not na(owner) and owner.rootId==warningSampleRoot?"Matching-root warning "+str.tostring(warningPoints)+"/"+str.tostring(warningAvailable)+" · assessed "+(warningSampleSide==1?"UP":"DOWN")+" leg; not odds":"Current warning belongs to another root; not combined with this ABC."
+// ============ END EMBEDDED CONTEXT ============
+
+if barstate.isfirst
+    if not timeframe.isintraday or not chart.is_standard
+        runtime.error("Use standard intraday candles. Designed for 1-minute MYM; synthetic candles are not supported.")
+    if not linked and (timeframe.in_seconds(fastTf) <= timeframe.in_seconds() or timeframe.in_seconds(slowTf) <= timeframe.in_seconds())
+        runtime.error("Both context timeframes must be higher than the chart. Start on 1 minute with 5m / 15m context.")
+    if slowEma <= fastEma
+        runtime.error("Context slow EMA must be longer than fast EMA.")
+
+f_relation(int side, int bias) =>
+    bias == 0 ? 0 : side == bias ? 1 : -1
+f_biasTag(int side, int bias) =>
+    linked and not linksSelected ? "BIAS UNAVAILABLE" : bias == 0 ? "NEUTRAL" : side == bias ? "WITH BIAS" : "AGAINST BIAS"
+f_tagText(string caption, string biasTag) =>
+    showBiasTags ? caption + "\n" + biasTag : caption
+
+type Pivot
+    int side
+    int x
+    int t
+    float p
+    bool taken = false
+
+type Attempt
+    int id
+    int side
+    int born
+    int bornTime
+    int biasAtArm
+    string biasTagAtArm
+    int abcId
+    int abcRootAtArm
+    int abcStageAtArm
+    string abcAtArm
+    int geoScopeAtArm
+    int geoIdAtArm
+    int geoCodeAtArm
+    float geoUpperAtArm
+    float geoLowerAtArm
+    int extremeTime
+    float extreme
+    float pool
+    float block
+    int blockBar
+    float drawReference
+    bool qualified
+    int state
+    int sweepBar
+    int sweepTime
+    float sweepPrice
+    int signalBar
+    string reason
+    array<line> strokes
+    array<label> tags
+    line level
+    line route
+    line blockLine=na
+    label poolTag=na
+    label blockTag=na
+    label armTag=na
+    label sweepTag=na
+    label observationTag=na
+    label outcomeTag=na
+    int endedAt=na
+    float observationPrice=na
+    string observationBiasTag=""
+    array<int> strokeFades=na
+    array<int> strokeWidths=na
+    line driveLine=na
+    array<int> brokenKinds=na
+    array<line> brokenBases=na
+    array<int> brokenEnds=na
+
+var array<int> noteTimes=array.new<int>()
+var array<float> notePrices=array.new<float>()
+var array<int> noteEvents=array.new<int>()
+var array<float> noteAnchors=array.new<float>()
+var array<int> noteSides=array.new<int>()
+var array<string> noteWords=array.new<string>()
+var array<string> noteGroups=array.new<string>()
+var array<label> noteLabels=array.new<label>()
+var array<line> noteLeaders=array.new<line>()
+f_line(Attempt a,int t1,float y1,int t2,float y2,string style,int width,int fade,bool layered)=>
+    if na(a.strokeFades)
+        a.strokeFades:=array.new<int>()
+        a.strokeWidths:=array.new<int>()
+    if brush and layered
+        array.push(a.strokes,line.new(t1,y1,t2,y2,xloc=xloc.bar_time,color=color.new(f_ink(a.side),math.max(fade,82)),width=width+4,style=style))
+        array.push(a.strokeFades,math.max(fade,82))
+        array.push(a.strokeWidths,width+4)
+    line core=line.new(t1,y1,t2,y2,xloc=xloc.bar_time,color=color.new(f_ink(a.side),fade),width=width,style=style)
+    array.push(a.strokes,core)
+    array.push(a.strokeFades,fade)
+    array.push(a.strokeWidths,width)
+    core
+// Broken levels use a single directional dashed line with empty gaps.
+// Each line stops at its first crossed bar and remains visible in history.
+// Kinds: 0 secondary pool, 1 origin block.
+f_refreshBroken(Attempt a)=>
+    if not na(a.brokenKinds)
+        for i=0 to array.size(a.brokenKinds)-1
+            line base=array.get(a.brokenBases,i)
+            int finish=array.get(a.brokenEnds,i)
+            int fade=na(a.endedAt)?0:pastPathFade
+            line.set_x2(base,finish)
+            line.set_color(base,color.new(f_ink(a.side),fade))
+            line.set_style(base,line.style_dashed)
+            line.set_width(base,2)
+    true
+f_breakLevel(Attempt a,int kind,line existing,int start,float price)=>
+    if not na(price)
+        if na(a.brokenKinds)
+            a.brokenKinds:=array.new<int>()
+            a.brokenBases:=array.new<line>()
+            a.brokenEnds:=array.new<int>()
+        if array.indexof(a.brokenKinds,kind)==-1
+            line base=existing
+            if na(base)
+                base:=f_line(a,start,price,time,price,line.style_solid,2,0,false)
+            line.set_xy1(base,start,price)
+            line.set_xy2(base,time,price)
+            array.push(a.brokenKinds,kind)
+            array.push(a.brokenBases,base)
+            array.push(a.brokenEnds,time)
+        f_refreshBroken(a)
+    true
+f_tag(Attempt a,int t,float p,string txt,string detail)=>
+    bool observationEvent=str.startswith(txt,"RECLAIM") or str.startswith(txt,"CONTACT")
+    bool sweepEventText=txt=="SWEEP"
+    bool invalidEvent=str.contains(txt,"BLOCK BROKEN")
+    bool takenEvent=str.contains(txt,"DRAW TAKEN")
+    string word=observationEvent?(observationMode=="Sweep contact at close"?"Contact":"Reclaim"):sweepWord and sweepEventText?"Sweep":invalidWords and invalidEvent?"Invalid":invalidWords and takenEvent?"Taken":""
+    float anchor=observationEvent?a.observationPrice:sweepEventText?a.sweepPrice:invalidEvent?a.block:takenEvent?a.drawReference:p
+    bool mark=word!="" and not na(anchor)
+    int labelTime=t
+    float labelPrice=p
+    int duplicate=-1
+    line leader=na
+    string group=f_id(a.side,a.id)
+    if mark and criticalWords and array.size(noteEvents)>0
+        for i=0 to array.size(noteEvents)-1
+            if array.get(noteEvents,i)==t and array.get(noteSides,i)==a.side and array.get(noteWords,i)==word and math.abs(array.get(noteAnchors,i)-anchor)<tick*0.5
+                duplicate:=i
+        if duplicate>=0
+            label.set_text(array.get(noteLabels,duplicate),"")
+            line.set_color(array.get(noteLeaders,duplicate),color.new(f_ink(a.side),100))
+            group:=array.get(noteGroups,duplicate)+", "+group
+    if mark
+        int side=-a.side
+        float pad=math.max(nz(atr,tick*10)*noteAtr,tick*8)
+        float spacing=math.max(nz(atr,tick*10)*0.8,tick*6)
+        labelTime:=t+stepMs*noteBars
+        labelPrice:=anchor+side*pad
+        // Move only the text, never the price/time anchor, to avoid neighboring
+        // callouts. The short dash stays centered on the exact source candle.
+        for lane=0 to 5
+            bool conflict=false
+            if array.size(noteTimes)>0
+                for i=0 to array.size(noteTimes)-1
+                    if i!=duplicate and math.abs(labelTime-array.get(noteTimes,i))<=stepMs*4 and math.abs(labelPrice-array.get(notePrices,i))<spacing
+                        conflict:=true
+            if conflict
+                labelPrice+=side*spacing
+        f_line(a,t-int(stepMs*0.35),anchor,t+int(stepMs*0.35),anchor,line.style_solid,2,0,false)
+        if criticalWords
+            leader:=f_line(a,t,anchor,labelTime,labelPrice,line.style_solid,1,80,false)
+    string visible=mark and criticalWords?word:""
+    label tag=label.new(labelTime,labelPrice,visible,xloc=xloc.bar_time,style=label.style_none,textcolor=f_ink(a.side),color=color.new(f_ink(a.side),100),size=size.small,tooltip=f_id(a.side,a.id)+" · "+(a.side==1?"LONG":"SHORT")+"\nSetup bias: "+a.biasTagAtArm+"\n"+(na(a.abcId)?"ABC UNASSIGNED":"ABC #"+str.tostring(a.abcId)+" / root #"+str.tostring(a.abcRootAtArm))+" · "+a.abcAtArm+"\n"+detail+"\nAnchor bar: "+str.tostring(t)+"; exact price: "+f_price(anchor)+"\nCoincident marker records: "+group)
+    array.push(a.tags,tag)
+    if mark and criticalWords
+        if duplicate>=0
+            array.set(noteTimes,duplicate,labelTime)
+            array.set(notePrices,duplicate,labelPrice)
+            array.set(noteLabels,duplicate,tag)
+            array.set(noteLeaders,duplicate,leader)
+            array.set(noteGroups,duplicate,group)
+        else
+            array.push(noteTimes,labelTime)
+            array.push(notePrices,labelPrice)
+            array.push(noteEvents,t)
+            array.push(noteAnchors,anchor)
+            array.push(noteSides,a.side)
+            array.push(noteWords,word)
+            array.push(noteGroups,group)
+            array.push(noteLabels,tag)
+            array.push(noteLeaders,leader)
+            if array.size(noteTimes)>96
+                array.shift(noteTimes)
+                array.shift(notePrices)
+                array.shift(noteEvents)
+                array.shift(noteAnchors)
+                array.shift(noteSides)
+                array.shift(noteWords)
+                array.shift(noteGroups)
+                array.shift(noteLabels)
+                array.shift(noteLeaders)
+    tag
+f_poolCaption(Attempt a)=>""
+f_update(Attempt a)=>
+    int right=time+stepMs*projection
+    if a.state==0
+        line.set_x2(a.level,right)
+        line.set_x2(a.route,right)
+    else if not na(a.sweepTime)
+        line.set_x2(a.level,a.sweepTime)
+    f_refreshBroken(a)
+    true
+f_archive(Attempt a)=>
+    a.endedAt:=time
+    if array.size(a.strokes)>0
+        for i=0 to array.size(a.strokes)-1
+            line ln=array.get(a.strokes,i)
+            line.set_color(ln,color.new(f_ink(a.side),math.max(array.get(a.strokeFades,i),pastPathFade)))
+            line.set_width(ln,array.get(a.strokeWidths,i))
+    // Keep the actual setup geometry bright, with its original brush width.
+    line.set_x2(a.level,not na(a.sweepTime)?a.sweepTime:time)
+    line.set_style(a.level,line.style_solid)
+    line.set_color(a.level,color.new(f_ink(a.side),pastPathFade))
+    if na(a.sweepBar)
+        line.set_x2(a.route,time)
+        line.set_y2(a.route,a.pool)
+        line.set_color(a.route,color.new(f_ink(a.side),math.max(pastPathFade,50)))
+    else
+        line.set_color(a.route,color.new(f_ink(a.side),100))
+    f_refreshBroken(a)
+    true
+f_finish(Attempt a,int state,string why)=>
+    a.state:=state
+    a.reason:=why
+    f_archive(a)
+    bool drawTaken=str.contains(why,"draw consumed")
+    bool blockBroken=str.contains(why,"full block broken")
+    string status=drawTaken?"DRAW TAKEN · CANCELED":blockBroken?"BLOCK BROKEN":str.contains(why,"SUPERSEDED")?"SUPERSEDED":str.contains(why,"EXPIRED")?"EXPIRED":"PATTERN ONLY"
+    float at=drawTaken?a.drawReference:blockBroken?a.block:a.pool
+    a.outcomeTag:=f_tag(a,time,at,status,why+"\nObserved at this candle close; no execution outcome inferred.")
+    true
+f_remove(Attempt a) =>
+    for ln in a.strokes
+        line.delete(ln)
+    for tag in a.tags
+        label.delete(tag)
+
+var array<Pivot> pivots = array.new<Pivot>()
+var array<Attempt> attempts = array.new<Attempt>()
+var float bullBlock = na
+var float bearBlock = na
+var int bullBlockAt = na
+var int bearBlockAt = na
+var int bullBlockKnown = na
+var int bearBlockKnown = na
+var float pendingBull = na
+var float pendingBear = na
+var float pendingBullRef = na
+var float pendingBearRef = na
+var float pendingBullMove = na
+var float pendingBearMove = na
+var int pendingBullAt = na
+var int pendingBearAt = na
+var int hhCount = 0
+var int llCount = 0
+var int nextId = 0
+var int totalSignals = 0
+var int totalSweeps = 0
+var int totalCanceled = 0
+var int totalLongSetups = 0
+var int totalShortSetups = 0
+
+// Strict fractals reject equal plateaus. Dual high+low pivots are ignored:
+// OHLC cannot establish the order of both extremes inside an outside candle.
+float phRaw = ta.pivothigh(high, micro, micro)
+float plRaw = ta.pivotlow(low, micro, micro)
+float rightHigh = ta.highest(high, micro)
+float leftHigh = ta.highest(high, micro)[micro + 1]
+float rightLow = ta.lowest(low, micro)
+float leftLow = ta.lowest(low, micro)[micro + 1]
+bool phOk = not na(phRaw) and phRaw > rightHigh and phRaw > leftHigh
+bool plOk = not na(plRaw) and plRaw < rightLow and plRaw < leftLow
+float excursion = math.max(minTicks * tick, nz(atr[micro]) * minAtr)
+bool longSignal = false
+bool shortSignal = false
+bool sweepEvent = false
+bool armedEvent = false
+int setupEventSide = 0
+int sweepEventSide = 0
+int eventBiasRelation = 0
+int longBiasRelation = 0
+int shortBiasRelation = 0
+int setupBiasRelation = 0
+bool longAlertAllowed = false
+bool shortAlertAllowed = false
+float eventReclaim = na
+int eventAbcId=na
+int eventAbcStage=na
+int eventGeometry=na
+int eventPriority=0
+int eventOwnerAtArm=na
+
+
+if barstate.isconfirmed
+    for pivot in pivots
+        if pivot.side == 1 ? high >= pivot.p : low <= pivot.p
+            pivot.taken := true
+    if not na(bullBlock) and (low < bullBlock or bar_index - bullBlockAt > blockAge)
+        bullBlock := na
+    if not na(bearBlock) and (high > bearBlock or bar_index - bearBlockAt > blockAge)
+        bearBlock := na
+    if not na(pendingBull)
+        if low < pendingBull or bar_index - pendingBullAt > departureBars
+            pendingBull := na
+        else if close > pendingBullRef and close - pendingBull >= pendingBullMove
+            bullBlock := pendingBull
+            bullBlockAt := pendingBullAt
+            bullBlockKnown := bar_index
+            pendingBull := na
+    if not na(pendingBear)
+        if high > pendingBear or bar_index - pendingBearAt > departureBars
+            pendingBear := na
+        else if close < pendingBearRef and pendingBear - close >= pendingBearMove
+            bearBlock := pendingBear
+            bearBlockAt := pendingBearAt
+            bearBlockKnown := bar_index
+            pendingBear := na
+
+    // Process existing attempts BEFORE confirming any new pivot on this bar.
+    // Therefore a sweep before/on HH recognition cannot become a late observation.
+    if array.size(attempts) > 0
+        for a in attempts
+            if a.state == 0 or a.state == 1
+                f_update(a)
+                bool drawConsumed = not na(a.drawReference) and (a.side == 1 ? high >= a.drawReference : low <= a.drawReference)
+                bool blockBroken = not na(a.block) and (a.side == 1 ? low < a.block : high > a.block)
+                bool expired = bar_index - a.born > expiry or (not na(a.blockBar) and bar_index - a.blockBar > blockAge)
+                // Visual observation only: preserve existing eligibility and event order.
+                // A canceled attempt may cross multiple references in the same candle.
+                bool poolCrossed=a.side==1?low<=a.pool-sweepTicks*tick:high>=a.pool+sweepTicks*tick
+                if poolCrossed and bar_index>a.born
+                    f_breakLevel(a,0,a.level,line.get_x1(a.level),a.pool)
+                if blockBroken
+                    f_breakLevel(a,1,a.blockLine,a.bornTime,a.block)
+                if drawConsumed or blockBroken or expired
+                    string reason = drawConsumed ? "CANCELED · draw consumed before signal (same-bar order unknown if swept)" : blockBroken ? "CANCELED · full block broken" : "EXPIRED"
+                    f_finish(a, 3, reason)
+                    totalCanceled += 1
+                else
+                    bool swept = a.side == 1 ? low <= a.pool - sweepTicks * tick : high >= a.pool + sweepTicks * tick
+                    if a.state == 0 and swept and bar_index > a.born
+                        a.state := 1
+                        a.sweepBar := bar_index
+                        a.sweepTime := time
+                        a.sweepPrice := a.side == 1 ? low : high
+                        totalSweeps += 1
+                        sweepEvent := true
+                        sweepEventSide := a.side
+                        line.set_x2(a.route, time)
+                        line.set_y2(a.route, a.sweepPrice)
+                        line.set_style(a.route,line.style_solid)
+                        line.set_color(a.route,color.new(f_ink(a.side),100))
+                        line.set_x2(a.level,time)
+                        f_refreshBroken(a)
+                        label.set_xy(a.poolTag,time,a.pool)
+                        label.set_text(a.poolTag,"")
+                        f_line(a, a.extremeTime, a.extreme, time, a.sweepPrice, line.style_solid, 2, 20, true)
+                        a.sweepTag:=f_tag(a, time, a.sweepPrice - a.side * nz(atr, tick * 10) * 0.25, compactLabels?"SWEEP":a.side == 1 ? "LL · sweep" : "HH · sweep", "Relative to the frozen internal pool, not necessarily the parent swing. Observed at candle close.")
+                    if a.state == 1
+                        a.sweepPrice := a.side == 1 ? math.min(a.sweepPrice, low) : math.max(a.sweepPrice, high)
+                        bool reclaimed = a.side == 1 ? close > a.pool : close < a.pool
+                        bool timing = observationMode == "Sweep contact at close" or reclaimed
+                        bool room = not na(a.drawReference) and (a.side == 1 ? a.drawReference - close : close - a.drawReference) >= roomTicks * tick
+                        if not a.qualified
+                            f_finish(a, 4, "PATTERN ONLY · " + a.reason)
+                        else if bar_index - a.sweepBar > reclaimBars
+                            f_finish(a, 3, "EXPIRED · no timely reclaim")
+                            totalCanceled += 1
+                        else if timing and room
+                            a.state := 2
+                            a.signalBar := bar_index
+                            AbcCycle owner=f_ownedAbc(a.abcId)
+                            int ownerGeoScope=na(selectedGeometry)?0:not na(owner) and selectedGeometry.t0>=owner.o.at?1:-1
+                            string priority=f_priority(a.side,owner,direction,geoCode)
+                            bool preferred=priority=="PREFERRED CONTINUATION"
+                            a.reason := (a.side == 1 ? "LONG" : "SHORT") + " RECLAIM · " + priority
+                            eventAbcId:=a.abcId
+                            eventAbcStage:=not na(owner)?owner.stage:na
+                            eventGeometry:=geoCode
+                            eventPriority:=preferred?1:0
+                            eventOwnerAtArm:=a.abcRootAtArm
+                            a.observationPrice:=close
+                            a.observationBiasTag:=f_biasTag(a.side,direction)
+                            f_update(a)
+                            string observationCaption=(observationMode=="Sweep contact at close"?"CONTACT ":"RECLAIM ")+f_id(a.side,a.id)
+                            string subline=showBiasTags?(compactLabels?f_biasShort(f_biasTag(a.side,direction)):f_biasTag(a.side,direction)):""
+                            if contextOnTags
+                                subline+=(subline==""?"":" · ")+f_abcPhase(owner,a.side)
+                                if not compactLabels
+                                    subline+=" · "+f_geoText(geoCode)
+                            if subline!=""
+                                observationCaption+="\n"+subline
+                            a.observationTag:=f_tag(a,time,a.side==1?low-math.max(nz(atr)*1.1,tick*8):high+math.max(nz(atr)*1.1,tick*8),observationCaption,"At signal: "+f_biasTag(a.side,direction)+"\n"+priority+"\n"+f_abcDetail(owner)+"\n"+f_warningFor(owner)+"\nGeometry "+(ownerGeoScope==1?"ABC-scoped ":"broader ")+"#"+str.tostring(geoId)+" · "+f_geoText(geoCode)+" · prior-known rails "+f_price(geoLower)+" / "+f_price(geoUpper)+"\n"+observationMode)
+                            longSignal := longSignal or a.side == 1
+                            shortSignal := shortSignal or a.side == -1
+                            eventReclaim := close
+                            eventBiasRelation := f_relation(a.side, direction)
+                            if a.side == 1
+                                longBiasRelation := f_relation(a.side, direction)
+                                longAlertAllowed := alertScope == "All bias tags" or (alertScope == "With bias only" ? direction == a.side : preferred)
+                            else
+                                shortBiasRelation := f_relation(a.side, direction)
+                                shortAlertAllowed := alertScope == "All bias tags" or (alertScope == "With bias only" ? direction == a.side : preferred)
+                            totalSignals += 1
+                            f_archive(a)
+    int pSide = phOk and not plOk ? 1 : plOk and not phOk ? -1 : 0
+    if pSide != 0
+        Pivot p = Pivot.new(pSide, bar_index - micro, time[micro], pSide == 1 ? phRaw : plRaw)
+        bool accepted = false
+        bool extension = false
+        int n = array.size(pivots)
+        if n == 0
+            array.push(pivots, p)
+            accepted := true
+        else
+            Pivot last = array.get(pivots, n - 1)
+            if last.side == pSide
+                if pSide == 1 ? p.p > last.p : p.p < last.p
+                    array.set(pivots, n - 1, p)
+                    accepted := true
+                    extension := true
+            else if (pSide == 1 ? p.p - last.p : last.p - p.p) >= excursion
+                array.push(pivots, p)
+                accepted := true
+        if array.size(pivots) > 12
+            array.shift(pivots)
+        n := array.size(pivots)
+        if accepted and n >= 3
+            Pivot previous = array.get(pivots, n - 3)
+            Pivot poolPivot = array.get(pivots, n - 2)
+            bool broke = pSide == 1 ? p.p >= previous.p + minBreak * tick : p.p <= previous.p - minBreak * tick
+
+            // A prior run + reclaim + minimum departure is a mechanical LB proxy.
+            // It can seed a LATER secondary-pool setup, never its own observation.
+            if pSide == -1 and p.p <= previous.p - sweepTicks * tick
+                pendingBull := p.p
+                pendingBullRef := previous.p
+                pendingBullMove := excursion
+                pendingBullAt := p.x
+                if close > previous.p and close - p.p >= excursion
+                    bullBlock := p.p
+                    bullBlockAt := p.x
+                    bullBlockKnown := bar_index
+                    pendingBull := na
+            if pSide == 1 and p.p >= previous.p + sweepTicks * tick
+                pendingBear := p.p
+                pendingBearRef := previous.p
+                pendingBearMove := excursion
+                pendingBearAt := p.x
+                if close < previous.p and p.p - close >= excursion
+                    bearBlock := p.p
+                    bearBlockAt := p.x
+                    bearBlockKnown := bar_index
+                    pendingBear := na
+            if not extension
+                if pSide == 1
+                    hhCount := broke ? hhCount + 1 : 0
+                else
+                    llCount := broke ? llCount + 1 : 0
+
+            // Each distinct alternating HH/LL may arm one attempt. Extensions
+            // update the pivot ledger, but never move an already frozen attempt.
+            bool enough = pSide == 1 ? hhCount >= sequence : llCount >= sequence
+            bool poolFresh = not poolPivot.taken
+            bool recent = bar_index - poolPivot.x <= expiry
+            if broke and enough and not extension and poolFresh and recent
+                for old in attempts
+                    if old.side == pSide and (old.state == 0 or old.state == 1)
+                        f_finish(old, 3, "SUPERSEDED · fresh confirmed swing; anchors retained")
+                        totalCanceled += 1
+                // Retain each direction independently; at most 20 attempts.
+                // Conservative budget: at most 24 lines per fully decorated attempt.
+                // Single-color breaks reuse existing levels; 20 attempts plus context remain below 500.
+                int sameSideCount = 0
+                int oldestSameSide = na
+                if array.size(attempts) > 0
+                    for i = 0 to array.size(attempts) - 1
+                        Attempt retained = array.get(attempts, i)
+                        if retained.side == pSide
+                            sameSideCount += 1
+                            if na(oldestSameSide)
+                                oldestSameSide := i
+                if sameSideCount >= historyPerSide
+                    f_remove(array.remove(attempts, oldestSameSide))
+                float block = pSide == 1 ? bullBlock : bearBlock
+                int blockAt = pSide == 1 ? bullBlockAt : bearBlockAt
+                int blockKnown = pSide == 1 ? bullBlockKnown : bearBlockKnown
+                bool blockValid = not na(block) and blockAt < poolPivot.x and blockKnown < poolPivot.x and (pSide == 1 ? block < poolPivot.p : block > poolPivot.p)
+                float sideDraw = pSide == 1 ? longDraw : shortDraw
+                bool drawValid = not na(sideDraw) and (pSide == 1 ? sideDraw > high : sideDraw < low)
+                bool qualified = blockValid and drawValid
+                string why = not blockValid ? "no prior qualified sweep-origin block" : not drawValid ? "no live directional draw" : "waiting for secondary pool sweep"
+                float frozenBlock = blockValid ? block : na
+                float frozenDraw = drawValid ? sideDraw : na
+                nextId += 1
+                totalLongSetups += pSide == 1 ? 1 : 0
+                totalShortSetups += pSide == -1 ? 1 : 0
+                Attempt a = Attempt.new(nextId, pSide, bar_index, time, direction, f_biasTag(pSide, direction), not na(liveAbc)?liveAbc.id:na, not na(liveAbc)?liveAbc.rootId:na, not na(liveAbc)?liveAbc.stage:na, f_abcPhase(liveAbc,pSide), geoScope, geoId, geoCode, geoUpper, geoLower, p.t, p.p, poolPivot.p, frozenBlock, blockValid ? blockAt : na, frozenDraw, qualified, 0, na, na, na, na, why, array.new<line>(), array.new<label>(), na, na)
+                float pad = math.max(tick * 2, nz(atr) * 0.15)
+                float mark = p.p + pSide * pad * 1.8
+                f_line(a, p.t - stepMs, mark - pad, p.t, mark + pad, line.style_solid, 3, 0, true)
+                f_line(a, p.t, mark - pad, p.t + stepMs, mark + pad, line.style_solid, 3, 15, true)
+                if showMicroText or not compactLabels
+                    f_tag(a,p.t,mark+pSide*pad*1.8,compactLabels?(pSide==1?"HH":"LL"):f_tagText(pSide==1?"HH":"LL",a.biasTagAtArm),"Pivot occurred here; confirmed "+str.tostring(micro)+" bars later. "+why)
+                a.armTag:=f_tag(a,time,pSide==1?low-math.max(nz(atr)*0.65,tick*5):high+math.max(nz(atr)*0.65,tick*5),(pSide==1?"L ↑ ":"S ↓ ")+f_id(pSide,a.id),"ARMED NOW at confirmation close. "+why)
+                a.driveLine:=f_line(a,poolPivot.t,poolPivot.p,p.t,p.p,line.style_solid,2,20,true)
+                a.level := f_line(a, poolPivot.t, poolPivot.p, time + stepMs * projection, poolPivot.p, line.style_solid, 2, 25, false)
+                a.route := f_line(a,p.t,p.p,time+stepMs*projection,poolPivot.p-pSide*sweepTicks*tick,line.style_dotted,1,45,false)
+                a.poolTag:=f_tag(a,time+stepMs*projection,poolPivot.p,f_poolCaption(a),"Frozen secondary pool. Dotted route means waiting for a pullback sweep for this "+(pSide==1?"LONG":"SHORT")+" setup; it is not an opposite-direction observation.")
+                array.push(attempts, a)
+                armedEvent := true
+                setupEventSide := pSide
+                setupBiasRelation := f_relation(pSide, direction)
+
+// The chart defaults to lines plus one-word event callouts only.
+var table panel=table.new(position.bottom_right,1,2,bgcolor=color.new(#10151E,18),frame_color=color.new(CYAN,80),frame_width=1)
+if barstate.islast and showStatusPanel
+    table.cell(panel,0,0,direction==1?"LONG":direction==-1?"SHORT":"NEUTRAL",text_color=direction==0?CYAN:f_ink(direction),text_size=size.small)
+    table.cell(panel,0,1,na(liveAbc)?"ABC?":liveAbc.stage<=2?"B?":liveAbc.dir==1?"C↑":"C↓",text_color=na(liveAbc)?CYAN:f_ink(liveAbc.dir),text_size=size.tiny)
+
+
+plot(direction, "Confirmed direction", display=display.data_window)
+plot(draw, "Current context draw", display=display.data_window)
+plot(longDraw, "Available long draw", display=display.data_window)
+plot(shortDraw, "Available short draw", display=display.data_window)
+plot(setupEventSide, "Setup event direction", display=display.data_window)
+plot(sweepEventSide, "Sweep event direction", display=display.data_window)
+plot(setupBiasRelation, "Setup bias tag 1 with -1 against 0 neutral", display=display.data_window)
+plot(eventBiasRelation, "Reclaim bias tag 1 with -1 against 0 neutral", display=display.data_window)
+plot(longBiasRelation, "Long observation bias tag", display=display.data_window)
+plot(shortBiasRelation, "Short observation bias tag", display=display.data_window)
+plot(armedEvent ? 1 : 0, "Setup confirmed now", display=display.data_window)
+plot(sweepEvent ? 1 : 0, "Sweep observed now", display=display.data_window)
+plot(longSignal and shortSignal ? 2 : longSignal ? 1 : shortSignal ? -1 : 0, "Reclaim event direction", display=display.data_window)
+plot(eventReclaim, "Sweep observation close", display=display.data_window)
+plot(nextId, "Total setups in loaded history", display=display.data_window)
+plot(totalCanceled, "Total canceled in loaded history", display=display.data_window)
+plot(longSignal ? 1 : 0, "Long observation observed", display=display.data_window)
+plot(shortSignal ? 1 : 0, "Short observation observed", display=display.data_window)
+plot(longAlertAllowed ? 1 : 0, "Long observation alert eligible", display=display.data_window)
+plot(shortAlertAllowed ? 1 : 0, "Short observation alert eligible", display=display.data_window)
+alertcondition(longSignal and longAlertAllowed, "Agentic Sweep · LONG reclaim", '{{ticker}} {{interval}}: long sweep observation candidate · bias tag {{plot("Long observation bias tag")}} (1 with / -1 against / 0 neutral) at closed-bar price {{close}}. Research signal; no fill assumed.')
+alertcondition(shortSignal and shortAlertAllowed, "Agentic Sweep · SHORT reclaim", '{{ticker}} {{interval}}: short sweep observation candidate · bias tag {{plot("Short observation bias tag")}} (1 with / -1 against / 0 neutral) at closed-bar price {{close}}. Research signal; no fill assumed.')
+alertcondition(sweepEvent, "Agentic Sweep · pool swept", "{{ticker}} {{interval}}: frozen internal liquidity pool swept. Check the frozen pool and reclaim status.")
+
+// Historical context series are generated on each bar, not from final drawings.
+plot(not na(liveAbc)?liveAbc.id:na,"Live ABC ID",display=display.data_window)
+plot(not na(liveAbc)?liveAbc.rootId:na,"Live ABC root",display=display.data_window)
+plot(not na(liveAbc)?liveAbc.dir:na,"Live ABC direction",display=display.data_window)
+plot(not na(liveAbc)?liveAbc.stage:na,"Live ABC stage",display=display.data_window)
+plot(not na(liveAbc)?liveAbc.o.known:na,"Live O recognized",display=display.data_window)
+plot(not na(liveAbc)?liveAbc.aRecognized:na,"Live A recognized",display=display.data_window)
+plot(not na(liveAbc)?liveAbc.bRecognized:na,"Live B C recognized",display=display.data_window)
+plot(geoScope,"Geometry scope 1 ABC -1 broader 0 unavailable",display=display.data_window)
+plot(geoCode,"Prior-known geometry code",display=display.data_window)
+plot(geoId,"Prior-known channel ID",display=display.data_window)
+plot(geoUpper,"Prior-known channel upper",display=display.data_window)
+plot(geoLower,"Prior-known channel lower",display=display.data_window)
+plot(eventAbcId,"Reclaim ABC owner ID",display=display.data_window)
+plot(eventAbcStage,"Reclaim ABC owner stage",display=display.data_window)
+plot(eventGeometry,"Reclaim geometry code",display=display.data_window)
+plot(eventPriority,"Reclaim preferred continuation",display=display.data_window)
+plot(warningSampleRoot,"Warning assessed root",display=display.data_window)
+plot(warningSampleSide,"Warning assessed direction",display=display.data_window)
+plot(warningPoints,"Warning points not probability",display=display.data_window)
+// Optional current-only context drawings. Source endpoints are retrospective;
+// tags/tooltips and the context plots historyPerSide the actual recognition clocks.
+var array<line> contextLines=array.new<line>()
+var array<label> contextLabels=array.new<label>()
+if barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed)
+    for ln in contextLines
+        line.delete(ln)
+    for tag in contextLabels
+        label.delete(tag)
+    array.clear(contextLines)
+    array.clear(contextLabels)
+    if drawAbc and not na(liveAbc)
+        array<AbcPivot> points=array.new<AbcPivot>()
+        array.push(points,liveAbc.o)
+        if not na(liveAbc.a)
+            array.push(points,liveAbc.a)
+        if not na(liveAbc.b)
+            array.push(points,liveAbc.b)
+        if not na(liveAbc.c)
+            array.push(points,liveAbc.c)
+        for i=0 to array.size(points)-1
+            AbcPivot point=array.get(points,i)
+            array.push(contextLabels,label.new(point.at,point.price,"",xloc=xloc.bar_time,style=label.style_none,textcolor=f_ink(liveAbc.dir),size=size.small,tooltip="Live ABC #"+str.tostring(liveAbc.id)+" · recognition: "+str.tostring(point.known)))
+            if i>0
+                AbcPivot prior=array.get(points,i-1)
+                array.push(contextLines,line.new(prior.at,prior.price,point.at,point.price,xloc=xloc.bar_time,color=color.new(f_ink(liveAbc.dir),45),width=2,style=i==3 or i==2 and liveAbc.stage<=2 or liveAbc.stage==1?line.style_dashed:line.style_solid))
+    if drawGeometry and not na(geoUpper)
+        array.push(contextLines,line.new(time,geoUpper,time+projection*stepMs,geoUpper+geoSlope*projection,xloc=xloc.bar_time,color=color.new(not na(liveAbc)?f_ink(liveAbc.dir):CYAN,65),style=line.style_dashed))
+        array.push(contextLines,line.new(time,geoLower,time+projection*stepMs,geoLower+geoSlope*projection,xloc=xloc.bar_time,color=color.new(not na(liveAbc)?f_ink(liveAbc.dir):CYAN,65),style=line.style_dashed))
+
+int lastLongState=na
+int lastShortState=na
+int latestLongId=0
+int latestShortId=0
+for a in attempts
+    if a.side==1 and a.id>latestLongId
+        latestLongId:=a.id
+        lastLongState:=a.state
+    if a.side==-1 and a.id>latestShortId
+        latestShortId:=a.id
+        lastShortState:=a.state
+plot(lastLongState,"Latest long attempt state",display=display.data_window)
+plot(lastShortState,"Latest short attempt state",display=display.data_window)
