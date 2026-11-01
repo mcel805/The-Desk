@@ -1,3 +1,4 @@
+import {setupGeometryVolumeView} from './geometry-volume-view.mjs';
 import {setupGeometryFocus} from './market-geometry-focus.mjs';
 import {setupFootprint} from './footprint.mjs';
 import {setupTradeRecorder} from './trade-recorder.mjs';
@@ -413,6 +414,7 @@ function amendDraft(field,value){
 function removeDraft(field){ticketRevision++;if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';updateTicket();}
 function amendDraftParameter(field,value){ticketRevision++;if(field==='qty'){$('#sizeMode').value='units';$('#quantity').value=value;}else if(field==='kind')setDraftOrderKind(value);else if(['stop','target'].includes(field))$('#'+field+'Price').value=value;updateTicket();}
 setupGeometryFocus({workspace:()=>ws});
+setupGeometryVolumeView({workspace:()=>ws});
 const swingTracker=setupSwingTracker({workspace:()=>ws});
 const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,stage:stageTrade,menu:chartMenu,placeDraft:()=>$('#orderForm').requestSubmit(),amendDraftParameter,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,pending:tradingActions.pending,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
 function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;updateTicket();drawWatch();drawDOM();window.dispatchEvent(new CustomEvent('desk:agents-sync-chart'));});}chartTrader.attach(cell);swingTracker.attach(cell);}

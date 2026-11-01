@@ -52,6 +52,11 @@ Vela's installed repository source/dependencies are required by `build-vendor.mj
 Worker selection is source-specific. See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension, and [AGENTIC_SWEEP.md](AGENTIC_SWEEP.md) for the Sweep-compatible worker path. Other source-specific compatibility notes belong with their feature guide.
 
 
+## Agentic - Geometry - Volume
+
+The catalog includes the hosted five-frame Geometry Volume study. See the [feature guide](docs/AGENTIC-GEOMETRY-VOLUME.md) for its source-informed strategy rules, chart-local Pine boundary, paper-only evidence, controls, replay and validation contract.
+
+
 ## Agentic - Elliot Waves · Premium
 
 A source-preserving Wave Court Nested Waves 4.1 port is available from the indicator catalog. See [the feature guide](AGENTIC-ELLIOT-WAVES.md) for the optional Daily-to-1m Elliott bias/count/projection panel, original-source provenance, host compatibility fixes and parity evidence boundaries.
