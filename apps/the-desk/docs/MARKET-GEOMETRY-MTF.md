@@ -11,8 +11,9 @@ The Geometry feature is reviewed from baseline `fbf7ae8` through the current
 pipeline head. Its changed paths are `docs/MARKET-GEOMETRY-MTF.md`,
 `source-manifest.json`, `tests/launch_market_geometry_fixture.py`,
 `tests/test_market_geometry_mtf.mjs`, `tests/test_market_geometry_worker.mjs`,
+`tests/verify_agentic_market_geometry_browser.mjs`,
 `tests/verify_market_geometry_mtf_browser.mjs`, `web/app.js`,
-`web/market-geometry-{compute,drawing,model,origin,source,thread,upgrade,worker}.mjs`,
+`web/market-geometry-{compute,context,drawing,model,origin,source,thread,upgrade,worker}.mjs`,
 `web/pine-editor.mjs`, `web/pine-examples/agentic-market-geometry-mtf.pine`,
 `web/pine-runtime.mjs` and `web/pine-state.mjs`. Other inherited workspace paths
 are preserved baseline work, not Geometry feature scope.
