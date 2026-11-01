@@ -206,6 +206,7 @@ Turn it off to restore optional background swing paths. Only the watched
 campaign draws a bold path, with a contrasting halo, cyan rising legs and pearl
 falling legs (dark teal/slate on light themes), and endpoint hashes/dots. The
 right-margin annotation identifies the campaign by start time, direction, stage,
-and A/B/C prices; missing points say pending. Small dots remain at pivot locations
+and A/B/C prices formatted to the verified instrument tick precision; missing points
+say pending. Small dots remain at pivot locations
 and labels stay off the candles. Qualification rules and recorded evidence are
 unchanged. Confirmed pivots do not alone imply a qualified reversal.

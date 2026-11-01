@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {geometryVolumeDrawing,geometryMapChannels} from '../web/geometry-volume-drawing.mjs';
+import {formatGeometryPrice} from '../web/geometry-volume-view.mjs';
 import {reserveGeometryMargin,releaseGeometryMargin,syncGeometryMargin,geometryCalloutLayout} from '../web/geometry-volume-layout.mjs';
 import {GEOMETRY_FRAMES,channelBounds} from '../web/market-geometry-model.mjs';
 const m=60000,end=Date.UTC(2026,10,1,19);
@@ -51,6 +52,12 @@ test('historical panning and a larger user margin remain under user control',()=
 test('ABC status is always to the right of price, including narrow views; no space hides the callout',()=>{
  for(const width of [420,1000,1800]){const priceX=width-200,box=geometryCalloutLayout({width,height:700,priceX,priceY:400});assert.ok(box);assert.ok(box.left>priceX);assert.ok(box.left+box.width<=width-10);}
  assert.equal(geometryCalloutLayout({width:420,height:700,priceX:410,priceY:400}),null);assert.equal(geometryCalloutLayout({width:420,height:700,priceX:-10,priceY:400}),null);
+});
+test('ABC prices use the instrument tick precision',()=>{
+ assert.equal(formatGeometryPrice(52035.085566,0.01),'52,035.09');
+ assert.equal(formatGeometryPrice(51931.2,0.1),'51,931.2');
+ assert.equal(formatGeometryPrice(0.000012347,0.00000001),'0.00001235');
+ assert.equal(formatGeometryPrice(51931,1),'51,931');
 });
 
 test('ABC focus hides unrelated swing paths while preserving maps and evidence',()=>{const {sources,result}=fixture(),before=structuredClone(result);const d=geometryVolumeDrawing(result,{id:'focus',sources});assert.ok(!d.lines.some(l=>l.id.includes(':swing:')));assert.equal(d.geometryVolumeFocus.mappedFrames.length,5);assert.deepEqual(result,before);});
