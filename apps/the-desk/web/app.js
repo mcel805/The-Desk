@@ -1,6 +1,7 @@
 import {setupFootprint} from './footprint.mjs';
 import {setupTradeRecorder} from './trade-recorder.mjs';
 import {reconcileHTML,setupTradeWorkbench} from './trade-workbench.mjs';
+import {upgradeGeometryWorkspace} from './market-geometry-upgrade.mjs';
 import {createTradingActions,acknowledgeTradingResult} from './trading-actions.mjs';
 import {setupSwingTracker} from './swing-tracker.mjs';
 import {DurableSettings} from './durable-settings.mjs';
@@ -23,6 +24,7 @@ import {upgradeLiquidityWorkspace} from './liquidity-catalog-upgrade.mjs';
 import {setupChartAccount} from './chart-account.mjs';
 import {RobinhoodProvider,brokerMoney} from './account-context.mjs';
 import {setupPineEditor,loadPineLibrary,createPineEngine} from './pine-editor.mjs';
+import {geometryContextForOwner} from './market-geometry-context.mjs';
 
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -354,7 +356,7 @@ function replayUpdate(){const r=ws?.replay.state;$('#replayState').textContent=r
 let settingsWriter=sessionStorage.getItem('the-desk.settings-writer');if(!settingsWriter){settingsWriter=crypto.randomUUID();sessionStorage.setItem('the-desk.settings-writer',settingsWriter);}
 const workspaceMirror=new WorkspaceMirror();
 const durableSettings=new DurableSettings({writer:settingsWriter,read:()=>api('/api/settings/state'),write:value=>api('/api/settings/commit',value),
- prepare:async values=>values.workspace?{...values,workspace:await upgradeLiquidityWorkspace(values.workspace)}:values,
+ prepare:async values=>values.workspace?{...values,workspace:await upgradeGeometryWorkspace(await upgradeLiquidityWorkspace(values.workspace))}:values,
  onPending:(values,expected)=>{if(values.workspace)workspaceMirror.capture(values.workspace,expected.workspace);},
  onCommit:(values,result)=>{Object.assign(settings,values);if(values.workspace)workspaceMirror.acknowledge(values.workspace,result.revisions?.workspace);},
  onState:status=>{$('#saveStatus').textContent=({saving:'Saving…',saved:'All changes saved',failed:status.local?'Saved locally · server rejected save':'Save rejected',retrying:status.local?'Saved locally · retrying server':'Save failed · retrying',conflict:'Local draft · changed in another tab',recovered:'Local draft recovered'})[status.state]||'Workspace restored';}});
@@ -416,7 +418,7 @@ document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
 $('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER trading (place, cancel, drag, close and reverse)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">One-click paper trading is on by default. Chart limits use your current ticket size and optional protection. Turn it off to preview chart amendments with Confirm / Discard. Pull TP or SL from an entry line to add protection. Click quantity to resize an order; drag levels to adjust prices. Bracket values show gross P&L before fees. Quote freshness and replay checks always apply. Robinhood uses its native live-order review.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
 
-setupPineEditor({saveSettings});
+setupPineEditor({saveSettings,geometryContext:(market,id,owner)=>geometryContextForOwner(ws?.cells(),owner,market,{light:document.body.classList.contains('light')})});
 
 async function reviewBrokerTicket(){
  if(busy)return;
@@ -450,7 +452,7 @@ brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.
 
 
 async function boot(){
- try{settings=await durableSettings.load();const workspaceState=workspaceMirror.reconcile({serverWorkspace:durableSettings.serverValues?.workspace,serverRevision:durableSettings.revisions.workspace,pendingWorkspace:durableSettings.pending.workspace});settings.workspace=workspaceState.workspace;durableSettings.resume();if(workspaceState.recover)void saveSettings({workspace:workspaceState.workspace});await refreshIBKR();try{const upgraded=await upgradeLiquidityWorkspace(settings.workspace);if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
+ try{settings=await durableSettings.load();const workspaceState=workspaceMirror.reconcile({serverWorkspace:durableSettings.serverValues?.workspace,serverRevision:durableSettings.revisions.workspace,pendingWorkspace:durableSettings.pending.workspace});settings.workspace=workspaceState.workspace;durableSettings.resume();if(workspaceState.recover)void saveSettings({workspace:workspaceState.workspace});await refreshIBKR();try{const upgraded=await upgradeGeometryWorkspace(await upgradeLiquidityWorkspace(settings.workspace));if(upgraded!==settings.workspace)await saveSettings({workspace:upgraded});}catch(error){console.warn('Saved Liquidity upgrade unavailable; retaining the existing study.',error);}templates=Array.isArray(settings.presets)?settings.presets:[];await loadPineLibrary(settings);
   const theme=settings.appearance?.theme||'dark';document.body.classList.toggle('light',theme==='light');
   if(brokerContext.selected)await brokerContext.refresh(true);
   const spiderHistories={coinbase:new SpiderIntervalProvider(new CoinbaseProvider(),'coinbase'),hyperliquid:new SpiderIntervalProvider(new DeskHyperliquidProvider(),'hyperliquid')};

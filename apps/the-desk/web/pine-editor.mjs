@@ -4,10 +4,11 @@ import {registerWidgetAction,registerStatePersistence,registerLegendAction} from
 import {pineState,restorePineState,renameSynthSource} from './pine-state.mjs';
 import {DeskPineEngine} from './pine-runtime.mjs';
 import {checkPineSource,sourceHash,drawingCounts,validationSource,plotRows,rowsToCsv,compareReference,timeframeDuration} from './pine-validation.mjs';
+import {MARKET_GEOMETRY_CATALOG_ORIGIN,markMarketGeometryCatalogOrigin,marketGeometryCatalogOrigin} from './market-geometry-origin.mjs';
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const engines=new Set(),runtimeErrors=createPineErrors();
-let services,context,library=[],tested=null,report=null,testing=false,generation=0,testAbort=null;
+let services,context,library=[],tested=null,report=null,testing=false,generation=0,testAbort=null,editorOrigin=null;
 const dialog=document.createElement('dialog');dialog.id='pineEditor';dialog.setAttribute('aria-label','Indicators and Pine Script');document.body.append(dialog);
 function download(name,content,type='application/json'){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function close(){if(!testing){dialog.close();generation++;}}
@@ -17,13 +18,13 @@ function current(){return context?.chart;}
 function studyName(h){const source=savedSource(h),declared=source?.match(/^\s*(?:indicator|strategy)\s*\(\s*(?:title\s*=\s*)?(?:"([^"\n]+)"|'([^'\n]+)')/m);return declared?.[1]||declared?.[2]||getEngine().records.get(h.id)?.model.title||h.title;}
 function savedSource(h){const source=getEngine().records.get(h.id)?.source;return isABCSource(h.source)&&source?.includes('Desk visual anchors v2')?source:h.source;}
 function hideOtherDialogs(){current()?.renderer.closeDialogs();}
-export function createPineEngine(){const engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event)});engines.add(engine);return engine;}
+export function createPineEngine(){let engine;engine=new DeskPineEngine({onStatus:event=>runtimeErrors.update(event),geometryContext:(market,id)=>services?.geometryContext?.(market,id,engine)||{}});engines.add(engine);return engine;}
 function getEngine(){return {records:{get:id=>[...engines].map(e=>e.records.get(id)).find(Boolean)},cancelTests:()=>{for(const e of engines)e.cancelTests();}};}
 window.addEventListener('pagehide',()=>{for(const e of engines)e.terminate();});
 export function setupPineEditor(opts){
  services=opts;
  registerWidgetAction({id:'indicators',target:'topbar',label:'Indicators',icon:'indicator',align:'left',run:ctx=>open(ctx,'library')});
- registerLegendAction({id:'desk.pine-source',icon:'code',tooltip:'Edit Pine Script',when:i=>Boolean(i.source),run:(ctx,i)=>open(ctx,'create',i.source)});
+ registerLegendAction({id:'desk.pine-source',icon:'code',tooltip:'Edit Pine Script',when:i=>Boolean(i.source),run:(ctx,i)=>open(ctx,'create',i.source,marketGeometryCatalogOrigin(i.id,i.deskPineOrigin))});
  registerStatePersistence({key:'desk.pine.v1',scope:'cell',serialize:ctx=>pineState(ctx.chart,studyName,savedSource),restore:restorePineState});
 }
 export async function loadPineLibrary(settings){
@@ -38,13 +39,14 @@ export async function loadPineLibrary(settings){
   const next=[...library,item];await services.saveSettings({pineLibrary:next});library=next;
  }catch(error){console.warn('Taper Volume could not be added to My Pine indicators.',error);}
 }
-function open(ctx,tab,source=''){
- if(testing)return;context=ctx;hideOtherDialogs();tested=null;report=null;
+function open(ctx,tab,source='',origin=null){
+ if(testing)return;context=ctx;editorOrigin=origin;hideOtherDialogs();tested=null;report=null;
  dialog.innerHTML=`<div class="pine-header"><div><h2>Indicators</h2><p>Built-in studies and your Pine Script source</p></div><button id="pineClose" aria-label="Close indicator editor">✕</button></div><div class="pine-tabs" role="tablist"><button role="tab" data-tab="library">Built-in library</button><button role="tab" data-tab="saved">My Pine indicators</button><button role="tab" data-tab="create">Create Pine Script indicator</button></div><div id="pineBody"></div><p id="pineFeedback" role="status" aria-live="polite"></p>`;
  dialog.querySelector('#pineClose').onclick=close;dialog.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>renderTab(b.dataset.tab));
- dialog.showModal();renderTab(tab,source);
+ dialog.showModal();renderTab(tab,source,origin);
 }
-async function renderTab(tab,source=''){
+async function renderTab(tab,source='',origin=null){
+ if(tab==='create'&&origin!==null)editorOrigin=origin;
  generation++;tested=null;report=null;const revision=generation;
  dialog.querySelectorAll('[data-tab]').forEach(b=>{b.setAttribute('aria-selected',b.dataset.tab===tab);b.classList.toggle('active',b.dataset.tab===tab);});
  message('');const body=dialog.querySelector('#pineBody');
@@ -57,22 +59,22 @@ async function renderTab(tab,source=''){
    {id:'pineCipherB',name:'Agentic Market Synth B',detail:'Desk reconstruction · Momentum & money flow',match:'agentic market synth b market cipher cypher b premium oscillator momentum money flow reconstruction',source:'/pine-examples/market-cipher-b.pine'},
    {id:'pineThreeDrive',name:'Agentic - Three Drive Pattern',detail:'Multi-length harmonic swings · Original rules',match:'agentic - three drive pattern detector premium harmonic luxalgo',source:'/pine-examples/agentic-three-drive-pattern.pine'},
    {id:'pineABCReversal',name:'Agentic - ABC Reversal',detail:'Liquidity contact → micro ABC · 1m / 5m',match:'agentic - abc reversal premium liquidity reversal zone',source:'/pine-examples/agentic-abc-reversal.pine'},
-   {id:'pineMarketGeometry',name:'Agentic - Market Geometry',detail:'Wick-safe channels · Chart timeframe',match:'agentic - market geometry premium wick channels',source:'/pine-examples/agentic-market-geometry.pine'},
+   {id:'pineMarketGeometry',name:'Agentic - Market Geometry',detail:'1H → 1M · Broad channels, swings & micro turns',match:'agentic - market geometry premium wick channels swings reversal mtf',source:'/pine-examples/agentic-market-geometry-mtf.pine',origin:MARKET_GEOMETRY_CATALOG_ORIGIN},
    {id:'pineLiquidity',name:'Agentic - Liquidity',detail:'Clean pools · 60 + 30 + 15M',match:'agentic - liquidity premium pools',source:'/pine-examples/agentic-liquidity.pine'},
    {id:'pineElliot',name:'Agentic - Elliot Waves',detail:'Daily → 1m · Open & test',match:'agentic - elliot waves elliott wave premium',source:'/pine-examples/agentic-elliot-waves.pine'},
    {id:'pineCleo',name:"Cleo's Liquidity",detail:'Open & test',match:"cleo's liquidity premium",source:'/pine-examples/cleos-liquidity.pine'},
    {id:'pineTaper',name:"Taper's Volume",detail:'Open & test',match:"taper's volume premium",source:'/pine-examples/taper-volume.pine'}
   ];
   const render=()=>{const q=dialog.querySelector('#pineLibrarySearch').value.toLowerCase();const featured=premiums.filter(p=>p.match.includes(q)||q.split(/\s+/).filter(Boolean).every(term=>(p.name+' '+p.detail).toLowerCase().includes(term))).map(p=>`<article class="pine-feature-card" id="${p.id}"><span class="pine-feature-copy">${esc(p.name)}<small>${esc(p.detail)}</small></span><span class="pine-feature-actions"><button type="button" class="pine-add-premium" data-premium-add="${p.id}" aria-label="Add ${esc(p.name)} to chart">Add</button><button type="button" class="pine-premium-badge pine-edit-premium" data-premium-edit="${p.id}" title="Edit Indicator" aria-label="Edit Indicator: ${esc(p.name)}">Premium</button></span></article>`);dialog.querySelector('#pineFeatured').innerHTML=featured.join('');
-   dialog.querySelectorAll('.pine-feature-card').forEach(card=>{const p=premiums.find(x=>x.id===card.id);card.onclick=()=>loadExample(p.source,true);});
+   dialog.querySelectorAll('.pine-feature-card').forEach(card=>{const p=premiums.find(x=>x.id===card.id);card.onclick=()=>loadExample(p.source,true,p.origin);});
    dialog.querySelectorAll('[data-premium-add]').forEach(b=>{const p=premiums.find(x=>x.id===b.dataset.premiumAdd);b.onclick=e=>{e.stopPropagation();addPremiumSource(p,b);};});
-   dialog.querySelectorAll('[data-premium-edit]').forEach(b=>{const p=premiums.find(x=>x.id===b.dataset.premiumEdit);b.onclick=e=>{e.stopPropagation();loadExample(p.source,true);};});
+   dialog.querySelectorAll('[data-premium-edit]').forEach(b=>{const p=premiums.find(x=>x.id===b.dataset.premiumEdit);b.onclick=e=>{e.stopPropagation();loadExample(p.source,true,p.origin);};});
    dialog.querySelector('#pineBuiltins').innerHTML=items.filter(i=>i.supported&&i.title.toLowerCase().includes(q)).map(i=>`<button data-native="${esc(i.type)}">${esc(i.title)}<span>Add</span></button>`).join('');dialog.querySelectorAll('[data-native]').forEach(b=>b.onclick=()=>{context.addNativeIndicator(b.dataset.native);renderOnChart();});};
   dialog.querySelector('#pineLibrarySearch').oninput=render;render();renderOnChart();
  }
  if(tab==='saved'){
   body.innerHTML=library.length?library.map((s,i)=>`<article class="pine-saved"><h3>${esc(s.name)}<span class="pine-premium-badge">Premium</span></h3><p>${esc(s.validation?.status||'Source saved')} · Pine ${esc(s.version||'5/6')}</p><div><button data-open-source="${i}">Edit &amp; test</button><button data-add-source="${i}">Add to chart</button><button data-download-source="${i}">Source</button><button data-delete-source="${i}">Delete saved source</button></div></article>`).join(''):'<p>No saved Pine indicators. Choose Create Pine Script indicator to paste your source.</p>';
-  dialog.querySelectorAll('[data-open-source]').forEach(b=>b.onclick=()=>renderTab('create',library[b.dataset.openSource].source));
+  dialog.querySelectorAll('[data-open-source]').forEach(b=>b.onclick=()=>renderTab('create',library[b.dataset.openSource].source,library[b.dataset.openSource].origin||null));
   dialog.querySelectorAll('[data-add-source]').forEach(b=>b.onclick=()=>addSource(library[b.dataset.addSource]));
   dialog.querySelectorAll('[data-download-source]').forEach(b=>b.onclick=()=>download('indicator.pine',library[b.dataset.downloadSource].source,'text/plain'));
   dialog.querySelectorAll('[data-delete-source]').forEach(b=>b.onclick=async()=>{try{const next=library.filter((_,i)=>i!==Number(b.dataset.deleteSource));await services.saveSettings({pineLibrary:next});library=next;renderTab('saved');message('Removed saved source. Indicators already on charts remain available.');}catch(e){message(e.message,true);}});
@@ -89,7 +91,7 @@ async function renderTab(tab,source=''){
   dialog.querySelector('#pineCancelTest').onclick=()=>{testAbort?.abort();getEngine().cancelTests();message('Test cancelled.');};
  }
 }
-async function loadExample(url,openEditor=false){try{const response=await fetch(url);if(!response.ok)throw Error('Indicator source could not be loaded.');const source=await response.text();if(openEditor)await renderTab('create',source);else{dialog.querySelector('#pineSource').value=source;dialog.querySelector('#pineSource').oninput();}}catch(e){message(e.message,true);}}
+async function loadExample(url,openEditor=false,origin=null){try{const response=await fetch(url);if(!response.ok)throw Error('Indicator source could not be loaded.');const source=await response.text();if(openEditor)await renderTab('create',source,origin);else{editorOrigin=null;dialog.querySelector('#pineSource').value=source;dialog.querySelector('#pineSource').oninput();}}catch(e){message(e.message,true);}}
 function renderOnChart(){const host=dialog.querySelector('#pineOnChart');if(!host)return;host.innerHTML='<h3>On this chart</h3>'+current().indicators().filter(h=>!h.id.startsWith('pine-test-')).map(h=>`<div class="pine-live"><span>${esc(studyName(h))}${h.source?'<span class="pine-premium-badge">Premium</span>':''}</span><button data-settings="${esc(h.id)}">Settings</button><button data-visibility="${esc(h.id)}">${h.visible?'Hide':'Show'}</button><button data-remove="${esc(h.id)}">Remove</button></div>`).join('');
  host.querySelectorAll('[data-settings]').forEach(b=>b.onclick=()=>{close();current().renderer.openIndicatorSettings(b.dataset.settings);});
  host.querySelectorAll('[data-visibility]').forEach(b=>b.onclick=()=>{const h=current().indicators().find(i=>i.id===b.dataset.visibility);h.setVisible(!h.visible);context.stateChanged();renderOnChart();});
@@ -101,19 +103,20 @@ async function testSource(){
   checkPineSource(source);const asOf=Date.now(),controller=new AbortController();testAbort=controller;const checkCancelled=()=>{if(controller.signal.aborted)throw Error('Pine test cancelled.');};testing=true;tested=null;report=null;dialog.querySelector('#pineTest').disabled=true;dialog.querySelector('#pineCancelTest').hidden=false;dialog.querySelector('#pineSource').readOnly=true;dialog.querySelectorAll('[data-tab],#pineClose,#pineExample,#pineCleoExample,#pineAdd,#pineSave').forEach(b=>b.disabled=true);
   message('Compiling and testing original source…');await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Chart history did not finish loading within 60 seconds. Retry after it is ready.')),60000);const abort=()=>{clearTimeout(timer);reject(Error('Pine test cancelled.'));};controller.signal.addEventListener('abort',abort,{once:true});chart.historyComplete().then(()=>{clearTimeout(timer);controller.signal.removeEventListener('abort',abort);resolve();},reject);});
   const hash=await sourceHash(source);checkCancelled();const id='pine-test-'+crypto.randomUUID();
+  if(editorOrigin)markMarketGeometryCatalogOrigin(id,editorOrigin);
   const result=await chart.runIndicator(source,{id,language:'pine'});if(!result.ok)throw result.error;testHandle=result.handle;checkCancelled();
   const record=engine.records.get(id);if(!record)throw Error('The runtime did not return a test model.');
   const snapshot=await testHandle.context(['warnings','barIndex']);checkCancelled();
   const inputValues=testHandle.inputValues(),inputs=[...testHandle.inputs],name=record.model.title||testHandle.title;testHandle.remove();testHandle=null;
   let diagnostic=record,probeSource=validationSource(source);if(probeSource.probes.length){
-   message('Testing comparison outputs…');const diagnosticId='pine-test-'+crypto.randomUUID();const probe=await chart.runIndicator(probeSource.source,{id:diagnosticId,language:'pine'});if(!probe.ok)throw probe.error;testHandle=probe.handle;checkCancelled();diagnostic=engine.records.get(diagnosticId);testHandle.remove();testHandle=null;
+   message('Testing comparison outputs…');const diagnosticId='pine-test-'+crypto.randomUUID();if(editorOrigin)markMarketGeometryCatalogOrigin(diagnosticId,editorOrigin);const probe=await chart.runIndicator(probeSource.source,{id:diagnosticId,language:'pine'});if(!probe.ok)throw probe.error;testHandle=probe.handle;checkCancelled();diagnostic=engine.records.get(diagnosticId);testHandle.remove();testHandle=null;
   }
   // A time cutoff applies to output export. Forming-bar visuals remain provisional on the chart.
   const duration=timeframeDuration(chart.market.timeframe);
   const completed=diagnostic.bars.filter(b=>b.time+duration<=asOf);if(!completed.length)throw Error('No completed bars were available for validation.');
   const rows=plotRows(diagnostic.model,diagnostic.bars,completed.at(-1).time);
   report={reconstruction:/^(?:Market Cipher [AB] · Desk Reconstruction|Agentic - Market Synth A|Agentic Market Synth B)$/.test(name),status:'Runtime test passed; TradingView comparison pending',sourceHash:hash,runtime:'PineTS 0.11.0 / Vela PineTS 0.2.15',name,market:record.market,bars:record.bars.length,completedBars:completed.length,completedCutoff:completed.at(-1).time,inputs,inputValues,drawings:record.counts,secondary:record.secondary,warnings:snapshot?.warnings||[],comparison:null,visualParity:'unverified',asOf:new Date(asOf).toISOString(),testedAt:new Date().toISOString()};
-  tested={id:hash,name,source,version:source.match(/@version\s*=\s*(\d+)/)[1],validation:report};
+  tested={id:hash,name,source,version:source.match(/@version\s*=\s*(\d+)/)[1],validation:report,...(editorOrigin?{origin:editorOrigin}:{})};
   dialog.querySelector('#pineName').value=name;dialog.querySelector('#pineAdd').disabled=false;dialog.querySelector('#pineSave').disabled=false;
   renderReport(rows,probeSource.source);message((report.reconstruction?'Independent Desk reconstruction':isABCSource(source)?'Adapted ABC source':'Original source')+' compiled and ran successfully. Exact TradingView parity requires reference evidence.');
  }catch(e){message('Pine test failed: '+(e?.message||e),true);dialog.querySelector('#pineReport').textContent='No successful conversion was accepted. Fix the source or unsupported runtime feature and test again.';}
@@ -127,6 +130,6 @@ function renderReport(rows,comparisonSource){
  el.querySelector('#pineCsv').onclick=()=>download('The-Desk-Pine-Outputs.csv',rowsToCsv(rows),'text/csv');
  el.querySelector('#pineReference').onchange=async e=>{const out=el.querySelector('#pineComparisonResult');try{const file=e.target.files[0];if(!file)return;if(file.size>5000000)throw Error('CSV exceeds 5 MB.');const csv=await file.text();report.comparison={...compareReference(rows,csv),referenceFile:file.name,referenceHash:await sourceHash(csv),comparedAt:new Date().toISOString()};out.textContent=report.comparison.matched?'Numeric outputs matched on '+report.comparison.matchedBars+' shared completed bars. Visual parity remains unverified.':report.comparison.mismatchCount+' numeric mismatches across '+report.comparison.matchedBars+' shared bars.';out.classList.toggle('error',!report.comparison.matched);}catch(error){report.comparison=null;out.textContent=error.message;out.classList.add('error');}};
 }
-function addSource(item){try{if(current().indicators().filter(h=>h.source).length>=6)throw Error('Keep at most six Pine studies per chart.');checkPineSource(item.source);context.addIndicator({name:item.name,script:item.source,language:'pine',id:'desk-pine-'+crypto.randomUUID()});context.stateChanged();message('Added '+item.name+' to this chart. Settings are available on its legend.');}catch(e){message(e.message,true);}}
-async function addPremiumSource(item,button){if(!item||button.disabled)return;button.disabled=true;button.textContent='Adding…';try{const response=await fetch(item.source);if(!response.ok)throw Error('Indicator source could not be loaded.');const source=await response.text();addSource({name:item.name,source});renderOnChart();}catch(e){message(e.message,true);}finally{button.disabled=false;button.textContent='Add';}}
+function addSource(item){try{if(current().indicators().filter(h=>h.source).length>=6)throw Error('Keep at most six Pine studies per chart.');checkPineSource(item.source);const id='desk-pine-'+crypto.randomUUID();if(item.origin)markMarketGeometryCatalogOrigin(id,item.origin);context.addIndicator({name:item.name,script:item.source,language:'pine',id,...(item.origin?{deskPineOrigin:item.origin}:{})});context.stateChanged();message('Added '+item.name+' to this chart. Settings are available on its legend.');}catch(e){message(e.message,true);}}
+async function addPremiumSource(item,button){if(!item||button.disabled)return;button.disabled=true;button.textContent='Adding…';try{const response=await fetch(item.source);if(!response.ok)throw Error('Indicator source could not be loaded.');const source=await response.text();addSource({name:item.name,source,origin:item.origin});renderOnChart();}catch(e){message(e.message,true);}finally{button.disabled=false;button.textContent='Add';}}
 async function saveSource(){if(!tested)return;try{const name=dialog.querySelector('#pineName').value.trim()||tested.name;const item={...tested,name};const next=library.filter(x=>x.id!==item.id);if(next.length>=6)throw Error('The local library holds six source scripts. Edit an existing source or export it.');next.push(item);await services.saveSettings({pineLibrary:next});library=next;message('Saved '+name+' in My Pine indicators.');}catch(e){message(e.message,true);}}
