@@ -1,3 +1,4 @@
+import {GeometryVolumeWorker,isGeometryVolumeSource} from './geometry-volume-worker.mjs';
 import {MarketGeometryWorker,isMTFGeometrySource} from './market-geometry-worker.mjs';
 import {marketGeometryDrawing} from './abc-live-drawing.mjs';
 import {elliotHistoryFrames,elliotHistoryEnd} from './elliot-history.mjs';
@@ -15,14 +16,14 @@ export const isAgenticElliotSource=source=>typeof source==='string'&&source.incl
 export const isAgenticLiquiditySource=source=>typeof source==='string'&&source.includes('indicator("Agentic - Liquidity", "Agentic - Liquidity"')&&/f_masterPools\s*\(/.test(source)&&/f_smallCount\s*\(/.test(source);
 export const isAgenticMarketGeometrySource=source=>typeof source==='string'&&source.includes('indicator("Agentic - Market Geometry", "Agentic - Market Geometry"')&&/f_geometryCandidate\s*\(/.test(source)&&/f_drawWickChannels\s*\(/.test(source);
 export const isAgenticThreeDriveSource=source=>typeof source==='string'&&source.includes("indicator('Agentic - Three Drive Pattern', shorttitle='Agentic - Three Drive Pattern'")&&/method zigzag\s*\(/.test(source)&&/method lab\s*\(/.test(source);
-const needsCompatibleWorker=(source,origin=null)=>isAgenticThreeDriveSource(source)||isCleoLiquiditySource(source)||isAgenticElliotSource(source)||isAgenticLiquiditySource(source)||isAgenticMarketGeometrySource(source)||isMTFGeometrySource(source,origin)||isABCSource(source);
+const needsCompatibleWorker=(source,origin=null)=>isGeometryVolumeSource(source)||isAgenticThreeDriveSource(source)||isCleoLiquiditySource(source)||isAgenticElliotSource(source)||isAgenticLiquiditySource(source)||isAgenticMarketGeometrySource(source)||isMTFGeometrySource(source,origin)||isABCSource(source);
 const CLEO_EXECUTION_TIMEOUT=120000;
 export const pineWorkerOptions=source=>needsCompatibleWorker(source)?{workerUrl:new URL("./vendor/pine-compatible-worker.js",import.meta.url).href}:{};
 
 // Each study owns a worker. Cancelling a test cannot stop installed studies.
 export class DeskPineEngine {
  language='pine';capabilities={streaming:true,visibleRange:true,inputs:true,props:true};
- constructor({factory=null,compileTimeout=15000,executionTimeout=30000,onStatus=()=>{},now=Date.now,geometryContext=()=>({}),marketGeometryFactory=null}={}){this.onStatus=onStatus;this.now=now;this.abcListeners=new Set();this.factory=factory||((source,id,origin=null)=>isMTFGeometrySource(source,origin)?(marketGeometryFactory?marketGeometryFactory():new MarketGeometryWorker({context:geometryContext,now})):isABCSource(source)?new ABCReversalWorker({records:this.records,subscribe:fn=>{this.abcListeners.add(fn);return ()=>this.abcListeners.delete(fn);}}):new PineWorkerEngine(pineWorkerOptions(source)));this.compileTimeout=compileTimeout;this.executionTimeout=executionTimeout;this.records=new Map();this.active=new Map();this.workers=new Map();}
+ constructor({factory=null,compileTimeout=15000,executionTimeout=30000,onStatus=()=>{},now=Date.now,geometryContext=()=>({}),marketGeometryFactory=null}={}){this.onStatus=onStatus;this.now=now;this.abcListeners=new Set();this.factory=factory||((source,id,origin=null)=>isGeometryVolumeSource(source)?new GeometryVolumeWorker({context:geometryContext,now}):isMTFGeometrySource(source,origin)?(marketGeometryFactory?marketGeometryFactory():new MarketGeometryWorker({context:geometryContext,now})):isABCSource(source)?new ABCReversalWorker({records:this.records,subscribe:fn=>{this.abcListeners.add(fn);return ()=>this.abcListeners.delete(fn);}}):new PineWorkerEngine(pineWorkerOptions(source)));this.compileTimeout=compileTimeout;this.executionTimeout=executionTimeout;this.records=new Map();this.active=new Map();this.workers=new Map();}
  async prepare(source,id,meta={}){
   checkPineSource(source);const origin=marketGeometryCatalogOrigin(id,meta.origin),worker=this.factory(source,id,origin);let timer,rejectPending;
   const entry={worker,cancel:()=>rejectPending?.(Error('Pine test cancelled.'))};this.workers.set(id,entry);

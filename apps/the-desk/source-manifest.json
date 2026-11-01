@@ -61,5 +61,11 @@
     "source_sha256": "bd446bd210db488fe1404714fb0d68ab885b2cc0490266e03add5437d62c70c9",
     "reference_source": "web/pine-examples/agentic-market-geometry.pine",
     "scope": "Desk-hosted deterministic 1H/30M/15M/5M/1M wick channels, locked/working swing paths and micro rejection/escape event ledger. Coinbase 30M requires complete 15M components. Exact original and pre-Focus catalog saves migrate with custom-input preservation. Focus adds a micro path, parent overview and current turn card; Full overlay retains all price layers. Original chart-only Pine remains selectable. Native TradingView MTF parity and predictive improvement unverified."
+  },
+  "agentic_geometry_volume": {
+    "source": "web/pine-examples/agentic-geometry-volume.pine",
+    "source_sha256": "e19f1da68fd4bf2b85d174a8bd0de874d8a20e1648c02bbd679ef3385b2126ba",
+    "version": "desk-geometry-volume.1",
+    "scope": "Desk-hosted completed 1H/30M/15M/5M/1M geometry, channel median/warning parallels, rolling OHLCV, strict sweep/reclaim, corrective ABC B-break/retest and hypothetical next-open paper observations. Independent source-informed rules; no proprietary parity or trading-edge claim. Outside Desk this Pine retains chart-local channels only."
   }
 }

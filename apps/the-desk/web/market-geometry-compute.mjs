@@ -7,7 +7,7 @@ export class GeometryComputation {
  update(sources,cutoff){
   let rebuild=cutoff<this.cutoff;
   for(const tf of GEOMETRY_FRAMES){for(const b of sources[tf]?.bars||[]){const old=this.accepted.get(tf).get(b.time);if(old&&['open','high','low','close','volume'].some(k=>old[k]!==b[k]))rebuild=true;}}
-  if(rebuild){const replacement=new GeometryComputation({identity:this.identity,tick:this.tick,inputs:this.inputs});replacement.revision=this.revision+1;Object.assign(this,replacement);}
+  if(rebuild){this.onReset?.();const replacement=new GeometryComputation({identity:this.identity,tick:this.tick,inputs:this.inputs});replacement.revision=this.revision+1;Object.assign(this,replacement);}
   this.cutoff=cutoff;
   const pending=[];
   for(const tf of GEOMETRY_FRAMES){const f=this.frames.get(tf),s=sources[tf];if(!s||s.error)continue;for(const b of s.bars){if(b.time+frameMs(tf)<=cutoff&&(f.lastTime==null||b.time>f.lastTime))pending.push({tf,b,at:b.time+frameMs(tf)});}}
@@ -16,6 +16,7 @@ export class GeometryComputation {
   pending.sort((a,b)=>a.at-b.at||Number(a.tf)-Number(b.tf));
   for(const {tf,b} of pending){
    const f=this.frames.get(tf);
+   this.beforeFeed?.(tf,b,{sources,frames:this.frames});
    if(tf==='1'){
     const channels=[...this.frames.values()].filter(x=>sources[x.tf]?.status==='ready'&&x.lastTime!=null&&x.lastTime+frameMs(x.tf)>=Math.floor(b.time/frameMs(x.tf))*frameMs(x.tf)).flatMap(x=>x.channels.filter(g=>g.knownAt<=b.time));
     const parents=GEOMETRY_FRAMES.filter(t=>t!=='1'&&sources[t]?.status==='ready').map(t=>{const p=this.frames.get(t);return {frame:t,direction:p.structure.direction,protected:p.structure.protected};});
@@ -23,6 +24,7 @@ export class GeometryComputation {
     this.turns.feed(b,{channels,pivots:f.rawPivots.filter(p=>p.time>=(f.bars[f.segmentStart||0]?.time??-Infinity)),parents,available:this.tick>0&&sources['1']?.status==='ready'});
    }
    f.feed(b);this.accepted.get(tf).set(b.time,{...b});
+   this.afterFeed?.(tf,b,{sources,frames:this.frames});
    const accepted=this.accepted.get(tf);while(accepted.size>this.inputs.geometryHistory+64)accepted.delete(accepted.keys().next().value);
   }
   const frames=Object.fromEntries(GEOMETRY_FRAMES.map(tf=>[tf,{...this.frames.get(tf).snapshot(),source:{...sources[tf],bars:undefined}}]));
