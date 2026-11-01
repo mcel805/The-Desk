@@ -58,7 +58,7 @@
   "agentic_market_geometry_mtf": {
     "version": "desk-market-geometry.2",
     "source": "web/pine-examples/agentic-market-geometry-mtf.pine",
-    "source_sha256": "2fca9099e4c2bb34f61e7737597f17f6a4ad487cfa4b837ae3dcb4b83b4febc0",
+    "source_sha256": "fdb5da809587f9019cd756e32bcdcade9c78756674ca1e0568485301c8ef4325",
     "reference_source": "web/pine-examples/agentic-market-geometry.pine",
     "scope": "Desk-hosted deterministic 1H/30M/15M/5M/1M wick channels, locked/working swing paths and micro rejection/escape event ledger. Coinbase 30M requires complete 15M components. Exact original saves migrate with rollback and custom-input preservation. Original chart-only Pine remains selectable. Native TradingView MTF parity and predictive improvement unverified."
   }

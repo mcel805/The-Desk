@@ -3,7 +3,7 @@ import {GeometrySources,geometryCutoff,verifiedGeometryTick} from './market-geom
 import {geometryDrawing} from './market-geometry-drawing.mjs';
 import {GEOMETRY_FRAMES,geometryOptions,geometryCalculationOptions} from './market-geometry-model.mjs';
 import {isMarketGeometryCatalogOrigin} from './market-geometry-origin.mjs';
-export const MTF_GEOMETRY_HASH='2fca9099e4c2bb34f61e7737597f17f6a4ad487cfa4b837ae3dcb4b83b4febc0';
+export const MTF_GEOMETRY_HASH='fdb5da809587f9019cd756e32bcdcade9c78756674ca1e0568485301c8ef4325';
 export const GEOMETRY_CUSTOM_SCOPE_WARNING='Edited Market Geometry source runs chart-timeframe Pine only; Desk multi-timeframe controls are inactive until the catalog source is restored.';
 const CUSTOM_MTF_KEYS=new Set(['geometryMode','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry','showSwingPaths','showWorking','showProjection','showStatus','showTurnHistory','stageAlerts','showFrame60','showFrame30','showFrame15','showFrame5','showFrame1','frameColor60','frameColor30','frameColor15','frameColor5','frameColor1']);
 const CHECKPOINT_LIMIT=24,checkpoints=new Map();

@@ -13,7 +13,7 @@ int geometryMinTouches = input.int(0, "Extra wick touches beyond 2 anchors", min
 int geometryShown = input.int(8, "Channels displayed · active first", minval = 1, maxval = 24, group = G_STYLE)
 int geometryActiveShown = input.int(4, "Maximum active channels", minval = 1, maxval = 24, group = G_STYLE)
 bool geometryShowBroken = input.bool(true, "Show historical channels to wick break", group = G_STYLE)
-bool geometryShowLabels = input.bool(true, "Print channel detail text", group = G_STYLE)
+bool geometryShowLabels = input.bool(false, "Print channel detail text", group = G_STYLE)
 color geometryActiveInk = input.color(color.rgb(190, 207, 230), "Active channel rails", group = G_STYLE)
 color geometryBrokenInk = input.color(color.rgb(108, 124, 148), "Ended channel rails", group = G_STYLE)
 
