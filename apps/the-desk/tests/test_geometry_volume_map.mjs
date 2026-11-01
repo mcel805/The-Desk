@@ -10,7 +10,7 @@ function fixture(){
  return {sources,result:{tick:1,cutoff:end,frames,turns:{candidates:[],events:[]},geometryVolume:{sweep:{events:[]},strategy:{campaigns:[],paper:[]}}}};
 }
 for(const tf of GEOMETRY_FRAMES)test(tf+' chart retains full parent anchors, all five maps and its own swing path',()=>{
- const {sources,result}=fixture(),before=structuredClone(result),drawing=geometryVolumeDrawing(result,{id:'map',sources,viewTimeframe:tf});
+ const {sources,result}=fixture(),before=structuredClone(result),drawing=geometryVolumeDrawing(result,{id:'map',sources,viewTimeframe:tf,inputs:{abcFocus:false}});
  assert.deepEqual(drawing.geometryVolumeFocus.mappedFrames,GEOMETRY_FRAMES);
  const rail=drawing.lines.find(l=>l.id==='map:gv:60-broad:lower rail');assert.ok(rail);assert.equal(rail.x1,result.frames['60'].channels[0].t0);assert.ok(rail.x1<sources['1'].bars[0].time);assert.equal(rail.y1,100);
  const path=drawing.lines.filter(l=>l.id.includes(':swing:'));assert.equal(path.length,1);assert.equal(path[0].x1,result.frames[tf].locked[0].time);assert.equal(path[0].x2,result.frames[tf].locked[1].time);
@@ -52,3 +52,5 @@ test('ABC status is always to the right of price, including narrow views; no spa
  for(const width of [420,1000,1800]){const priceX=width-200,box=geometryCalloutLayout({width,height:700,priceX,priceY:400});assert.ok(box);assert.ok(box.left>priceX);assert.ok(box.left+box.width<=width-10);}
  assert.equal(geometryCalloutLayout({width:420,height:700,priceX:410,priceY:400}),null);assert.equal(geometryCalloutLayout({width:420,height:700,priceX:-10,priceY:400}),null);
 });
+
+test('ABC focus hides unrelated swing paths while preserving maps and evidence',()=>{const {sources,result}=fixture(),before=structuredClone(result);const d=geometryVolumeDrawing(result,{id:'focus',sources});assert.ok(!d.lines.some(l=>l.id.includes(':swing:')));assert.equal(d.geometryVolumeFocus.mappedFrames.length,5);assert.deepEqual(result,before);});

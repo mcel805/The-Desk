@@ -9,3 +9,5 @@
 @media(max-width:700px){.gv-strip{gap:7px;flex-wrap:wrap;top:64px}.gv-frame-direction{gap:7px}.gv-caption{font-size:9px}.gv-strip strong{font-size:9px}}
 
 .gv-frame-direction button{font:inherit;font-weight:600}.gv-frame-direction button[aria-pressed=true]{text-decoration:underline;text-underline-offset:4px}
+
+.gv-callout{white-space:pre-line;font-size:11px;line-height:1.6;border-left-width:3px;font-weight:600}

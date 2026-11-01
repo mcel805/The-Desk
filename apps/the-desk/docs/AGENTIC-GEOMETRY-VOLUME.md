@@ -186,3 +186,26 @@ node --test tests/test_geometry_volume_map.mjs tests/test_geometry_volume.mjs te
 python3 -B tests/launch_geometry_volume_fixture.py --port 18919
 GV_FIXTURE_URL=http://127.0.0.1:18919/ CHROME_DEVTOOLS_AXI_PORT=19898 node tests/verify_geometry_volume_map_browser.mjs /tmp/gv-map-browser
 ```
+
+## Watched ABC display
+
+The supplied Swing Tracker 1.9 reference is Pine v6. Its house continuation
+model uses a confirmed parent origin O, delivery O–A, retracement A–B, then
+continuation B–C. It distinguishes recognition time from retrospective pivot
+location, freezes confirmed endpoints, emphasizes one selected cycle, and makes
+extra parent zigzags optional. Its projected objective is conditional.
+
+Geometry Volume retains its existing corrective reversal semantics: A, opposite
+B, extended confirmed C, later closing B break and subsequent held retest. The
+reference's O is not invented or mapped onto this different pattern, and no
+measured-move forecast is added. This revision adopts its visual hierarchy only.
+
+**Focus on one ABC** defaults on, including for existing saved studies. It
+suppresses the unrelated native swing zigzag while retaining all geometry maps.
+Turn it off to restore optional background swing paths. Only the watched
+campaign draws a bold path, with a contrasting halo, cyan rising legs and pearl
+falling legs (dark teal/slate on light themes), and endpoint hashes/dots. The
+right-margin annotation identifies the campaign by start time, direction, stage,
+and A/B/C prices; missing points say pending. Small dots remain at pivot locations
+and labels stay off the candles. Qualification rules and recorded evidence are
+unchanged. Confirmed pivots do not alone imply a qualified reversal.
