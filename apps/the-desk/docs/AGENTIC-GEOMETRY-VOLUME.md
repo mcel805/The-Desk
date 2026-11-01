@@ -141,3 +141,10 @@ snapshot is provided separately and is not silently treated as recomputed data.
 A synthetic replay with zero qualified observations proves neither success nor
 failure of a market edge. Validation includes hand-defined positive and negative
 qualification cases alongside end-to-end OHLCV mechanics and actual rendering.
+
+Display ownership: a just-qualified paper sequence, or its still-pending/open
+hypothetical observation, keeps the current ABC path/callout ahead of an older
+blocked opposite campaign. Once that paper observation ends, active developing
+sequences can take display priority again; historical evidence is unchanged.
+The extra-wick-contact threshold applies to confluence areas, the objective
+universe and context channel selection, as well as the inherited geometry ledger.

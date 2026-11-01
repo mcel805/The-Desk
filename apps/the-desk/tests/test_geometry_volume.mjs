@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {VolumeEvidence,SweepEvidence,strictPivot,gvOptions} from '../web/geometry-volume-evidence.mjs';
-import {geometryParallels,confluenceContacts,contextPermission,firstObjective,GeometryVolumeStrategy} from '../web/geometry-volume-strategy.mjs';
+import {geometryParallels,areaLines,confluenceContacts,contextPermission,firstObjective,GeometryVolumeStrategy} from '../web/geometry-volume-strategy.mjs';
 import {GeometryVolumeComputation} from '../web/geometry-volume-compute.mjs';
-import {geometryVolumeDrawing} from '../web/geometry-volume-drawing.mjs';
+import {geometryVolumeDrawing,currentGVCampaign} from '../web/geometry-volume-drawing.mjs';
 import {GEOMETRY_FRAMES} from '../web/market-geometry-model.mjs';
 import {GV_SOURCE_HASH,isGeometryVolumeSource} from '../web/geometry-volume-worker.mjs';
 const start=Date.UTC(2026,10,1),m=60000;
@@ -57,3 +57,19 @@ test('anchored VWAP reports incomplete history until a whole observed session st
 test('gross 3R potential cannot qualify when fees reduce net room below the threshold',()=>{const f=gateFixture();f.strategy.o.feeBps=100;f.feed(f.next(6,96,108,107));f.feed(f.next(7,104,108,107));assert.equal(f.strategy.qualified.length,0);assert.ok(f.c.blockers.includes('Insufficient net room to first known objective'));});
 
 test('a revised earlier session candle outside the geometry anchor window rebuilds VWAP evidence',()=>{const end=start+1380*m,s=sources(200);for(const tf of GEOMETRY_FRAMES){const n=tf==='1'?1600:200;s[tf].bars=waves(tf,n).map((b,i)=>({...b,time:Math.floor(end/(Number(tf)*m))*Number(tf)*m-(n-i)*Number(tf)*m}));}const c=new GeometryVolumeComputation(config);c.update(s,end);s['1'].bars[500].volume+=900;const revised=c.update(s,end),fresh=new GeometryVolumeComputation(config).update(s,end);assert.equal(revised.revision,1);assert.deepEqual(revised.geometryVolume,fresh.geometryVolume);});
+
+test('new qualified pending/open paper sequence owns rendered ABC over an older opposite pattern',()=>{
+ const ss=sources(160),r=new GeometryVolumeComputation(config).update(ss,start+160*m),now=r.cutoff;
+ const p=(i,price)=>({time:now-i*m,price,knownAt:now-(i-2)*m});
+ const older={id:'older-opposite',side:-1,terminal:false,startedAt:now-30*m,a:p(25,120),b:p(20,108),c:p(15,122),lastEvent:{knownAt:now-5*m}},qualified={id:'new-qualified',side:1,terminal:true,qualifiedAt:now,startedAt:now-12*m,a:p(10,96),b:p(8,110),c:p(5,94),breakAt:now-2*m,lastEvent:{knownAt:now,stage:'qualified paper'}};
+ r.geometryVolume.strategy.campaigns=[older,qualified];r.geometryVolume.strategy.paper=[{id:'paper',campaignId:qualified.id,status:'pending',qualifiedAt:now,side:1,stop:92,target:{price:160}}];const before=structuredClone(r.geometryVolume.strategy);
+ assert.equal(currentGVCampaign(r).id,qualified.id);let drawing=geometryVolumeDrawing(r,{id:'ownership',sources:ss,inputs:{}});assert.ok(drawing.lines.some(l=>l.id.includes('new-qualified:ABC:')));assert.ok(!drawing.lines.some(l=>l.id.includes('older-opposite:ABC:')));assert.deepEqual(r.geometryVolume.strategy,before);
+ r.cutoff+=m;r.geometryVolume.strategy.paper[0].status='open';assert.equal(currentGVCampaign(r).id,qualified.id);r.geometryVolume.strategy.paper[0].status='stopped';assert.equal(currentGVCampaign(r).id,older.id);
+});
+test('extra wick contact threshold filters both strategy confluence areas and context drawings',()=>{
+ const b=bar(10),g={id:'zero-contact',family:'structural',frame:'15',t0:start,t1:start+5*m,p0:95,p1:96,side:-1,offset:10,knownAt:start+6*m,endAt:start+9*m,touches:0,broken:false},frames=new Map(GEOMETRY_FRAMES.map(tf=>[tf,{lastTime:start,structure:{direction:1},channels:[{...g,id:tf+':zero-contact',frame:tf}]}])),ss=Object.fromEntries(GEOMETRY_FRAMES.map(tf=>[tf,{status:'ready',bars:[bar(0),b]}]));
+ for(const [tf,f]of frames)f.lastTime=Math.floor(b.time/(Number(tf)*m))*Number(tf)*m-(tf==='1'?m:0);
+ assert.ok(areaLines(b,{sources:ss,frames},1,4,{geometryMinTouches:0}).length);assert.equal(areaLines(b,{sources:ss,frames},1,4,{geometryMinTouches:1}).length,0);
+ const r={cutoff:b.time+m,frames:Object.fromEntries([...frames].map(([tf,f])=>[tf,{...f,locked:[],working:null,events:[],source:ss[tf]}])),turns:{candidates:[],events:[]},geometryVolume:{strategy:{campaigns:[],paper:[],events:[]},sweep:{events:[]}}};
+ const low=geometryVolumeDrawing(r,{id:'zero',sources:ss,inputs:{geometryMinTouches:0}}),strict=geometryVolumeDrawing(r,{id:'strict',sources:ss,inputs:{geometryMinTouches:1}});assert.ok(low.lines.some(l=>l.id.includes('zero-contact')));assert.ok(!strict.lines.some(l=>l.id.includes('zero-contact')));
+});

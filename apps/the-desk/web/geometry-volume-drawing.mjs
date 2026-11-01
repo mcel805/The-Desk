@@ -2,14 +2,22 @@ import {geometryDrawing} from './market-geometry-drawing.mjs';
 import {GEOMETRY_FRAMES,geometryFrameColor} from './market-geometry-model.mjs';
 import {geometryParallels} from './geometry-volume-strategy.mjs';
 import {gvOptions} from './geometry-volume-evidence.mjs';
-export function currentGVCampaign(result){const all=result.geometryVolume.strategy.campaigns,active=all.filter(c=>!c.terminal);return active.sort((a,b)=>Number(!!b.c)-Number(!!a.c)||Number(!!b.b)-Number(!!a.b)||b.startedAt-a.startedAt)[0]||all.at(-1)||null;}
+export function currentGVCampaign(result){
+ const strategy=result.geometryVolume.strategy,all=strategy.campaigns;
+ // A qualified close and its pending/open hypothetical observation own the
+ // display before an older blocked opposite-side sequence. Never modify ledger state.
+ const qualified=all.filter(c=>c.qualifiedAt<=result.cutoff&&(c.qualifiedAt===result.cutoff||strategy.paper?.some(p=>p.campaignId===c.id&&['pending','open'].includes(p.status)))).sort((a,b)=>b.qualifiedAt-a.qualifiedAt)[0];
+ if(qualified)return qualified;
+ const active=all.filter(c=>!c.terminal);
+ return active.sort((a,b)=>Number(!!b.c)-Number(!!a.c)||Number(!!b.b)-Number(!!a.b)||b.startedAt-a.startedAt)[0]||all.at(-1)||null;
+}
 export function geometryVolumeDrawing(result,options={}){
  const {id,inputs={},sources={},light=false}=options,o=gvOptions(inputs),model=geometryDrawing(result,{...options,inputs:{...inputs,geometryPresentation:'Focus',geometryMode:'Context + Micro'}}),prefix=id+':gv:';
  const line=(key,a,b,color,width=1,style='solid',tooltip='')=>{if(!a||!b||b.time<=a.time)return;model.lines.push({id:prefix+key,paneId:'',xloc:'bar_time',x1:a.time,y1:a.price,x2:b.time,y2:b.price,color,width,style,extend:'none',invisible:false,arrowLeft:false,arrowRight:false,tooltip});};
  const through=Math.min(result.cutoff-60000,sources['1']?.bars?.at(-1)?.time??result.cutoff-60000);
  if(o.showContext)for(const tf of [...new Set([String(o.contextFrame),'5'])]){
   if(!GEOMETRY_FRAMES.includes(tf)||inputs['showFrame'+tf]===false||sources[tf]?.status!=='ready')continue;
-  const f=result.frames[tf],g=f?.channels.filter(g=>!g.gapEnded&&g.knownAt<=result.cutoff).sort((a,b)=>Number(a.broken)-Number(b.broken)||Number(b.family==='structural')-Number(a.family==='structural')||b.knownAt-a.knownAt)[0];if(!g)continue;
+  const f=result.frames[tf],g=f?.channels.filter(g=>!g.gapEnded&&g.knownAt<=result.cutoff&&(g.touches||0)>=(Number(inputs.geometryMinTouches)||0)).sort((a,b)=>Number(a.broken)-Number(b.broken)||Number(b.family==='structural')-Number(a.family==='structural')||b.knownAt-a.knownAt)[0];if(!g)continue;
   const color=geometryFrameColor(tf,inputs,light),start=Math.max(g.t0,sources['1']?.bars?.[0]?.time??g.t0),end=Math.min(g.endAt,through),ends=geometryParallels(g,end),begins=geometryParallels(g,start);
   for(let i=0;i<begins.length;i++){
    const kind=begins[i].kind,warning=kind.includes('warning'),median=kind==='median',ink=color.slice(0,7)+(warning?'55':median?'99':'AA');

@@ -7,7 +7,7 @@ export function contextPermission(side,bar,{sources,frames}){const details=['60'
 export function areaLines(bar,{sources,frames},tick,atr,inputs={}){
  const o=gvOptions(inputs),out=[],band=Math.max(o.areaTicks*tick,o.areaAtr*(atr||0));
  for(const tf of GEOMETRY_FRAMES){const f=frames.get(tf);if(!frameAvailable(tf,bar,sources[tf],f))continue;
-  const channels=f.channels.filter(g=>g.knownAt<=bar.time&&!g.gapEnded&&bar.time-g.knownAt<=120*frameMs(tf)).slice(-8);
+  const channels=f.channels.filter(g=>g.knownAt<=bar.time&&!g.gapEnded&&(g.touches||0)>=(Number(inputs.geometryMinTouches)||0)&&bar.time-g.knownAt<=120*frameMs(tf)).slice(-8);
   for(const g of channels)for(const p of geometryParallels(g,bar.time))out.push({...p,id:g.id+':'+p.kind,frame:tf,geometry:copy(g),time:bar.time,band,projected:bar.time>g.endAt});
  }
  return out;
