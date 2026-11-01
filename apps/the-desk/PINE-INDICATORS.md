@@ -49,7 +49,7 @@ Vela's installed repository source/dependencies are required by `build-vendor.mj
 
 ## Cleo's Liquidity
 
-See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension. All other Pine sources retain the existing worker.
+Worker selection is source-specific. See [CLEOS-LIQUIDITY.md](CLEOS-LIQUIDITY.md) for the supplied seven-timeframe source and scoped nested-security worker extension, and [AGENTIC_SWEEP.md](AGENTIC_SWEEP.md) for the Sweep-compatible worker path. Other source-specific compatibility notes belong with their feature guide.
 
 
 ## Agentic - Elliot Waves · Premium
