@@ -117,12 +117,14 @@ native TradingView MTF parity, exact TTP proprietary parity or profitability.
 
 In the Desk choose **Indicators → Agentic - Geometry - Volume → Add**. The study
 owns its five sources, sweep pools and ABC campaign; separate installed studies
-are not required. Use the 1M entry chart. All five enabled source frames draw their own channel maps on every viewing
-interval, retaining full source anchors rather than clipping parent geometry to
-the shorter 1M history. Click 1H/30M/15M in the slim strip to emphasize a parent
-color; the other enabled maps remain visible. Each chart uses its own timeframe
-for the dominant locked swing path and venue-volume strip. The ABC entry path
-and dots remain on 1M/5M views; entry confirmation always uses 1M. **Line view**
+are not required. Use the 1M chart for entry evaluation; the study can be viewed
+on 1H/30M/15M/5M/1M charts. All five enabled source frames draw their own
+channel maps on every viewing interval, retaining full source anchors rather
+than clipping parent geometry to the shorter 1M history. Click 1H/30M/15M in
+the slim strip to emphasize a parent color; the other enabled maps remain
+visible. Each chart uses its own timeframe for the dominant locked swing path
+and venue-volume strip. The ABC entry path and dots remain on 1M/5M views;
+entry confirmation always uses 1M. **Line view**
 changes price display; geometry calculations still use wicks. Source toggles and
 show/hide controls are drawing choices, not permission changes. A gray missing
 frame or a blocker in the bottom caption means the setup is still unqualified.
@@ -181,5 +183,6 @@ qualification changes. Focused verification:
 
 ```sh
 node --test tests/test_geometry_volume_map.mjs tests/test_geometry_volume.mjs tests/test_geometry_volume_worker.mjs
+python3 -B tests/launch_geometry_volume_fixture.py --port 18919
 GV_FIXTURE_URL=http://127.0.0.1:18919/ CHROME_DEVTOOLS_AXI_PORT=19898 node tests/verify_geometry_volume_map_browser.mjs /tmp/gv-map-browser
 ```
