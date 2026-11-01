@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+const exec=promisify(execFile),out=process.argv[2]||'/tmp/gv-map-browser',url=process.env.GV_FIXTURE_URL||'http://127.0.0.1:18919/';await fs.mkdir(out,{recursive:true});
+const command=async(...args)=>(await exec('chrome-devtools-axi',args,{timeout:60000,maxBuffer:3e6,env:{...process.env,CHROME_DEVTOOLS_AXI_SESSION:'geometry-ttp-map'}})).stdout;
+const evaluate=async fn=>{const raw=await command('eval',fn.toString()),line=raw.split('\n').find(l=>l.startsWith('result: '));if(!line)throw Error(raw);if(line.slice(8)==='undefined')return null;let v=JSON.parse(line.slice(8));try{return JSON.parse(v);}catch{return v;}};
+const until=async fn=>{for(let i=0;i<40;i++){const r=await evaluate(fn);if(r)return r;await new Promise(r=>setTimeout(r,100));}throw Error('Map readiness timeout');};
+const ready=()=>{const f=window.gvFixture,m=f?.model();return m?.geometryVolumeFocus&&!f.ws.chart.orchestrator.registry.get(f.study().id)?.loading;};
+const report={scope:'Synthetic candles, actual Desk catalog/worker/native chart',checks:[]};
+try{
+ await command('open',url);await command('resize','1500','960');await until(()=>window.gvFixture?.ws.chart);
+ await evaluate(()=>{document.querySelectorAll('button').forEach(b=>{if(b.textContent.trim()==='Indicators')b.click();});return true;});await until(()=>document.querySelector('[data-premium-add="pineGeometryVolume"]'));
+ await evaluate(()=>{document.querySelector('[data-premium-add="pineGeometryVolume"]').click();return true;});await until(ready);await evaluate(()=>{document.querySelector('#pineClose').click();return true;});await until(()=>document.querySelector('.gv-view'));
+ await evaluate(()=>{window.mapFrozen=JSON.stringify(gvFixture.model().geometry.geometryVolume.strategy);return true;});
+ for(const tf of ['1','5','15','30','60']){
+  await evaluate(`async () => {await gvFixture.ws.chart.setMarket({timeframe:'${tf}'});await gvFixture.ws.chart.historyComplete();return true;}`);await until(ready);
+  const geometry=await until(()=>{const f=gvFixture,m=f.model(),n=f.ws.chart.renderer.renderer,root=document.querySelector('.gv-view'),callout=root.querySelector('.gv-callout'),box=callout.getBoundingClientRect(),plot=n.plot.getBoundingClientRect(),priceX=n.coords.timeToX(n.scene.bars.at(-1).time),map=m.geometryVolumeFocus;return map.nativeFrame===f.ws.chart.market.timeframe?{tf:map.nativeFrame,frames:map.mappedFrames,lines:m.lines.length,nativePaths:m.lines.filter(l=>l.id.includes(':gv:'+map.nativeFrame+':swing:')).length,parentStart:Math.min(...m.lines.filter(l=>l.id.includes(':gv:60:')).map(l=>l.x1)),minuteStart:map.sources['1'].bars[0].time,labelHidden:callout.hidden,labelLeft:box.left-plot.left,priceX,labelRight:box.right-plot.left,width:n.coords.width,annotationText:root.querySelectorAll('.gv-annotations text').length,tables:m.tables.length,volumeTitle:root.querySelector('.gv-volume text')?.textContent,strategyUnchanged:JSON.stringify(m.geometry.geometryVolume.strategy)===mapFrozen}:null;});
+  assert.deepEqual(geometry.frames,['60','30','15','5','1']);assert.ok(geometry.nativePaths>0);assert.ok(geometry.parentStart<geometry.minuteStart);assert.equal(geometry.tables,0);assert.equal(geometry.annotationText,0);assert.equal(geometry.strategyUnchanged,true);
+  assert.equal(geometry.labelHidden,false);assert.ok(geometry.labelLeft>geometry.priceX+10);assert.ok(geometry.labelRight<=geometry.width);assert.ok(geometry.volumeTitle.startsWith(tf==='60'?'1H':tf+'M'));
+  await command('screenshot',path.join(out,tf+'-dark.png'));report.checks.push({check:'Full geometry and right-margin status',...geometry});
+ }
+ await evaluate(()=>{const n=gvFixture.ws.chart.renderer.renderer;n.applyViewport({...n.coords.getViewport(),rightOffset:-100});return true;});await until(()=>document.querySelector('.gv-callout').hidden);assert.equal(await evaluate(()=>gvFixture.ws.chart.renderer.renderer.coords.getViewport().rightOffset),-100);report.checks.push({check:'Historical pan is preserved and status uses caption',passed:true});
+ await evaluate(()=>{const n=gvFixture.ws.chart.renderer.renderer;n.applyViewport({...n.coords.getViewport(),rightOffset:210/n.coords.pxPerBar()});return true;});await until(()=>!document.querySelector('.gv-callout').hidden);
+ await evaluate(()=>{document.querySelector('#theme').click();return true;});await until(()=>document.querySelector('.gv-view.is-light'));await command('screenshot',path.join(out,'60-light.png'));
+ await command('resize','520','860');await until(()=>{const root=document.querySelector('.gv-view'),c=root.querySelector('.gv-callout'),s=root.querySelector('.gv-strip').getBoundingClientRect();return s.right<=innerWidth&&(c.hidden||c.getBoundingClientRect().right<=root.getBoundingClientRect().right);});await command('screenshot',path.join(out,'narrow.png'));report.checks.push({check:'Light theme and narrow chart remain readable',passed:true});await command('resize','1500','960');
+ await evaluate(()=>{gvFixture.study().setVisible(false);return true;});await until(()=>!document.querySelector('.gv-view'));await evaluate(()=>{gvFixture.study().setVisible(true);return true;});await until(()=>document.querySelector('.gv-view'));report.checks.push({check:'Hide/show releases and restores map',passed:true});
+ await evaluate(()=>{document.querySelector('#settings').click();return true;});await until(()=>[...document.querySelectorAll('[role=dialog],dialog')].some(d=>d.offsetWidth&&d.textContent.includes('Distinct channel families per timeframe')));await command('screenshot',path.join(out,'settings.png'));await command('press','Escape');report.checks.push({check:'Channel density and historical slope settings are exposed',passed:true});
+ await evaluate(()=>{gvFixture.study().remove();return true;});await until(()=>!document.querySelector('.gv-view'));assert.equal(await evaluate(()=>gvFixture.engine.active.size),0);report.checks.push({check:'Removal cleans overlay and worker',passed:true});report.passed=true;
+}catch(e){report.error=e.stack;await command('screenshot',path.join(out,'failure.png'));throw e;}finally{await fs.writeFile(path.join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));}
