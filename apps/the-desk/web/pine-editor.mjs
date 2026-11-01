@@ -102,13 +102,13 @@ async function testSource(){
   checkPineSource(source);const asOf=Date.now(),controller=new AbortController();testAbort=controller;const checkCancelled=()=>{if(controller.signal.aborted)throw Error('Pine test cancelled.');};testing=true;tested=null;report=null;dialog.querySelector('#pineTest').disabled=true;dialog.querySelector('#pineCancelTest').hidden=false;dialog.querySelector('#pineSource').readOnly=true;dialog.querySelectorAll('[data-tab],#pineClose,#pineExample,#pineCleoExample,#pineAdd,#pineSave').forEach(b=>b.disabled=true);
   message('Compiling and testing original source…');await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Chart history did not finish loading within 60 seconds. Retry after it is ready.')),60000);const abort=()=>{clearTimeout(timer);reject(Error('Pine test cancelled.'));};controller.signal.addEventListener('abort',abort,{once:true});chart.historyComplete().then(()=>{clearTimeout(timer);controller.signal.removeEventListener('abort',abort);resolve();},reject);});
   const hash=await sourceHash(source);checkCancelled();const id='pine-test-'+crypto.randomUUID();
-  const runOptions=editorOrigin?{origin:editorOrigin}:{};
-  const result=await chart.runIndicator(source,{id,language:'pine',...runOptions});if(!result.ok)throw result.error;testHandle=result.handle;checkCancelled();
+  if(editorOrigin)markMarketGeometryCatalogOrigin(id,editorOrigin);
+  const result=await chart.runIndicator(source,{id,language:'pine'});if(!result.ok)throw result.error;testHandle=result.handle;checkCancelled();
   const record=engine.records.get(id);if(!record)throw Error('The runtime did not return a test model.');
   const snapshot=await testHandle.context(['warnings','barIndex']);checkCancelled();
   const inputValues=testHandle.inputValues(),inputs=[...testHandle.inputs],name=record.model.title||testHandle.title;testHandle.remove();testHandle=null;
   let diagnostic=record,probeSource=validationSource(source);if(probeSource.probes.length){
-   message('Testing comparison outputs…');const diagnosticId='pine-test-'+crypto.randomUUID();const probe=await chart.runIndicator(probeSource.source,{id:diagnosticId,language:'pine',...runOptions});if(!probe.ok)throw probe.error;testHandle=probe.handle;checkCancelled();diagnostic=engine.records.get(diagnosticId);testHandle.remove();testHandle=null;
+   message('Testing comparison outputs…');const diagnosticId='pine-test-'+crypto.randomUUID();if(editorOrigin)markMarketGeometryCatalogOrigin(diagnosticId,editorOrigin);const probe=await chart.runIndicator(probeSource.source,{id:diagnosticId,language:'pine'});if(!probe.ok)throw probe.error;testHandle=probe.handle;checkCancelled();diagnostic=engine.records.get(diagnosticId);testHandle.remove();testHandle=null;
   }
   // A time cutoff applies to output export. Forming-bar visuals remain provisional on the chart.
   const duration=timeframeDuration(chart.market.timeframe);
