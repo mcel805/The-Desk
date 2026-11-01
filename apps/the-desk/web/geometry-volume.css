@@ -5,6 +5,7 @@
 .gv-strip strong{font-size:10px;letter-spacing:.09em;color:#2ccac8;white-space:nowrap}.gv-frame-direction{display:flex;gap:10px;font-size:10px}.gv-strip button{font:inherit;border:0;background:none;color:var(--gv-muted);white-space:nowrap;cursor:pointer;padding:0}
 .gv-volume{position:absolute;left:0;bottom:24px;width:100%;height:54px;background:linear-gradient(transparent,var(--gv-bg));pointer-events:none}
 .gv-caption{position:absolute;bottom:3px;left:12px;right:8px;font-size:10px;color:var(--gv-muted);background:var(--gv-bg);padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gv-callout{position:absolute;box-sizing:border-box;border-left:2px solid #f6bd54;padding:4px 8px;background:var(--gv-bg);color:inherit;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
 @media(max-width:700px){.gv-strip{gap:7px;flex-wrap:wrap;top:64px}.gv-frame-direction{gap:7px}.gv-caption{font-size:9px}.gv-strip strong{font-size:9px}}
 
 .gv-frame-direction button{font:inherit;font-weight:600}.gv-frame-direction button[aria-pressed=true]{text-decoration:underline;text-underline-offset:4px}

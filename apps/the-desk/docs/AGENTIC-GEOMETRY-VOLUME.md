@@ -94,8 +94,8 @@ These defaults are explicit research definitions, not proprietary TTP parity.
    separate deterministic units. Keep bounded ledgers and resumable checkpoints.
 2. Add a dedicated numeric worker profile and exact catalog-source fingerprint.
    Edited Pine runs its own chart-local code with an explicit scope warning.
-3. Render a dominant 1M swing/ABC path, two selected context channel families,
-   center/outer parallels, small volume bars and one current callout. No tables
+3. Render a native-timeframe swing path, all five enabled geometry maps,
+   center/outer parallels, small volume bars and one current margin callout. No tables
    or large dashboard. Parent directions and the next missing condition use a
    slim strip. Settings control frame selection, density and visibility.
 4. Register Agentic - Geometry - Volume in the Desk indicator picker. Add settings,
@@ -117,8 +117,14 @@ native TradingView MTF parity, exact TTP proprietary parity or profitability.
 
 In the Desk choose **Indicators → Agentic - Geometry - Volume → Add**. The study
 owns its five sources, sweep pools and ABC campaign; separate installed studies
-are not required. Use the 1M entry chart. Click 1H/30M/15M in the slim strip to
-choose the larger channel on price (5M remains the local context). **Line view**
+are not required. Use the 1M chart for entry evaluation; the study can be viewed
+on 1H/30M/15M/5M/1M charts. All five enabled source frames draw their own
+channel maps on every viewing interval, retaining full source anchors rather
+than clipping parent geometry to the shorter 1M history. Click 1H/30M/15M in
+the slim strip to emphasize a parent color; the other enabled maps remain
+visible. Each chart uses its own timeframe for the dominant locked swing path
+and venue-volume strip. The ABC entry path and dots remain on 1M/5M views;
+entry confirmation always uses 1M. **Line view**
 changes price display; geometry calculations still use wicks. Source toggles and
 show/hide controls are drawing choices, not permission changes. A gray missing
 frame or a blocker in the bottom caption means the setup is still unqualified.
@@ -149,3 +155,34 @@ blocked opposite campaign. Once that paper observation ends, active developing
 sequences can take display priority again; historical evidence is unchanged.
 The extra-wick-contact threshold applies to confluence areas, the objective
 universe and context channel selection, as well as the inherited geometry ledger.
+
+## TTP-style geometry map and clear annotation margin
+
+The Warning Lines handout pp.11/21 and Backtesting handout pp.3/6 show multiple
+long and local slopes, channel boundaries, medians and outer parallel lines
+together. The hosted drawing follows that hierarchy using the existing audited
+channel ledger: stronger main rails, finer dotted medians and lighter dashed
+warning parallels. Each frame retains three distinct channel families by default
+(configurable from one to eight). Near-duplicate rail pairs are suppressed;
+historical slopes remain available with their exact audited endpoints. Any
+extension beyond an audited endpoint is dashed and identified as untested.
+Optional forward projections are controlled separately. This is a drawing
+interpretation of the supplied examples, not an Andrews pitchfork implementation.
+
+A small shared right-margin reservation keeps current ABC status after the latest
+price bar. The old centered speech box and its diagonal leader are removed.
+On-chart ABC text is replaced by small pivot dots; the full stage is in the
+margin and bottom caption. If panning removes the clear margin, the floating
+status hides instead of covering candles. Hide/remove releases the owned margin;
+user panning and larger existing margins are preserved. No tables are added.
+
+The source fingerprint and strategy calculations are unchanged, so saved catalog
+studies retain their hosted behavior and frozen evidence. The newly exposed
+channel-density/history drawing controls trigger redraws, not source refetches or
+qualification changes. Focused verification:
+
+```sh
+node --test tests/test_geometry_volume_map.mjs tests/test_geometry_volume.mjs tests/test_geometry_volume_worker.mjs
+python3 -B tests/launch_geometry_volume_fixture.py --port 18919
+GV_FIXTURE_URL=http://127.0.0.1:18919/ CHROME_DEVTOOLS_AXI_PORT=19898 node tests/verify_geometry_volume_map_browser.mjs /tmp/gv-map-browser
+```
