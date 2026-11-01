@@ -224,6 +224,7 @@ if barstate.islastconfirmedhistory or (barstate.islast and barstate.isconfirmed)
 // wick-channel engine above; the MTF mode is not a native TradingView implementation.
 string G_MTF = "Multi-timeframe geometry"
 string geometryMode = input.string("Context + Micro", "View", options=["Context + Micro", "Big picture", "Micro detail", "Inspect", "Original chart only"], group=G_MTF)
+string geometryPresentation = input.string("Focus", "Presentation", options=["Focus", "Full overlay"], group=G_MTF, tooltip="Focus: clear micro path, parent overview and one current turn. Full overlay: all selected layers on price.")
 int structuralPivot = input.int(8, "Structural pivot bars per side", minval=4, maxval=15, group=G_MTF)
 int structuralMinSpan = input.int(32, "Structural minimum span · source bars", minval=8, maxval=100, group=G_MTF)
 int microPivot = input.int(2, "1M / 5M swing pivot bars per side", minval=1, maxval=10, group=G_MTF)

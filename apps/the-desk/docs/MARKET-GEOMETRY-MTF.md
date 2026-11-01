@@ -5,10 +5,41 @@ channels and swing paths on one Desk chart. Large context and micro reversals ha
 separate ledgers and drawing quotas. This is a local research indicator; no
 account, order, strategy-agent or paid inference integration is involved.
 
+## Focus presentation
+
+**Presentation → Focus** is the default. On a 1M viewing chart the pearl/slate
+locked swing path has priority; its amber dashed working leg can still move.
+Large pivot dots, repeated FAIL/HOLD text, channel rails and parent diagonals
+are removed from the micro price area. The complete five-frame calculations and
+reversal history are retained.
+
+A compact card shows independent frame directions, a selectable 1H/30M/15M/5M
+overview and one current micro sequence. The overview uses up to 120 closed
+source bars in gray and locked swings in the selected frame color. Click **−**
+to collapse the overview. Click **Line view** for close-price display or
+**Candles** to return; geometry continues to use the actual OHLC wicks. Display
+style changes and Focus selection never change the calculation settings.
+
+Small markers identify actual recorded contact/escape, shift and held-retest
+events. One numbered callout follows the latest recorded step, with its leader
+anchored to that completed bar. Forming candidates never gain a shift/retest
+marker without those ledger events. A held 1M retest does not establish a parent
+reversal; the frame chips remain independent. Historical failures are available
+in **Presentation → Full overlay** or **View → Inspect**, where the original
+source/status table and channel detail remain available. **Original chart only**
+continues to run Pine.
+
+The card adapts to light backgrounds and narrow charts, releases on study hide,
+removal and mode change, and reads the owning chart engine even when study IDs
+repeat across layouts. Exact original and pre-Focus catalog releases upgrade on
+workspace restore; edited source is preserved. The new presentation choice is
+part of the catalog schema and saved input state. This UI is Desk-specific.
+
 ## Feature review scope
 
-The Geometry feature is reviewed from baseline `fbf7ae8` through the current
-pipeline head. Its changed paths are `docs/MARKET-GEOMETRY-MTF.md`,
+The initial MTF Geometry feature was reviewed from baseline `fbf7ae8` through its preserved
+pipeline head. The Focus presentation additionally changes the focus UI/CSS,
+Focus tests, default presentation, exact-release upgrade and catalog schema. Its changed paths are `docs/MARKET-GEOMETRY-MTF.md`,
 `source-manifest.json`, `tests/launch_market_geometry_fixture.py`,
 `tests/test_market_geometry_mtf.mjs`, `tests/test_market_geometry_worker.mjs`,
 `tests/verify_agentic_market_geometry_browser.mjs`,
@@ -20,7 +51,7 @@ are preserved baseline work, not Geometry feature scope.
 
 ## Using it
 
-Choose **Indicators → Agentic - Market Geometry → Add**. Its legend settings offer:
+Choose **Indicators → Agentic - Market Geometry → Add**. Its legend settings offer the following calculation-layer views (Full overlay lists all selected layers on price):
 
 - **Context + Micro**: broad structural channels on 1H/30M/15M and local channels
   on 5M/1M, recent parent paths and focused micro history.
@@ -39,7 +70,7 @@ future point. Optional forward projections are
 dotted and disabled initially. Completed channel breaches freeze the last valid
 wick-safe endpoint; failed reversal attempts remain in the event ledger.
 
-The source/status table lists independent structure directions, availability and
+In Full overlay, the source/status table lists independent structure directions, availability and
 aggregation. Hover table cells for coverage and cutoff. Hover swing anchors for
 anchor, known and lock times. Per-frame toggles affect drawing selection only
 while the study is running. Vela suspends a hidden study's entire session; it

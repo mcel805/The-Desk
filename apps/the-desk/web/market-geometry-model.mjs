@@ -2,7 +2,11 @@
 export const GEOMETRY_VERSION='desk-market-geometry.2';
 export const GEOMETRY_FRAMES=['60','30','15','5','1'];
 export const FRAME_STYLE={60:{name:'1H',color:'#5B8FFF',width:3.5},30:{name:'30M',color:'#B39AFF',width:3},15:{name:'15M',color:'#F6BD54',width:2.5},5:{name:'5M',color:'#2CCAC8',width:2},1:{name:'1M',color:'#E7EDF7',width:1.5}};
-export const DEFAULT_GEOMETRY={geometryMode:'Context + Micro',geometryHistory:600,geometryPivot:4,geometryMinSpan:8,geometryTouchTolerance:2,geometryMinTouches:0,structuralPivot:8,structuralMinSpan:32,microPivot:2,parentPivot:4,turnExpiry:20,showChannels:true,showSwingPaths:true,showWorking:true,showProjection:false,geometryShowBroken:true,geometryShowLabels:true,showStatus:true,showTurnHistory:true,stageAlerts:false};
+export function geometryFrameColor(tf,inputs={},light=false){
+ const custom=inputs['frameColor'+tf],ink=FRAME_STYLE[tf].color,value=String(custom||ink).toUpperCase(),untouched=value===ink.toUpperCase()||value===ink.toUpperCase()+'FF';
+ return light&&untouched?({60:'#2458CF',30:'#7751C9',15:'#986207',5:'#087F83',1:'#39475D'})[tf]:custom||ink;
+}
+export const DEFAULT_GEOMETRY={geometryMode:'Context + Micro',geometryPresentation:'Focus',geometryHistory:600,geometryPivot:4,geometryMinSpan:8,geometryTouchTolerance:2,geometryMinTouches:0,structuralPivot:8,structuralMinSpan:32,microPivot:2,parentPivot:4,turnExpiry:20,showChannels:true,showSwingPaths:true,showWorking:true,showProjection:false,geometryShowBroken:true,geometryShowLabels:true,showStatus:true,showTurnHistory:true,stageAlerts:false};
 const copy=v=>structuredClone(v),finite=Number.isFinite;
 const CALCULATION_KEYS=['geometryHistory','geometryPivot','geometryMinSpan','geometryTouchTolerance','geometryMinTouches','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry'];
 export const frameMs=tf=>Number(tf)*60000;

@@ -3,9 +3,9 @@ import {GeometrySources,geometryCutoff,verifiedGeometryTick} from './market-geom
 import {geometryDrawing} from './market-geometry-drawing.mjs';
 import {GEOMETRY_FRAMES,geometryOptions,geometryCalculationOptions} from './market-geometry-model.mjs';
 import {isMarketGeometryCatalogOrigin} from './market-geometry-origin.mjs';
-export const MTF_GEOMETRY_HASH='fdb5da809587f9019cd756e32bcdcade9c78756674ca1e0568485301c8ef4325';
+export const MTF_GEOMETRY_HASH='bd446bd210db488fe1404714fb0d68ab885b2cc0490266e03add5437d62c70c9';
 export const GEOMETRY_CUSTOM_SCOPE_WARNING='Edited Market Geometry source runs chart-timeframe Pine only; Desk multi-timeframe controls are inactive until the catalog source is restored.';
-const CUSTOM_MTF_KEYS=new Set(['geometryMode','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry','showSwingPaths','showWorking','showProjection','showStatus','showTurnHistory','stageAlerts','showFrame60','showFrame30','showFrame15','showFrame5','showFrame1','frameColor60','frameColor30','frameColor15','frameColor5','frameColor1']);
+const CUSTOM_MTF_KEYS=new Set(['geometryPresentation','geometryMode','structuralPivot','structuralMinSpan','microPivot','parentPivot','turnExpiry','showSwingPaths','showWorking','showProjection','showStatus','showTurnHistory','stageAlerts','showFrame60','showFrame30','showFrame15','showFrame5','showFrame1','frameColor60','frameColor30','frameColor15','frameColor5','frameColor1']);
 const CHECKPOINT_LIMIT=24,checkpoints=new Map();
 const checkpointKey=(req,id,source,inputs,tick,cutoff,context)=>{const phase=context?.replay===true?'replay':context?.replay===false?'live':'unknown',boundary=phase==='replay'||phase==='unknown'?(Number.isFinite(context?.cutoff)?context.cutoff:cutoff):null;return JSON.stringify([id,req.market?.symbol||'',source,req.mode||'static',phase,boundary,tick,geometryCalculationOptions(inputs)]);};
 const getCheckpoint=key=>{const value=checkpoints.get(key);if(value){checkpoints.delete(key);checkpoints.set(key,value);}return value||null;};
@@ -19,7 +19,7 @@ export class MarketGeometryWorker {
  async prepare(source,id,{origin=null}={}){
   const prepared=await this.legacy.prepare(source,id),hosted=await digest(source)===MTF_GEOMETRY_HASH,custom=isMarketGeometryCatalogOrigin(origin)&&!hosted;
   if(hosted){const originalOnly=new Set(['geometryShown','geometryActiveShown','geometryActiveInk','geometryBrokenInk']);
-   prepared.inputs=prepared.inputs.map(s=>({...s,...(originalOnly.has(s.key)?{when:{key:'geometryMode',equals:'Original chart only'}}:{}),title:s.title.replace('Chart bars retained','Source bars retained').replace('chart bars','source bars'),group:s.key==='geometryMode'?'Geometry view':s.group}));
+   prepared.inputs=prepared.inputs.map(s=>({...s,...(originalOnly.has(s.key)?{when:{key:'geometryMode',equals:'Original chart only'}}:{}),title:s.title.replace('Chart bars retained','Source bars retained').replace('chart bars','source bars'),group:['geometryMode','geometryPresentation'].includes(s.key)?'Geometry view':s.group}));
    prepared.inputs.sort((a,b)=>(a.key==='geometryMode'?-1:b.key==='geometryMode'?1:0));
   }else if(custom)prepared.inputs=prepared.inputs.filter(s=>!CUSTOM_MTF_KEYS.has(s.key));
   return {...prepared,meta:{...prepared.meta,...(custom?{scope:'chart-only/custom-source',scopeWarning:GEOMETRY_CUSTOM_SCOPE_WARNING}:{})},geometryHosted:hosted,geometryScope:custom?'chart-only/custom-source':hosted?'desk-mtf':'pine',geometryWarning:custom?GEOMETRY_CUSTOM_SCOPE_WARNING:null,geometryOrigin:custom?origin:null,token:{...prepared.token,source,instanceId:id,geometryOrigin:custom?origin:null}};
@@ -53,7 +53,7 @@ export class MarketGeometryWorker {
    if(stopped)return;if(legacyChild){legacyChild.notifyBars();return;}if(running){again=true;return;}running=true;const revision=generation;
    try{
     const ctx=this.context(req.market,id)||{},cutoff=geometryCutoff(req,this.now(),ctx),tick=verifiedGeometryTick(req.market),o=geometryOptions(inputs);
-    if(req.market.chartStyle&&!['standard','candles'].includes(req.market.chartStyle)||!/^\d+$/.test(String(req.market.timeframe))||Number(req.market.timeframe)<1)throw Error('Use standard time-based candles of at least one minute.');
+    if(req.market.chartStyle&&!['standard','candles','line'].includes(req.market.chartStyle)||!/^\d+$/.test(String(req.market.timeframe))||Number(req.market.timeframe)<1)throw Error('Use standard time-based candles of at least one minute.');
     const loaded=await loader.load(cutoff);if(stopped||revision!==generation)return;sources=loaded;if(ctx.replay)for(const s of Object.values(sources))delete s.forming;
     if(!tick){for(const s of Object.values(sources)){s.error='Verified source tick metadata unavailable';s.status='unavailable';s.bars=[];}}
     const key=JSON.stringify([req.market.symbol,req.market.symbolInfo?.timezone,req.market.symbolInfo?.session,tick,geometryCalculationOptions(o)]);
