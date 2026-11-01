@@ -14,6 +14,9 @@ export function reserveGeometryMargin(native,owner){
  const desired=geometryMarginWidth(width)/pitch;
  if((ours||lease.last===null&&viewport.rightOffset<desired)&&Math.abs(viewport.rightOffset-desired)>.001){if(lease.last===null)lease.before=viewport.rightOffset;native.applyViewport({...viewport,rightOffset:desired});lease.last=coords.getViewport().rightOffset;}
 }
+export function syncGeometryMargin(native,owner,eligible){
+ if(eligible)reserveGeometryMargin(native,owner);else releaseGeometryMargin(native,owner);
+}
 export function releaseGeometryMargin(native,owner){
  const lease=margins.get(native);if(!lease)return;lease.owners.delete(owner);if(lease.owners.size)return;
  const coords=native.coords,viewport=coords.getViewport();

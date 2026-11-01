@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {geometryVolumeDrawing,geometryMapChannels} from '../web/geometry-volume-drawing.mjs';
-import {reserveGeometryMargin,releaseGeometryMargin,geometryCalloutLayout} from '../web/geometry-volume-layout.mjs';
+import {reserveGeometryMargin,releaseGeometryMargin,syncGeometryMargin,geometryCalloutLayout} from '../web/geometry-volume-layout.mjs';
 import {GEOMETRY_FRAMES,channelBounds} from '../web/market-geometry-model.mjs';
 const m=60000,end=Date.UTC(2026,10,1,19);
 function fixture(){
@@ -36,6 +36,11 @@ function native(){const n={coords:{width:1000,barCount:300,viewport:{barSpacing:
 test('shared right-margin lease paints once, resizes and restores only after the last owner',()=>{
  const n=native();reserveGeometryMargin(n,'a');assert.equal(n.coords.viewport.rightOffset,42);assert.equal(n.calls,1);reserveGeometryMargin(n,'b');reserveGeometryMargin(n,'a');assert.equal(n.calls,1);
  n.coords.width=500;reserveGeometryMargin(n,'a');assert.equal(n.coords.viewport.rightOffset,23);releaseGeometryMargin(n,'a');assert.equal(n.coords.viewport.rightOffset,23);releaseGeometryMargin(n,'b');assert.equal(n.coords.viewport.rightOffset,10);
+});
+test('right-margin lease follows callout eligibility and releases while a study remains visible',()=>{
+ const n=native();syncGeometryMargin(n,'a',false);assert.equal(n.coords.viewport.rightOffset,10);assert.equal(n.calls,0);
+ syncGeometryMargin(n,'a',true);assert.equal(n.coords.viewport.rightOffset,42);assert.equal(n.calls,1);
+ syncGeometryMargin(n,'a',false);assert.equal(n.coords.viewport.rightOffset,10);assert.equal(n.calls,2);
 });
 test('historical panning and a larger user margin remain under user control',()=>{
  const n=native();n.coords.viewport.rightOffset=-50;reserveGeometryMargin(n,'a');assert.equal(n.calls,0);releaseGeometryMargin(n,'a');assert.equal(n.coords.viewport.rightOffset,-50);
