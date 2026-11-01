@@ -26,6 +26,54 @@ class StorageTests(unittest.TestCase):
         self.v=DataVault(self.root)
     def tearDown(self):self.v.close();self.tmp.cleanup()
 
+    def test_inspection_checks_committed_wal_without_including_uncommitted_changes(self):
+        path=self.root/'desk.sqlite3'
+        with sqlite3.connect(path) as writer:
+            writer.execute("INSERT INTO settings VALUES('committed','1')");writer.commit()
+            writer.execute("INSERT INTO settings VALUES('pending','2')")
+            before=sha256(path)
+            checked=inspect_database(path)
+            self.assertEqual(checked['integrity'],'ok')
+            self.assertEqual(checked['rows']['settings'],2)
+            self.assertEqual(sha256(path),before)
+            writer.rollback()
+
+    def test_online_backup_keeps_its_snapshot_while_another_writer_commits(self):
+        path=self.root/'desk.sqlite3'
+        with transaction(path) as db:
+            db.execute('CREATE TABLE bulk(payload BLOB)')
+            db.execute('INSERT INTO bulk VALUES(zeroblob(2097152))')
+        import time
+        clock=time.monotonic;calls=[]
+        def progress_clock():
+            calls.append(1)
+            if len(calls)==2:
+                with sqlite3.connect(path) as writer:writer.execute("INSERT INTO settings VALUES('after-copy-start','2')")
+            return clock()
+        with patch('storage.time.monotonic',side_effect=progress_clock):m=self.v.snapshot()
+        self.assertGreater(len(calls),2)
+        self.assertEqual(m['files']['desk.sqlite3']['rows']['settings'],1)
+        self.assertEqual(inspect_database(path)['rows']['settings'],2)
+
+    def test_inspection_allows_large_removable_database_more_than_two_minutes(self):
+        path=self.root/'large.sqlite3'
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE retained(payload BLOB)')
+            db.execute('INSERT INTO retained VALUES(zeroblob(73400320))')
+        # A real multi-step SQLite copy, with a simulated slow removable disk.
+        with patch('storage.time.monotonic',side_effect=[0]+[130]*1000):
+            checked=inspect_database(path)
+        self.assertEqual(checked['integrity'],'ok')
+        self.assertEqual(checked['rows']['retained'],1)
+
+    def test_inspection_still_bounds_a_stalled_copy_and_preserves_source(self):
+        path=self.root/'desk.sqlite3';before=sha256(path)
+        with patch('storage.time.monotonic',side_effect=[0,601]):
+            with self.assertRaisesRegex(StorageFault,'inspection snapshot timed out'):
+                inspect_database(path)
+        self.assertEqual(sha256(path),before)
+        self.assertEqual(inspect_database(path)['integrity'],'ok')
+
     def test_snapshot_captures_committed_wal_and_restores_exact_rows_and_reports(self):
         writer=sqlite3.connect(self.root/'desk.sqlite3');writer.execute('INSERT INTO settings VALUES(?,?)',('pineLibrary','[{"name":"saved indicator"}]'));writer.commit()
         try:
@@ -114,6 +162,19 @@ class StorageTests(unittest.TestCase):
             self.assertIs(self.v.worker,worker);self.assertTrue(done.wait(2));self.v.close()
         self.assertGreaterEqual(len(calls),2)
 
+    def test_startup_backup_runs_in_worker_without_blocking_server_start(self):
+        import threading
+        entered=threading.Event();release=threading.Event();calls=[]
+        def backup(reason):
+            calls.append(reason);entered.set();release.wait(2)
+        self.v.snapshot=backup
+        try:
+            self.v.start(initial_reason='startup',initial_delay=0)
+            self.assertTrue(entered.wait(1))
+            self.assertTrue(self.v.worker.is_alive())
+            self.assertEqual(calls,['startup'])
+        finally:release.set();self.v.close()
+
     def test_capacity_rotation_preserves_the_newest_two_verified_snapshots(self):
         first=self.v.snapshot();size=sum(f['bytes'] for f in first['files'].values());self.v.budget_bytes=size*2
         ids=[first['id']]+[self.v.snapshot()['id'] for _ in range(5)]
@@ -124,6 +185,16 @@ class SettingsStoreTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.engine=Engine(Path(self.tmp.name)/'desk.sqlite3');self.store=SettingsStore(self.engine)
     def tearDown(self):self.tmp.cleanup()
+    def test_workspace_reads_do_not_open_a_writer_while_another_write_is_pending(self):
+        self.store.commit({'workspace':{'layout':'4'}},{'workspace':0},'saved')
+        with sqlite3.connect(self.engine.path) as writer:
+            writer.execute('BEGIN IMMEDIATE')
+            writer.execute("UPDATE settings SET value=? WHERE key='workspace'",(json.dumps({'layout':'2'}),))
+            with patch.object(self.engine,'db',side_effect=AssertionError('read opened a writer')):
+                state=self.store.state()
+            self.assertEqual(state['values']['workspace'],{'layout':'4'})
+            self.assertEqual(state['revisions']['workspace'],1)
+            writer.rollback()
     def test_stale_tab_cannot_overwrite_newer_layout_or_partially_change_other_keys(self):
         a=self.store.commit({'workspace':{'layout':'1'},'pineLibrary':['original']},{'workspace':0,'pineLibrary':0},'tab-a')
         b=self.store.commit({'workspace':{'layout':'4'}},{'workspace':a['revisions']['workspace']},'tab-b')

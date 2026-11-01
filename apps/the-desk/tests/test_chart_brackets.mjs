@@ -39,3 +39,22 @@ test('draft and working orders use compact labels, cyan entries, red stops and l
  assert.equal(draftTradingLevels({...item,side:'buy'},q,()=>{},()=>{})[0].color,tradeColors.entry);
  assert.equal(bracketLabel({...item,entry:undefined,price:null,trigger:100,kind:'stop'},'trigger',q),'Entry');
 });
+
+test('chart amendments move a resting bracket together and allow profitable position stops',async()=>{
+ const {chartMove}=await import('../web/chart-bracket-model.mjs');
+ assert.deepEqual(chartMove({side:'sell',kind:'limit',price:100,stop:105,target:90},'price',102,.5),{price:102,stop:107,target:92});
+ assert.deepEqual(chartMove({side:'buy',kind:'stop',trigger:100,stop:95,target:110},'trigger',102,.5),{trigger:102,stop:97,target:112});
+ assert.deepEqual(chartMove({side:'buy',entry:100},'stop',108,.5,'position',{bid:110}),{stop:108});
+ assert.deepEqual(chartMove({side:'buy',entry:100},'stop',112,.5,'position',{bid:110}),{stop:109.5});
+ assert.deepEqual(chartMove({side:'sell',entry:100},'target',85,.5,'position',{ask:90}),{target:85});
+});
+test('chart protection metrics calculate signed gross values and reward to risk',async()=>{
+ const {chartBracketMetrics}=await import('../web/chart-bracket-model.mjs');
+ assert.deepEqual(chartBracketMetrics({side:'sell',price:100,qty:2,stop:105,target:90},'target',{tick:.5}),{amount:20,ticks:20,ratio:2});
+ assert.deepEqual(chartBracketMetrics({side:'buy',entry:100,qty:2,stop:95,target:110},'target',{tick:.5}),{amount:20,ticks:20,ratio:2});
+ assert.deepEqual(chartBracketMetrics({side:'buy',entry:100,qty:.001,stop:95},'stop',{tick:.5}),{amount:-.005,ticks:-10,ratio:null});
+ assert.equal(chartBracketMetrics({side:'buy',entry:100,qty:1,stop:100,target:120},'target',{tick:1}).ratio,null);
+ assert.equal(chartBracketMetrics({side:'buy',entry:100,qty:1,stop:108,target:120},'target',{tick:1}).ratio,null);
+ assert.equal(chartBracketMetrics({side:'buy',entry:100,qty:1,stop:95,target:90},'target',{tick:1}).ratio,null);
+ assert.equal(chartBracketMetrics({side:'sell',entry:100,qty:1,stop:92,target:80},'target',{tick:1}).ratio,null);
+});

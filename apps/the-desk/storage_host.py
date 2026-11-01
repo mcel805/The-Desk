@@ -51,6 +51,16 @@ def inventory(root):
     return result
 
 def size(root):
+    # SQLite removes journal/WAL files and backup publication renames staging
+    # directories while the host measures usage. Retry the whole traversal so
+    # a normal file transition cannot masquerade as a disconnected drive or
+    # omit a newly published backup from the capacity calculation.
+    for attempt in range(3):
+        try:return _size_once(root)
+        except FileNotFoundError:
+            if attempt==2:raise
+
+def _size_once(root):
     # DirEntry caches type/stat metadata. Avoid three USB stat calls per path.
     total=0;pending=[str(root)]
     while pending:

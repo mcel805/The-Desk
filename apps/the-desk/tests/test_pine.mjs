@@ -110,3 +110,10 @@ test('workspace persistence excludes temporary tests and restores original sourc
 test('native Pine v5 uses the same indicator execution path',async()=>{const {model}=await run(simple.replace('//@version=6','//@version=5'),{data:bars.slice(0,8)});const row=plotRows(model,bars.slice(0,8),bars[7].time).at(-1);assert.ok(Math.abs(row.SMA-bars.slice(5,8).reduce((n,b)=>n+b.close,0)/3)<1e-7);});
 
 test('replacing source preparation survives stopping its previous running session',async()=>{const {factory,workers}=fakeFactory(),engine=new DeskPineEngine({factory});const first=await engine.prepare(simple,'installed');const previous=engine.execute({prepared:first,bars,market,historyState:'backfill'},{onModel(){}});const replacement=await engine.prepare(simple+'\n','installed');previous.stop();engine.execute({prepared:replacement,bars,market,historyState:'backfill'},{onModel(){}});assert.equal(workers.length,2);assert.equal(workers[1].terminated,undefined);engine.terminate();});
+test('key levels execute with bounded geometry and invalidate resistance after a completed breakout',async()=>{
+ const source=await fs.readFile(new URL('../web/pine-examples/agentic-key-levels.pine',import.meta.url),'utf8');
+ const data=bars.slice(0,150),before=await run(source,{data,inputs:{length:3,keep:4}});
+ assert.ok(before.model.lines.length>0);assert.ok(before.model.lines.length<=8);assert.ok(before.model.labels.length<=8);
+ const last=data.at(-1),after=await run(source,{data:[...data,{time:last.time+hour,open:200,high:202,low:199,close:201,volume:100}],inputs:{length:3,keep:4}});
+ assert.ok(after.model.lines.every(l=>Number(l.y1)<201),'broken resistance must be removed');
+});

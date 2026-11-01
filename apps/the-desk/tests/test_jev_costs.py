@@ -3,6 +3,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 from jev_costs import JevCostMeter,RATES,estimated_nano,safe_usage
 from jev_swing import Jev,JevResponseError
@@ -95,6 +96,50 @@ class JevCostTests(unittest.TestCase):
         self.assertEqual(a,b);self.assertEqual(a['requests'],3);self.assertEqual(a['unknown_cost_requests'],2)
         self.assertEqual(a['legacy_repriced_requests'],3);self.assertEqual(a['estimated_usd'],.000252)
         with sqlite3.connect(self.path) as db:self.assertEqual(db.execute("SELECT response FROM predictions WHERE id='ok'").fetchone()[0],json.dumps(response))
+
+    def test_completed_archive_backfill_does_not_read_chart_state_payloads(self):
+        m=self.meter()
+        with sqlite3.connect(self.path) as db:
+            db.execute('INSERT INTO predictions VALUES(?,?,?,?,?,?)',('done','r','hyperliquid:BTC',2000,json.dumps({'retained_chart':'x'*100000}),None))
+        self.add(m,id='done',usage={'input_tokens':1000,'output_tokens':1})
+        original=m.db
+        @contextmanager
+        def no_chart_reads(write=False):
+            with original(write) as db:
+                db.set_authorizer(lambda action,table,column,*args:
+                    sqlite3.SQLITE_DENY if action==sqlite3.SQLITE_READ and table=='predictions' and column=='state' else sqlite3.SQLITE_OK)
+                yield db
+        with patch.object(m,'db',no_chart_reads):m.backfill()
+        self.assertEqual(m.summary(self.contexts(),MODEL)['total']['requests'],1)
+
+    def test_slow_cost_display_does_not_block_observation_commit_or_cache_old_totals(self):
+        import threading
+        m=self.meter();self.add(m,id='before',usage={'input_tokens':1000,'output_tokens':1})
+        entered=threading.Event();release=threading.Event();written=threading.Event()
+        original=m.aggregate;results=[];errors=[]
+        def slow_total(db,where='',args=()):
+            value=original(db,where,args)
+            if not where:entered.set();release.wait(2)
+            return value
+        def read():
+            try:results.append(m.data())
+            except Exception as e:errors.append(e)
+        def write():
+            try:self.add(m,id='during',usage={'input_tokens':2000,'output_tokens':1});written.set()
+            except Exception as e:errors.append(e)
+        with patch.object(m,'aggregate',side_effect=slow_total):
+            reader=threading.Thread(target=read);reader.start();writer=None
+            try:
+                self.assertTrue(entered.wait(1))
+                writer=threading.Thread(target=write);writer.start()
+                self.assertTrue(written.wait(.5),'A cost display read blocked durable observation usage')
+            finally:
+                release.set();reader.join(3)
+                if writer:writer.join(3)
+        self.assertEqual(errors,[])
+        self.assertEqual(results[0]['total']['observations'],1)
+        self.assertTrue(results[0]['stale'])
+        self.assertEqual(m.data()['total']['observations'],2)
     def test_totals_are_not_capped_by_display_session_parent_or_export_limits(self):
         m=self.meter()
         for i in range(105):self.add(m,id=str(i),parent=i,usage={'input_tokens':100,'output_tokens':1})

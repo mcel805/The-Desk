@@ -109,6 +109,31 @@ class LearningTests(unittest.TestCase):
                 with self.assertRaises(sqlite3.OperationalError):db.execute('delete from runs')
             finally:db.close()
             self.service.status();self.service.history('hyperliquid:BTC')
+
+    def test_identical_learning_review_does_not_commit_another_report(self):
+        self.service.lab.review()
+        with self.service.read_db() as db:
+            before=db.execute('SELECT COUNT(*) FROM lab_reviews').fetchone()[0]
+        self.service.lab.review()
+        with self.service.read_db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM lab_reviews').fetchone()[0],before)
+
+    def test_background_review_waits_for_commits_and_rechecks_external_changes(self):
+        import threading
+        import time
+        lab=self.service.lab;original=lab.review;calls=[];settled=threading.Event();changed=threading.Event()
+        def review():
+            original();calls.append(1)
+            if len(calls)>=2:settled.set()
+            if len(calls)>=3:changed.set()
+        with patch.object(lab,'review',review):
+            lab.start(interval=.01)
+            try:
+                self.assertTrue(settled.wait(2))
+                time.sleep(.06);self.assertEqual(len(calls),2)
+                with self.service.db() as db:db.execute("INSERT INTO collection_meta VALUES('external-change','1')")
+                self.assertTrue(changed.wait(2))
+            finally:lab.close()
     def test_policy_does_not_reset_from_json_list_tuple_conversion(self):
         cfg=self.service.configs['hyperliquid:BTC'];a=self.service.lab.policy('hyperliquid:BTC',cfg)
         b=self.service.lab.policy('hyperliquid:BTC',cfg);self.assertEqual(a,b)

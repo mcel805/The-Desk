@@ -1,7 +1,8 @@
 # Trading chart chat MVP
 
 Chart chat is a collapsible, resizable panel on the left of The Desk. Enter a
-trading question or request a chart markup. Enter sends; Shift+Enter adds a line.
+trading question, request a chart markup, or explicitly request a paper trading
+action. Enter sends; Shift+Enter adds a line.
 The active chart badge identifies the market and timeframe. A run captures its
 chart before analysis; changing charts during the run prevents its pending markup
 from landing. Analysis is manual and uses completed candles only.
@@ -27,6 +28,9 @@ model parity. No proprietary Quant code or prompts are used.
 5. Use Hide AI, Clear AI drawings, or Undo markup. Clear affects only the active
    symbol/timeframe, preserving hidden AI drawings for other scopes. Manual drawings and the
    separate Spider report drawings are preserved.
+6. For an explicit paper action, include the side, order or management request,
+   and any required quantity or exact level. The selected paper account and chart
+   scope are shown in the response; accepted actions return a durable receipt.
 
 Additional bounded tools: candidate blocks, fair value gaps, close breaks and
 chart discussion. Natural-language timeframe routing supports the application's
@@ -43,8 +47,10 @@ order; Spider receives RIDER's evidence as supporting context and owns the lead
 assessment for every trading-analysis action. Explicit clear requests skip
 specialist review because they only remove this chat's drawings. These are
 application analyst sessions, separate
-from the independent paper agent fleet. They do not arm a worker, submit a paper
-order or control a broker.
+from the independent paper agent fleet. The specialist sessions do not directly
+arm a worker, submit an order or control a broker; an explicit chat trading request
+is passed as a typed intent through the selected manual paper account's existing
+engine after application validation.
 
 RIDER shares the existing `swing-advisors/rider-trading-lens.md` snapshot with
 Swing Advisors; Spider loads the existing
@@ -53,7 +59,10 @@ sequence and qualified entries remain missing. This MVP analyzes the requested
 chart; it does not fabricate a full multi-timeframe package.
 
 The coordinator selects an enum tool. Deterministic Python calculates all
-geometry. Models cannot submit executable code, drawing coordinates or orders.
+geometry. Models cannot submit executable code, drawing coordinates or broker
+orders; for an explicit paper request they may return only a typed intent. The
+application resolves visible drawing prices, validates the intent against the
+selected account/chart and current engine state, then executes only paper actions.
 Specialist evidence IDs and structured replies are validated, with one bounded
 schema repair. External research is enabled only for the selected review when
 requested. The response records actual web events and retained opened URLs; a
@@ -99,7 +108,13 @@ pass Spider's block/trap/secondary-pool requirements or establish entry readines
 
 This is a frozen chart study. New bars do not automatically redraw an old request.
 Send a fresh request to refresh. Existing studies, Pine compilation, chart
-controls and broker review flows continue through their existing interfaces.
+controls and broker review flows continue through their existing interfaces. Chat
+trading supports explicit paper market/limit/stop/stop-limit entries, amendments,
+cancellation, partial/full close, bracket changes, scoped cancellation, flatten
+and reversal. It does not route live orders. Missing or ambiguous size, side,
+level, account or trade identity is discussed instead of guessed; new entries
+without protection require explicit wording. Paper acceptance and later fills are
+separate receipt states.
 
 ## Local access policy
 
@@ -118,9 +133,9 @@ request an improved response; they do not train a model.
 ## Persistence and verification
 
 Conversations and runs use two new tables inside `desk.sqlite3`, covered by the
-existing database backup path. Evidence, research and application receipts are
-stored in each run's JSON payload. Native drawings persist with the existing
-layout. Opening old chat history does not
+existing database backup path. Evidence, research, paper commands and application
+receipts are stored in each run's JSON payload. Native drawings persist with the
+existing layout. Opening old chat history does not
 silently replay its chart mutations. Ratings, panel width, visibility and last
 conversation ID are browser preferences. Stop prevents pending application;
 restarting the server marks interrupted runs failed.
@@ -147,8 +162,10 @@ node tests/verify_chart_chat_browser.mjs http://127.0.0.1:18883/ /absolute/evide
 
 The browser check verifies native drawings, both specialists, actual web events,
 timeframe isolation, hide/show, clear/undo, manual-drawing preservation,
-cancellation, collapse and persistence. It never submits an order. Acceptance
-results and screenshots are local evidence, not evidence of trading performance.
+cancellation, collapse and persistence; this analysis fixture does not submit an
+order. Separate chart-chat trading checks cover paper order creation, chart
+brackets, missing-size discussion and idempotent execution. Acceptance results
+and screenshots are local evidence, not evidence of trading performance.
 The retained package at
 `/Users/markceleste/Documents/Oct 2026 Charts MYM/chart-chat-qa-2026-10-27/acceptance.json`
 predates the latest source-scoped clearing, empty-refresh, label-safety,

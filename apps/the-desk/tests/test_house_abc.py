@@ -9,6 +9,22 @@ def bar(t):
 
 
 class HouseABCTests(unittest.TestCase):
+    def test_first_poll_after_actual_completion_can_use_the_matching_result(self):
+        clock=[130000]
+        def runner(bars,*args):return {'version':'desk-house-abc.1','cutoff':bars[-1]['time']+60000,'abc':{'id':7}}
+        h=HouseABC(runner,lambda:clock[0]);self.addCleanup(h.close)
+        bars=[bar(60000)]
+        h.observe(bars,'hyperliquid:BTC',1,5,120000)
+        for _ in range(100):
+            if h.pending.done():break
+            time.sleep(.005)
+        # Polling can happen much later than its captured observation time.
+        # The result was already available at 130000, not at poll time 190000.
+        clock[0]=190000
+        result=h.observe(bars,'hyperliquid:BTC',1,5,140000)
+        self.assertEqual(result['status'],'AVAILABLE')
+        self.assertEqual(result['received_at'],130000)
+
     def test_results_wait_for_receipt_and_match_completed_cutoff(self):
         release=threading.Event();calls=[]
         def runner(bars,symbol,tick,frame):

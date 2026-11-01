@@ -1,3 +1,6 @@
+import {setupFootprint} from './footprint.mjs';
+import {setupTradeRecorder} from './trade-recorder.mjs';
+import {reconcileHTML,setupTradeWorkbench} from './trade-workbench.mjs';
 import {createTradingActions,acknowledgeTradingResult} from './trading-actions.mjs';
 import {setupSwingTracker} from './swing-tracker.mjs';
 import {DurableSettings} from './durable-settings.mjs';
@@ -25,7 +28,7 @@ const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=
 const number=(v,d=2)=>Number(v??0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const usd=v=>Number.isFinite(Number(v))?'$'+number(v):'—', fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:8});
 let brokerContext=null,brokerScope='';
-let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,contextKey='',menuPrice=null,ticketRevision=0,ticketSubmission=null;
+ let state=null,ws=null,activeAccount=localStorage.getItem('the-desk.account'),panel='positions',rail='watch',side='buy',draft=false,busy=false,settings={},templates=[],polling=false,refreshQueued=false,contextKey='',menuPrice=null,ticketRevision=0,ticketSubmission=null,ticketOrderKind=$('#orderKind').value;
 const instruments=['hyperliquid:BTC','hyperliquid:ETH','hyperliquid:SOL','coinbase:BTC-USD','coinbase:ETH-USD','coinbase:SOL-USD'];
 
 async function api(path,payload,headers={}){
@@ -53,13 +56,8 @@ function stageChartTrade(next,kind='limit',price){
  if(busy)return;stage(next,kind,price);if(!draft||ws.replay.state.active)return;
  if(brokerContext?.selected){reviewChartOrder();return;}
  if(tradeConfig().instant){$('#orderForm').requestSubmit();return;}
- const q=quote();if(!q)return;
- const native=ws.chart.renderer.renderer,pane=native?.scene?.panes.get('price'),entry=entryReference();
- const y=pane?native.coords.priceToY(entry,pane.scale,pane.bounds):null;
- const distance=Number.isFinite(y)?Math.abs(entry-native.coords.yToPrice(y+40,pane.scale,pane.bounds)):undefined;
- const levels=starterBracket({entry,side,tick:q.tick,stop:$('#stopPrice').value,target:$('#targetPrice').value,distance});
- for(const field of ['stop','target'])if(levels[field])$('#'+field+'Price').value=levels[field];
- updateTicket();reviewChartOrder();
+ // A chart projection stays at the selected price until the user moves it.
+ updateTicket();
 }
 function reviewChartOrder(){
  if(brokerContext?.selected){$('#orderForm').requestSubmit();return;}
@@ -127,7 +125,7 @@ function quantity(){
  const step=Number(q?.qty_step||.000001);
  return Number((Math.floor((qty+step*1e-7)/step)*step).toPrecision(12));
 }
-function entryReference(){const k=$('#orderKind').value;return Number(k==='limit'||k==='stop_limit'?$('#entryPrice').value:k==='stop'?$('#triggerPrice').value:quote()?.[side==='buy'?'ask':'bid']||0);}
+function entryReference(kind=$('#orderKind').value){return Number(kind==='limit'||kind==='stop_limit'?$('#entryPrice').value:kind==='stop'?$('#triggerPrice').value:quote()?.[side==='buy'?'ask':'bid']||0);}
 function payload(){return {account_id:activeAccount,instrument:instrument(),side,kind:$('#orderKind').value,qty:String(quantity()),price:$('#entryPrice').value||null,trigger:$('#triggerPrice').value||null,stop:$('#stopPrice').value||null,target:$('#targetPrice').value||null,ttl_seconds:Number($('#timeInForce').value)};}
 
 function updateTicket(){
@@ -178,11 +176,16 @@ function updateTicket(){
 }
 
 function setSide(next){side=next;draft=true;updateTicket();}
+function setDraftOrderKind(value,fromKind=ticketOrderKind){
+ const entry=entryReference(fromKind);
+ $('#orderKind').value=value;ticketOrderKind=value;
+ if(Number.isFinite(entry)&&entry>0){const price=snap(entry);if(['limit','stop_limit'].includes(value))$('#entryPrice').value=price;if(['stop','stop_limit'].includes(value))$('#triggerPrice').value=price;}
+}
 function stage(nextSide,kind='market',price){
  ticketRevision++;
  if(readonlyMarket())return toast('IBKR futures data is read-only. Orders are disabled.',true);
  if(ws.replay.state.active)return toast('Exit chart replay before staging a paper order.',true);
- side=nextSide;$('#orderKind').value=kind;if(price){$('#entryPrice').value=snap(price);$('#triggerPrice').value=snap(price);}
+ side=nextSide;setDraftOrderKind(kind);if(price){$('#entryPrice').value=snap(price);$('#triggerPrice').value=snap(price);}
  else if(kind!=='market'){$('#entryPrice').value=snap(entryReference()||quote()?.last);$('#triggerPrice').value=snap(quote()?.last);}
  draft=true;$('#orderError').textContent='';document.body.classList.remove('rail-hidden');$('#tradeButton').setAttribute('aria-expanded','true');updateTicket();
 }
@@ -190,7 +193,7 @@ $('#sideBuy').onclick=()=>setSide('buy');$('#sideSell').onclick=()=>setSide('sel
 $('#quickBuy').onclick=()=>stageTrade('buy');$('#quickSell').onclick=()=>stageTrade('sell');
 $('#orderForm').oninput=()=>{ticketRevision++;draft=true;updateTicket();};
 $('#orderForm').onchange=()=>{ticketRevision++;draft=true;updateTicket();};
-$('#orderKind').onchange=()=>{if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
+$('#orderKind').onchange=()=>{amendDraftParameter('kind',$('#orderKind').value);if(!$('#entryPrice').value)$('#entryPrice').value=snap(quote()?.last||0);if(!$('#triggerPrice').value)$('#triggerPrice').value=snap(quote()?.last||0);updateTicket();};
 $('#orderForm').onsubmit=async e=>{
  e.preventDefault();if(readonlyMarket())return toast('IBKR futures data is read-only.',true);if(busy)return;
  if(ws.replay.state.active)return toast('Paper orders are disabled during chart replay.',true);
@@ -270,6 +273,8 @@ document.querySelectorAll('[data-rail]').forEach(b=>b.onclick=()=>{
  document.querySelectorAll('[data-rail]').forEach(x=>x.classList.toggle('active',x===b));drawDOM();ws?.cells().forEach(c=>c.chart.resize());
 });
 
+let tradeRecorder;
+const tradeWorkbench=setupTradeWorkbench({workspace:()=>ws,state:()=>state,instrument,accountId:()=>activeAccount,config:tradeConfig,stage:stageTrade,command,showDialog,toast,render:renderManager,broker:()=>!!brokerContext?.selected});
 function setPanel(next){
  panel=next;document.body.classList.add('manager-open');$('#managerOpen').setAttribute('aria-expanded','true');document.querySelectorAll('[data-panel]').forEach(b=>{b.classList.toggle('active',b.dataset.panel===next);b.setAttribute('aria-selected',b.dataset.panel===next);});document.body.classList.toggle('journal-expanded',next==='journal');renderManager();ws?.cells().forEach(c=>c.chart.resize());
 }
@@ -282,7 +287,7 @@ function table(headers,rows){return `<table><thead><tr>${headers.map(h=>'<th>'+e
 function instrumentShort(i){return i.toUpperCase();}
 function renderManager(){
  if(!state)return;
- const host=$('#managerContent');
+ const host=$('#managerContent');tradeWorkbench?.sync();tradeRecorder?.observe(state);
  if(brokerContext?.selected){
   if(panel==='orders'){
    const accountId=brokerContext.selected;host.innerHTML='<div class="rh-empty">Reading Robinhood order status…</div>';
@@ -300,12 +305,12 @@ function renderManager(){
  }
  if(panel==='strategy'){if(!host.querySelector('#strategyForm'))renderStrategy();return;}
  if(panel==='positions'){
-  const rows=state.positions.map(p=>{const {mark,pnl,increment}=positionMetrics(p,state.quotes[p.instrument]);return `<tr data-position-id="${esc(p.id)}"><td>${esc(instrumentShort(p.instrument))}</td><td class="${p.side==='buy'?'positive':'negative'}">${p.side==='buy'?'Long':'Short'}</td><td>${fmt(p.qty)}</td><td>${fmt(p.entry)}</td><td data-position-mark>${fmt(mark)}</td><td data-position-pnl class="${pnl>=0?'positive':'negative'}">${formatMoney(pnl,increment)}</td><td>${p.stop?fmt(p.stop):'—'} / ${p.target?fmt(p.target):'—'}</td><td><button data-bracket="${p.id}">SL / TP</button><button data-close="${p.id}">Close</button><button data-partial="${p.id}">Partial</button><button data-reverse="${p.id}">Reverse</button></td></tr>`;});
-  host.innerHTML=rows.length?table(['Instrument','Side','Quantity','Entry','Mark','Open P&L','SL / TP','Actions'],rows):empty('No open positions','Place a paper order from the chart, ticket or DOM.');
+  const rows=tradeWorkbench.filter(state.positions,'positions').map(p=>{const {mark,pnl,increment}=positionMetrics(p,state.quotes[p.instrument]);return `<tr data-position-id="${esc(p.id)}"><td>${esc(instrumentShort(p.instrument))}</td><td class="${p.side==='buy'?'positive':'negative'}">${p.side==='buy'?'Long':'Short'}</td><td>${fmt(p.qty)}</td><td>${fmt(p.entry)}</td><td data-position-mark>${fmt(mark)}</td><td data-position-pnl class="${pnl>=0?'positive':'negative'}">${formatMoney(pnl,increment)}</td><td>${p.stop?fmt(p.stop):'—'} / ${p.target?fmt(p.target):'—'}</td><td><button data-bracket="${p.id}">SL / TP</button><button data-breakeven="${p.id}" title="Move stop to entry price; fees excluded">BE</button><button data-close="${p.id}">Close</button><button data-partial="${p.id}">Partial</button><button data-reverse="${p.id}">Reverse</button></td></tr>`;});
+  reconcileHTML(host,rows.length?table(['Instrument','Side','Quantity','Entry','Mark','Open P&L','SL / TP','Actions'],rows):empty('No open positions','Place a paper order from the chart, ticket or DOM.'));
  }
  if(panel==='orders'){
-  const rows=state.orders.map(o=>`<tr><td>${esc(instrumentShort(o.instrument))}</td><td>${o.side.toUpperCase()}</td><td>${esc(o.kind.replace('_',' '))}</td><td>${fmt(o.qty)}</td><td>${o.price?fmt(o.price):o.filled_price?fmt(o.filled_price):'Market'}</td><td>${o.trigger?fmt(o.trigger):'—'}</td><td>${esc(o.status)}</td><td>${['working','triggered'].includes(o.status)?`<button data-edit="${o.id}">Modify</button><button data-cancel="${o.id}">Cancel</button>`:'—'}</td></tr>`);
-  host.innerHTML=rows.length?table(['Instrument','Side','Type','Quantity','Price','Trigger','Status','Actions'],rows):empty('No orders yet','Submitted paper orders and their accepted status appear here.');
+  const rows=tradeWorkbench.filter(state.orders,'orders').map(o=>`<tr data-order-id="${esc(o.id)}"><td>${esc(instrumentShort(o.instrument))}</td><td>${o.side.toUpperCase()}</td><td>${esc(o.kind.replace('_',' '))}</td><td>${fmt(o.qty)}</td><td>${o.price?fmt(o.price):o.filled_price?fmt(o.filled_price):'Market'}</td><td>${o.trigger?fmt(o.trigger):'—'}</td><td>${esc(o.status)}</td><td>${['working','triggered'].includes(o.status)?`<button data-edit="${o.id}">Modify</button><button data-cancel="${o.id}">Cancel</button>`:'—'}</td></tr>`);
+  reconcileHTML(host,rows.length?table(['Instrument','Side','Type','Quantity','Price','Trigger','Status','Actions'],rows):empty('No orders yet','Submitted paper orders and their accepted status appear here.'));
  }
  if(panel==='fills'){
   host.innerHTML=state.fills.length?table(['Time','Instrument','Side','Quantity','Fill price','Fee','Realized gross','Reason'],state.fills.map(f=>`<tr><td>${esc(new Date(f.executed_at).toLocaleString())}</td><td>${esc(instrumentShort(f.instrument))}</td><td>${f.side.toUpperCase()}</td><td>${fmt(f.qty)}</td><td>${fmt(f.price)}</td><td>${usd(f.fee)}</td><td>${usd(f.realized)}</td><td>${esc(f.reason)}</td></tr>`)):empty('No executions','Accepted fills are stored here and sent to Lux Journal.');
@@ -316,16 +321,17 @@ function renderManager(){
  host.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editOrder(state.orders.find(x=>x.id===b.dataset.edit)));
  host.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>closePosition(state.positions.find(x=>x.id===b.dataset.close)));
  host.querySelectorAll('[data-partial]').forEach(b=>b.onclick=()=>closePosition(state.positions.find(x=>x.id===b.dataset.partial),{partial:true}));
+ host.querySelectorAll('[data-breakeven]').forEach(b=>b.onclick=()=>{const p=state.positions.find(x=>x.id===b.dataset.breakeven);if(p)editBracket(p,{stop:p.entry});});
  host.querySelectorAll('[data-bracket]').forEach(b=>b.onclick=()=>editBracket(state.positions.find(x=>x.id===b.dataset.bracket)));
  host.querySelectorAll('[data-reverse]').forEach(b=>b.onclick=()=>reversePosition(state.positions.find(x=>x.id===b.dataset.reverse)));
  host.querySelectorAll('[data-alert-delete]').forEach(b=>b.onclick=async()=>{try{await command('alert_delete',{id:b.dataset.alertDelete,account_id:activeAccount});}catch(e){toast(e.message,true);}});
- if(ws?.replay.state.active)host.querySelectorAll('[data-close],[data-partial],[data-reverse],[data-bracket],[data-edit],[data-cancel]').forEach(b=>b.disabled=true);
+ if(ws?.replay.state.active)host.querySelectorAll('[data-close],[data-partial],[data-reverse],[data-bracket],[data-breakeven],[data-edit],[data-cancel]').forEach(b=>b.disabled=true);
 }
 window.addEventListener('desk:robinhood-orders',()=>{if(brokerContext?.selected&&panel==='orders')renderManager();});
 setInterval(()=>{if(brokerContext?.selected&&panel==='orders')window.dispatchEvent(new Event('desk:robinhood-orders'));},10000);
 function levelInputs(item){return `<div class="two-col"><label>Limit price<input name="price" type="number" step="any" value="${esc(item.price||'')}" ${item.kind?.includes('limit')?'required':''}></label><label>Stop trigger<input name="trigger" type="number" step="any" value="${esc(item.trigger||'')}" ${item.kind?.includes('stop')?'required':''}></label></div><div class="two-col"><label>Stop loss<input name="stop" type="number" step="any" value="${esc(item.stop||'')}"></label><label>Take profit<input name="target" type="number" step="any" value="${esc(item.target||'')}"></label></div>`;}
-function editOrder(o,changes={}){if(tradeConfig().instant&&Object.keys(changes).length)return instantAction('amend',{id:o.id,account_id:o.account_id,revision:o.revision,qty:o.qty,price:o.price,trigger:o.trigger,stop:o.stop,target:o.target,...changes},'Paper amendment accepted.');showDialog('Modify paper '+o.kind.replace('_',' '),`<p>${esc(o.instrument.toUpperCase())} · ${esc(account()?.name)}</p>${levelInputs({...o,...changes})}<label>Quantity<input name="qty" type="number" min="0.00000001" step="any" value="${esc(changes.qty??o.qty)}" required></label>`,async fd=>{await command('amend',{id:o.id,account_id:o.account_id,revision:o.revision,...Object.fromEntries(fd)});toast('Paper amendment accepted.');});}
-function editBracket(p,changes={}){if(tradeConfig().instant&&Object.keys(changes).length)return instantAction('bracket',{id:p.id,account_id:p.account_id,revision:p.revision,stop:p.stop,target:p.target,...changes},'Paper protection updated.');showDialog('Position protection',`<p>${esc(p.instrument.toUpperCase())} · ${fmt(p.qty)} units · server-managed paper bracket</p><div class="two-col"><label>Stop loss<input name="stop" type="number" step="any" value="${esc(changes.stop??p.stop??'')}"></label><label>Take profit<input name="target" type="number" step="any" value="${esc(changes.target??p.target??'')}"></label></div>`,async fd=>{await command('bracket',{id:p.id,account_id:p.account_id,revision:p.revision,...Object.fromEntries(fd)});toast('Paper protection updated.');});}
+function editOrder(o,changes={},confirmed=false){if(confirmed)return command('amend',{id:o.id,account_id:o.account_id,revision:o.revision,qty:o.qty,price:o.price,trigger:o.trigger,stop:o.stop,target:o.target,...changes});if(tradeConfig().instant&&Object.keys(changes).length)return instantAction('amend',{id:o.id,account_id:o.account_id,revision:o.revision,qty:o.qty,price:o.price,trigger:o.trigger,stop:o.stop,target:o.target,...changes},'Paper amendment accepted.');showDialog('Modify paper '+o.kind.replace('_',' '),`<p>${esc(o.instrument.toUpperCase())} · ${esc(account()?.name)}</p>${levelInputs({...o,...changes})}<label>Quantity<input name="qty" type="number" min="0.00000001" step="any" value="${esc(changes.qty??o.qty)}" required></label>`,async fd=>{await command('amend',{id:o.id,account_id:o.account_id,revision:o.revision,...Object.fromEntries(fd)});toast('Paper amendment accepted.');});}
+function editBracket(p,changes={},confirmed=false){if(confirmed)return command('bracket',{id:p.id,account_id:p.account_id,revision:p.revision,stop:p.stop,target:p.target,...changes});if(tradeConfig().instant&&Object.keys(changes).length)return instantAction('bracket',{id:p.id,account_id:p.account_id,revision:p.revision,stop:p.stop,target:p.target,...changes},'Paper protection updated.');showDialog('Position protection',`<p>${esc(p.instrument.toUpperCase())} · ${fmt(p.qty)} units · server-managed paper bracket</p><div class="two-col"><label>Stop loss<input name="stop" type="number" step="any" value="${esc(changes.stop??p.stop??'')}"></label><label>Take profit<input name="target" type="number" step="any" value="${esc(changes.target??p.target??'')}"></label></div>`,async fd=>{await command('bracket',{id:p.id,account_id:p.account_id,revision:p.revision,...Object.fromEntries(fd)});toast('Paper protection updated.');});}
 function closePosition(p,{partial=false}={}){if(tradeConfig().instant&&!partial)return instantAction('close',{id:p.id,account_id:p.account_id,revision:p.revision,qty:p.qty},'Paper position closed.');showDialog('Close paper position',`<p>${esc(p.instrument.toUpperCase())} · ${p.side==='buy'?'Long':'Short'} · ${fmt(p.qty)} open</p><label>Quantity to close<input name="qty" type="number" min="0.00000001" step="any" max="${esc(p.qty)}" value="${esc(p.qty)}" required></label>`,async fd=>{await command('close',{id:p.id,account_id:p.account_id,revision:p.revision,qty:fd.get('qty')});toast('Paper exit accepted; journal event queued.');});}
 function reversePosition(p){const scoped={account_id:p.account_id,instrument:p.instrument,orders:state.orders.filter(o=>o.instrument===p.instrument&&['working','triggered'].includes(o.status)).map(({id,revision})=>({id,revision})),positions:state.positions.filter(x=>x.instrument===p.instrument).map(({id,revision})=>({id,revision}))};if(tradeConfig().instant)return instantAction('reverse',scoped,'Paper reversal accepted.');showDialog('Reverse paper instrument',`<p>Cancel ${scoped.orders.length} working orders and reverse the net ${esc(p.instrument.toUpperCase())} position at the current server quote.</p><p>Coinbase spot cannot become short.</p>`,async()=>{await command('reverse',scoped);toast('Paper reversal accepted.');});}
 
@@ -394,20 +400,21 @@ async function copyChartPrice(price){try{await navigator.clipboard.writeText(Str
 function openChartAlert(price){$('#alertButton').click();const field=$('#dialogBody input[name=price]');if(field)field.value=price;}
 function draftBracket(){return {entry:entryReference(),side,kind:$('#orderKind').value,qty:quantity(),trigger:$('#triggerPrice').value,stop:$('#stopPrice').value,target:$('#targetPrice').value};}
 function amendDraft(field,value){
+ ticketRevision++;
  const changes=moveDraftBracket(draftBracket(),field,value,Number(quote()?.tick||.01));
  for(const [key,price] of Object.entries(changes)){
   const id=key==='entry'&&$('#orderKind').value==='stop'?'triggerPrice':({entry:'entryPrice',trigger:'triggerPrice',stop:'stopPrice',target:'targetPrice'}[key]);$('#'+id).value=price;
  }
- if(field==='entry'&&$('#orderKind').value==='market')$('#orderKind').value='limit';updateTicket();
+ if(field==='entry'&&$('#orderKind').value==='market')setDraftOrderKind('limit','market');updateTicket();
 }
-function removeDraft(field){if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';updateTicket();}
-function removeChartProtection(level){const changes={[level.field]:''};if(level.kind==='order')editOrder(level.item,changes);else editBracket(level.item,changes);}
+function removeDraft(field){ticketRevision++;if(field==='entry'){draft=false;}else $('#'+field+'Price').value='';updateTicket();}
+function amendDraftParameter(field,value){ticketRevision++;if(field==='qty'){$('#sizeMode').value='units';$('#quantity').value=value;}else if(field==='kind')setDraftOrderKind(value);else if(['stop','target'].includes(field))$('#'+field+'Price').value=value;updateTicket();}
 const swingTracker=setupSwingTracker({workspace:()=>ws});
-const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,snap,stage:stageTrade,menu:chartMenu,placeDraft:reviewChartOrder,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,removeProtection:removeChartProtection,pending:tradingActions.pending,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
+const chartTrader=setupChartTrader({workspace:()=>ws,state:chartTradingState,config:tradeConfig,stage:stageTrade,menu:chartMenu,placeDraft:()=>$('#orderForm').requestSubmit(),amendDraftParameter,editOrder,editBracket,closePosition,reversePosition,cancelOrder:cancelChartOrder,pending:tradingActions.pending,toast,draftLevels:()=>draft?draftTradingLevels(draftBracket(),quote(),amendDraft,removeDraft):[]});
 function attachChart(cell){if(!cell.deskMarketAttached){cell.deskMarketAttached=true;const badge=document.createElement('div');badge.className='ibkr-cell-badge';badge.hidden=true;cell.host.append(badge);cell.chart.on('market:changed',()=>{draft=false;updateTicket();drawWatch();drawDOM();window.dispatchEvent(new CustomEvent('desk:agents-sync-chart'));});}chartTrader.attach(cell);swingTracker.attach(cell);}
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#chartMenu'))$('#chartMenu').hidden=true;});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#chartMenu').hidden=true;draft=false;}});
-$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER trading (place, cancel, drag, close and reverse)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">One-click paper trading is on by default. Chart limits use your current ticket size and optional protection. Turn it off for confirmation dialogs. Click SL / TP or Modify to enter exact values; drag levels to amend immediately. Quote freshness and replay checks always apply. Robinhood uses its native live-order review.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
+$('#tradingSettings').onclick=()=>{const c=tradeConfig();showDialog('Trading settings',Object.entries(tradingDefaults).filter(([key])=>key!=='pnlUnit').map(([key])=>`<label class="trading-check"><input type="checkbox" name="${key}" ${c[key]?'checked':''}>${esc(({positions:'Position lines',orders:'Working order lines',brackets:'SL / TP lines',executionHistory:'Paper execution history (optional; hover arrows for details)',pnl:'Position P&L',reverse:'Chart reverse button',quickButtons:'Chart buy / sell buttons',instant:'One-click PAPER trading (place, cancel, drag, close and reverse)'})[key])}</label>`).join('')+`<label>P&L units<select name="pnlUnit"><option value="money">Money</option><option value="ticks">Ticks</option><option value="percent">Percent</option></select></label><p class="muted small">One-click paper trading is on by default. Chart limits use your current ticket size and optional protection. Turn it off to preview chart amendments with Confirm / Discard. Pull TP or SL from an entry line to add protection. Click quantity to resize an order; drag levels to adjust prices. Bracket values show gross P&L before fees. Quote freshness and replay checks always apply. Robinhood uses its native live-order review.</p>`,async fd=>{const value=Object.fromEntries(Object.keys(tradingDefaults).map(key=>[key,key==='pnlUnit'?fd.get(key):fd.has(key)]));await saveSettings({trading:tradingConfig(value)});toast('Trading settings saved.');});$('#dialogForm [name=pnlUnit]').value=c.pnlUnit;};
 
 setupPineEditor({saveSettings});
 
@@ -439,7 +446,7 @@ async function reviewBrokerTicket(){
   },{submitLabel:'Place live order',cancelLabel:'Cancel'});
  }catch(e){$('#orderError').textContent=e.message;}finally{busy=false;updateTicket();}
 }
-brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.agent_owner)||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;brokerScope=scope;if(brokerContext?.selected){$('#orderKind').value='limit';for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
+brokerContext=setupChartAccount({paperAccounts:()=>state?.accounts.filter(a=>!a.agent_owner)||[],paperId:()=>activeAccount,onPaper:async id=>{draft=false;activeAccount=id;localStorage.setItem('the-desk.account',id);await refresh();},onChange:()=>{const scope=(brokerContext?.selected||'')+':'+(brokerContext?.asset?.id||'');if(scope!==brokerScope){draft=false;brokerScope=scope;if(brokerContext?.selected){setDraftOrderKind('limit');for(const id of ['stopPrice','targetPrice','triggerPrice'])$('#'+id).value='';}}if(ws){updateTicket();drawWatch();drawDOM();renderManager();}},onMarket:async value=>{draft=false;if(ws){await ws.chart.setMarket({symbol:value});updateTicket();}},instrument,toast});
 
 
 async function boot(){
@@ -448,10 +455,10 @@ async function boot(){
   if(brokerContext.selected)await brokerContext.refresh(true);
   const spiderHistories={coinbase:new SpiderIntervalProvider(new CoinbaseProvider(),'coinbase'),hyperliquid:new SpiderIntervalProvider(new DeskHyperliquidProvider(),'hyperliquid')};
   ws=new VelaWorkspace('#workspace',{layout:'1',symbol:ibkrStatus?.configured_mode==='demo'?ibkrStatus.instrument:'hyperliquid:BTC',timeframe:ibkrStatus?.configured_mode==='demo'?'1':'60',bars:600,engines:{pine:createPineEngine},providers:{ibkr:()=>ibkrProvider,coinbase:()=>spiderHistories.coinbase,hyperliquid:()=>spiderHistories.hyperliquid,binance:()=>new BinanceProvider(),robinhood:()=>new RobinhoodProvider(()=>brokerContext?.selected)},live:true,theme,volume:true,nativeBackend:'canvas2d',upColor:'#089981',downColor:'#f23645',drawings:true,timeframes:['1','2','3','5','15','30','60','240','D'],persist:'the-desk.workspace.v1',storage:{get:()=>settings.workspace?JSON.stringify(settings.workspace):null,set:async(_,value)=>{try{await saveSettings({workspace:stripSpiderDrawings(JSON.parse(value))});}catch(e){toast(e.message,true);}}},topbar:{left:['symbol','timeframes','style','indicators','layout','undo-redo'],right:['panels','screenshot','alerts']}});
-  setupChartChat({workspace:()=>ws,toast});
+  setupChartChat({workspace:()=>ws,toast,tradingContext:()=>({account_id:activeAccount,broker:!!brokerContext?.selected,replay:!!ws?.replay.state.active,ticket:{...payload(),resolvedQty:Number.isFinite(quantity())?String(quantity()):null}}),onTrade:async receipts=>{tradingGeneration++;for(const receipt of receipts){const r=receipt.result;acknowledgeTradingResult(state,receipt.action,{account_id:activeAccount,instrument:instrument()},r);}await refresh();renderManager();}});
   setupSpider({workspace:()=>ws,instrument,toast,sourceContext:()=>({accountId:brokerContext?.selected||null}),executionContext:()=>({connected:!!brokerContext?.valid(),account:brokerContext?.account()?.account||'',symbol:brokerContext?.asset?.symbol||'',matches:!!brokerContext?.matches,tradable:!!brokerContext?.account()?.tradable}),openExecution:()=>{if(!brokerContext?.selected)$('#robinhoodButton').click();else if(!brokerContext?.asset||!brokerContext?.matches)$('#brokerAssetsButton').click();else{if($('#tradeButton').getAttribute('aria-expanded')!=='true')$('#tradeButton').click();toast('Robinhood spot ticket ready. Review amount and native broker preview before placing an order.');}},setHistory:enabled=>{for(const p of Object.values(spiderHistories))p.serverHistory=enabled;}});
   ws.cells().forEach(attachChart);ws.on('cell:created',()=>ws.cells().forEach(attachChart));ws.on('cell:active',()=>{draft=false;updateTicket();drawWatch();drawDOM();});ws.on('cell:destroyed',()=>chartTrader.cleanup());ws.replay.on('replay:step',replayUpdate);ws.replay.on('replay:end',replayUpdate);
-  await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
+  setupFootprint();tradeRecorder=setupTradeRecorder({workspace:()=>ws,state:()=>state,broker:()=>!!brokerContext?.selected,toast});await refresh();void brokerContext.refresh(true);setInterval(refresh,2000);setInterval(()=>$('#clock').textContent=new Date().toLocaleTimeString('en-US',{timeZone:'UTC'})+' UTC',1000);chartTrader.start();
   Promise.allSettled(ws.cells().map(c=>c.chart.ready())).then(async()=>{
    const swingMarket=new URLSearchParams(location.search).get('swing_market');
    if(['hyperliquid:BTC','hyperliquid:ETH'].includes(swingMarket)){

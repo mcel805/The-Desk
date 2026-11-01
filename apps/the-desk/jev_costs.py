@@ -42,7 +42,7 @@ def _json(v):return json.dumps(v,sort_keys=True,separators=(',',':'))
 
 class JevCostMeter:
     def __init__(self,path):
-        self.path=Path(path);self.lock=threading.RLock();self.cache=None;self.cached_at=0
+        self.path=Path(path);self.lock=threading.RLock();self.cache=None;self.cached_at=0;self.generation=0
         with self.db(write=True) as db:
             db.executescript('''
               CREATE TABLE IF NOT EXISTS jev_usage (
@@ -52,6 +52,8 @@ class JevCostMeter:
                 pricing TEXT, provenance TEXT NOT NULL);
               CREATE INDEX IF NOT EXISTS jev_usage_run ON jev_usage(run,at);
               CREATE INDEX IF NOT EXISTS jev_usage_symbol ON jev_usage(symbol,at);
+              CREATE INDEX IF NOT EXISTS predictions_unpriced_transport ON predictions
+                (id,COALESCE(json_extract(response,'$.transport.unpriced_attempts'),0));
             ''')
             db.execute("UPDATE jev_usage SET status='UNRESOLVED' WHERE status='PENDING'")
         self.backfill()
@@ -65,10 +67,19 @@ class JevCostMeter:
 
     def backfill(self):
         with self.db() as db:
-            rows=db.execute('''SELECT p.id,p.run,p.symbol,p.at,p.state,p.response,r.config
-                FROM predictions p JOIN runs r ON r.id=p.run
-                LEFT JOIN jev_usage u ON u.prediction_id=p.id WHERE u.prediction_id IS NULL
-                OR (u.status IN ('PENDING','UNRESOLVED') AND p.response IS NOT NULL)''').fetchall()
+            # Find candidate IDs using the small indexes before reading the
+            # large retained chart states. Most restarts have no backfill work.
+            ids=[row[0] for row in db.execute('''
+                SELECT p.id FROM predictions p LEFT JOIN jev_usage u ON u.prediction_id=p.id
+                WHERE u.prediction_id IS NULL
+                UNION
+                SELECT p.id FROM jev_usage u JOIN predictions p ON p.id=u.prediction_id
+                WHERE u.status IN ('PENDING','UNRESOLVED') AND p.response IS NOT NULL''')]
+            rows=[]
+            for prediction_id in ids:
+                row=db.execute('''SELECT p.id,p.run,p.symbol,p.at,p.state,p.response,r.config
+                    FROM predictions p JOIN runs r ON r.id=p.run WHERE p.id=?''',(prediction_id,)).fetchone()
+                if row is not None:rows.append(row)
         for row in rows:
             state=json.loads(row['state']);response=json.loads(row['response']) if row['response'] else None
             enabled=json.loads(row['config']).get('jev_enabled') is True
@@ -96,6 +107,7 @@ class JevCostMeter:
               (prediction_id,run,symbol,at,parent_id,status,model,usage['input_tokens'] if usage else None,
                usage['output_tokens'] if usage else None,cost,_json(pricing) if pricing else None,provenance))
             self.cache=None
+            self.generation+=1
 
     @staticmethod
     def aggregate(db,where='',args=()):
@@ -104,7 +116,7 @@ class JevCostMeter:
           COALESCE(SUM(status!='DISABLED' AND cost_nano_usd IS NOT NULL),0) priced_requests,
           COALESCE(SUM(status='PENDING'),0) pending_requests,
           COALESCE(SUM(status NOT IN ('DISABLED','PENDING') AND (cost_nano_usd IS NULL OR EXISTS
-            (SELECT 1 FROM predictions p WHERE p.id=jev_usage.prediction_id
+            (SELECT 1 FROM predictions p INDEXED BY predictions_unpriced_transport WHERE p.id=jev_usage.prediction_id
              AND COALESCE(json_extract(p.response,'$.transport.unpriced_attempts'),0)>0))),0) unknown_cost_requests,
           COALESCE(SUM(input_tokens),0) input_tokens,COALESCE(SUM(output_tokens),0) output_tokens,
           COALESCE(SUM(cost_nano_usd),0) cost_nano_usd,
@@ -119,25 +131,35 @@ class JevCostMeter:
     def data(self):
         with self.lock:
             if self.cache is not None and time.monotonic()-self.cached_at<2:return deepcopy(self.cache)
-            with self.db() as db:
-                total=self.aggregate(db)
-                sessions=[]
-                for r in db.execute('SELECT id,symbol,started FROM runs ORDER BY started DESC LIMIT 100'):
-                    sessions.append({**dict(r),**self.aggregate(db,'WHERE run=?',(r['id'],))})
-                parents=[]
-                for r in db.execute('''SELECT run,symbol,parent_id,MAX(at) last FROM jev_usage
+            generation=self.generation
+        # A display-only archive read must not hold the lock needed to commit
+        # a new observation. WAL keeps this read snapshot consistent while
+        # the collector writes; its generation prevents caching old totals.
+        with self.db() as db:
+            db.execute('BEGIN')
+            as_of=int(time.time()*1000)
+            total=self.aggregate(db)
+            sessions=[]
+            for r in db.execute('SELECT id,symbol,started FROM runs ORDER BY started DESC LIMIT 100'):
+                sessions.append({**dict(r),**self.aggregate(db,'WHERE run=?',(r['id'],))})
+            parents=[]
+            for r in db.execute('''SELECT run,symbol,parent_id,MAX(at) last FROM jev_usage
                       WHERE status!='DISABLED' AND parent_id IS NOT NULL
                       GROUP BY run,symbol,parent_id ORDER BY last DESC LIMIT 100'''):
-                    parents.append({'run':r['run'],'symbol':r['symbol'],'parent_id':r['parent_id'],
+                parents.append({'run':r['run'],'symbol':r['symbol'],'parent_id':r['parent_id'],
                         **self.aggregate(db,'WHERE run=? AND parent_id=?',(r['run'],r['parent_id']))})
-                symbols={}
-                for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
-                    recent=[dict(r) for r in db.execute('''SELECT input_tokens,output_tokens,model FROM jev_usage
+            symbols={}
+            for symbol in ('hyperliquid:BTC','hyperliquid:ETH'):
+                recent=[dict(r) for r in db.execute('''SELECT input_tokens,output_tokens,model FROM jev_usage
                       WHERE symbol=? AND input_tokens IS NOT NULL AND status!='DISABLED'
                       ORDER BY at DESC LIMIT 20''',(symbol,))]
-                    symbols[symbol]={'total':self.aggregate(db,'WHERE symbol=?',(symbol,)),'recent':recent}
-            self.cache={'total':total,'sessions':sessions,'parent_swings':parents,'symbols':symbols}
-            self.cached_at=time.monotonic();return deepcopy(self.cache)
+                symbols[symbol]={'total':self.aggregate(db,'WHERE symbol=?',(symbol,)),'recent':recent}
+        with self.lock:
+            result={'total':total,'sessions':sessions,'parent_swings':parents,'symbols':symbols,
+                    'as_of':as_of,'generation':generation,'stale':generation!=self.generation}
+            if not result['stale']:
+                self.cache=deepcopy(result);self.cached_at=time.monotonic()
+            return result
 
     def summary(self,contexts,model):
         data=self.data();pricing=deepcopy(RATES.get(model));symbols={}
@@ -179,5 +201,6 @@ class JevCostMeter:
             'pricing':pricing,'total':data['total'],'sessions':data['sessions'],'parent_swings':data['parent_swings'],
             'symbols':symbols,'active_estimated_usd_per_hour':sum(p['current_usd_per_hour'] or 0 for p in active),
             'active_projection_complete':all(p['current_usd_per_hour'] is not None for p in active),
-            'restored_archive_cutoff_utc':restoration,'as_of':int(time.time()*1000),
+            'restored_archive_cutoff_utc':restoration,'as_of':data['as_of'],
+            'stale':data['stale'] or data['generation']!=self.generation,
             'scope':'All retained tracker records, across BTC/ETH and all runs; no export row cap on totals. Missing usage is unknown. Parent groups can be unfinished and are not completed research swings.'}

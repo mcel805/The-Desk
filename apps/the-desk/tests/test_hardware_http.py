@@ -17,18 +17,23 @@ class HardwareHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp=tempfile.TemporaryDirectory(prefix='desk-usb-http-');target=Path(cls.temp.name);root=Path(__file__).resolve().parents[1]
-        for name in ['swing_liquidity.py','swing_advisors.py','spider_codex.py','spider_schema.py','spider_service.py','spider_markets.py','swing_tracker.py','swing_research.py','jev_swing.py','jev_keychain.py','jev_costs.py','agents.py','agent_adapters.py','agent_workspaces.py','agent_signals.py','server.py','robinhood_workspace.py','robinhood_markets.py','ibkr_data.py','engine.py','market_stream.py','wallet_auth.py','hardware_wallet.py','funding_routes.py','broker_connection.py','hyperliquid_requests.py']:shutil.copyfile(root/name,target/name)
+        for pattern in ('*.py','*.mjs'):
+            for source in root.glob(pattern):shutil.copyfile(source,target/source.name)
         for folder in ('spider','swing-advisors'):shutil.copytree(root/folder,target/folder)
         # Explicitly test-only RPC fixture in a disposable copy. The installed
         # application has no synthetic/device test switch or synthetic key.
         with (target/'hardware_wallet.py').open('a') as f:f.write("\nHardwareWallet._rpc = lambda self, method, params: '0x2105' if method == 'eth_chainId' else '0x10'\n")
         subprocess.run([str(root/'node_modules/esbuild/bin/esbuild'),str(root/'tests/hardware-native-fixture.mjs'),'--bundle','--platform=node','--format=esm','--outfile='+str(target/'native-ledger.mjs')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         (target/'web/pine-examples').mkdir(parents=True)
-        shutil.copyfile(root/'web/pine-examples/agentic-liquidity.pine',target/'web/pine-examples/agentic-liquidity.pine')
+        shutil.copytree(root/'web/pine-examples',target/'web/pine-examples',dirs_exist_ok=True)
         with socket.socket() as sock:sock.bind(('127.0.0.1',0));cls.port=sock.getsockname()[1]
         cls.base=f'http://127.0.0.1:{cls.port}'
-        cls.proc=subprocess.Popen([sys.executable,str(target/'server.py'),'--port',str(cls.port),'--data-dir',str(target/'data'),'--no-workers'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={**os.environ,"DESK_JEV_KEYCHAIN":"disabled"})
-        for _ in range(100):
+        cls.proc=subprocess.Popen([sys.executable,str(target/'server.py'),'--port',str(cls.port),'--data-dir',str(target/'data'),'--no-workers'],stdout=subprocess.DEVNULL,stderr=None,env={**os.environ,"DESK_JEV_KEYCHAIN":"disabled","DESK_STORAGE_MANAGED":"1"})
+        cls.addClassCleanup(cls.temp.cleanup)
+        def stop_fixture():
+            if cls.proc.poll() is None:cls.proc.terminate();cls.proc.wait(timeout=10)
+        cls.addClassCleanup(stop_fixture)
+        for _ in range(600):
             try:
                 with urlopen(cls.base+'/api/health',timeout=.2):return
             except Exception:
@@ -36,7 +41,7 @@ class HardwareHttpTests(unittest.TestCase):
                 time.sleep(.05)
         raise RuntimeError('Synthetic HTTP fixture readiness timed out')
     @classmethod
-    def tearDownClass(cls):cls.proc.terminate();cls.proc.wait(timeout=5);cls.temp.cleanup()
+    def tearDownClass(cls):pass
     def setUp(self):self.cookies=http.cookiejar.CookieJar();self.client=build_opener(HTTPCookieProcessor(self.cookies))
     def request(self,path,p=None,headers=None):
         req=Request(self.base+path,data=json.dumps(p).encode() if p is not None else None,headers={'Content-Type':'application/json','Origin':self.base,**(headers or {})})

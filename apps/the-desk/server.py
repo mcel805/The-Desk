@@ -12,6 +12,8 @@ import signal
 import threading
 import time
 from chart_chat import ChartChat
+from chart_controls import ChartControls
+from trade_recordings import TradeRecordings, MAX_CHUNK
 from spider_service import Spider
 from spider_markets import binance_bars
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -176,16 +178,21 @@ def main():
     data=Path(args.data_dir);data.mkdir(parents=True,exist_ok=True)
     ownership=DirectoryLock(data).acquire()
     vault=DataVault(data,journal=os.environ.get('DESK_JOURNAL_DB_PATH'))
-    if not vault.preflight():
+    # DataVault already checked these sources during construction. Repeating
+    # the same full scan here delays startup on removable storage.
+    if any(v['integrity']!='ok' for v in vault.last_check.values()):
         try:return serve_recovery(vault,args.port,ROOT/'web')
         finally:ownership.close()
-    if any(p.exists() for p in vault.sources.values()):
+    # Keep a first baseline before opening an existing unprotected dataset.
+    # Later restarts retain their verified backups and refresh them in the
+    # worker; repeatedly copying the entire USB archive must not gate the UI.
+    if any(p.exists() for p in vault.sources.values()) and not vault.catalog():
         try:vault.snapshot('before-start')
         except Exception:pass # Existing verified snapshots remain available; status shows the error.
     engine=Engine(data/'desk.sqlite3');settings_store=SettingsStore(engine);gateway=Gateway();funding=FundingRoutes(args.port,data)
     robinhood=RobinhoodWorkspace(funding.broker,data)
-    ibkr=IBKRData(args.ibkr_mode);ibkr.start()
-    swing_research=SwingResearch(gateway,data);swing_research.storage_guard=vault.writable;swing_research.start()
+    ibkr=IBKRData(args.ibkr_mode)
+    swing_research=SwingResearch(gateway,data);swing_research.storage_guard=vault.writable
     swing_advisors=SwingAdvisors(swing_research)
     data_routes=DataRoutes(vault,swing_research)
     workers=Workers(engine,gateway,os.environ.get('LUX_JOURNAL_URL','http://127.0.0.1:3000'),os.environ.get('COUNT_DESK_JOURNAL_BRIDGE_TOKEN',''))
@@ -193,15 +200,27 @@ def main():
     if not engine.state()['accounts']:engine.execute('initial-account-v1','account',{'name':'The Desk Paper','capital':'100000','fee_bps':'5','leverage':'1'})
     agents=Agents(engine);agents.journal_url=workers.journal_url
     agent_signals=AgentSignals(agents,gateway);agents.signal_service=agent_signals
-    if not args.no_workers:agent_signals.start()
-    if not args.no_workers:agents.start()
-    if not args.no_workers:workers.start()
     spider=Spider(gateway,engine,ibkr,args.data_dir,robinhood=robinhood)
-    chart_chat=ChartChat(engine)
-    vault.preflight()
-    try:vault.snapshot('startup')
-    except Exception:pass
-    vault.start()
+    chart_chat=ChartChat(engine);chart_controls=ChartControls(engine)
+    trade_recordings=TradeRecordings(data,engine,vault.writable)
+    # Check constructor/migration writes before starting collection, learning,
+    # journal delivery or market workers. Concurrent USB work can otherwise
+    # make this gate time out and strand an already-running observer.
+    if not vault.preflight():
+        try:return serve_recovery(vault,args.port,ROOT/'web')
+        finally:
+            swing_research.close();ibkr.close();vault.close();ownership.close()
+    ibkr.start();swing_research.start()
+    if not args.no_workers:
+        agent_signals.start();agents.start();workers.start()
+    # The integrity gates have already run. Let the UI connect before refreshing
+    # its verified startup snapshot on the removable drive.
+    if vault.catalog():vault.start(initial_reason='startup',initial_delay=60)
+    else:
+        # A brand-new dataset has no pre-start source files to snapshot.
+        try:vault.snapshot('startup')
+        except Exception:pass
+        vault.start()
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'web'),**kw)
         def log_message(self,*a):pass
@@ -225,6 +244,7 @@ def main():
             if not self.trusted():return self.json({'error':'Loopback origin required'},403)
             parsed=urlparse(self.path);q=parse_qs(parsed.query);value=lambda name,default='':q.get(name,[default])[0]
             try:
+                if trade_recordings.get(self,parsed.path,q):return
                 if data_routes.get(self,parsed.path,q):return
                 if chart_chat.get(self,parsed.path,q):return
                 if spider.get(self,parsed.path,q):return
@@ -233,7 +253,7 @@ def main():
                 if funding.get(self,parsed.path,q):return
                 if parsed.path=='/api/swing/settings':return self.json(swing_research.settings_state())
                 if parsed.path=='/api/swing/lab':return self.json(swing_research.lab_status())
-                if parsed.path=='/api/swing/status':return self.json(swing_research.status())
+                if parsed.path=='/api/swing/status':return self.json(swing_research.quick_status())
                 if parsed.path=='/api/swing/study/archive':return self.json(swing_research.study_archive(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/study':return self.json(swing_research.study_report(value('symbol','hyperliquid:BTC')))
                 if parsed.path=='/api/swing/advisors':return self.json(swing_advisors.status(value('symbol','hyperliquid:BTC')))
@@ -259,15 +279,25 @@ def main():
             except ValueError as e:return self.json({'error':str(e)},400)
             except Exception:return self.json({'error':'Market data temporarily unavailable. Please retry.'},503)
         def do_POST(self):
-            if not self.trusted() or not self.headers.get('Content-Type','').startswith('application/json'):return self.json({'error':'Same-origin JSON command required'},403)
+            path=urlparse(self.path).path
+            content_type=self.headers.get('Content-Type','')
+            is_chunk=path=='/api/trade-videos/chunk'
+            chunk_type=content_type.split(';',1)[0].strip().lower()=='video/webm'
+            if not self.trusted() or (is_chunk and not chunk_type) or (not is_chunk and not content_type.startswith('application/json')):return self.json({'error':'Same-origin JSON command required'},403)
             try:
                 length=int(self.headers.get('Content-Length',0))
+                if is_chunk:
+                    if length<=0 or length>MAX_CHUNK:return self.json({'error':'Invalid video chunk size'},413)
+                    query=parse_qs(urlparse(self.path).query)
+                    return self.json(trade_recordings.append(query.get('id',[''])[0],int(query.get('sequence',['-1'])[0]),self.rfile.read(length)))
                 if length<=0 or length>2000000:return self.json({'error':'Invalid request size'},413)
-                p=json.loads(self.rfile.read(length));path=urlparse(self.path).path
-                if path.startswith(('/api/spider/','/api/swing/','/api/chart-chat/')) and path!='/api/chart-chat/stop' and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
+                p=json.loads(self.rfile.read(length))
+                if path.startswith(('/api/spider/','/api/swing/','/api/chart-chat/','/api/chart-controls/')) and path!='/api/chart-chat/stop' and not (path=='/api/swing/control' and isinstance(p,dict) and p.get('action')=='pause'):vault.writable()
                 if path=='/api/swing/advisors':
                     if not self.headers.get('Origin'):return self.json({'error':'Same-origin browser request required'},403)
                     return self.json(swing_advisors.request(p))
+                if chart_controls.post(self,path,p):return
+                if trade_recordings.post(self,path,p):return
                 if chart_chat.post(self,path,p):return
                 if data_routes.post(self,path,p):return
                 if spider.post(self,path,p):return

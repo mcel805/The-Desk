@@ -47,3 +47,22 @@ export function draftTradingLevels(item,quote,amend,remove){
   const fields=[['entry',tradeColors.entry],['trigger',tradeColors.entry],['stop',tradeColors.stop],['target',tradeColors.target]];
   return fields.filter(([f])=>positive(item[f])&&(f!=='trigger'||item.kind==='stop_limit')).map(([field,color])=>({key:'draft'+field,field,price:Number(item[field]),label:field==='entry'?'DRAFT · not placed':'DRAFT · '+bracketLabel(item,field,quote),color,kind:'draft',item,amend:value=>amend(field,value),remove:()=>remove(field)}));
 }
+
+// The chart shows gross quote-currency P&L; fees are accounted for by the ledger.
+export function chartBracketMetrics(item,field,quote={}){
+ const entry=Number(item.entry??item.price??item.trigger),price=Number(item[field]);
+ const sign=item.side==='buy'?1:-1,distance=(price-entry)*sign,qty=Number(item.qty);
+ const risk=(entry-Number(item.stop))*sign;
+ return {amount:distance*qty,ticks:distance/Number(quote.tick||.01),ratio:field==='target'&&positive(item.stop)&&risk>0&&distance>0?distance/risk:null};
+}
+export function chartEntry(item){return Number(item.entry??(item.kind==='stop'?item.trigger:item.price)??item.trigger);}
+export function chartMove(item,field,value,tick,kind='order',quote={}){
+ const entry=kind==='position'?Number(quote[item.side==='buy'?'bid':'ask']??item.entry):chartEntry(item);
+ const normalized={...item,entry};
+ const moved=moveDraftBracket(normalized,field==='price'?'entry':field,value,tick);
+ if(field==='price'&&moved.entry!=null){moved.price=moved.entry;delete moved.entry;}
+ if(kind!=='draft'&&field==='trigger'&&item.kind==='stop'){
+  const result=moveDraftBracket(normalized,'entry',value,tick);result.trigger=result.entry;delete result.entry;return result;
+ }
+ return moved;
+}

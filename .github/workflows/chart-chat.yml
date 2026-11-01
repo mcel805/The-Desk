@@ -33,9 +33,19 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_chart_chat.py -v
           python -m unittest discover -s tests -p 'test_spider*.py' -v
-          python -m unittest discover -s tests -p test_swing_advisors.py -v
+      - name: Swing and storage regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_swing*.py' -v
+          python -m unittest discover -s tests -p test_house_abc.py -v
+          python -m unittest discover -s tests -p 'test_storage*.py' -v
+          python -m unittest discover -s tests -p test_startup_integrity.py -v
+          python -m unittest discover -s tests -p test_data_http.py -v
+          python -m unittest discover -s tests -p test_jev_costs.py -v
+          python -m unittest discover -s tests -p test_jev_reliability.py -v
       - name: Chart and drawing regressions
         run: node --test tests/test_chart_chat_model.mjs tests/test_spider*.mjs tests/test_chart_menu_actions.mjs tests/test_chart_brackets.mjs
+      - name: Swing display and workspace recovery
+        run: node --test tests/test_house_abc_view.mjs tests/test_house_abc_pine.mjs tests/test_swing_dots.mjs tests/test_swing_warning_view.mjs tests/test_polling.mjs tests/test_durable_settings.mjs tests/test_workspace_mirror.mjs
       - name: Syntax
         run: |
           python -m py_compile chart_chat.py server.py swing_advisors.py

@@ -18,17 +18,19 @@ def chart(n=180,tf='1m'):
 
 class FakeSession:
     calls=[]
-    def __init__(self,**kw):self.kw=kw
-    def ensure_thread(self,instructions):self.instructions=instructions
+    instances=[]
+    def __init__(self,**kw):self.kw=kw;self.on_event=kw.get('on_event');self.thread_id=None;self.thread_count=0;self.closed=0;self.instances.append(self)
+    def ensure_thread(self,instructions):self.instructions=instructions;self.thread_id='fixture-'+str(self.thread_count);self.thread_count+=1;return self.thread_id
+    def start_thread(self,instructions):self.thread_id=None;return self.ensure_thread(instructions)
     def run(self,prompt,schema,**kw):
         self.calls.append((self.instructions,prompt,self.kw))
         if schema==PLAN:return {'action':'liquidity','reason':'fixture route'},[]
         if schema==REVIEW:
             searches=[{'type':'webSearch','action':{'type':'search','query':'fixture'}},{'type':'webSearch','action':{'type':'openPage','url':'https://example.com/fixture'}}] if self.kw.get('web_search')=='live' else []
-            for item in searches:self.kw['on_event']('search',{'action':item['action'],'status':'completed'})
+            for item in searches:self.on_event('search',{'action':item['action'],'status':'completed'})
             return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},searches
         return {'answer':'Synthetic final analysis','followups':['Explain the strongest pool']},[]
-    def close(self):pass
+    def close(self):self.closed+=1
 
 class ChatTests(unittest.TestCase):
     def test_web_research_requires_ordered_search_then_explicit_public_open(self):
@@ -54,7 +56,7 @@ class ChatTests(unittest.TestCase):
                     else:events=[search,opened]
                     if self.mode!='returned-only':
                         callback_events=list(reversed(events)) if self.mode=='reversed-callback' else events
-                        for item in callback_events:self.kw['on_event']('search',{**item,'status':'completed'})
+                        for item in callback_events:self.on_event('search',{**item,'status':'completed'})
                     returned=[] if self.mode=='callback-only' else events
                     return {'summary':'Synthetic specialist review','evidenceIds':[],'limitations':'Synthetic chart only'},returned
                 return super().run(prompt,schema,**kw)
@@ -72,7 +74,7 @@ class ChatTests(unittest.TestCase):
                 service.close()
     def test_chart_chat_delivers_the_swing_rider_rulebook_contract(self):
         from swing_advisors import instructions
-        FakeSession.calls=[]
+        FakeSession.calls=[];FakeSession.instances=[]
         with tempfile.TemporaryDirectory() as tmp:
             service=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),FakeSession)
             run=service.begin({'text':'Rank liquidity','snapshot':chart()})
@@ -147,7 +149,7 @@ class ChatTests(unittest.TestCase):
                 result=tools('liquidity',snapshot(c))
                 self.assertFalse(any(e['side']==side and abs(e['price']-100.0)<.001 for e in result['evidence']))
     def test_real_orchestrator_invokes_both_specialist_interfaces_and_persists(self):
-        FakeSession.calls=[]
+        FakeSession.calls=[];FakeSession.instances=[]
         with tempfile.TemporaryDirectory() as tmp:
             engine=Engine(Path(tmp)/'desk.sqlite3');service=ChartChat(engine,FakeSession)
             r=service.begin({'text':'Rank liquidity','snapshot':chart(tf='30m'),'web':True})
@@ -159,6 +161,8 @@ class ChatTests(unittest.TestCase):
             self.assertEqual([x['agent'] for x in saved['reviews']],['RIDER','Spider'])
             self.assertTrue(any(x[2]['web_search']=='live' for x in FakeSession.calls))
             self.assertEqual(len(FakeSession.calls),4)
+            self.assertEqual(len(FakeSession.instances),2,'Web runs should reuse one warm process per web policy.')
+            self.assertEqual(sorted(x.closed for x in FakeSession.instances),[1,1])
             self.assertEqual(saved['sources'],['https://example.com/fixture'])
             self.assertIn('lead trader',FakeSession.calls[2][0].lower())
             self.assertIn('RIDER SUPPORTING REVIEW',FakeSession.calls[2][1])
@@ -171,6 +175,21 @@ class ChatTests(unittest.TestCase):
             retracted=service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'rolledBack':True})
             self.assertEqual(retracted['application'],'Not applied · chart batch rolled back')
             with self.assertRaisesRegex(ValueError,'no longer ready'):service.applied({'id':r['id'],'sha256':saved['snapshot']['sha256'],'outcome':'18 drawings applied'})
+    def test_non_web_run_reuses_one_warm_process_for_all_four_turns(self):
+        FakeSession.calls=[];FakeSession.instances=[]
+        with tempfile.TemporaryDirectory() as tmp:
+            service=ChartChat(Engine(Path(tmp)/'desk.sqlite3'),FakeSession)
+            run=service.begin({'text':'Rank liquidity','snapshot':chart()})
+            for _ in range(100):
+                saved=service.read(run['id'])
+                if saved['status']!='running':break
+                time.sleep(.01)
+            self.assertEqual(saved['status'],'ready',saved.get('error'))
+            self.assertEqual(len(FakeSession.calls),4)
+            self.assertEqual(len(FakeSession.instances),1)
+            self.assertEqual(FakeSession.instances[0].thread_count,4)
+            self.assertEqual(FakeSession.instances[0].closed,1)
+            service.close()
     def test_stop_rejects_late_application(self):
         with tempfile.TemporaryDirectory() as tmp:
             engine=Engine(Path(tmp)/'desk.sqlite3');service=ChartChat(engine,FakeSession)
@@ -198,7 +217,7 @@ class ChatTests(unittest.TestCase):
                 if r['status']!='running':break
                 time.sleep(.01)
             self.assertEqual(r['status'],'ready',r.get('error'))
-            self.assertEqual(sum('Repairing' in e['message'] for e in r['events']),2)
+            self.assertEqual(sum('Repairing' in e['message'] for e in r['events']),1)
             s.close()
     def test_unperformed_web_research_fails_without_ready_markup(self):
         class NoWeb(FakeSession):

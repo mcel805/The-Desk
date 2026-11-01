@@ -340,14 +340,18 @@ Tests:
 ```sh
 python3 -m unittest discover -s tests -p 'test_swing_tracker.py'
 python3 -m unittest discover -s tests -p 'test_swing_http.py'
-node --test tests/test_swing_dots.mjs
+node --test tests/test_swing_dots.mjs tests/test_house_abc_view.mjs \
+  tests/test_house_abc_pine.mjs tests/test_swing_warning_view.mjs \
+  tests/test_polling.mjs
 ```
 
 The backend tests cover causal pivot timing/prefix replay, mirrored sweep gates,
 prior rails, frozen attempts, fractional risk, gaps, next-open handling, ambiguous
 barriers, deferred BE, slot deduplication, response freshness, run boundaries,
 restart behavior and server routing without account/order effects. The browser
-verification uses explicitly labeled synthetic votes solely for rendering tests.
+verification covers retained House ABC display state, the checked-in House ABC
+Pine authority, warning rendering and single-flight polling, using explicitly
+labeled synthetic votes solely for rendering tests.
 Actual Jev responses and crypto forecast accuracy require the configured key and
 forward observations.
 
@@ -382,13 +386,25 @@ cutoff, using up to the latest 1,200 contiguous completed 1m bars, the current
 market tick size, and the run's selected parent timeframe. It requires Node and
 the installed `@luxalgo/vela-pinets` dependency (`npm ci` in this directory
 using the checked-in lockfile). Errors, missing dependencies, timeouts, data gaps,
-and results for an older cutoff are displayed as unavailable rather than
-reusing old evidence. Results may arrive after the first 15-second observation
+and results for an older cutoff remain unavailable as a new observation.
+The chart keeps the last confirmed ABC drawing and info card visible while the
+next cutoff evaluates, a poll fails, or observation becomes delayed or paused.
+It labels the retained display and preserves its original completed cutoff and
+receipt; it never relabels old geometry as the new candle's result. Retention is
+scoped to the same market, run and engine build. A new run starts with a visible
+waiting card until its first confirmed swing. The card keeps its chosen corner
+through updates and renderer reattachment, and drawing coordinates are
+reprojected when the chart moves or resizes.
+Completion receipts are captured by the evaluator worker, so a result already
+finished before an observation can be used on its first matching poll. Results
+completed after that observation still wait; the completed cutoff must match.
+Results may arrive after the first 15-second observation
 of a minute. The chart labels the history start and actual computation receipt;
 all chart warning events are reconstructed from the retained bar window, not
 claims that they were observed in real time. IDs are local to that reconstruction
 and can change as its rolling window advances. Display also requires the selected
-1m chart, outside replay, and the usual fresh observer status.
+1m chart outside replay. Fresh observation status is required for current model
+dots; a labeled retained ABC drawing does not assert fresh market evidence.
 
 The 1.7 score has eight capped families and a fixed denominator of 14. The card
 shows available weight and marks partial coverage; an outlined category is

@@ -19,7 +19,7 @@ class DataRoutes:
             state=self.vault.status()
             if self.research:
                 try:
-                    research=self.research.status()
+                    research=getattr(self.research,'quick_status',self.research.status)()
                     state['collection']={k:{name:v.get(name) for name in ('status','running','run','observed_at','archived','detail','collection')} for k,v in research['symbols'].items()}
                 except Exception:state['collection_error']='Research storage is unavailable; no healthy collection status can be asserted.'
             h.json(state);return True

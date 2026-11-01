@@ -34,6 +34,10 @@ class HouseABC:
         self.executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='house-abc')
         self.pending=None;self.pending_cutoff=None;self.completed=None;self.failed_cutoff=None;self.closed=False
 
+    def evaluate(self,*args):
+        value=self.runner(*args)
+        return {**value,'received_at':self.clock()}
+
     def observe(self,bars,symbol,tick,swing_minutes,observed_at):
         if self.closed or not bars:return {'status':'UNAVAILABLE','reason':'NO_COMPLETED_BARS'}
         cutoff=bars[-1]['time']+60000
@@ -41,7 +45,7 @@ class HouseABC:
             try:
                 value=self.pending.result()
                 if value.get('cutoff')!=self.pending_cutoff:raise ValueError('Cutoff mismatch')
-                self.completed={**value,'received_at':self.clock()};self.failed_cutoff=None
+                self.completed=value;self.failed_cutoff=None
             except Exception as exc:
                 self.completed=None;self.failed_cutoff=self.pending_cutoff
                 self.failure=type(exc).__name__
@@ -50,7 +54,7 @@ class HouseABC:
             return {'status':'AVAILABLE',**deepcopy(self.completed)}
         if not self.pending and self.failed_cutoff!=cutoff and not (self.completed and self.completed['cutoff']==cutoff):
             bounded=deepcopy(bars[-MAX_BARS:]);self.pending_cutoff=cutoff
-            self.pending=self.executor.submit(self.runner,bounded,symbol,tick,swing_minutes)
+            self.pending=self.executor.submit(self.evaluate,bounded,symbol,tick,swing_minutes)
         return {'status':'UNAVAILABLE','reason':'EVALUATION_FAILED' if self.failed_cutoff==cutoff else 'EVALUATING',
                 'error_class':getattr(self,'failure',None) if self.failed_cutoff==cutoff else None,
                 'cutoff':cutoff,'version':VERSION}
