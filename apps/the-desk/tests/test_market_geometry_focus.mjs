@@ -12,7 +12,7 @@ test('Focus retains all evidence, draws only micro path and has no stacked text 
  const tail=model.lines.find(l=>l.id.endsWith(':1:working'));assert.equal(tail.style,'dashed');assert.equal(tail.color,'#F6BD54');
 });
 test('Full overlay and Inspect retain colored parent geometry while disabling Focus UI',()=>{
- for(const inputs of [{geometryPresentation:'Full overlay'},{geometryMode:'Inspect'}]){const model=geometryDrawing(result,{id:'inspect',sources,inputs});assert.equal(model.geometryFocus,null);assert.ok(model.lines.some(l=>l.id.includes(':60:swing:')));assert.ok(model.tables.length);}
+ for(const inputs of [{geometryPresentation:'Full overlay'},{geometryMode:'Inspect'}]){const model=geometryDrawing(result,{id:'inspect',sources,inputs});assert.equal(model.geometryFocus,null);assert.ok(model.lines.some(l=>l.id.includes(':60:swing:')));assert.equal(model.tables.length,0);}
 });
 test('Focus respects source outage, frame visibility and view-only calculation identity',()=>{
  const hidden=geometryDrawing(result,{id:'off',sources,inputs:{showFrame1:false}});assert.equal(hidden.lines.length,0);

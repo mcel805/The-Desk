@@ -25,8 +25,9 @@ events. One numbered callout follows the latest recorded step, with its leader
 anchored to that completed bar. Forming candidates never gain a shift/retest
 marker without those ledger events. A held 1M retest does not establish a parent
 reversal; the frame chips remain independent. Historical failures are available
-in **Presentation → Full overlay** or **View → Inspect**, where the original
-source/status table and channel detail remain available. **Original chart only**
+in **Presentation → Full overlay** or **View → Inspect**, where channel detail remains available. No hosted Geometry mode renders an
+on-chart table; source availability and audit details remain in the runtime
+context. **Original chart only**
 continues to run Pine.
 
 The card adapts to light backgrounds and narrow charts, releases on study hide,
@@ -70,8 +71,8 @@ future point. Optional forward projections are
 dotted and disabled initially. Completed channel breaches freeze the last valid
 wick-safe endpoint; failed reversal attempts remain in the event ledger.
 
-In Full overlay, the source/status table lists independent structure directions, availability and
-aggregation. Hover table cells for coverage and cutoff. Hover swing anchors for
+The Focus overview chips show independent structure and availability. Runtime
+audit context retains aggregation, coverage and cutoff. Hover swing anchors for
 anchor, known and lock times. Per-frame toggles affect drawing selection only
 while the study is running. Vela suspends a hidden study's entire session; it
 rebuilds from source snapshots on showing it again. A hidden chart study is not a
@@ -103,7 +104,7 @@ a 5M or parent-frame shift.
 close times the micro bar uses only previously published parent geometry.
 Appending bars preserves locked pivots and stage detection times. An observed
 correction to a previously consumed candle triggers an explicit revision and
-rebuild of the available window. The revision appears in the status table. Feed
+rebuild of the available window. The revision remains in the runtime audit context. Feed
 corrections outside the fetched overlap cannot be independently detected.
 
 Missing intervals end active channel audits and reset the continuous pivot and
@@ -140,7 +141,7 @@ side/family per channel is retained rather than recycling a failed drawing as an
 unreported new attempt.
 
 Live chart ticks can update the displayed provisional micro tip. Completed event
-state is untouched by these previews. The table exposes independent parent states;
+state is untouched by these previews. The Focus chips expose independent parent states;
 parent progress metadata records each frame's own shift after candidate creation.
 Optional stage notifications start only after initial history is loaded, do not
 re-emit on refresh and remain suppressed during replay and editor test runs.
@@ -151,7 +152,7 @@ No combined confidence score or automatic position authorization is produced.
 `market-geometry-source.mjs` requests exact provider/instrument standard candles
 through Vela's secondary-series gateway. Source depth starts at 600 bars and is
 bounded to 100–1200. It does not substitute the viewing chart's shorter history.
-The source-status table reports actual depth; a shallow provider response does
+Runtime source metadata reports actual depth; a shallow provider response does
 not imply that the full requested history was available.
 
 Coinbase Exchange has native 1M/5M/15M/1H data. The coordinator fetches deeper 15M
