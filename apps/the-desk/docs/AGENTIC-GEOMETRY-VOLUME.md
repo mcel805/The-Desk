@@ -47,8 +47,9 @@ These defaults are explicit research definitions, not proprietary TTP parity.
   confirmation context; a micro turn never rewrites the parent direction.
 - Area: wick-audited channels retain their exact anchors. Add center median and
   one channel-width outer warning parallel on each side. These are channel
-  parallels, not an Andrews pitchfork. Projected areas are labeled as projected,
-  never represented as wick-audited future bars. No forward price forecast.
+  parallels, not an Andrews pitchfork. Projected areas are marked as projected
+  in the evidence and rendered as dashed extensions, never represented as
+  wick-audited future bars. No forward price forecast.
 - Area confluence: touch within max(4 ticks, .12 of prior ATR14), at least two
   distinct source frames. Same-family sibling rails never count as two frames.
 - Sweep: a strict 1M pivot (one bar on each side) and alternating swing clearance
