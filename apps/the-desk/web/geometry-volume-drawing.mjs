@@ -56,13 +56,10 @@ export function geometryVolumeDrawing(result,options={}){
   if(inputs.showWorking!==false&&points.length&&f.working){const last=s.bars?.at(-1);if(last){const side=f.working.side,rows=s.bars.filter(b=>b.time>=points.at(-1).time&&b.time+frameMs(nativeFrame)<=result.cutoff),tip=rows.reduce((a,b)=>!a||(side>0?b.high>a.high:b.low<a.low)?b:a,null);if(tip)line(nativeFrame+':working',points.at(-1),{time:tip.time,price:side>0?tip.high:tip.low},light?'#986207':'#F6BD54',1.5,'dashed');}}
  }
  const campaign=currentGVCampaign(result),ink=campaign?.side>0?'#2CCAC8':'#F59CAA';
- if(Number(nativeFrame)<=5&&inputs.showFrame1!==false&&o.showABC&&campaign){const pivots=[campaign.a,campaign.b,campaign.c].filter(Boolean);for(let i=1;i<pivots.length;i++){
-   const a=pivots[i-1],b=pivots[i],color=b.price>=a.price?(light?'#087F83':'#00DCFF'):(light?'#344154':'#F4F7FC');
-   line(campaign.id+':ABC-halo:'+i,a,b,light?'#FFFFFF':'#10151F',6);
-   line(campaign.id+':ABC:'+i,a,b,color,3.2,'solid','Watched corrective ABC · '+campaign.id+' · '+(i===1?'A → B':'B → C'));
-  }
-  for(const [role,p]of [['A',campaign.a],['B',campaign.b],['C',campaign.c]])if(p)line(campaign.id+':endpoint:'+role,{time:p.time-60000,price:p.price},{time:p.time+60000,price:p.price},light?'#087F83':'#00DCFF',2.5,'solid','Watched '+role+' · confirmed pivot');
-  if(campaign.b&&campaign.breakAt)line(campaign.id+':B-reference',{time:campaign.b.time,price:campaign.b.price},{time:through,price:campaign.b.price},ink+'88',1,'dotted');
+ if(Number(nativeFrame)<=5&&inputs.showFrame1!==false&&o.showABC&&campaign){
+  if(campaign.a&&campaign.b)line(campaign.id+':A-B',campaign.a,campaign.b,light?'#344154':'#F4F7FC',2,'solid','House ABC · A to B');
+  const target=campaign.projectedC;
+  if(target&&!target.touchedAt&&!campaign.terminal&&target.knownAt<=result.cutoff){const start=Math.max(target.knownAt,campaign.b.time),end=result.cutoff+25*60000;line(campaign.id+':C-projected',{time:start,price:target.price},{time:end,price:target.price},light?'#087F83':'#00DCFF',1.5,'dashed','Projected C · '+target.source+' · frozen at C start; horizon is not an ETA');}
  }
  const sweep=campaign?result.geometryVolume.sweep.events.filter(e=>e.side===campaign.side&&e.stage==='reclaimed'&&!e.ambiguous&&e.sweptAt>=campaign.startedAt&&e.reclaimedAt<=result.cutoff).at(-1):null;
  if(inputs.showFrame1!==false&&sweep&&o.showABC)line(sweep.id+':frozen-pool',{time:Math.max(sweep.pool.knownAt-60000,sources['1']?.bars?.[0]?.time??0),price:sweep.pool.price},{time:sweep.reclaimedAt-60000,price:sweep.pool.price},ink+'99',1,'dashed');

@@ -1,7 +1,7 @@
 // Independent OHLCV definitions. No bid/ask delta or proprietary TTP parity.
 const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
 const finite=Number.isFinite;
-export const GV_VERSION='desk-geometry-volume.1';
+export const GV_VERSION='desk-geometry-volume.2';
 export const GV_DEFAULTS={areaTicks:4,areaAtr:.12,confluenceFrames:2,sweepPivot:1,sweepMinTicks:4,sweepMinAtr:.25,reclaimBars:3,abcPivot:2,campaignBars:90,retestBars:20,volumeWindow:16,volumeExpiry:12,requireDivergence:true,requireValueArea:true,vwapAnchorHour:0,valueSigma:1,minRewardRisk:3,stopTicks:2,feeBps:5,slippageTicks:1,abcFocus:true,showContext:true,showVolume:true,showABC:true,showPaperLevels:true,showHistory:false,contextFrame:'15'};
 const ranges={areaTicks:[0,100],areaAtr:[0,2],confluenceFrames:[1,5],sweepPivot:[1,10],sweepMinTicks:[1,100],sweepMinAtr:[0,3],reclaimBars:[0,20],abcPivot:[1,10],campaignBars:[10,300],retestBars:[2,100],volumeWindow:[7,50],volumeExpiry:[1,60],vwapAnchorHour:[0,23],valueSigma:[.5,3],minRewardRisk:[1,10],stopTicks:[1,50],feeBps:[0,100],slippageTicks:[0,20]};
 export function gvOptions(inputs={}){const o={...GV_DEFAULTS,...inputs};for(const [k,[lo,hi]]of Object.entries(ranges)){const raw=o[k],n=typeof raw==='number'||typeof raw==='string'&&raw.trim()!==''?Number(raw):NaN;o[k]=finite(n)?Math.max(lo,Math.min(hi,n)):GV_DEFAULTS[k];if(!['areaAtr','sweepMinAtr','minRewardRisk','feeBps','valueSigma'].includes(k))o[k]=Math.round(o[k]);}for(const k of ['abcFocus','requireDivergence','requireValueArea','showContext','showVolume','showABC','showPaperLevels','showHistory'])if(typeof o[k]!=='boolean')o[k]=GV_DEFAULTS[k];if(!['60','30','15'].includes(String(o.contextFrame)))o.contextFrame='15';return o;}

@@ -63,7 +63,7 @@ test('new qualified pending/open paper sequence owns rendered ABC over an older 
  const p=(i,price)=>({time:now-i*m,price,knownAt:now-(i-2)*m});
  const older={id:'older-opposite',side:-1,terminal:false,startedAt:now-30*m,a:p(25,120),b:p(20,108),c:p(15,122),lastEvent:{knownAt:now-5*m}},qualified={id:'new-qualified',side:1,terminal:true,qualifiedAt:now,startedAt:now-12*m,a:p(10,96),b:p(8,110),c:p(5,94),breakAt:now-2*m,lastEvent:{knownAt:now,stage:'qualified paper'}};
  r.geometryVolume.strategy.campaigns=[older,qualified];r.geometryVolume.strategy.paper=[{id:'paper',campaignId:qualified.id,status:'pending',qualifiedAt:now,side:1,stop:92,target:{price:160}}];const before=structuredClone(r.geometryVolume.strategy);
- assert.equal(currentGVCampaign(r).id,qualified.id);let drawing=geometryVolumeDrawing(r,{id:'ownership',sources:ss,inputs:{}});assert.ok(drawing.lines.some(l=>l.id.includes('new-qualified:ABC:')));assert.ok(!drawing.lines.some(l=>l.id.includes('older-opposite:ABC:')));assert.deepEqual(r.geometryVolume.strategy,before);
+ assert.equal(currentGVCampaign(r).id,qualified.id);let drawing=geometryVolumeDrawing(r,{id:'ownership',sources:ss,inputs:{}});assert.ok(drawing.lines.some(l=>l.id.includes('new-qualified:A-B')));assert.ok(!drawing.lines.some(l=>l.id.includes('older-opposite:A-B')));assert.deepEqual(r.geometryVolume.strategy,before);
  r.cutoff+=m;r.geometryVolume.strategy.paper[0].status='open';assert.equal(currentGVCampaign(r).id,qualified.id);r.geometryVolume.strategy.paper[0].status='stopped';assert.equal(currentGVCampaign(r).id,older.id);
 });
 test('extra wick contact threshold filters both strategy confluence areas and context drawings',()=>{
