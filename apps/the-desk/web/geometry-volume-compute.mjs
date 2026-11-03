@@ -10,7 +10,7 @@ export class GeometryVolumeComputation {
   const old=checkpoint?.gv;if(old?.version===GV_VERSION&&old.settings===JSON.stringify(gvCalculationOptions(inputs))){for(const tf of GEOMETRY_FRAMES)Object.assign(this.volumes.get(tf),old.volumes[tf]);Object.assign(this.sweep,old.sweep,{seen:new Set(old.sweep.seen)});Object.assign(this.strategy,old.strategy);this.sourceAudit=new Map(GEOMETRY_FRAMES.map(tf=>[tf,new Map(old.sourceAudit?.[tf]||[])]));}
   this.geo.onReset=()=>this.reset();
   this.geo.beforeFeed=(tf,b,context)=>{if(tf==='1'){this.sweep.feed(b,this.volumes.get('1').rows.at(-1)?.atr);}};
-  this.geo.afterFeed=(tf,b,context)=>{this.volumes.get(tf).feed(b);if(tf==='1')this.strategy.minute(b,this.volumes.get('1').rows.at(-1)?.atr,context,this.sweep,this.volumes);else if(tf==='5')this.strategy.parentBar(b,this.volumes.get('1').rows.at(-1)?.atr);};
+  this.geo.afterFeed=(tf,b,context)=>{this.volumes.get(tf).feed(b);if(tf==='1')this.strategy.minute(b,this.volumes.get('1').rows.at(-1)?.atr,context,this.sweep,this.volumes);else if(tf==='5'&&context.sources['5']?.status==='ready')this.strategy.parentBar(b,this.volumes.get('1').rows.at(-1)?.atr);};
  }
  reset(){this.sourceAudit=new Map(GEOMETRY_FRAMES.map(tf=>[tf,new Map()]));this.volumes=new Map(GEOMETRY_FRAMES.map(tf=>[tf,new VolumeEvidence(tf,{window:this.inputs.volumeWindow,pivot:this.inputs.abcPivot,anchorHour:this.inputs.vwapAnchorHour})]));this.sweep=new SweepEvidence({tick:this.tick,inputs:this.inputs});this.strategy=new HouseGeometryABC({identity:this.identity,tick:this.tick,inputs:this.inputs});}
  update(sources,cutoff){

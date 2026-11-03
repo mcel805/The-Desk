@@ -71,7 +71,9 @@ These defaults are explicit research definitions, not proprietary TTP parity.
   for the proprietary momentum/volume tools. Recent 1M or 5M evidence is required.
 - ABC: a strict 5M parent pivot with four bars on each side provides O at its
   recognition time. The O–A delivery must exceed both 12 ticks and the ATR at
-  origin recognition. A confirmed parent A may extend before B confirmation.
+  origin recognition. Each 5M origin and A is mapped to a matching 1M wick
+  inside that parent candle; missing or inconsistent child data pauses the
+  sequence. A confirmed parent A may extend before B confirmation.
   B retraces 25–95% of O–A and must form a strict 1M pivot with two bars on
   either side by default. A later completed directional candle closes at least one tick
   through the previous three bars while B holds. That identifies C start.
@@ -80,8 +82,9 @@ These defaults are explicit research definitions, not proprietary TTP parity.
   delivery length. The projection is a conditional price objective and its
   25-bar drawing horizon is not an ETA. Hide it on touch, invalidation or
   completion. B breaches may start up to three attempts per origin.
-- Risk and paper: a C-start observation also requires matching 1H/30M/15M
-  context, a reclaimed 1M sweep, recent volume and configured divergence and
+- Risk and paper: a C-start observation also requires a recent multi-frame
+  geometry contact, matching 1H/30M/15M context, a reclaimed 1M sweep,
+  recent volume and configured divergence and
   VWAP evidence. The stop is beyond B, the projected C is the objective, and
   net reward must reach the configured threshold after fees and slippage.
   Qualified observations use the next bar's open, with stop-first resolution
