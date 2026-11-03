@@ -61,3 +61,8 @@ test('ABC prices use the instrument tick precision',()=>{
 });
 
 test('ABC focus hides unrelated swing paths while preserving maps and evidence',()=>{const {sources,result}=fixture(),before=structuredClone(result);const d=geometryVolumeDrawing(result,{id:'focus',sources});assert.ok(!d.lines.some(l=>l.id.includes(':swing:')));assert.equal(d.geometryVolumeFocus.mappedFrames.length,5);assert.deepEqual(result,before);});
+test('watched House A and B draw one leg and a frozen, conditional C objective',()=>{
+ const {sources,result}=fixture(),t=end-20*m;
+ const c={id:'house',side:1,startedAt:t-20*m,stage:'C started',terminal:false,o:{time:t-20*m,price:90},a:{time:t-15*m,price:120,side:1},b:{time:t-8*m,price:105,side:-1},c:{time:t-3*m,price:112,side:1},projectedC:{price:135,knownAt:t-2*m,source:'measured',touchedAt:null},lastEvent:{knownAt:t-2*m,price:112}};
+ result.geometryVolume.strategy.campaigns=[c];const d=geometryVolumeDrawing(result,{id:'house',sources});const leg=d.lines.find(x=>x.id.endsWith(':house:A-B')),target=d.lines.find(x=>x.id.endsWith(':house:C-projected'));assert.ok(leg);assert.equal(leg.y1,120);assert.equal(leg.y2,105);assert.ok(target);assert.equal(target.style,'dashed');assert.equal(target.y1,135);assert.equal(target.x1,c.projectedC.knownAt);c.projectedC.touchedAt=end-m;assert.ok(!geometryVolumeDrawing(result,{id:'house',sources}).lines.some(x=>x.id.endsWith(':house:C-projected')));
+});
