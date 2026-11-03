@@ -28,9 +28,10 @@ https://chartschool.stockcharts.com/table-of-contents/chart-analysis/chart-annot
 
 Existing modules: GeometryFrame/source coordinator and replay clock; Taper's
 rolling climax/churn concepts; Agentic Sweep Entry v1.5.1's strict micro pivots,
-minimum tick/ATR swing, frozen pool, sweep/reclaim and expiry; the supplied Swing Tracker 1.9 House ABC model. The study independently composes
-these concepts and does not require separately installed studies. House ABC is
-a continuation model, not a validated Elliott-wave count.
+minimum tick/ATR swing, frozen pool, sweep/reclaim and expiry; the supplied
+Swing Tracker House ABC model. The study independently composes these concepts
+and does not require separately installed studies. House ABC is a continuation
+model, not a validated Elliott-wave count.
 
 ## Operational definitions chosen for this implementation
 
@@ -101,8 +102,8 @@ These defaults are explicit research definitions, not proprietary TTP parity.
    separate deterministic units. Keep bounded ledgers and resumable checkpoints.
 2. Add a dedicated numeric worker profile and exact catalog-source fingerprint.
    Edited Pine runs its own chart-local code with an explicit scope warning.
-3. Render a native-timeframe swing path, all five enabled geometry maps,
-   center/outer parallels, small volume bars and one current margin callout. No tables
+3. Render all five enabled geometry maps, center/outer parallels, small volume
+   bars, concise A/B tags and one current projected-C margin callout. No tables
    or large dashboard. Parent directions and the next missing condition use a
    slim strip. Settings control frame selection, density and visibility.
 4. Register Agentic - Geometry - Volume in the Desk indicator picker. Add settings,
@@ -130,7 +131,8 @@ channel maps on every viewing interval, retaining full source anchors rather
 than clipping parent geometry to the shorter 1M history. Click 1H/30M/15M in
 the slim strip to emphasize a parent color; the other enabled maps remain
 visible. Each chart uses its own timeframe for the dominant locked swing path
-and venue-volume strip. The ABC entry path and dots remain on 1M/5M views;
+and venue-volume strip. House ABC A/B tags and the projected-C annotation remain
+on 1M/5M views;
 entry confirmation always uses 1M. **Line view**
 changes price display; geometry calculations still use wicks. Source toggles and
 show/hide controls are drawing choices, not permission changes. A gray missing
@@ -157,8 +159,8 @@ failure of a market edge. Validation includes hand-defined positive and negative
 qualification cases alongside end-to-end OHLCV mechanics and actual rendering.
 
 Display ownership: a just-qualified paper sequence, or its still-pending/open
-hypothetical observation, keeps the current ABC path/callout ahead of an older
-blocked opposite campaign. Once that paper observation ends, active developing
+hypothetical observation, keeps the current House ABC projection/callout ahead
+of an older blocked opposite campaign. Once that paper observation ends, active developing
 sequences can take display priority again; historical evidence is unchanged.
 The extra-wick-contact threshold applies to geometry channel selection and
 the inherited geometry ledger. House C objectives use prior parent pivots or
@@ -180,7 +182,8 @@ interpretation of the supplied examples, not an Andrews pitchfork implementation
 A small shared right-margin reservation keeps current ABC status after the latest
 price bar. The old centered speech box and its diagonal leader are removed.
 A and B are tagged at their pivots; the projected C price is labeled in the
-right margin and the stage remains in the bottom caption. If panning removes the clear margin, the floating
+right margin and the stage remains in the bottom caption. If panning removes
+the clear margin, the floating
 status hides instead of covering candles. Hide/remove releases the owned margin;
 user panning and larger existing margins are preserved. No tables are added.
 
@@ -197,17 +200,17 @@ GV_FIXTURE_URL=http://127.0.0.1:18919/ CHROME_DEVTOOLS_AXI_PORT=19898 node tests
 
 ## Watched House ABC
 
-The active House ABC uses the supplied Swing Tracker 1.9 rule model. The 5M
+The active House ABC uses the supplied Swing Tracker House ABC rule model. The 5M
 origin and A are confirmed parent pivots; B is a 1M retracement pivot, and C
 begins after B holds and a completed candle breaks the prior microstructure.
 A developing point has a question mark. The C objective is frozen on C start,
 shown as a dashed line and a right-margin label, and is not a confirmed pivot.
-The fixed 5M parent, four-bar parent pivot, configurable two-bar local pivot, 25–95% B range,
-and equal-leg fallback follow the supplied defaults. Optional linked/manual
+The fixed 5M parent, four-bar parent pivot, configurable two-bar local pivot,
+25–95% B range, and equal-leg fallback follow the supplied defaults. Optional linked/manual
 reference levels in the Pine study are not connected here.
 
 **Focus on one ABC** defaults on and suppresses background swing zigzags.
 The study retains the separate geometry maps and no chart tables. Current
 paper qualification uses the House C-start event and independent evidence gates;
-it does not submit orders. Historical 1.0 corrective-reversal checkpoints are
+it does not submit orders. Older corrective-reversal checkpoints are
 invalidated and rebuilt because the strategy model changed.
